@@ -53,7 +53,7 @@ class RealModelProvidersTest {
                 "http://127.0.0.1:" + server.getAddress().getPort(),
                 "key",
                 "gpt-5",
-                Map.of()
+                Map.of("maxTokens", 12345)
             );
             OpenAiChatCompletionsProvider provider = new OpenAiChatCompletionsProvider(config);
             ModelCallRequest request = new ModelCallRequest(
@@ -68,6 +68,7 @@ class RealModelProvidersTest {
             ONode body = JsonSupport.read(requestBody.get());
             assertEquals("gpt-5", JsonSupport.text(body, "", "model"));
             assertFalse(JsonSupport.boolValue(body, false, "stream"));
+            assertEquals(12345, JsonSupport.intValue(body, 0, "max_tokens"));
             assertEquals("text", JsonSupport.text(body, "", "messages", 0, "content", 0, "type"));
             assertEquals("hi", JsonSupport.text(body, "", "messages", 0, "content", 0, "text"));
             assertEquals("image_url", JsonSupport.text(body, "", "messages", 0, "content", 1, "type"));
@@ -106,7 +107,7 @@ class RealModelProvidersTest {
                 "http://127.0.0.1:" + server.getAddress().getPort(),
                 "key",
                 "gpt-5",
-                Map.of()
+                Map.of("maxTokens", 23456)
             );
             OpenAiResponsesProvider provider = new OpenAiResponsesProvider(config);
             ModelCallRequest request = new ModelCallRequest(
@@ -122,6 +123,7 @@ class RealModelProvidersTest {
             ModelResponse response = provider.call(request);
 
             ONode body = JsonSupport.read(requestBody.get());
+            assertEquals(23456, JsonSupport.intValue(body, 0, "max_output_tokens"));
             assertEquals("be concise", JsonSupport.text(body, "", "instructions"));
             assertEquals("input_text", JsonSupport.text(body, "", "input", 0, "content", 0, "type"));
             assertEquals("hi", JsonSupport.text(body, "", "input", 0, "content", 0, "text"));
@@ -811,6 +813,60 @@ class RealModelProvidersTest {
             assertEquals(0.2, JsonSupport.child(body, "temperature").getDouble(), 0.0001);
             assertEquals("injected", JsonSupport.text(body, "", "extra_field"));
             assertEquals("gpt-5", JsonSupport.text(body, "", "model"));
+        } finally {
+            ProviderInterceptor.unregister(interceptor);
+            server.stop(0);
+        }
+    }
+
+    /** ProviderInterceptor 也可以在每次 Provider 请求发送前修改请求头。 */
+    @Test
+    void providerInterceptorCanModifyHeaders() throws Exception {
+        AtomicReference<String> requestHeader = new AtomicReference<>();
+        ProviderInterceptor interceptor = new ProviderInterceptor() {
+            @Override
+            public ONode intercept(ProviderInterceptContext context) {
+                return null;
+            }
+
+            @Override
+            public void interceptHeaders(ProviderInterceptContext context) {
+                assertNull(context.body());
+                assertNotNull(context.request());
+                assertEquals("gpt-5", context.modelId());
+                context.headers().put("x-test-header", "injected");
+            }
+        };
+        ProviderInterceptor.register(interceptor);
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            requestHeader.set(exchange.getRequestHeaders().getFirst("x-test-header"));
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}"
+                .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ModelProviderConfig config = new ModelProviderConfig(
+                "chat",
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                "key",
+                "gpt-5",
+                Map.of()
+            );
+            OpenAiChatCompletionsProvider provider = new OpenAiChatCompletionsProvider(config);
+            provider.call(new ModelCallRequest(
+                "gpt-5",
+                List.of(new Message("user", "hi")),
+                List.of(),
+                Map.of()
+            ));
+
+            assertEquals("injected", requestHeader.get());
         } finally {
             ProviderInterceptor.unregister(interceptor);
             server.stop(0);

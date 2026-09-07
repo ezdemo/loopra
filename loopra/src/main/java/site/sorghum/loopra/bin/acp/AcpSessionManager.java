@@ -73,7 +73,8 @@ public class AcpSessionManager {
         }
         String model = config.model();
         this.sharedModelProvider = new LoopraModelProvider(apiUrl, apiKey, model, config.reasoningEffort(),
-                config.modelChannelId(), config.apiProtocol());
+                config.modelChannelId(), config.apiProtocol(), config.specialCompatibility(),
+                config.activeModelMaxTokens());
         log.info("[acp] 共享 LoopraModelProvider 初始化完成: model={}, apiUrl={}", model, apiUrl);
     }
 

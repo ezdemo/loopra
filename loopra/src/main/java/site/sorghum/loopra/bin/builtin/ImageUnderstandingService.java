@@ -69,7 +69,9 @@ public class ImageUnderstandingService {
                     target.model(),
                     "none",
                     target.channel().id(),
-                    target.channel().apiProtocol());
+                    target.channel().apiProtocol(),
+                    target.channel().specialCompatibility(),
+                    target.maxTokens());
             Message message = new Message(
                     "user",
                     (prompt == null || prompt.isBlank() ? "请分析这张图片。" : prompt.trim())
@@ -126,7 +128,8 @@ public class ImageUnderstandingService {
         if (channel.apiUrl() == null || channel.apiUrl().isBlank() || channel.apiKey() == null || channel.apiKey().isBlank()) {
             return Target.error("IMAGE_UNDERSTANDING_NOT_CONFIGURED: 图片理解模型渠道的 API 地址或密钥未配置");
         }
-        return new Target(model, channel, null);
+        return new Target(model, channel,
+                entry.maxTokens() > 0 ? entry.maxTokens() : AgentConfig.DEFAULT_MAX_TOKENS, null);
     }
 
     private static String trim(String value) {
@@ -146,9 +149,9 @@ public class ImageUnderstandingService {
         return value.substring(0, end);
     }
 
-    private record Target(String model, AgentConfig.Channel channel, String error) {
+    private record Target(String model, AgentConfig.Channel channel, int maxTokens, String error) {
         private static Target error(String error) {
-            return new Target("", null, error);
+            return new Target("", null, -1, error);
         }
     }
 }

@@ -103,6 +103,21 @@ public class ChatMessage {
     private Long timestamp;
 
     /**
+     * 助手回合开始时间（Unix 毫秒）。与消息 timestamp 区分：
+     * timestamp 是单条消息产生时间，turnStartedAt 用于恢复整轮耗时。
+     */
+    @ONodeAttr(name = "turn_started_at")
+    private Long turnStartedAt;
+
+    /** 助手回合结束时间（Unix 毫秒）。 */
+    @ONodeAttr(name = "turn_finished_at")
+    private Long turnFinishedAt;
+
+    /** 助手回合实际耗时（毫秒）。 */
+    @ONodeAttr(name = "elapsed_ms")
+    private Long elapsedMs;
+
+    /**
      * 工具实际开始执行的时间（Unix 毫秒），仅由本地执行记录使用。
      */
     @ONodeAttr(name = "tool_started_at")
@@ -241,6 +256,12 @@ public class ChatMessage {
         msg.toolStartedAt = asLong(m.get("tool_started_at"));
         msg.toolFinishedAt = asLong(m.get("tool_finished_at"));
         msg.toolDurationMs = asLong(m.get("tool_duration_ms"));
+        msg.turnStartedAt = asLong(m.get("turn_started_at"));
+        if (msg.turnStartedAt == null) msg.turnStartedAt = asLong(m.get("turnStartedAt"));
+        msg.turnFinishedAt = asLong(m.get("turn_finished_at"));
+        if (msg.turnFinishedAt == null) msg.turnFinishedAt = asLong(m.get("turnFinishedAt"));
+        msg.elapsedMs = asLong(m.get("elapsed_ms"));
+        if (msg.elapsedMs == null) msg.elapsedMs = asLong(m.get("elapsedMs"));
         if (m.containsKey("tool_calls")) {
             List<Map<String, Object>> tcMaps = (List<Map<String, Object>>) m.get("tool_calls");
             if (tcMaps != null) {
@@ -382,6 +403,9 @@ public class ChatMessage {
         if (rollbackId != null) m.put("rollback_id", rollbackId);
         if (webHidden) m.put("web_hidden", true);
         if (timestamp != null) m.put("timestamp", timestamp);
+        if (turnStartedAt != null) m.put("turn_started_at", turnStartedAt);
+        if (turnFinishedAt != null) m.put("turn_finished_at", turnFinishedAt);
+        if (elapsedMs != null) m.put("elapsed_ms", elapsedMs);
         if (toolCalls != null && !toolCalls.isEmpty()) {
             List<Map<String, Object>> tcMaps = new ArrayList<>();
             for (ToolCallEntry tc : toolCalls) {
@@ -456,6 +480,9 @@ public class ChatMessage {
         copy.snapshotId = this.snapshotId;
         copy.rollbackId = this.rollbackId;
         copy.timestamp = this.timestamp;
+        copy.turnStartedAt = this.turnStartedAt;
+        copy.turnFinishedAt = this.turnFinishedAt;
+        copy.elapsedMs = this.elapsedMs;
         copy.toolStartedAt = this.toolStartedAt;
         copy.toolFinishedAt = this.toolFinishedAt;
         copy.toolDurationMs = this.toolDurationMs;

@@ -3,6 +3,7 @@ package site.sorghum.cutin.core.model;
 import org.noear.snack4.ONode;
 import site.sorghum.cutin.integrations.model.ProviderInterceptor;
 
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
@@ -24,6 +25,16 @@ public interface ModelProvider {
 
     /** 返回该 Provider 的能力声明。 */
     ModelCapabilities capabilities();
+
+    /**
+     * 返回 Provider 创建时的扩展配置。
+     *
+     * <p>拦截器可以通过此只读视图读取 Provider 级默认选项；普通自定义
+     * Provider 无需实现，默认返回空配置。</p>
+     */
+    default Map<String, Object> options() {
+        return Map.of();
+    }
 
     /**
      * 构建原始协议请求体（未经拦截器处理）。
@@ -49,5 +60,15 @@ public interface ModelProvider {
             modelId = capabilities().models().stream().findFirst().orElse(null);
         }
         return ProviderInterceptor.run(this, modelId, request, buildBody(request, stream));
+    }
+
+    /**
+     * 生成本次请求的最终请求头，保证会话级插件看到最新请求选项。
+     *
+     * <p>普通自定义 Provider 默认不增加请求头，保留默认实现以兼容已有
+     * Provider；需要请求头扩展的实现可以覆盖此方法。</p>
+     */
+    default Map<String, String> requestHeaders(ModelCallRequest request) {
+        return Map.of();
     }
 }

@@ -119,6 +119,11 @@
               item.msg.rollbackId,
               item.msg.snapshotId,
               item.msg.rollbackTimestamp,
+              item.msg.turnStartedAt,
+              item.msg.turnFinishedAt,
+              item.msg.elapsedMs,
+              item.msg.startedAt,
+              item.msg.finishedAt,
               item.idx === activeAssistantMessageIndex ? streamRenderVersion : 0,
               streaming,
               branchingSession,
@@ -2016,13 +2021,20 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
 
   // 使用唯一 ID 追踪当前 assistant 消息
   const assistantId = Date.now() + 1
+  const assistantTurnStartedAt = Date.now()
   let silentAssistantId = null
   // ReasonBreaker 重试回滚点：本轮第一个思考块在 blocks 中的索引（-1 表示尚未定位）
   let streamResetIndex = -1
 
   // 静默命令不预创建助手占位
   if (!isSilent) {
-    store.addSessionMessage(sessionName, {id: assistantId, role: 'assistant', time: now(), blocks: []})
+    store.addSessionMessage(sessionName, {
+      id: assistantId,
+      role: 'assistant',
+      time: now(),
+      blocks: [],
+      turnStartedAt: assistantTurnStartedAt
+    })
   }
 
   let getMsg = () => {
@@ -2061,7 +2073,13 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             if (!hasContent) return
             // 有实际内容了，插入助手气泡
             silentAssistantId = Date.now()
-            store.addSessionMessage(sessionName, {id: silentAssistantId, role: 'assistant', time: now(), blocks: []})
+            store.addSessionMessage(sessionName, {
+              id: silentAssistantId,
+              role: 'assistant',
+              time: now(),
+              blocks: [],
+              turnStartedAt: assistantTurnStartedAt
+            })
             silentBubbleCreated = true
           }
 
@@ -2153,7 +2171,8 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
                 if (msg.blocks[i].type === 'tool_call' && msg.blocks[i].name === targetName && !msg.blocks[i].result) {
                   msg.blocks[i].result = rn;
                   msg.blocks[i].status = '成功';
-                  msg.blocks[i].toolDurationMs = Date.now() - msg.blocks[i].toolStartedAt;
+                  msg.blocks[i].toolFinishedAt = Date.now();
+                  msg.blocks[i].toolDurationMs = msg.blocks[i].toolFinishedAt - msg.blocks[i].toolStartedAt;
                   msg.blocks[i].expanded = false;
                   matched = true
                   break
@@ -2166,7 +2185,8 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
                 if (msg.blocks[i].type === 'tool_call' && !msg.blocks[i].result) {
                   msg.blocks[i].result = rn;
                   msg.blocks[i].status = '成功';
-                  msg.blocks[i].toolDurationMs = Date.now() - msg.blocks[i].toolStartedAt;
+                  msg.blocks[i].toolFinishedAt = Date.now();
+                  msg.blocks[i].toolDurationMs = msg.blocks[i].toolFinishedAt - msg.blocks[i].toolStartedAt;
                   msg.blocks[i].expanded = false;
                   break
                 }
@@ -2280,6 +2300,10 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
         () => {
           flushStreamEvents()
           const completedMessage = getMsg()
+          if (completedMessage) {
+            completedMessage.turnFinishedAt = Date.now()
+            completedMessage.elapsedMs = Math.max(0, completedMessage.turnFinishedAt - (completedMessage.turnStartedAt || assistantTurnStartedAt))
+          }
           notifyAssistantReply(completedMessage)
           store.setSessionStreaming(sessionName, false)
           if (requestAction === 'execute_plan') {
@@ -2306,7 +2330,11 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             void syncPlanMode()
           }
           const msg = getMsg()
-          if (msg && !msg.blocks.length) msg.blocks.push({type: 'content', content: '连接错误'})
+          if (msg) {
+            msg.turnFinishedAt = Date.now()
+            msg.elapsedMs = Math.max(0, msg.turnFinishedAt - (msg.turnStartedAt || assistantTurnStartedAt))
+            if (!msg.blocks.length) msg.blocks.push({type: 'content', content: '连接错误'})
+          }
           emit('sessionUpdated')
           nextTick(() => sendNextQueuedMessage(sessionName, targetWorkspaceHash))
         },

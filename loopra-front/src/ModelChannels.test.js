@@ -30,7 +30,7 @@ vi.mock('./services/api', () => ({
             name: 'Main',
             baseUrl: 'https://main.test/v1',
             apiKey: '****',
-            models: [{name: 'main-large', imageInput: true}]
+            models: [{name: 'main-large', imageInput: true, maxTokens: 65536}]
           },
           {
             id: 'guard',
@@ -80,8 +80,35 @@ describe('ModelChannels validation model', () => {
       validationModel: 'guard-mini',
       validationModelChannelId: 'guard',
       imageUnderstandingModel: 'main-large',
-      imageUnderstandingModelChannelId: 'main'
+      imageUnderstandingModelChannelId: 'main',
+      modelChannels: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'main',
+          specialCompatibility: '',
+          models: expect.arrayContaining([
+            expect.objectContaining({name: 'main-large', maxTokens: 65536})
+          ])
+        })
+      ])
     }))
+    wrapper.unmount()
+  })
+
+  it('offers OpenCode as a separate optional compatibility', async () => {
+    const wrapper = shallowMount(ModelChannels)
+    await flushPromises()
+
+    const selects = wrapper.findAll('.model-channel-fields select')
+    const protocolSelect = selects[0]
+    const compatibilitySelect = selects[1]
+    expect(protocolSelect.find('option[value="opencode"]').exists()).toBe(false)
+    expect(protocolSelect.findAll('option')).toHaveLength(3)
+    expect(compatibilitySelect.find('option[value="opencode"]').text()).toBe('OpenCode 兼容')
+    expect(compatibilitySelect.element.value).toBe('')
+
+    await wrapper.find('.model-channel-add').trigger('click')
+    expect(wrapper.findAll('.model-channel-fields select')[0].element.value).toBe('chat_completions')
+    expect(wrapper.findAll('.model-channel-fields select')[1].element.value).toBe('')
     wrapper.unmount()
   })
 

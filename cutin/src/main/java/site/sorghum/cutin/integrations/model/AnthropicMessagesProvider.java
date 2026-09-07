@@ -22,15 +22,12 @@ public final class AnthropicMessagesProvider implements ModelProvider {
 
     /** Anthropic API 版本头。 */
     private static final String ANTHROPIC_VERSION = "2023-06-01";
-    /** 默认最大输出 token。 */
-    private static final int DEFAULT_MAX_TOKENS = 8192;
-
     /** Provider 配置。 */
     private final ModelProviderConfig config;
     /** HTTP 传输层。 */
     private final HttpModelTransport transport;
 
-    /** 按配置创建 Provider，并注入请求体拦截器链（同步与流式调用均生效）。 */
+    /** 按配置创建 Provider；请求头在发送前由拦截器生成。 */
     public AnthropicMessagesProvider(ModelProviderConfig config) {
         this.config = config;
         this.transport = new HttpModelTransport(
@@ -49,18 +46,24 @@ public final class AnthropicMessagesProvider implements ModelProvider {
         return config.id();
     }
 
+    @Override
+    public Map<String, Object> options() {
+        return config.options();
+    }
+
     /** 同步调用：解析内容块（text、thinking、tool_use）与用量，并附带原始请求与响应体。 */
     @Override
     public ModelResponse call(ModelCallRequest request) {
         ONode body = _buildBody(request, false);
-        String raw = transport.postRaw(body);
+        Map<String, String> headers = requestHeaders(request);
+        String raw = transport.postRaw(body, headers);
         ONode response = JsonSupport.read(raw);
         return new ModelResponse(
             parseMessage(JsonSupport.child(response, "content")),
             parseUsage(JsonSupport.child(response, "usage")),
             true,
             raw,
-            transport.exchangeFor(body)
+            transport.exchangeFor(body, headers)
         );
     }
 
@@ -68,9 +71,10 @@ public final class AnthropicMessagesProvider implements ModelProvider {
     @Override
     public Stream<StreamChunk> stream(ModelCallRequest request) {
         ONode body = _buildBody(request, true);
-        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body);
+        Map<String, String> headers = requestHeaders(request);
+        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body, headers);
         Accumulator accumulator = new Accumulator(exchange);
-        Stream<StreamChunk> chunks = transport.postSse(body)
+        Stream<StreamChunk> chunks = transport.postSse(body, headers)
             .map(chunk -> {
                 String raw = chunk.toJson();
                 accumulator.raw.append(raw).append('\n');
@@ -87,13 +91,12 @@ public final class AnthropicMessagesProvider implements ModelProvider {
         return new ModelCapabilities(Set.of(config.model()), true, true);
     }
 
-    /** {@inheritDoc} 构建 Messages 请求体：模型、max_tokens、system、消息、工具与流标记。 */
+    /** {@inheritDoc} 构建 Messages 基础请求体：模型、system、消息、工具与流标记。 */
     @Override
     public ONode buildBody(ModelCallRequest request, boolean stream) {
         ONode body = JsonSupport.object();
         String model = model(request);
         body.set("model", model);
-        body.set("max_tokens", maxTokens(request));
         body.set("stream", stream);
 
         StringBuilder system = new StringBuilder();
@@ -422,13 +425,19 @@ public final class AnthropicMessagesProvider implements ModelProvider {
             : request.modelId();
     }
 
-    /** 取请求级最大输出 token，未设置时回退到配置与默认值。 */
-    private int maxTokens(ModelCallRequest request) {
-        Object value = request.options().get("maxTokens");
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        return config.maxTokens(DEFAULT_MAX_TOKENS);
+    /** 生成本次请求的最终请求头，保证会话级插件看到最新请求选项。 */
+    @Override
+    public Map<String, String> requestHeaders(ModelCallRequest request) {
+        return ProviderInterceptor.runHeaders(
+            this,
+            model(request),
+            request,
+            Map.of(
+                "x-api-key", config.apiKey(),
+                "api-key", config.apiKey(),
+                "anthropic-version", ANTHROPIC_VERSION
+            )
+        );
     }
 
     /** 读取请求选项中的字符串值。 */

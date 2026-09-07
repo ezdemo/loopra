@@ -59,8 +59,13 @@ public final class HttpModelTransport {
 
     /** 发送 JSON POST 并返回原始响应体字符串。 */
     public String postRaw(ONode body) {
+        return postRaw(body, headers);
+    }
+
+    /** 使用本次请求头发送 JSON POST 并返回原始响应体字符串。 */
+    public String postRaw(ONode body, Map<String, String> requestHeaders) {
         try {
-            HttpRequest request = buildRequest(body.toString());
+            HttpRequest request = buildRequest(body.toString(), requestHeaders);
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new ModelProviderException("provider returned HTTP " + response.statusCode()
@@ -77,8 +82,13 @@ public final class HttpModelTransport {
 
     /** 发送 SSE 流式 POST，返回解析后的 ONode 行流。 */
     public Stream<ONode> postSse(ONode body) {
+        return postSse(body, headers);
+    }
+
+    /** 使用本次请求头发送 SSE 流式 POST，返回解析后的 ONode 行流。 */
+    public Stream<ONode> postSse(ONode body, Map<String, String> requestHeaders) {
         try {
-            HttpRequest request = buildRequest(body.toString());
+            HttpRequest request = buildRequest(body.toString(), requestHeaders);
             HttpResponse<Stream<String>> response = httpClient.send(
                 request,
                 HttpResponse.BodyHandlers.ofLines()
@@ -111,22 +121,31 @@ public final class HttpModelTransport {
     }
 
     public ModelHttpExchange exchangeFor(ONode body) {
+        return exchangeFor(body, headers);
+    }
+
+    /** 使用本次请求头构造可审计的模型 HTTP 交换记录。 */
+    public ModelHttpExchange exchangeFor(ONode body, Map<String, String> requestHeaders) {
         String json = body.toString();
-        Map<String, String> requestHeaders = new java.util.LinkedHashMap<>();
-        requestHeaders.put("Content-Type", "application/json");
-        requestHeaders.put("Accept", "application/json, text/event-stream");
-        requestHeaders.putAll(headers);
-        return new ModelHttpExchange(endpoint.toString(), requestHeaders, json);
+        Map<String, String> effectiveHeaders = new java.util.LinkedHashMap<>();
+        effectiveHeaders.put("Content-Type", "application/json");
+        effectiveHeaders.put("Accept", "application/json, text/event-stream");
+        if (requestHeaders != null) {
+            effectiveHeaders.putAll(requestHeaders);
+        }
+        return new ModelHttpExchange(endpoint.toString(), effectiveHeaders, json);
     }
 
     /** 构造 POST 请求：设置 JSON 头、Accept 头、固定请求头与 120 秒超时。 */
-    private HttpRequest buildRequest(String json) {
+    private HttpRequest buildRequest(String json, Map<String, String> requestHeaders) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
             .timeout(Duration.ofSeconds(120))
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream")
             .POST(HttpRequest.BodyPublishers.ofString(json));
-        headers.forEach(builder::header);
+        if (requestHeaders != null) {
+            requestHeaders.forEach(builder::header);
+        }
         return builder.build();
     }
 }

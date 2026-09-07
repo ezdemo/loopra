@@ -16,6 +16,9 @@ import java.util.Set;
  */
 public interface AgentConfig {
 
+    /** 模型请求默认最大输出 token 数（包含推理 token）。 */
+    int DEFAULT_MAX_TOKENS = 32768;
+
     /** 上下文最大字符数（超出触发折叠）。 */
     int maxContextChars();
 
@@ -106,6 +109,11 @@ public interface AgentConfig {
 
         String apiProtocol();
 
+        /** 渠道启用的特殊兼容插件 ID；空字符串表示不启用。 */
+        default String specialCompatibility() {
+            return "";
+        }
+
         /** 渠道内按名称查找模型条目；不存在返回 {@code null}。 */
         Entry modelEntry(String modelName);
     }
@@ -117,6 +125,13 @@ public interface AgentConfig {
         String name();
 
         int contextTokens();
+
+        /**
+         * 模型请求最大输出 token 数（包含推理 token）；未配置时返回负数，交由内置默认值兜底。
+         */
+        default int maxTokens() {
+            return -1;
+        }
 
         boolean imageInput();
 

@@ -15,7 +15,9 @@
                 }">
         </span>
       </div>
-      <div v-if="block.showContent" class="reasoning-text" v-html="getReasoningHtml(block)" @click="onCodeBlockClick"></div>
+      <CollapseTransition>
+        <div v-if="block.showContent" class="reasoning-text" v-html="getReasoningHtml(block)" @click="onCodeBlockClick"></div>
+      </CollapseTransition>
     </div>
 
     <!-- 加密推理沿用普通思考折叠样式，展开后只显示固定文案 -->
@@ -33,7 +35,9 @@
               }">
         </span>
       </div>
-      <div v-if="block.showContent" class="reasoning-text" role="status">加密思考</div>
+      <CollapseTransition>
+        <div v-if="block.showContent" class="reasoning-text" role="status">加密思考</div>
+      </CollapseTransition>
     </div>
 
     <!-- 内容 -->
@@ -113,6 +117,7 @@
               }">
         </span>
       </div>
+      <CollapseTransition>
       <div v-if="toolGroupsExpanded[block._groupId]" class="tool-group-detail">
         <div v-for="(t, ti) in block._tools" :key="ti" class="tool-group-item-block">
           <div class="block-tool">
@@ -147,13 +152,16 @@
                     }">
               </span>
             </div>
-            <div v-if="t.expanded" class="tool-detail">
-              <pre v-if="t.args"><code>{{ fmtArgs(t.args) }}</code></pre>
-              <pre v-if="t.result"><code>{{ t.result }}</code></pre>
-            </div>
+            <CollapseTransition>
+              <div v-if="t.expanded" class="tool-detail">
+                <pre v-if="t.args"><code>{{ fmtArgs(t.args) }}</code></pre>
+                <pre v-if="t.result"><code>{{ t.result }}</code></pre>
+              </div>
+            </CollapseTransition>
           </div>
         </div>
       </div>
+      </CollapseTransition>
     </div>
 
     <!-- 路径组（连续 reasoning + tool_call 折叠） -->
@@ -175,6 +183,7 @@
               }">
         </span>
       </div>
+      <CollapseTransition>
       <div v-if="pathGroupsExpanded[block._groupId]" class="tool-group-detail">
         <template v-for="(ib, ibi) in block._blocks" :key="ibi">
           <!-- 内层思考 -->
@@ -193,7 +202,9 @@
                       }">
                 </span>
               </div>
-              <div v-if="pathItemExpanded[getPathItemKey(block._groupId, ibi)]" class="reasoning-text" v-html="fmt(ib.content)"></div>
+              <CollapseTransition>
+                <div v-if="pathItemExpanded[getPathItemKey(block._groupId, ibi)]" class="reasoning-text" v-html="fmt(ib.content)"></div>
+              </CollapseTransition>
             </div>
           </div>
           <!-- 内层加密思考 -->
@@ -212,7 +223,9 @@
                       }">
                 </span>
               </div>
-              <div v-if="pathItemExpanded[getPathItemKey(block._groupId, ibi)]" class="reasoning-text" role="status">加密思考</div>
+              <CollapseTransition>
+                <div v-if="pathItemExpanded[getPathItemKey(block._groupId, ibi)]" class="reasoning-text" role="status">加密思考</div>
+              </CollapseTransition>
             </div>
           </div>
           <!-- 内层工具 -->
@@ -250,21 +263,24 @@
                       }">
                 </span>
               </div>
-              <div v-if="pathItemExpanded[getPathItemKey(block._groupId, ibi)]" class="tool-detail">
-                <!-- 清单工具：用 ChecklistSteps 渲染 -->
-                <div v-if="isChecklistTool(ib)" class="checklist-tool-detail">
-                  <ChecklistSteps :data="getChecklistData(ib)" />
+              <CollapseTransition>
+                <div v-if="pathItemExpanded[getPathItemKey(block._groupId, ibi)]" class="tool-detail">
+                  <!-- 清单工具：用 ChecklistSteps 渲染 -->
+                  <div v-if="isChecklistTool(ib)" class="checklist-tool-detail">
+                    <ChecklistSteps :data="getChecklistData(ib)" />
+                  </div>
+                  <!-- 其他工具：正常显示 -->
+                  <template v-else>
+                    <pre v-if="ib.args"><code>{{ fmtArgs(ib.args) }}</code></pre>
+                    <pre v-if="ib.result"><code>{{ ib.result }}</code></pre>
+                  </template>
                 </div>
-                <!-- 其他工具：正常显示 -->
-                <template v-else>
-                  <pre v-if="ib.args"><code>{{ fmtArgs(ib.args) }}</code></pre>
-                  <pre v-if="ib.result"><code>{{ ib.result }}</code></pre>
-                </template>
-              </div>
+              </CollapseTransition>
             </div>
           </div>
         </template>
       </div>
+      </CollapseTransition>
     </div>
 
     <!-- 单个工具调用（非连续时不合并） -->
@@ -306,9 +322,11 @@
                 }">
           </span>
         </div>
-        <div v-if="block.expanded" class="checklist-tool-detail">
-          <ChecklistSteps :data="getChecklistData(block)" />
-        </div>
+        <CollapseTransition>
+          <div v-if="block.expanded" class="checklist-tool-detail">
+            <ChecklistSteps :data="getChecklistData(block)" />
+          </div>
+        </CollapseTransition>
       </div>
       <!-- 清单工具执行中 -->
       <div v-else-if="isChecklistTool(block) && block.status" class="block-tool">
@@ -339,9 +357,11 @@
                 }">
           </span>
         </div>
-        <div v-if="block.expanded" class="tool-detail goal-detail">
-          <pre><code>{{ block.result }}</code></pre>
-        </div>
+        <CollapseTransition>
+          <div v-if="block.expanded" class="tool-detail goal-detail">
+            <pre><code>{{ block.result }}</code></pre>
+          </div>
+        </CollapseTransition>
       </div>
       <!-- Goal 工具执行中 -->
       <div v-else-if="isGoalTool(block) && block.status" class="block-tool">
@@ -385,10 +405,12 @@
                 }">
         </span>
         </div>
-        <div v-if="block.expanded" class="tool-detail">
-          <pre v-if="block.args"><code>{{ fmtArgs(block.args) }}</code></pre>
-          <pre v-if="block.result"><code>{{ block.result }}</code></pre>
-        </div>
+        <CollapseTransition>
+          <div v-if="block.expanded" class="tool-detail">
+            <pre v-if="block.args"><code>{{ fmtArgs(block.args) }}</code></pre>
+            <pre v-if="block.result"><code>{{ block.result }}</code></pre>
+          </div>
+        </CollapseTransition>
       </div>
     </template>
 
@@ -411,6 +433,7 @@
               }">
         </span>
       </div>
+      <CollapseTransition>
       <div v-if="isSubAgentExpanded(block)" class="tool-group-detail">
         <div v-for="(sb, sbi) in block.blocks" :key="sbi" class="tool-group-item-block">
           <!-- 子代理内层工具 -->
@@ -434,10 +457,12 @@
                     }">
               </span>
             </div>
-            <div v-if="sb.expanded" class="tool-detail">
-              <pre v-if="sb.args"><code>{{ fmtArgs(sb.args) }}</code></pre>
-              <pre v-if="sb.result"><code>{{ sb.result }}</code></pre>
-            </div>
+            <CollapseTransition>
+              <div v-if="sb.expanded" class="tool-detail">
+                <pre v-if="sb.args"><code>{{ fmtArgs(sb.args) }}</code></pre>
+                <pre v-if="sb.result"><code>{{ sb.result }}</code></pre>
+              </div>
+            </CollapseTransition>
           </div>
           <!-- 子代理内层 reasoning -->
           <div v-else-if="sb.type === 'reasoning'" class="block-reasoning">
@@ -454,7 +479,9 @@
                     }">
               </span>
             </div>
-            <div v-if="sb.showContent" class="reasoning-text" v-html="fmt(sb.content)"></div>
+            <CollapseTransition>
+              <div v-if="sb.showContent" class="reasoning-text" v-html="fmt(sb.content)"></div>
+            </CollapseTransition>
           </div>
           <div v-else-if="sb.type === 'reasoning_started'" class="block-reasoning">
             <div class="reasoning-head" @click="sb.showContent = !sb.showContent">
@@ -470,12 +497,15 @@
                     }">
               </span>
             </div>
-            <div v-if="sb.showContent" class="reasoning-text" role="status">加密思考</div>
+            <CollapseTransition>
+              <div v-if="sb.showContent" class="reasoning-text" role="status">加密思考</div>
+            </CollapseTransition>
           </div>
           <!-- 子代理内层 content -->
           <div v-else-if="sb.type === 'content' && sb.content" class="block-content" v-html="fmt(sb.content)"></div>
         </div>
       </div>
+      </CollapseTransition>
     </div>
 
     <!-- 选项按钮（choice） -->
@@ -523,6 +553,7 @@ import {CHECK_ICON_SM, CHEVRON_DOWN_ICON, CIRCLE_ICON, SPINNER_ICON, THINKING_IC
 import {LRUCache} from '../utils/cache'
 import {computed, onBeforeUnmount, onMounted, ref, watchEffect} from 'vue'
 import ChecklistSteps from './ChecklistSteps.vue'
+import CollapseTransition from './CollapseTransition.vue'
 
 const props = defineProps({
   blocks: {type: Array, required: true},

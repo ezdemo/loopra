@@ -14,6 +14,7 @@ import site.sorghum.loopra.bin.config.ConfigChangedEvent;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.mcp.McpServerExportService;
+import site.sorghum.cutin.integrations.model.ProviderInterceptor;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.common.WebErrorMessages;
 import site.sorghum.loopra.web.model.*;
@@ -89,8 +90,9 @@ public class ConfigController {
                 cfg.fastMode(),
                 cfg.modelChannels().stream().map(channel -> new ConfigDTO.ModelChannelConfig(
                         channel.id(), channel.name(), channel.baseUrl(), maskApiKey(channel.apiKey()),
-                        channel.apiProtocol(), channel.modelEntries().stream().map(entry -> new ConfigDTO.ModelConfig(
-                                entry.name(), entry.contextTokens(), entry.imageInput(), entry.price()
+                        channel.apiProtocol(), channel.specialCompatibility(),
+                        channel.modelEntries().stream().map(entry -> new ConfigDTO.ModelConfig(
+                                entry.name(), entry.contextTokens(), entry.maxTokens(), entry.imageInput(), entry.price()
                         )).collect(Collectors.toList())
                 )).collect(Collectors.toList()),
                 cfg.modelChannels().stream().anyMatch(channel -> !channel.apiKey().isBlank()),
@@ -103,7 +105,7 @@ public class ConfigController {
         return ApiResponse.ok(data);
     }
 
-    @ApiOperation(value = "更新配置", notes = "合并不为空的字段进行更新，支持更新 model、hitl 等运行时配置")
+    @ApiOperation(value = "更新配置", notes = "合并不为空的字段进行更新，支持更新 model、reasoningEffort、hitl 等运行时配置")
     @SneakyThrows
     @Put
     @Mapping("/config")
@@ -169,7 +171,8 @@ public class ConfigController {
         LoopraConfig.ModelChannel channel = channelId == null || channelId.isBlank()
                 ? cfg.activeModelChannel() : cfg.modelChannel(channelId);
         if (channel == null) return ApiResponse.fail("模型渠道不存在");
-        return fetchRemoteModels(channel.baseUrl(), channel.apiKey());
+        return fetchRemoteModels(channel.id(), channel.baseUrl(), channel.apiKey(), channel.apiProtocol(),
+                channel.specialCompatibility());
     }
 
     @ApiOperation(value = "使用临时渠道配置获取模型列表", notes = "仅探测当前提交的 API 地址和密钥，不写入配置文件")
@@ -180,12 +183,23 @@ public class ConfigController {
         LoopraConfig.ModelChannel savedChannel = configService.getConfig().modelChannel(stringValue(request, "channelId"));
         String baseUrl = stringValue(request, "baseUrl");
         String apiKey = stringValue(request, "apiKey");
+        String apiProtocol = stringValue(request, "apiProtocol");
+        String specialCompatibility = stringValue(request, "specialCompatibility");
         if (baseUrl.isBlank() && savedChannel != null) baseUrl = savedChannel.baseUrl();
         if (apiKey.isBlank() && savedChannel != null) apiKey = savedChannel.apiKey();
-        return fetchRemoteModels(baseUrl, apiKey);
+        if (apiProtocol.isBlank() && savedChannel != null && !request.containsKey("apiProtocol")) {
+            apiProtocol = savedChannel.apiProtocol();
+        }
+        if (specialCompatibility.isBlank() && savedChannel != null
+                && !request.containsKey("specialCompatibility")) {
+            specialCompatibility = savedChannel.specialCompatibility();
+        }
+        return fetchRemoteModels(stringValue(request, "channelId"), baseUrl, apiKey, apiProtocol,
+                specialCompatibility);
     }
 
-    private ApiResponse<List<String>> fetchRemoteModels(String baseUrl, String apiKey) {
+    private ApiResponse<List<String>> fetchRemoteModels(String channelId, String baseUrl, String apiKey,
+                                                        String apiProtocol, String specialCompatibility) {
 
         if (baseUrl == null || baseUrl.isEmpty()) {
             return ApiResponse.fail("API 地址未配置");
@@ -202,13 +216,19 @@ public class ConfigController {
                 .readTimeout(REMOTE_READ_TIMEOUT_SEC, TimeUnit.SECONDS)
                 .build();
 
-        Request request = new Request.Builder()
+        Request.Builder requestBuilder = new Request.Builder()
                 .url(modelsUrl)
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
-                .header("User-Agent", "opencode/1.14.21 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.13")
-                .get()
-                .build();
+                .header("User-Agent", "opencode/1.14.21 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.13");
+        Map<String, Object> providerOptions = Map.of(
+                "specialCompatibility", specialCompatibility,
+                "fallbackSessionId", "loopra-model-sync"
+        );
+        ProviderInterceptor.runHeaders(
+                        "model-sync", "", providerOptions, Map.of())
+                .forEach(requestBuilder::header);
+        Request request = requestBuilder.get().build();
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {

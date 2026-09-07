@@ -16,7 +16,9 @@
               查看原始记录
             </button>
           </div>
-          <div v-if="compactedExpanded" class="compacted-summary-content">{{ compactedCheckpoint }}</div>
+          <CollapseTransition>
+            <div v-if="compactedExpanded" class="compacted-summary-content">{{ compactedCheckpoint }}</div>
+          </CollapseTransition>
         </div>
         <div class="msg-footer">
           <span class="msg-time">{{ msg.time }}</span>
@@ -31,9 +33,11 @@
               <polyline points="6 9 12 15 18 9"/>
             </svg>
           </button>
-          <div v-if="userAutoMessageExpanded" class="user-auto-message-detail">
-            <div class="user-auto-message-content">{{ userCollapsedBlock }}</div>
-          </div>
+          <CollapseTransition>
+            <div v-if="userAutoMessageExpanded" class="user-auto-message-detail">
+              <div class="user-auto-message-content">{{ userCollapsedBlock }}</div>
+            </div>
+          </CollapseTransition>
         </div>
         <div v-if="userDisplayText" class="msg-text">{{ userDisplayText }}</div>
         <button v-if="isUserLong" class="user-expand-btn" @click="userExpanded = !userExpanded">
@@ -60,10 +64,30 @@
     </template>
 
     <!-- 助手消息 -->
-    <template v-else-if="msg.role === 'assistant' && msg.blocks && msg.blocks.length > 0">
+    <template v-else-if="msg.role === 'assistant' && (streaming || (msg.blocks && msg.blocks.length > 0))">
       <div class="msg-body assistant-body">
         <div class="msg-blocks">
-          <BlockRenderer :blocks="msg.blocks || []" :streaming="streaming" @send-choice="(val, block) => $emit('sendChoice', val, block)" @open-file="(filePath) => $emit('openFile', filePath)" @open-diff="change => $emit('openDiff', change)" @revert-file-changes="changes => $emit('revertFileChanges', changes)" />
+          <section v-if="showAssistantProcessSummary" class="assistant-process-summary"
+                   :class="{ expanded: hasAssistantProcess && assistantProcessExpanded, live: assistantHasLiveProcess }">
+            <button
+                type="button"
+                class="assistant-process-toggle"
+                :aria-expanded="hasAssistantProcess ? assistantProcessExpanded : false"
+                :aria-controls="hasAssistantProcess ? assistantProcessId : undefined"
+                :disabled="!hasAssistantProcess"
+                @click="hasAssistantProcess && (assistantProcessExpanded = !assistantProcessExpanded)">
+              <span>{{ assistantProcessLabel }}</span>
+              <svg class="assistant-process-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <polyline points="9 6 15 12 9 18"/>
+              </svg>
+            </button>
+            <CollapseTransition>
+              <div v-if="assistantProcessExpanded" :id="assistantProcessId" class="assistant-process-detail">
+                <BlockRenderer :blocks="assistantProcessBlocks" :streaming="false" @send-choice="(val, block) => $emit('sendChoice', val, block)" @open-file="(filePath) => $emit('openFile', filePath)" @open-diff="change => $emit('openDiff', change)" @revert-file-changes="changes => $emit('revertFileChanges', changes)" />
+              </div>
+            </CollapseTransition>
+          </section>
+          <BlockRenderer :blocks="assistantFinalBlocks" :streaming="streaming" @send-choice="(val, block) => $emit('sendChoice', val, block)" @open-file="(filePath) => $emit('openFile', filePath)" @open-diff="change => $emit('openDiff', change)" @revert-file-changes="changes => $emit('revertFileChanges', changes)" />
         </div>
         <div class="msg-footer">
           <span class="msg-time-group">
@@ -120,7 +144,8 @@
 <script setup>
 import {BRANCH_ICON, COPY_ICON, ROLLBACK_ICON} from '../utils/icons'
 import BlockRenderer from './BlockRenderer.vue'
-import {computed, onBeforeUnmount, onMounted, reactive, ref} from 'vue'
+import CollapseTransition from './CollapseTransition.vue'
+import {computed, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import platform from '../services/platform'
 
 const props = defineProps({
@@ -187,6 +212,118 @@ const fileStats = computed(() => {
   if (edited.size === 0 && created.size === 0) return null
   return { edited: edited.size, created: created.size, editedFiles: [...edited], createdFiles: [...created] }
 })
+
+// 助手回合摘要：将最后一个终止响应之前的思考/工具/中间正文收进顶部折叠块。
+// finish 和 ask_choice 是明确的终止响应；没有工具结束信号时，最后一段非空正文就是最终回答。
+const isTerminalResponseBlock = (block) => {
+  if (!block) return false
+  if (block.type === 'content') return Boolean(block.content?.trim())
+  if (block.type === 'choice') return true
+  return block.type === 'tool_call' && (block.name === 'finish' || block.name === 'ask_choice')
+}
+
+const assistantResponseStart = computed(() => {
+  const blocks = props.msg.blocks || []
+  for (let index = blocks.length - 1; index >= 0; index--) {
+    if (isTerminalResponseBlock(blocks[index])) return index
+  }
+  return -1
+})
+
+const assistantProcessBlocks = computed(() => {
+  const start = assistantResponseStart.value
+  return start > 0 ? (props.msg.blocks || []).slice(0, start) : []
+})
+
+const assistantFinalBlocks = computed(() => {
+  const blocks = props.msg.blocks || []
+  const start = assistantResponseStart.value
+  return start >= 0 ? blocks.slice(start) : blocks
+})
+
+const hasAssistantProcess = computed(() => assistantProcessBlocks.value.length > 0 && assistantFinalBlocks.value.length > 0)
+// 流式输出尚未产生最终正文/finish 时，过程块仍会直接渲染在消息主体里；
+// 摘要行也要提前出现，避免顶部留下空白。
+const assistantHasLiveProcess = computed(() => {
+  if (!props.streaming) return false
+  const blocks = props.msg.blocks || []
+  return blocks.length === 0 || blocks.some(block => !isTerminalResponseBlock(block))
+})
+const showAssistantProcessSummary = computed(() => hasAssistantProcess.value || assistantHasLiveProcess.value)
+const assistantProcessExpanded = ref(false)
+const assistantProcessId = computed(() => `assistant-process-${String(props.msg.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`)
+
+const toTimestamp = (value) => {
+  if (value instanceof Date) {
+    const time = value.getTime()
+    return Number.isFinite(time) ? time : null
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const assistantDurationClock = ref(Date.now())
+let assistantDurationTimer = null
+
+const syncAssistantDurationTimer = () => {
+  if (props.msg.role === 'assistant' && props.streaming && assistantDurationTimer == null) {
+    assistantDurationTimer = window.setInterval(() => { assistantDurationClock.value = Date.now() }, 1000)
+  } else if ((!props.streaming || props.msg.role !== 'assistant') && assistantDurationTimer != null) {
+    window.clearInterval(assistantDurationTimer)
+    assistantDurationTimer = null
+  }
+}
+
+const assistantDurationMs = computed(() => {
+  const explicit = toTimestamp(props.msg.elapsedMs ?? props.msg.turnDurationMs ?? props.msg.durationMs)
+  if (explicit != null && explicit >= 0) return explicit
+
+  const starts = [props.msg.turnStartedAt, props.msg.startedAt].map(toTimestamp).filter(Number.isFinite)
+  const finishes = [props.msg.turnFinishedAt, props.msg.finishedAt].map(toTimestamp).filter(Number.isFinite)
+  const visitBlock = (block) => {
+    if (!block) return
+    const startedAt = toTimestamp(block.toolStartedAt ?? block.startedAt)
+    const finishedAt = toTimestamp(block.toolFinishedAt ?? block.finishedAt)
+    if (startedAt != null) starts.push(startedAt)
+    if (finishedAt != null) finishes.push(finishedAt)
+    for (const child of block.blocks || []) visitBlock(child)
+  }
+  for (const block of props.msg.blocks || []) visitBlock(block)
+
+  if (starts.length === 0) return null
+  const start = Math.min(...starts)
+  const explicitFinish = toTimestamp(props.msg.turnFinishedAt ?? props.msg.finishedAt)
+  const end = props.streaming && explicitFinish == null
+    ? assistantDurationClock.value
+    : (finishes.length > 0 ? Math.max(...finishes) : explicitFinish)
+  return end == null ? null : Math.max(0, end - start)
+})
+
+const formatAssistantDuration = (duration) => {
+  if (duration < 1000) return `${Math.round(duration)}毫秒`
+  const totalSeconds = Math.max(1, Math.round(duration / 1000))
+  if (totalSeconds < 60) return `${totalSeconds}秒`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds > 0 ? `${minutes}分${seconds}秒` : `${minutes}分`
+}
+
+const assistantProcessLabel = computed(() => {
+  const duration = assistantDurationMs.value
+  return duration == null ? '思考过程' : `用时 ${formatAssistantDuration(duration)}`
+})
+
+watch(() => props.streaming, syncAssistantDurationTimer)
+
+const onCollapseAllBlocks = () => {
+  assistantProcessExpanded.value = false
+}
 
 // 文件列表弹出
 const showFileList = ref(false)
@@ -374,6 +511,10 @@ onMounted(() => {
   el.addEventListener('mouseover', onMsgMouseOver)
   el.addEventListener('mouseout', onMsgMouseOut)
   el.addEventListener('click', onMsgClick)
+  if (props.msg.role === 'assistant') {
+    window.addEventListener('loopra:collapse-all-blocks', onCollapseAllBlocks)
+    syncAssistantDurationTimer()
+  }
 })
 onBeforeUnmount(() => {
   const el = msgRef.value
@@ -382,7 +523,10 @@ onBeforeUnmount(() => {
     el.removeEventListener('mouseout', onMsgMouseOut)
     el.removeEventListener('click', onMsgClick)
   }
+  if (props.msg.role === 'assistant') window.removeEventListener('loopra:collapse-all-blocks', onCollapseAllBlocks)
   clearTimeout(hideTimer)
+  if (assistantDurationTimer != null) window.clearInterval(assistantDurationTimer)
+  assistantDurationTimer = null
 })
 
 
@@ -517,6 +661,49 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* 回合过程折叠：保留最后的 finish/最终正文，历史执行路径收拢到消息顶部。 */
+.assistant-process-summary {
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.assistant-process-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--t), background-color var(--t);
+}
+
+.assistant-process-toggle:hover,
+.assistant-process-toggle:focus-visible {
+  color: var(--fg-2);
+  outline: none;
+}
+
+.assistant-process-chevron {
+  flex-shrink: 0;
+  color: var(--fg-4);
+  transition: transform var(--t);
+}
+
+.assistant-process-summary.expanded .assistant-process-chevron {
+  transform: rotate(90deg);
+}
+
+.assistant-process-detail {
+  padding: 0 0 4px;
 }
 
 .assistant-body ::selection {

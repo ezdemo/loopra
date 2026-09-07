@@ -24,7 +24,7 @@ public final class OpenAiResponsesProvider implements ModelProvider {
     /** HTTP 传输层。 */
     private final HttpModelTransport transport;
 
-    /** 按配置创建 Provider，并注入请求体拦截器链（同步与流式调用均生效）。 */
+    /** 按配置创建 Provider；请求头在发送前由拦截器生成。 */
     public OpenAiResponsesProvider(ModelProviderConfig config) {
         this.config = config;
         this.transport = new HttpModelTransport(
@@ -39,18 +39,24 @@ public final class OpenAiResponsesProvider implements ModelProvider {
         return config.id();
     }
 
+    @Override
+    public Map<String, Object> options() {
+        return config.options();
+    }
+
     /** 同步调用：解析输出条目（消息、推理、函数调用）与用量，并附带原始请求与响应体。 */
     @Override
     public ModelResponse call(ModelCallRequest request) {
         ONode body = _buildBody(request, false);
-        String raw = transport.postRaw(body);
+        Map<String, String> headers = requestHeaders(request);
+        String raw = transport.postRaw(body, headers);
         ONode response = JsonSupport.read(raw);
         return new ModelResponse(
             parseMessage(JsonSupport.child(response, "output")),
             parseUsage(JsonSupport.child(response, "usage")),
             true,
             raw,
-            transport.exchangeFor(body)
+            transport.exchangeFor(body, headers)
         );
     }
 
@@ -58,9 +64,10 @@ public final class OpenAiResponsesProvider implements ModelProvider {
     @Override
     public Stream<StreamChunk> stream(ModelCallRequest request) {
         ONode body = _buildBody(request, true);
-        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body);
+        Map<String, String> headers = requestHeaders(request);
+        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body, headers);
         Accumulator accumulator = new Accumulator(exchange);
-        Stream<StreamChunk> chunks = transport.postSse(body)
+        Stream<StreamChunk> chunks = transport.postSse(body, headers)
             .map(chunk -> {
                 String raw = chunk.toJson();
                 accumulator.raw.append(raw).append('\n');
@@ -104,7 +111,6 @@ public final class OpenAiResponsesProvider implements ModelProvider {
             reasoning.set("summary", "auto");
             body.set("reasoning", reasoning);
         }
-
         StringBuilder instructions = new StringBuilder();
         ONode input = JsonSupport.array();
         body.set("input", input);
@@ -355,6 +361,16 @@ public final class OpenAiResponsesProvider implements ModelProvider {
         return request.modelId() == null || request.modelId().isBlank()
             ? config.model()
             : request.modelId();
+    }
+    /** 生成本次请求的最终请求头，保证会话级插件看到最新请求选项。 */
+    @Override
+    public Map<String, String> requestHeaders(ModelCallRequest request) {
+        return ProviderInterceptor.runHeaders(
+            this,
+            model(request),
+            request,
+            Map.of("Authorization", "Bearer " + config.apiKey())
+        );
     }
 
     /** 取请求级推理力度，未设置时回退到配置。 */

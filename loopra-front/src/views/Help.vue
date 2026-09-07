@@ -278,6 +278,10 @@
                     <div class="option-desc">推理强度 (low/medium/high/max)</div>
                   </div>
                   <div class="option-item">
+                    <div class="option-name">modelChannels[].models[].maxTokens</div>
+                    <div class="option-desc">按模型配置单次请求最大输出 token 数（包含推理 token）；未配置时使用默认值</div>
+                  </div>
+                  <div class="option-item">
                     <div class="option-name">lang</div>
                     <div class="option-desc">界面语言 (ZH/EN)</div>
                   </div>

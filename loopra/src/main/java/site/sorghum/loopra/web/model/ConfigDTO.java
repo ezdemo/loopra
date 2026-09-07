@@ -38,6 +38,7 @@ public record ConfigDTO(
             String baseUrl,
             String apiKey,
             String apiProtocol,
+            String specialCompatibility,
             List<ModelConfig> models
     ) {
     }
@@ -46,6 +47,7 @@ public record ConfigDTO(
     public record ModelConfig(
             String name,
             int contextTokens,
+            int maxTokens,
             boolean imageInput,
             Map<String, Double> price
     ) {

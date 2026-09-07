@@ -8,8 +8,6 @@ import site.sorghum.cutin.core.model.*;
 import site.sorghum.cutin.core.tool.ToolCall;
 import site.sorghum.cutin.core.tool.ToolDefinition;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -26,7 +24,7 @@ public final class OpenAiChatCompletionsProvider implements ModelProvider {
     /** HTTP 传输层。 */
     private final HttpModelTransport transport;
 
-    /** 按配置创建 Provider，endpoint 指向 /chat/completions。 */
+    /** 按配置创建 Provider，endpoint 指向 /chat/completions；请求头在发送前由拦截器生成。 */
     public OpenAiChatCompletionsProvider(ModelProviderConfig config) {
         this.config = config;
         this.transport = new HttpModelTransport(
@@ -41,24 +39,31 @@ public final class OpenAiChatCompletionsProvider implements ModelProvider {
         return config.id();
     }
 
+    @Override
+    public Map<String, Object> options() {
+        return config.options();
+    }
+
     /** 同步调用：POST 请求后解析消息、工具调用与用量，并附带原始请求与响应体。 */
     @Override
     public ModelResponse call(ModelCallRequest request) {
         ONode body = _buildBody(request, false);
-        String raw = transport.postRaw(body);
+        Map<String, String> headers = requestHeaders(request);
+        String raw = transport.postRaw(body, headers);
         ONode response = JsonSupport.read(raw);
         Message message = parseMessage(JsonSupport.child(response, "choices", 0, "message"));
         Usage usage = parseResponseUsage(response);
-        return new ModelResponse(message, usage, true, raw, transport.exchangeFor(body));
+        return new ModelResponse(message, usage, true, raw, transport.exchangeFor(body, headers));
     }
 
     /** 流式调用：解析 SSE 增量块，并在流尾追加聚合出的工具调用与用量。 */
     @Override
     public Stream<StreamChunk> stream(ModelCallRequest request) {
         ONode body = _buildBody(request, true);
-        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body);
+        Map<String, String> headers = requestHeaders(request);
+        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body, headers);
         Accumulator accumulator = new Accumulator(exchange);
-        Stream<StreamChunk> chunks = transport.postSse(body)
+        Stream<StreamChunk> chunks = transport.postSse(body, headers)
             .map(chunk -> {
                 String raw = chunk.toJson();
                 accumulator.raw.append(raw).append('\n');
@@ -91,7 +96,6 @@ public final class OpenAiChatCompletionsProvider implements ModelProvider {
         if (reasoningEffort != null && !reasoningEffort.isBlank() && !"none".equals(reasoningEffort)) {
             body.set("reasoning_effort", reasoningEffort);
         }
-
         ONode messages = JsonSupport.array();
         body.set("messages", messages);
         for (Message message : request.messages()) {
@@ -321,6 +325,16 @@ public final class OpenAiChatCompletionsProvider implements ModelProvider {
         return request.modelId() == null || request.modelId().isBlank()
             ? config.model()
             : request.modelId();
+    }
+
+    @Override
+    public Map<String, String> requestHeaders(ModelCallRequest request) {
+        return ProviderInterceptor.runHeaders(
+            this,
+            model(request),
+            request,
+            Map.of("Authorization", "Bearer " + config.apiKey())
+        );
     }
 
     /** 取请求级推理力度，未设置时回退到配置。 */

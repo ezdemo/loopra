@@ -140,7 +140,7 @@ loopra web 0
 
 ### 3. 配置模型渠道
 
-在 Web 设置页维护模型渠道，或直接编辑 `~/.loopra/config.json`。配置 API Key 后重启服务。每个渠道独立维护 API 地址、密钥、协议与模型能力；`apiProtocol` 支持 `chat_completions`、`responses` 和 `anthropic`。首次使用且尚未配置模型渠道时，界面会显示引导提示，帮助完成 API 地址、密钥和模型配置。
+在 Web 设置页维护模型渠道，或直接编辑 `~/.loopra/config.json`。配置 API Key 后重启服务。每个渠道独立维护 API 地址、基础接口类型、特殊兼容与模型能力；`apiProtocol` 只支持 `chat_completions`、`responses` 和 `anthropic`，`specialCompatibility` 默认为空，目前可选 `opencode`。启用后由 OpenCode 兼容插件自动携带稳定的 `x-opencode-session` 会话路由头，适用于 OpenCode Zen/Go 兼容网关。首次使用且尚未配置模型渠道时，界面会显示引导提示，帮助完成 API 地址、密钥和模型配置。
 
 ```json
 {
@@ -153,10 +153,12 @@ loopra web 0
       "baseUrl": "https://api.deepseek.com/v1",
       "apiKey": "sk-your-api-key",
       "apiProtocol": "chat_completions",
+      "specialCompatibility": "",
       "models": [
         {
           "name": "deepseek-v4-flash",
           "contextTokens": -1,
+          "maxTokens": 32768,
           "imageInput": false
         }
       ]
@@ -166,7 +168,7 @@ loopra web 0
 }
 ```
 
-`models` 兼容旧版字符串数组。每个模型条目还可配置 `contextTokens`、`imageInput` 和 `price`；未配置时由系统使用默认或可用的模型元数据。若当前模型的 `imageInput` 为 `false`，可在模型渠道页选择 `imageUnderstandingModel` 与 `imageUnderstandingModelChannelId`，由该模型先把 `read_image` 的图片转换为文字，再交给当前模型继续处理。`read_image` 的 `prompt` 参数用于描述本次识别任务，例如要求提取 OCR、定位报错或读取表格数值。
+`models` 兼容旧版字符串数组。每个模型条目还可配置 `contextTokens`、`maxTokens`、`imageInput` 和 `price`；其中 `maxTokens` 是该模型单次请求的最大输出 token 数，包含推理 token，Chat Completions 映射为 `max_tokens`，Responses 映射为 `max_output_tokens`。未配置时使用默认值 32768。若当前模型的 `imageInput` 为 `false`，可在模型渠道页选择 `imageUnderstandingModel` 与 `imageUnderstandingModelChannelId`，由该模型先把 `read_image` 的图片转换为文字，再交给当前模型继续处理。`read_image` 的 `prompt` 参数用于描述本次识别任务，例如要求提取 OCR、定位报错或读取表格数值。
 
 ## 核心能力
 
@@ -174,7 +176,7 @@ loopra web 0
 |---|---|
 | 自主推理循环 | 流式输出推理、工具调用和结果，持续处理多轮任务。 |
 | 上下文管理 | JSONL 会话持久化、自动摘要折叠、消息自愈和 token 用量统计。 |
-| 多模型渠道 | 支持多渠道、Chat Completions API、OpenAI Responses API、Anthropic Messages API、推理强度和模型能力配置。 |
+| 多模型渠道 | 支持多渠道、Chat Completions API、OpenCode 兼容网关、OpenAI Responses API、Anthropic Messages API、推理强度和模型能力配置。 |
 | 可扩展工具系统 | 内核基于 cutin 插件化框架，插件支持热插拔、可在设置页管理运行时，并通过 `/plugin add` 一行命令从 jar 直链或本地路径安装外置插件；工具经 Solon `@ToolMapping` 声明式注册，支持内置工具、MCP、OpenAPI、技能和 REST API。 |
 | 代码库操作 | 在项目边界内读取、搜索、编辑文件，运行一次性或交互式命令。 |
 | 子代理协作 | 内置 `explore`、`implement`、`test`、`review`、`plan` 五种角色，支持隔离上下文、权限约束和超时控制；配置可在桌面端编辑并持久化，支持选择渠道模型。 |
@@ -374,7 +376,7 @@ loopra      →  cutin
 | Web | Solon Web、Jetty、SSE、Knife4j |
 | 前端 | Vue 3、Vite、Pinia、Ant Design Vue |
 | 桌面 | Electron、electron-builder |
-| 协议 | MCP、OpenAPI、ACP、Chat Completions API、Responses API、Anthropic Messages API |
+| 协议 | MCP、OpenAPI、ACP、Chat Completions API、OpenCode 兼容网关、Responses API、Anthropic Messages API |
 | 持久化 | JSONL 会话、项目本地 JSON、项目 Markdown 记忆 |
 
 ## 许可证

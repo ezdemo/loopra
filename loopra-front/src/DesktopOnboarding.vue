@@ -402,7 +402,7 @@ const servicePort = ref(0)
 const workspacePath = ref('')
 
 // 模型设置
-const modelForm = reactive({channelName: '默认渠道', baseUrl: '', apiKey: ''})
+const modelForm = reactive({channelName: '默认渠道', baseUrl: '', apiKey: '', apiProtocol: 'chat_completions', specialCompatibility: ''})
 const existingChannelSecret = ref(false)
 const existingChannelId = ref('')
 const probing = ref(false)
@@ -589,6 +589,8 @@ async function loadCurrentModel() {
     if (active) {
       modelForm.channelName = active.name || '默认渠道'
       modelForm.baseUrl = active.baseUrl || ''
+      modelForm.apiProtocol = active.apiProtocol || 'chat_completions'
+      modelForm.specialCompatibility = active.specialCompatibility || ''
       // 后端返回掩码密钥：未配置为空串，已配置为 '****'（短密钥）或 sk-1****a2bc（长密钥）。
       // 非空即已配置，不能用 !== '****' 判断（短密钥会被误判为未配置）。
       existingChannelSecret.value = Boolean(active.apiKey)
@@ -612,6 +614,8 @@ async function probeModels() {
     const res = await configAPI.probeRemoteModels({
       baseUrl: modelForm.baseUrl.trim(),
       apiKey: modelForm.apiKey.trim(),
+      apiProtocol: modelForm.apiProtocol,
+      specialCompatibility: modelForm.specialCompatibility,
       channelId: existingChannelId.value || undefined
     })
     if (res.success === false) throw new Error(res.message || '探测失败')
@@ -650,6 +654,7 @@ async function saveModel() {
         name: c.name || '',
         baseUrl: c.baseUrl || '',
         apiProtocol: c.apiProtocol || 'chat_completions',
+        specialCompatibility: c.specialCompatibility || '',
         apiKey: c.apiKey || '', // 掩码值原样回传，后端合并时会回退到已保存的密钥
         models: (c.models || []).map((m) => ({
           name: m.name,
@@ -659,15 +664,17 @@ async function saveModel() {
         }))
       }))
     } catch {}
+    const channelId = existingChannelId.value || `channel-${Date.now()}`
+    const channelIndex = existingChannels.findIndex((c) => c.id === channelId)
     const channel = {
-      id: existingChannelId.value || `channel-${Date.now()}`,
+      id: channelId,
       name: modelForm.channelName.trim() || '默认渠道',
       baseUrl: modelForm.baseUrl.trim(),
-      apiProtocol: 'chat_completions',
+      apiProtocol: channelIndex >= 0 ? existingChannels[channelIndex].apiProtocol : 'chat_completions',
+      specialCompatibility: channelIndex >= 0 ? existingChannels[channelIndex].specialCompatibility : '',
       apiKey: modelForm.apiKey.trim(),
       models: remoteModels.value.map((name) => ({name, contextTokens: null, imageInput: false}))
     }
-    const channelIndex = existingChannels.findIndex((c) => c.id === channel.id)
     if (channelIndex >= 0) existingChannels[channelIndex] = channel
     else existingChannels.push(channel)
     const res = await configAPI.updateConfig({

@@ -28,7 +28,9 @@ public class AppConfig {
                 config.model(),
                 config.reasoningEffort(),
                 config.modelChannelId(),
-                config.apiProtocol()
+                config.apiProtocol(),
+                config.specialCompatibility(),
+                config.activeModelMaxTokens()
         );
     }
 

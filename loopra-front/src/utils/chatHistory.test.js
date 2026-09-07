@@ -49,6 +49,44 @@ describe('buildHistoryItems', () => {
     expect(unmergedToolResults[0].content).toBe('孤立结果')
   })
 
+  it('preserves assistant turn time bounds for the process summary', () => {
+    const raw = [
+      {role: 'user', content: '检查项目', timestamp: 1000},
+      {
+        role: 'assistant',
+        reasoning_content: '开始检查',
+        tool_calls: [{id: 'call_1', function: {name: 'read', arguments: '{}'}}],
+        timestamp: 1100
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'call_1',
+        content: 'ok',
+        tool_started_at: 1200,
+        tool_finished_at: 42000,
+        timestamp: 42000
+      },
+      {role: 'assistant', content: '完成', timestamp: 43000}
+    ]
+
+    const {items} = buildHistoryItems(raw)
+
+    expect(items[1].startedAt).toBe(1000)
+    expect(items[1].finishedAt).toBe(43000)
+  })
+
+  it('uses the preceding user timestamp for a plain assistant response without tool timing', () => {
+    const raw = [
+      {role: 'user', content: '你好', timestamp: 1000},
+      {role: 'assistant', content: '你好，很高兴见到你', timestamp: 6000}
+    ]
+
+    const {items} = buildHistoryItems(raw)
+
+    expect(items[1].startedAt).toBe(1000)
+    expect(items[1].finishedAt).toBe(6000)
+  })
+
   it('restores encrypted reasoning as a fixed placeholder without exposing ciphertext', () => {
     const raw = [{
       role: 'assistant',

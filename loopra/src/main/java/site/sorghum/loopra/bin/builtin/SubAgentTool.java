@@ -9,6 +9,7 @@ import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Param;
 import site.sorghum.loopra.bin.agent.core.SubAgent;
 import site.sorghum.loopra.bin.agent.output.SubAgentEventRecorder;
+import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.model.LoopraModelProvider;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
@@ -209,10 +210,13 @@ public class SubAgentTool extends AbsToolProvider implements SolonToTools {
         String model = profile.model != null && !profile.model.isBlank()
                 ? profile.model
                 : (channel.modelEntries().isEmpty() ? loopraConfig.model() : channel.modelEntries().get(0).name());
+        LoopraConfig.ModelEntry entry = channel.modelEntry(model);
+        int maxTokens = entry != null && entry.maxTokens() > 0
+                ? entry.maxTokens() : AgentConfig.DEFAULT_MAX_TOKENS;
         // 注意：必须使用 apiUrl()（按协议补全 /chat/completions 或 /responses 后缀），
         // 直接传 baseUrl() 会把请求发到裸地址（如 POST /v1），网关会返回 404 Invalid URL。
         return new LoopraModelProvider(channel.apiUrl(), channel.apiKey(), model,
-                loopraConfig.reasoningEffort(), channel.id(), channel.apiProtocol());
+                loopraConfig.reasoningEffort(), channel.id(), channel.apiProtocol(), channel.specialCompatibility(), maxTokens);
     }
     @Override
     public Collection<FunctionTool> getSolonTools() {

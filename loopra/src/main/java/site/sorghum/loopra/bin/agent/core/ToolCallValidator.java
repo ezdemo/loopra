@@ -46,14 +46,17 @@ final class ToolCallValidator {
         if (channel == null) {
             return new ToolCallValidator(null, workspace, "校验模型渠道不存在");
         }
-        if (channel.modelEntry(config.validationModel()) == null) {
+        AgentConfig.Entry entry = channel.modelEntry(config.validationModel());
+        if (entry == null) {
             return new ToolCallValidator(null, workspace, "校验模型不在所选渠道中");
         }
         if (channel.apiUrl() == null || channel.apiUrl().isBlank() || channel.apiKey().isBlank()) {
             return new ToolCallValidator(null, workspace, "校验模型渠道的 API 地址或密钥未配置");
         }
         LoopraModelProvider client = LoopraModelProvider.forValidation(channel.apiUrl(), channel.apiKey(),
-                config.validationModel(), channel.id(), channel.apiProtocol());
+                config.validationModel(), channel.id(), channel.apiProtocol(),
+                channel.specialCompatibility(),
+                entry.maxTokens() > 0 ? entry.maxTokens() : AgentConfig.DEFAULT_MAX_TOKENS);
         return new ToolCallValidator(client, workspace, null);
     }
 

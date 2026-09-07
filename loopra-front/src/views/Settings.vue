@@ -2256,7 +2256,10 @@ const settings = reactive({
     store.settings.fontFamily = v
   },
   server: {apiBaseUrl: '', autoConnect: true},
-  ai: {baseUrl: '', apiKey: '', model: '', reasoningEffort: 'max', availableModelsText: '', prices: {}},
+  ai: {
+    baseUrl: '', apiKey: '', model: '', reasoningEffort: 'max',
+    availableModelsText: '', prices: {}
+  },
   workspace: {dir: '', mode: 'free'},
   security: {
     stormBreaker: true,

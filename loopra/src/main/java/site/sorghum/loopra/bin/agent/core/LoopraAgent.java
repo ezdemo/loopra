@@ -492,6 +492,11 @@ public class LoopraAgent {
         return loop.getReasoningEffort();
     }
 
+    /** 根据当前会话选中的模型切换最大输出 token 数。 */
+    public void setMaxTokens(int maxTokens) {
+        loop.setMaxTokens(maxTokens);
+    }
+
     /** 运行时切换快速模式（热更新，OpenAI service_tier=fast，仅 OpenAI 协议生效）。 */
     public void setFastMode(boolean fastMode) {
         loop.setFastMode(fastMode);

@@ -4,9 +4,20 @@ import {shallowMount} from '@vue/test-utils'
 import {describe, expect, it} from 'vitest'
 import ChatMessage from './ChatMessage.vue'
 
-const mountMessage = (msg, branchDisabled = false) => shallowMount(ChatMessage, {
-  props: {msg, idx: 1, snapshotRollbackLoading: new Map(), branchDisabled},
-  global: {stubs: {Teleport: true, BlockRenderer: true}}
+const BlockRendererStub = {
+  name: 'BlockRenderer',
+  props: {blocks: {type: Array, required: true}, streaming: {type: Boolean, default: false}},
+  template: '<div class="block-renderer-stub"></div>'
+}
+
+const CollapseTransitionStub = {
+  name: 'CollapseTransition',
+  template: '<div><slot /></div>'
+}
+
+const mountMessage = (msg, branchDisabled = false, streaming = false) => shallowMount(ChatMessage, {
+  props: {msg, idx: 1, snapshotRollbackLoading: new Map(), branchDisabled, streaming},
+  global: {stubs: {Teleport: true, BlockRenderer: BlockRendererStub, CollapseTransition: CollapseTransitionStub}}
 })
 
 describe('ChatMessage branching', () => {
@@ -71,5 +82,87 @@ describe('ChatMessage compacted summary', () => {
 
     await wrapper.find('.compacted-summary-btn.primary').trigger('click')
     expect(wrapper.emitted('viewRawEvents')).toEqual([[compactedMessage]])
+  })
+})
+
+describe('ChatMessage assistant process summary', () => {
+  it('folds the process before the final finish response and keeps the finish visible', async () => {
+    const processBlocks = [
+      {type: 'reasoning', content: '先检查项目', showContent: false},
+      {type: 'tool_call', name: 'read', status: '成功', result: 'ok'},
+      {type: 'content', content: '检查完成，继续处理。'}
+    ]
+    const finish = {type: 'tool_call', name: 'finish', status: '成功', result: '最终结果'}
+    const wrapper = mountMessage({id: 20, role: 'assistant', blocks: [...processBlocks, finish]})
+
+    expect(wrapper.find('.assistant-process-summary').exists()).toBe(true)
+    expect(wrapper.find('.assistant-process-toggle').text()).toContain('思考过程')
+    expect(wrapper.findAllComponents({name: 'BlockRenderer'})).toHaveLength(1)
+    expect(wrapper.findComponent({name: 'BlockRenderer'}).props('blocks')).toEqual([finish])
+
+    await wrapper.find('.assistant-process-toggle').trigger('click')
+    expect(wrapper.findAllComponents({name: 'BlockRenderer'})).toHaveLength(2)
+    expect(wrapper.findAllComponents({name: 'BlockRenderer'})[0].props('blocks')).toEqual(processBlocks)
+    expect(wrapper.findAllComponents({name: 'BlockRenderer'})[1].props('blocks')).toEqual([finish])
+  })
+
+  it('uses the last final content as the visible response when finish is absent', () => {
+    const blocks = [
+      {type: 'reasoning', content: '思考', showContent: false},
+      {type: 'tool_call', name: 'read', status: '成功', result: 'ok'},
+      {type: 'content', content: '最终正文'}
+    ]
+    const wrapper = mountMessage({id: 21, role: 'assistant', blocks})
+
+    expect(wrapper.find('.assistant-process-summary').exists()).toBe(true)
+    const renderers = wrapper.findAllComponents({name: 'BlockRenderer'})
+    expect(renderers).toHaveLength(1)
+    expect(renderers[0].props('blocks')).toEqual([{type: 'content', content: '最终正文'}])
+  })
+
+  it('shows the recorded turn duration and collapses the process with the global collapse action', async () => {
+    const wrapper = mountMessage({
+      id: 22,
+      role: 'assistant',
+      startedAt: 1000,
+      finishedAt: 43000,
+      blocks: [
+        {type: 'reasoning', content: '思考', showContent: false},
+        {type: 'content', content: '最终正文'}
+      ]
+    })
+
+    expect(wrapper.find('.assistant-process-toggle').text()).toContain('用时 42秒')
+    await wrapper.find('.assistant-process-toggle').trigger('click')
+    expect(wrapper.find('.assistant-process-detail').exists()).toBe(true)
+
+    window.dispatchEvent(new CustomEvent('loopra:collapse-all-blocks'))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.assistant-process-detail').exists()).toBe(false)
+  })
+
+  it('shows the elapsed time while live process blocks are still streaming', () => {
+    const wrapper = mountMessage({
+      id: 24,
+      role: 'assistant',
+      turnStartedAt: Date.now() - 5000,
+      blocks: [{type: 'reasoning', content: '正在思考', showContent: false}]
+    }, false, true)
+
+    expect(wrapper.find('.assistant-process-summary').exists()).toBe(true)
+    expect(wrapper.find('.assistant-process-toggle').text()).toContain('用时')
+    expect(wrapper.find('.block-renderer-stub').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('does not add a process summary when the message only contains its final response', () => {
+    const wrapper = mountMessage({
+      id: 23,
+      role: 'assistant',
+      blocks: [{type: 'tool_call', name: 'finish', status: '成功', result: '完成'}]
+    })
+
+    expect(wrapper.find('.assistant-process-summary').exists()).toBe(false)
+    expect(wrapper.findAllComponents({name: 'BlockRenderer'})).toHaveLength(1)
   })
 })

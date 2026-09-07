@@ -420,6 +420,22 @@ class JsonlSessionStoreTest {
     }
 
     @Test
+    void turnTimingSurvivesSessionRoundTrip() throws IOException {
+        ChatMessage message = ChatMessage.assistant("已完成", null, null);
+        message.setTurnStartedAt(1_000L);
+        message.setTurnFinishedAt(6_000L);
+        message.setElapsedMs(5_000L);
+        store.append(message);
+        store.flush();
+
+        ChatMessage loaded = store.load().get(0);
+
+        assertEquals(1_000L, loaded.getTurnStartedAt());
+        assertEquals(6_000L, loaded.getTurnFinishedAt());
+        assertEquals(5_000L, loaded.getElapsedMs());
+    }
+
+    @Test
     void flushDoesNotThrow() {
         assertDoesNotThrow(() -> store.flush());
     }

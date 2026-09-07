@@ -10,6 +10,7 @@ import site.sorghum.cutin.core.model.ModelProvider;
 import site.sorghum.cutin.core.model.ModelResponse;
 import site.sorghum.cutin.core.model.StreamChunk;
 import site.sorghum.cutin.integrations.model.*;
+import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 
 import java.util.HashMap;
@@ -40,8 +41,10 @@ public class LoopraModelProvider implements ModelProvider {
     private final String apiKey;
     private final String modelChannelId;
     private final String apiProtocol;
+    private final String specialCompatibility;
     private volatile String model;
     private volatile String reasoningEffort;
+    private volatile int maxTokens;
     private volatile boolean fastMode;
     private volatile String sessionAffinity;
     private volatile ModelProvider provider;
@@ -63,18 +66,30 @@ public class LoopraModelProvider implements ModelProvider {
 
     public LoopraModelProvider(String apiUrl, String apiKey, String model, String reasoningEffort,
                                String modelChannelId, String apiProtocol) {
+        this(apiUrl, apiKey, model, reasoningEffort, modelChannelId, apiProtocol, "",
+                AgentConfig.DEFAULT_MAX_TOKENS);
+    }
+
+    public LoopraModelProvider(String apiUrl, String apiKey, String model, String reasoningEffort,
+                               String modelChannelId, String apiProtocol, String specialCompatibility,
+                               int maxTokens) {
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
         this.model = model;
         this.reasoningEffort = reasoningEffort;
+        this.maxTokens = maxTokens > 0
+                ? maxTokens : AgentConfig.DEFAULT_MAX_TOKENS;
         this.modelChannelId = modelChannelId;
-        this.apiProtocol = apiProtocol;
+        this.apiProtocol = normalizeApiProtocol(apiProtocol);
+        this.specialCompatibility = normalizeSpecialCompatibility(specialCompatibility);
     }
 
-    /** 创建短超时、零重试的校验 Provider。 */
+    /** 创建短超时、零重试、带完整渠道配置的校验 Provider。 */
     public static LoopraModelProvider forValidation(String apiUrl, String apiKey, String model,
-                                                    String modelChannelId, String apiProtocol) {
-        return new LoopraModelProvider(apiUrl, apiKey, model, "none", modelChannelId, apiProtocol);
+                                                    String modelChannelId, String apiProtocol,
+                                                    String specialCompatibility, int maxTokens) {
+        return new LoopraModelProvider(apiUrl, apiKey, model, "none", modelChannelId, apiProtocol,
+                specialCompatibility, maxTokens);
     }
 
     /** 当前模型服务的请求地址。 */
@@ -127,7 +142,12 @@ public class LoopraModelProvider implements ModelProvider {
      */
     @Override
     public ONode buildBody(ModelCallRequest request, boolean stream) {
-        return provider().buildBody(prepareRequest(request), stream);
+        return provider()._buildBody(prepareRequest(request), stream);
+    }
+
+    @Override
+    public Map<String, String> requestHeaders(ModelCallRequest request) {
+        return provider().requestHeaders(prepareRequest(request));
     }
 
     @Override
@@ -154,6 +174,16 @@ public class LoopraModelProvider implements ModelProvider {
         return reasoningEffort;
     }
 
+    /** 返回当前请求使用的最大输出 token 数。 */
+    public int getMaxTokens() {
+        return maxTokens;
+    }
+
+    /** 返回当前渠道选择的特殊兼容插件 ID。 */
+    public String getSpecialCompatibility() {
+        return specialCompatibility;
+    }
+
     /** 运行时切换模型；模型变化后重建底层 Provider。 */
     public void setModel(String model) {
         synchronized (this) {
@@ -166,6 +196,15 @@ public class LoopraModelProvider implements ModelProvider {
     public void setReasoningEffort(String reasoningEffort) {
         synchronized (this) {
             this.reasoningEffort = reasoningEffort;
+            provider = null;
+        }
+    }
+
+    /** 运行时切换最大输出 token 数；变化后重建底层 Provider。 */
+    public void setMaxTokens(int maxTokens) {
+        synchronized (this) {
+            this.maxTokens = maxTokens > 0
+                    ? maxTokens : AgentConfig.DEFAULT_MAX_TOKENS;
             provider = null;
         }
     }
@@ -205,7 +244,9 @@ public class LoopraModelProvider implements ModelProvider {
             model,
             reasoningEffort,
             modelChannelId,
-            apiProtocol
+            apiProtocol,
+            specialCompatibility,
+            maxTokens
         );
         fork.setSessionAffinity(sessionAffinity);
         fork.setFastMode(fastMode);
@@ -287,6 +328,9 @@ public class LoopraModelProvider implements ModelProvider {
         if (fastMode) {
             options.put("serviceTier", "fast");
         }
+        options.put("maxTokens", maxTokens);
+        options.put("specialCompatibility", specialCompatibility);
+        options.put("fallbackSessionId", id());
         ModelProviderConfig config = new ModelProviderConfig(
             id(),
             apiUrl,
@@ -302,4 +346,17 @@ public class LoopraModelProvider implements ModelProvider {
         }
         return new OpenAiChatCompletionsProvider(config);
     }
+
+    private static String normalizeApiProtocol(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("responses".equals(normalized)) return "responses";
+        if ("anthropic".equals(normalized)) return "anthropic";
+        return "chat_completions";
+    }
+
+    private static String normalizeSpecialCompatibility(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized;
+    }
+
 }

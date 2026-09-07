@@ -246,9 +246,14 @@ public class AgentLoop implements
     /** 任务完成标志 —— finish 工具设置，非空时主循环将退出并返回该内容 */
     private volatile String finishContent = null;
 
-    @Setter
     @Getter
     private volatile String sessionId;
+
+    /** 设置当前会话 ID，并同步给模型 Provider 以支持会话级路由。 */
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
+        modelProvider.setSessionAffinity(sessionId);
+    }
 
     /** 上次触发 tool-gateway 重启时的禁用集合快照；用于跳过每轮无效重启。 */
     private volatile Set<String> lastGatewayDisabled = Collections.emptySet();
@@ -487,6 +492,11 @@ public class AgentLoop implements
     /** 运行时切换推理强度（热更新） */
     public void setReasoningEffort(String reasoningEffort) {
         modelProvider.setReasoningEffort(reasoningEffort);
+    }
+
+    /** 运行时切换最大输出 token 数（热更新，包含推理 token）。 */
+    public void setMaxTokens(int maxTokens) {
+        modelProvider.setMaxTokens(maxTokens);
     }
 
     /** 运行时切换快速模式（热更新，OpenAI service_tier=fast，仅 OpenAI 协议生效） */

@@ -739,6 +739,7 @@ public class AgentService {
             }
             if (currentTarget != null && currentTarget.channelId().equals(target.channelId())) {
                 agent.setModel(target.model());
+                agent.setMaxTokens(ConfigService.getConfig().modelMaxTokens(target.channelId(), target.model()));
                 agent.setReasoningEffort(settings.reasoningEffort());
                 return agent;
             }
@@ -793,7 +794,8 @@ public class AgentService {
         String reasoningEffort = settings.reasoningEffort();
         String hitl = cfg.hitl();
         LoopraModelProvider modelProvider = new LoopraModelProvider(apiUrl, apiKey, target.model(), reasoningEffort,
-                target.channelId(), channel.apiProtocol());
+                target.channelId(), channel.apiProtocol(), channel.specialCompatibility(),
+                cfg.modelMaxTokens(target.channelId(), target.model()));
         modelProvider.setFastMode(cfg.fastMode());
 
         // 会话级隔离分支模式：文件根指向隔离分支，会话身份/Goal/Checklist 仍归属主项目。
@@ -1190,6 +1192,8 @@ public class AgentService {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
         ReentrantLock lock = sessionCache.getLock(sessionKey);
         lock.lock();
+        long turnStartedAt = System.currentTimeMillis();
+        int historySizeBeforeChat = -1;
 
         // 设置当前会话名称到 ThreadLocal，供工具执行时获取
         String effectiveSessionName = sessionName != null ? sessionName : "default";
@@ -1204,6 +1208,7 @@ public class AgentService {
             // 设置会话ID到 AgentLoop
             String sessionId = sessionName != null ? sessionName : "default";
             agent.setSessionId(sessionId);
+            historySizeBeforeChat = agent.historySize();
             return agent.chat(userMessage);
         } finally {
             // 清理 ThreadLocal
@@ -1212,6 +1217,7 @@ public class AgentService {
             // 刷入会话数据
             LoopraAgent agent = sessionCache.get(sessionKey);
             if (agent != null) {
+                persistTurnTiming(agent, historySizeBeforeChat, turnStartedAt, System.currentTimeMillis());
                 agent.flushSession();
                 agent.saveUsage();
             }
@@ -1230,6 +1236,8 @@ public class AgentService {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
         ReentrantLock lock = sessionCache.getLock(sessionKey);
         lock.lock();
+        long turnStartedAt = System.currentTimeMillis();
+        int historySizeBeforeChat = -1;
 
         // 设置当前会话名称到 ThreadLocal，供工具执行时获取
         String effectiveSessionName = sessionName != null ? sessionName : "default";
@@ -1275,6 +1283,7 @@ public class AgentService {
                     contextMessage.setWebHidden(true);
                     agent.getCtx().addUser(contextMessage);
                 }
+                historySizeBeforeChat = agent.historySize();
                 reply = agent.chat(effectiveMessage);
             } catch (Exception executionError) {
                 if (planExecutionPrepared) {
@@ -1335,6 +1344,7 @@ public class AgentService {
             LoopraAgent agent = sessionCache.get(sessionKey);
             if (agent != null) {
                 agent.setOutput(AgentOutput.NOOP);
+                persistTurnTiming(agent, historySizeBeforeChat, turnStartedAt, System.currentTimeMillis());
                 agent.flushSession();
                 agent.saveUsage();
             }
@@ -1347,6 +1357,38 @@ public class AgentService {
             }
 
             lock.unlock();
+        }
+    }
+
+    /**
+     * 为本轮生成的 assistant 消息写入整轮耗时。
+     *
+     * <p>消息在 AgentLoop 中是逐条 append 的，回合结束后才知道完整耗时，
+     * 因此这里更新内存对象并重写当前会话文件；事件审计日志仍保持 append-only。</p>
+     */
+    private void persistTurnTiming(LoopraAgent agent, int historyStart,
+                                   long startedAt, long finishedAt) {
+        if (agent == null || historyStart < 0 || finishedAt < startedAt) return;
+        ConversationContext ctx = agent.getCtx();
+        if (ctx == null) return;
+        List<ChatMessage> history = ctx.getHistory();
+        if (historyStart >= history.size()) return;
+
+        long elapsedMs = Math.max(0L, finishedAt - startedAt);
+        boolean updated = false;
+        for (int i = historyStart; i < history.size(); i++) {
+            ChatMessage message = history.get(i);
+            if (!message.isAssistant()) continue;
+            message.setTurnStartedAt(startedAt);
+            message.setTurnFinishedAt(finishedAt);
+            message.setElapsedMs(elapsedMs);
+            updated = true;
+        }
+        if (!updated || ctx.getSessionStore() == null) return;
+        try {
+            ctx.getSessionStore().rewrite(history);
+        } catch (IOException e) {
+            log.warn("[session] 写入助手回合耗时失败: {}", e.getMessage());
         }
     }
 

@@ -19,9 +19,31 @@ export const hasEncryptedReasoning = (value) => {
 }
 
 export const formatTimestamp = (timestamp) => {
-  if (!timestamp) return now()
+  if (timestamp == null || timestamp === '') return now()
   const d = new Date(timestamp)
   return d.toLocaleTimeString('zh-CN', {hour12: false, hour: '2-digit', minute: '2-digit'})
+}
+
+const toTimestamp = (value) => {
+  if (value instanceof Date) {
+    const time = value.getTime()
+    return Number.isFinite(time) ? time : null
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const updateTurnTime = (item, startedAt, finishedAt) => {
+  const start = toTimestamp(startedAt)
+  const finish = toTimestamp(finishedAt)
+  if (start != null) item.startedAt = item.startedAt == null ? start : Math.min(item.startedAt, start)
+  if (finish != null) item.finishedAt = item.finishedAt == null ? finish : Math.max(item.finishedAt, finish)
 }
 
 export const mergeFileChanges = (blocks, changes) => {
@@ -71,16 +93,20 @@ export const buildHistoryItems = (raw = [], includeWebHidden = false) => {
         content: m.content || '',
         durationMs: m.tool_duration_ms ?? m.toolDurationMs ?? null,
         startedAt: m.tool_started_at ?? m.toolStartedAt ?? null,
-        finishedAt: m.tool_finished_at ?? m.toolFinishedAt ?? null
+        finishedAt: m.tool_finished_at ?? m.toolFinishedAt ?? null,
+        timestamp: m.timestamp
       }
     }
   }
 
   const items = []
   let lastAssistantItem = null
+  let lastUserTimestamp = null
   let idCounter = 0
   for (const m of events) {
     if (m.role === 'user') {
+      const userTimestamp = toTimestamp(m.timestamp)
+      if (userTimestamp != null) lastUserTimestamp = userTimestamp
       if (m.web_hidden || m.webHidden) {
         if (!includeWebHidden) {
           lastAssistantItem = null
@@ -136,11 +162,46 @@ export const buildHistoryItems = (raw = [], includeWebHidden = false) => {
       if (!m.tool_call_id || !Object.hasOwn(toolResults, m.tool_call_id)) unmergedToolResults.push(m)
       continue
     } else if (m.role === 'assistant') {
+      const messageTimestamp = toTimestamp(m.timestamp)
+      const turnStartedAt = toTimestamp(m.turn_started_at ?? m.turnStartedAt)
+      const turnFinishedAt = toTimestamp(m.turn_finished_at ?? m.turnFinishedAt)
+      const elapsedMs = toTimestamp(
+        m.elapsed_ms ?? m.elapsedMs ?? m.turn_duration_ms ?? m.turnDurationMs
+      )
       if (!lastAssistantItem) {
-        lastAssistantItem = {id: Date.now() + idCounter++, role: 'assistant', time: formatTimestamp(m.timestamp), blocks: []}
+        lastAssistantItem = {
+          id: Date.now() + idCounter++,
+          role: 'assistant',
+          time: formatTimestamp(m.timestamp),
+          blocks: [],
+          // 旧历史没有 turn_started_at 时，用本轮用户消息时间作为回合起点；
+          // 这样没有工具调用的普通回答也不会在恢复后退化成 0 毫秒。
+          startedAt: turnStartedAt ?? lastUserTimestamp ?? messageTimestamp,
+          finishedAt: turnFinishedAt ?? messageTimestamp
+        }
         items.push(lastAssistantItem)
       } else {
-        lastAssistantItem.time = formatTimestamp(m.timestamp)
+        if (m.timestamp != null) lastAssistantItem.time = formatTimestamp(m.timestamp)
+      }
+      updateTurnTime(
+        lastAssistantItem,
+        turnStartedAt ?? lastUserTimestamp,
+        turnFinishedAt ?? messageTimestamp
+      )
+      if (turnStartedAt != null) {
+        lastAssistantItem.turnStartedAt = lastAssistantItem.turnStartedAt == null
+          ? turnStartedAt
+          : Math.min(lastAssistantItem.turnStartedAt, turnStartedAt)
+      }
+      if (turnFinishedAt != null) {
+        lastAssistantItem.turnFinishedAt = lastAssistantItem.turnFinishedAt == null
+          ? turnFinishedAt
+          : Math.max(lastAssistantItem.turnFinishedAt, turnFinishedAt)
+      }
+      if (elapsedMs != null && elapsedMs >= 0) {
+        lastAssistantItem.elapsedMs = lastAssistantItem.elapsedMs == null
+          ? elapsedMs
+          : Math.max(lastAssistantItem.elapsedMs, elapsedMs)
       }
       if (m.reasoning_content) lastAssistantItem.blocks.push({
         type: 'reasoning',
@@ -162,6 +223,9 @@ export const buildHistoryItems = (raw = [], includeWebHidden = false) => {
         const toolResult = toolResults[tc.id]
         const hasResult = Object.hasOwn(toolResults, tc.id)
         if (hasResult) matchedToolIds.add(tc.id)
+        updateTurnTime(lastAssistantItem,
+          toolResult?.startedAt ?? messageTimestamp,
+          toolResult?.finishedAt ?? toolResult?.timestamp ?? messageTimestamp)
         lastAssistantItem.blocks.push({
           type: 'tool_call',
           name,
@@ -169,7 +233,7 @@ export const buildHistoryItems = (raw = [], includeWebHidden = false) => {
           args,
           result: toolResult?.content || '',
           toolDurationMs: toolResult?.durationMs,
-          toolStartedAt: toolResult?.startedAt || m.timestamp,
+          toolStartedAt: toolResult?.startedAt ?? messageTimestamp,
           toolFinishedAt: toolResult?.finishedAt,
           expanded: !hasResult
         })

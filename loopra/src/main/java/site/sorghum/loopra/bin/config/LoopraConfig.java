@@ -23,14 +23,26 @@ import java.util.stream.Collectors;
 @Slf4j
 public class LoopraConfig implements AgentConfig {
 
+    /** 默认最大输出 token 数（包含推理 token）。 */
+    public static final int DEFAULT_MAX_TOKENS = AgentConfig.DEFAULT_MAX_TOKENS;
     private static volatile LoopraConfig INSTANCE;
 
     private final ONode root;
 
     private LoopraConfig(ONode root) {
         this.root = root;
+        removeDeprecatedGlobalFields(root);
         migrateRenamedTool(root, "task", "sub_agent");
         migrateRenamedTool(root, "goal_mark_step", "goal_update_step");
+    }
+
+    /** 删除旧版全局字段；输出上限和特殊兼容现在只能配置在具体条目/渠道中。 */
+    private static boolean removeDeprecatedGlobalFields(ONode config) {
+        if (config == null || !config.isObject()) return false;
+        boolean changed = config.remove("maxTokens") != null;
+        // 特殊兼容已经是渠道级配置，不再保留旧的全局字段。
+        changed |= config.remove("specialCompatibility") != null;
+        return changed;
     }
 
     /** 将历史工具名迁移到当前名称，保留用户原有的启用或禁用语义。 */
@@ -104,6 +116,7 @@ public class LoopraConfig implements AgentConfig {
                       "baseUrl": "https://api.deepseek.com/v1",
                       "apiKey": "",
                       "apiProtocol": "chat_completions",
+                      "specialCompatibility": "",
                       "models": [
                         { "name": "deepseek-v4-flash", "contextTokens": -1, "imageInput": false },
                         { "name": "deepseek-v4-pro", "contextTokens": -1, "imageInput": false },
@@ -286,13 +299,14 @@ public class LoopraConfig implements AgentConfig {
         try {
             String json = String.join("\n", Files.readAllLines(configPath));
             ONode root = ONode.ofJson(json);
+            boolean deprecatedGlobalFieldsRemoved = removeDeprecatedGlobalFields(root);
             // 在补默认值前转写旧单渠道配置，避免把默认渠道覆盖用户的旧密钥和地址。
             boolean modelChannelsMigrated = migrateLegacyModelChannels(root);
             // 加载后用默认配置补充缺失字段（适配旧版本 config.json）
             mergeDefaults(root, defaultConfigNode());
             boolean defaultWorkspaceInitialized = initializeDefaultWorkspace(root, configDir);
             LoopraConfig config = new LoopraConfig(root);
-            if (defaultWorkspaceInitialized || modelChannelsMigrated) {
+            if (defaultWorkspaceInitialized || modelChannelsMigrated || deprecatedGlobalFieldsRemoved) {
                 config.save();
             }
             return config;
@@ -324,6 +338,12 @@ public class LoopraConfig implements AgentConfig {
         ModelChannel channel = activeModelChannel();
         return channel != null ? channel.apiProtocol()
                 : normalizeApiProtocol(root.select("$.apiProtocol").getString());
+    }
+
+    /** 当前渠道启用的特殊兼容插件 ID；空字符串表示不启用。 */
+    public String specialCompatibility() {
+        ModelChannel channel = activeModelChannel();
+        return channel == null ? "" : channel.specialCompatibility();
     }
     
     /** 获取当前渠道可直接调用的完整 API URL。 */
@@ -359,13 +379,18 @@ public class LoopraConfig implements AgentConfig {
     private static String normalizeApiProtocol(String apiProtocol) {
         if (apiProtocol == null) return "chat_completions";
         String normalized = apiProtocol.trim().toLowerCase(Locale.ROOT);
-        if ("response".equals(normalized) || "responses".equals(normalized)) {
+        if ("responses".equals(normalized)) {
             return "responses";
         }
-        if ("anthropic".equals(normalized) || "claude".equals(normalized)) {
+        if ("anthropic".equals(normalized)) {
             return "anthropic";
         }
         return "chat_completions";
+    }
+
+    /** 规范化特殊兼容插件 ID；未知 ID 保留，便于外部插件扩展。 */
+    private static String normalizeSpecialCompatibility(String specialCompatibility) {
+        return trim(specialCompatibility).toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -436,9 +461,11 @@ public class LoopraConfig implements AgentConfig {
             String baseUrl = trim(item.get("baseUrl").getString());
             String apiKey = trim(item.get("apiKey").getString());
             String apiProtocol = normalizeApiProtocol(item.get("apiProtocol").getString());
+            String specialCompatibility = normalizeSpecialCompatibility(item.get("specialCompatibility").getString());
             if (id.isEmpty()) id = "channel-" + (channels.size() + 1);
             if (name.isEmpty()) name = "渠道 " + (channels.size() + 1);
-            channels.add(new ModelChannel(id, name, baseUrl, apiKey, apiProtocol, modelEntries(item.get("models"))));
+            channels.add(new ModelChannel(id, name, baseUrl, apiKey, apiProtocol, specialCompatibility,
+                    modelEntries(item.get("models"))));
         }
         return channels;
     }
@@ -461,6 +488,20 @@ public class LoopraConfig implements AgentConfig {
         return channel == null ? null : channel.modelEntry(model());
     }
 
+    /**
+     * 获取指定模型的最大输出 token 数。
+     * 模型条目未配置时使用内置默认值。
+     */
+    public int modelMaxTokens(String channelId, String modelName) {
+        ModelEntry entry = modelEntry(channelId, modelName);
+        return entry != null && entry.maxTokens() > 0 ? entry.maxTokens() : DEFAULT_MAX_TOKENS;
+    }
+
+    /** 获取当前选中模型的最大输出 token 数。 */
+    public int activeModelMaxTokens() {
+        return modelMaxTokens(modelChannelId(), model());
+    }
+
     /** 当前渠道优先使用 modelChannelId；旧配置缺失时按当前模型归属兜底。 */
     public ModelChannel activeModelChannel() {
         List<ModelChannel> channels = modelChannels();
@@ -478,9 +519,14 @@ public class LoopraConfig implements AgentConfig {
 
     /** 配置文件中的单个模型渠道。models() 保持名称列表以兼容已有调用。 */
     public record ModelChannel(String id, String name, String baseUrl, String apiKey, String apiProtocol,
-                               List<ModelEntry> modelEntries) implements AgentConfig.Channel {
+                               String specialCompatibility, List<ModelEntry> modelEntries) implements AgentConfig.Channel {
         public ModelChannel(String id, String name, String baseUrl, String apiKey, List<ModelEntry> modelEntries) {
-            this(id, name, baseUrl, apiKey, "chat_completions", modelEntries);
+            this(id, name, baseUrl, apiKey, "chat_completions", "", modelEntries);
+        }
+
+        public ModelChannel(String id, String name, String baseUrl, String apiKey, String apiProtocol,
+                            List<ModelEntry> modelEntries) {
+            this(id, name, baseUrl, apiKey, apiProtocol, "", modelEntries);
         }
             
         public ModelChannel {
@@ -489,6 +535,7 @@ public class LoopraConfig implements AgentConfig {
             baseUrl = baseUrl == null ? "" : baseUrl;
             apiKey = apiKey == null ? "" : apiKey;
             apiProtocol = normalizeApiProtocol(apiProtocol);
+            specialCompatibility = normalizeSpecialCompatibility(specialCompatibility);
             modelEntries = modelEntries == null ? List.of() : List.copyOf(modelEntries);
         }
         
@@ -513,11 +560,17 @@ public class LoopraConfig implements AgentConfig {
     }
 
     /** 配置文件中的单个模型条目。价格单位为每百万 token 的人民币金额。 */
-    public record ModelEntry(String name, int contextTokens, boolean imageInput, Map<String, Double> price)
+    public record ModelEntry(String name, int contextTokens, int maxTokens,
+                             boolean imageInput, Map<String, Double> price)
             implements AgentConfig.Entry {
+        public ModelEntry(String name, int contextTokens, boolean imageInput, Map<String, Double> price) {
+            this(name, contextTokens, -1, imageInput, price);
+        }
+
         public ModelEntry {
             name = trim(name);
             contextTokens = contextTokens > 0 ? contextTokens : -1;
+            maxTokens = maxTokens > 0 ? maxTokens : -1;
             price = price == null ? Map.of() : Map.copyOf(price);
         }
     }
@@ -530,6 +583,7 @@ public class LoopraConfig implements AgentConfig {
                 String name = trim(modelNode.get("name").getString());
                 if (!name.isEmpty()) {
                     entries.add(new ModelEntry(name, modelNode.get("contextTokens").getInt(),
+                            modelNode.get("maxTokens").getInt(),
                             modelNode.get("imageInput").getBoolean(), priceMap(modelNode.get("price"))));
                 }
             } else {
@@ -975,6 +1029,11 @@ public class LoopraConfig implements AgentConfig {
                         && !"imageUnderstandingModelChannelId".equals(key))
                     || ("apiKey".equals(key) && str.contains("****")))) continue;
 
+            // 旧的全局模型参数已废弃；配置只能写入具体模型/渠道条目。
+            if ("maxTokens".equals(key) || "specialCompatibility".equals(key)) {
+                continue;
+            }
+
             // 更新到 ONode
             if ("modelChannels".equals(key) && value instanceof List<?> list) {
                 root.set(key, modelChannelsNode(mergeModelChannelUpdates(list)));
@@ -1025,7 +1084,7 @@ public class LoopraConfig implements AgentConfig {
         if (channels != null && channels.isArray() && !channels.getArray().isEmpty()) {
             boolean requiresNormalization = false;
             for (ONode channel : channels.getArray()) {
-                if (channel.get("apiProtocol").isNull()) {
+                if (channel.get("apiProtocol").isNull() || channel.get("specialCompatibility").isNull()) {
                     requiresNormalization = true;
                 }
                 ONode models = channel.get("models");
@@ -1050,6 +1109,8 @@ public class LoopraConfig implements AgentConfig {
                 value.put("baseUrl", trim(channel.get("baseUrl").getString()));
                 value.put("apiKey", trim(channel.get("apiKey").getString()));
                 value.put("apiProtocol", normalizeApiProtocol(channel.get("apiProtocol").getString()));
+                value.put("specialCompatibility", normalizeSpecialCompatibility(
+                        channel.get("specialCompatibility").getString()));
                 value.put("models", modelEntries(channel.get("models")));
                 normalized.add(value);
             }
@@ -1075,6 +1136,7 @@ public class LoopraConfig implements AgentConfig {
         channel.put("baseUrl", baseUrl);
         channel.put("apiKey", apiKey);
         channel.put("apiProtocol", normalizeApiProtocol(config.select("$.apiProtocol").getString()));
+        channel.put("specialCompatibility", "");
         channel.put("models", models);
         config.set("modelChannels", modelChannelsNode(List.of(channel)));
         config.set("modelChannelId", "default");
@@ -1099,9 +1161,13 @@ public class LoopraConfig implements AgentConfig {
             String name = trim(Objects.toString(input.get("name"), ""));
             String baseUrl = trim(Objects.toString(input.get("baseUrl"), ""));
             String apiKey = trim(Objects.toString(input.get("apiKey"), ""));
-            String apiProtocol = input.containsKey("apiProtocol")
-                    ? normalizeApiProtocol(Objects.toString(input.get("apiProtocol"), ""))
+            String rawApiProtocol = input.containsKey("apiProtocol")
+                    ? Objects.toString(input.get("apiProtocol"), "")
                     : previous != null ? previous.apiProtocol() : "chat_completions";
+            String apiProtocol = normalizeApiProtocol(rawApiProtocol);
+            String specialCompatibility = input.containsKey("specialCompatibility")
+                    ? normalizeSpecialCompatibility(Objects.toString(input.get("specialCompatibility"), ""))
+                    : previous != null ? previous.specialCompatibility() : "";
             if ((apiKey.isEmpty() || apiKey.contains("****")) && previous != null) apiKey = previous.apiKey();
             List<ModelEntry> models = modelEntries(input.get("models"));
             Map<String, Object> channel = new LinkedHashMap<>();
@@ -1110,6 +1176,7 @@ public class LoopraConfig implements AgentConfig {
             channel.put("baseUrl", baseUrl.isEmpty() && previous != null ? previous.baseUrl() : baseUrl);
             channel.put("apiKey", apiKey);
             channel.put("apiProtocol", apiProtocol);
+            channel.put("specialCompatibility", specialCompatibility);
             channel.put("models", models);
             result.add(channel);
         }
@@ -1141,6 +1208,8 @@ public class LoopraConfig implements AgentConfig {
             node.set("baseUrl", Objects.toString(channel.get("baseUrl"), ""));
             node.set("apiKey", Objects.toString(channel.get("apiKey"), ""));
             node.set("apiProtocol", normalizeApiProtocol(Objects.toString(channel.get("apiProtocol"), "")));
+            node.set("specialCompatibility", normalizeSpecialCompatibility(
+                    Objects.toString(channel.get("specialCompatibility"), "")));
             node.set("models", modelEntriesNode(modelEntries(channel.get("models"))));
             array.add(node);
         }
@@ -1154,6 +1223,7 @@ public class LoopraConfig implements AgentConfig {
             ONode node = ONode.ofJson("{}");
             node.set("name", entry.name());
             node.set("contextTokens", entry.contextTokens());
+            if (entry.maxTokens() > 0) node.set("maxTokens", entry.maxTokens());
             node.set("imageInput", entry.imageInput());
             if (!entry.price().isEmpty()) {
                 ONode price = node.getOrNew("price").asObject();
@@ -1174,6 +1244,7 @@ public class LoopraConfig implements AgentConfig {
                 String name = trim(Objects.toString(value.get("name"), ""));
                 if (!name.isEmpty()) {
                     entries.add(new ModelEntry(name, integerValue(value.get("contextTokens")),
+                            integerValue(value.get("maxTokens")),
                             booleanValue(value.get("imageInput")), priceMap(value.get("price"))));
                 }
             } else {
@@ -1228,6 +1299,7 @@ public class LoopraConfig implements AgentConfig {
      * 保存前自动补充默认配置中缺失的字段，确保新版本新增的配置项自动出现。
      */
     public void save() throws IOException {
+        removeDeprecatedGlobalFields(root);
         // 保存前补充默认配置中缺失的字段
         mergeDefaults(root, defaultConfigNode());
         migrateRenamedTool(root, "task", "sub_agent");

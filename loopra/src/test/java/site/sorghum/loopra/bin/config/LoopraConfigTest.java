@@ -26,6 +26,8 @@ class LoopraConfigTest {
 
             assertTrue(Files.exists(tempDir.resolve(".loopra/config.json")));
             assertEquals("", config.apiKey());
+            assertEquals("chat_completions", config.activeModelChannel().apiProtocol());
+            assertEquals("", config.activeModelChannel().specialCompatibility());
             assertEquals(tempDir.resolve(".loopra/defaultWorkSpace").toAbsolutePath().normalize(),
                     config.workspaceDir());
         } finally {
@@ -58,6 +60,12 @@ class LoopraConfigTest {
     void buildsProtocolApiUrlForModelChannels() {
         assertEquals("https://api.example.com/v1/chat/completions",
                 new LoopraConfig.ModelChannel("id", "name", "https://api.example.com/v1", "key", List.of()).apiUrl());
+        assertEquals("https://api.example.com/v1/chat/completions",
+                new LoopraConfig.ModelChannel("id", "name", "https://api.example.com/v1", "key",
+                        "chat_completions", "opencode", List.of()).apiUrl());
+        assertEquals("opencode",
+                new LoopraConfig.ModelChannel("id", "name", "https://api.example.com/v1", "key",
+                        "chat_completions", "opencode", List.of()).specialCompatibility());
         assertEquals("https://api.example.com/v1/responses",
                 new LoopraConfig.ModelChannel("id", "name", "https://api.example.com/v1/", "key", "responses", List.of()).apiUrl());
         assertEquals("https://api.example.com/v1/responses",
@@ -81,7 +89,7 @@ class LoopraConfigTest {
         assertEquals("https://api.anthropic.com/v1/messages",
                 new LoopraConfig.ModelChannel("id", "name", "https://api.anthropic.com/v1/messages", "key", "anthropic", List.of()).apiUrl());
         assertEquals("https://api.anthropic.com/v1/messages",
-                new LoopraConfig.ModelChannel("id", "name", "https://api.anthropic.com/chat/completions", "key", "claude", List.of()).apiUrl());
+                new LoopraConfig.ModelChannel("id", "name", "https://api.anthropic.com/chat/completions", "key", "anthropic", List.of()).apiUrl());
         assertEquals("https://api.anthropic.com/v1/messages?beta=true",
                 new LoopraConfig.ModelChannel("id", "name", "https://api.anthropic.com?beta=true", "key", "anthropic", List.of()).apiUrl());
         // DeepSeek / 小米 MiMo 等兼容网关：baseUrl 已含 /anthropic 前缀
@@ -196,6 +204,82 @@ class LoopraConfigTest {
     @Test
     void supportsContinuingAfterNoToolCallWhenConfigured() throws Exception {
         assertFalse(config("{\"terminateOnNoToolCall\":false}").terminateOnNoToolCall());
+    }
+
+    @Test
+    void usesDefaultMaxTokensWhenModelEntryOmitsIt() throws Exception {
+        assertEquals(32768, config("{}").modelMaxTokens("main", "model"));
+    }
+
+    @Test
+    void readsMaxTokensPerModelWithDefaultFallback() throws Exception {
+        LoopraConfig config = config("""
+                {"model":"large","modelChannelId":"main",
+                 "modelChannels":[{"id":"main","models":[
+                   {"name":"large","maxTokens":131072},
+                   {"name":"small"}
+                 ]}]}
+                """);
+
+        assertEquals(131072, config.modelMaxTokens("main", "large"));
+        assertEquals(32768, config.modelMaxTokens("main", "small"));
+        assertEquals(131072, config.activeModelMaxTokens());
+    }
+
+    @Test
+    void readsSpecialCompatibilityPerChannel() throws Exception {
+        LoopraConfig config = config("""
+                {"model":"main","modelChannelId":"main",
+                 "modelChannels":[{"id":"main","apiProtocol":"chat_completions",
+                   "specialCompatibility":"opencode","models":[{"name":"main"}]}]}
+                """);
+
+        assertEquals("chat_completions", config.modelChannel("main").apiProtocol());
+        assertEquals("opencode", config.modelChannel("main").specialCompatibility());
+    }
+
+    @Test
+    void doesNotTreatProtocolNameAsSpecialCompatibility() throws Exception {
+        Path configDir = tempDir.resolve(".loopra");
+        Files.createDirectories(configDir);
+        Files.writeString(configDir.resolve("config.json"), """
+                {"model":"main","modelChannelId":"main","modelChannels":[
+                  {"id":"main","baseUrl":"https://example.test/v1","apiKey":"key",
+                   "apiProtocol":"some_unknown_protocol","models":[{"name":"main"}]}
+                ]}
+                """);
+
+        String originalUserHome = System.getProperty("user.home");
+        System.setProperty("user.home", tempDir.toString());
+        try {
+            LoopraConfig config = LoopraConfig.load();
+
+            assertEquals("chat_completions", config.modelChannel("main").apiProtocol());
+            assertEquals("", config.modelChannel("main").specialCompatibility());
+            ONode saved = ONode.ofJson(Files.readString(configDir.resolve("config.json")));
+            assertEquals("chat_completions", saved.select("$.modelChannels[0].apiProtocol").getString());
+            assertEquals("", saved.select("$.modelChannels[0].specialCompatibility").getString());
+        } finally {
+            System.setProperty("user.home", originalUserHome);
+        }
+    }
+
+    @Test
+    void removesLegacyGlobalMaxTokensWhenLoading() throws Exception {
+        Path configDir = tempDir.resolve(".loopra");
+        Files.createDirectories(configDir);
+        Files.writeString(configDir.resolve("config.json"), "{\"maxTokens\":65536}");
+
+        String originalUserHome = System.getProperty("user.home");
+        System.setProperty("user.home", tempDir.toString());
+        try {
+            LoopraConfig.load();
+
+            ONode saved = ONode.ofJson(Files.readString(configDir.resolve("config.json")));
+            assertFalse(saved.getObject().containsKey("maxTokens"));
+        } finally {
+            System.setProperty("user.home", originalUserHome);
+        }
     }
 
     @Test
@@ -327,10 +411,12 @@ class LoopraConfigTest {
             config.updateAndSave(Map.of(
                     "apiKey", "root****cret",
                     "modelChannels", List.of(Map.of(
-                            "id", "main", "name", "Main", "baseUrl", "https://example.test", "apiKey", "secr****-key",
+                    "id", "main", "name", "Main", "baseUrl", "https://example.test", "apiKey", "secr****-key",
                             "apiProtocol", "responses",
+                            "specialCompatibility", "opencode",
                             "models", List.of(Map.of("name", "vision-model", "contextTokens", 128000,
-                                    "imageInput", true, "price", Map.of("input", 1.5, "cache", 0.2, "output", 3)))
+                                    "maxTokens", 65536, "imageInput", true,
+                                    "price", Map.of("input", 1.5, "cache", 0.2, "output", 3)))
                     ))
             ));
 
@@ -339,7 +425,9 @@ class LoopraConfigTest {
             assertEquals("secret-key", saved.apiKey());
             assertEquals("secret-key", saved.modelChannel("main").apiKey());
             assertEquals("responses", saved.modelChannel("main").apiProtocol());
+            assertEquals("opencode", saved.modelChannel("main").specialCompatibility());
             assertEquals(128000, entry.contextTokens());
+            assertEquals(65536, entry.maxTokens());
             assertTrue(entry.imageInput());
             assertEquals(1.5, entry.price().get("input"));
             assertEquals(1.5, saved.price().get("vision-model").get("input"));

@@ -6,7 +6,7 @@
       </button>
       <div>
         <h1>模型渠道</h1>
-        <p>每个渠道独立管理 API 地址、密钥和模型配置</p>
+        <p>每个渠道独立管理 API 地址、密钥和模型配置，输出上限按模型设置</p>
       </div>
       <button class="model-channels-save" type="button" :disabled="saving || loading" @click="save">
         {{ saving ? '保存中...' : '保存' }}
@@ -88,6 +88,13 @@
               </select>
             </label>
             <label>
+              <span>特殊兼容</span>
+              <select v-model="activeChannel.specialCompatibility">
+                <option value="">无</option>
+                <option value="opencode">OpenCode 兼容</option>
+              </select>
+            </label>
+            <label>
               <span>API 密钥</span>
               <input v-model="activeChannel.apiKey" type="password" :placeholder="activeChannel.secretConfigured ? '已保存，留空则不修改' : 'sk-...'" autocomplete="new-password" />
             </label>
@@ -151,6 +158,10 @@
                     <label>
                       <span>上下文（tokens）</span>
                       <input v-model="model.contextTokens" type="number" min="1" step="1" placeholder="可空" />
+                    </label>
+                    <label>
+                      <span>最大输出（tokens）</span>
+                      <input v-model="model.maxTokens" type="number" min="1" step="1024" placeholder="默认 32768" />
                     </label>
                     <label class="model-config-switch">
                       <input v-model="model.imageInput" type="checkbox" @change="ensureImageUnderstandingModel()" />
@@ -272,6 +283,7 @@ function newModel(name = '') {
     name,
     originalName: name,
     contextTokens: null,
+    maxTokens: null,
     imageInput: false,
     priceEnabled: false,
     price: {input: 0, cache: 0, output: 0}
@@ -282,6 +294,7 @@ function normalizeModel(model) {
   if (typeof model === 'string') return newModel(model.trim())
   const normalized = newModel(String(model?.name || '').trim())
   normalized.contextTokens = normalizeContextLength(model?.contextTokens)
+  normalized.maxTokens = normalizeContextLength(model?.maxTokens)
   normalized.imageInput = Boolean(model?.imageInput)
   normalized.priceEnabled = model?.price !== null && typeof model?.price === 'object'
   if (normalized.priceEnabled) {
@@ -296,11 +309,16 @@ function normalizeModel(model) {
 
 function normalizeChannel(channel, index) {
   const models = Array.isArray(channel.models) ? channel.models.map(normalizeModel) : []
+  const apiProtocol = String(channel.apiProtocol || '').trim().toLowerCase()
+  const specialCompatibility = String(channel.specialCompatibility || '').trim().toLowerCase()
   return {
     id: channel.id || makeId(),
     name: channel.name || `渠道 ${index + 1}`,
     baseUrl: channel.baseUrl || '',
-    apiProtocol: ['responses', 'anthropic'].includes(channel.apiProtocol) ? channel.apiProtocol : 'chat_completions',
+    apiProtocol: ['chat_completions', 'responses', 'anthropic'].includes(apiProtocol)
+      ? apiProtocol
+      : 'chat_completions',
+    specialCompatibility,
     apiKey: '',
     secretConfigured: Boolean(channel.apiKey),
     models
@@ -439,6 +457,7 @@ function modelPayload(model) {
   return {
     name: model.name.trim(),
     contextTokens: normalizeContextLength(model.contextTokens),
+    maxTokens: normalizeContextLength(model.maxTokens),
     imageInput: Boolean(model.imageInput),
     price: model.priceEnabled
       ? {
@@ -484,6 +503,7 @@ async function save() {
     name: channel.name.trim(),
     baseUrl: channel.baseUrl.trim(),
     apiProtocol: channel.apiProtocol,
+    specialCompatibility: channel.specialCompatibility,
     apiKey: channel.apiKey.trim(),
     models: namedModels(channel).map(modelPayload)
   }))
@@ -532,7 +552,9 @@ async function syncRemoteModels(channel) {
     const response = await configAPI.probeRemoteModels({
       channelId: channel.id,
       baseUrl: channel.baseUrl.trim(),
-      apiKey: channel.apiKey.trim()
+      apiKey: channel.apiKey.trim(),
+      apiProtocol: channel.apiProtocol,
+      specialCompatibility: channel.specialCompatibility
     })
     if (!response.success) throw new Error(response.message || '远端模型同步失败')
     const remoteNames = [...new Set((response.data || [])
@@ -626,7 +648,7 @@ onMounted(load)
 .model-config-current { display: flex !important; align-items: center; justify-content: center; width: 30px; height: 30px; cursor: pointer; }
 .model-config-current input, .model-config-switch input { width: auto; height: auto; margin: 0; box-shadow: none; }
 .model-config-fields { display: grid; gap: 7px; padding: 9px; border-top: 1px solid var(--border); }
-.model-config-main { display: grid; grid-template-columns: minmax(150px, 1.4fr) minmax(120px, .9fr) auto; align-items: end; gap: 8px; }
+.model-config-main { display: grid; grid-template-columns: minmax(150px, 1.4fr) minmax(120px, .9fr) minmax(130px, .9fr) auto; align-items: end; gap: 8px; }
 .model-config-switch { display: inline-flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 6px !important; min-height: 32px; color: var(--fg-2) !important; cursor: pointer; white-space: nowrap; }
 .model-config-price { display: flex; align-items: end; gap: 8px; padding-top: 7px; border-top: 1px dashed var(--border); }
 .model-config-price > label:not(.model-config-switch) { width: 100px; }
