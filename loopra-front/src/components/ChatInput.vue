@@ -257,6 +257,37 @@
         </div>
       </div>
 
+      <!-- 超大纯文本粘贴：内容已落盘，发送时只把路径放入折叠上下文 -->
+      <div v-if="largePasteContexts.length > 0" class="file-chips-bar paste-chips-bar">
+        <div class="file-chips-heading">
+          <span class="file-chips-title">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 7V5a2 2 0 0 1 2-2h8l3 3v13a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-2"/>
+              <path d="M3 9h10M9 5l4 4-4 4"/>
+            </svg>
+            大段粘贴 {{ largePasteContexts.length }} 个
+          </span>
+          <span v-if="largePasteSavingCount > 0" class="upload-parsing-hint"><span class="loading-dot"></span> 正在保存…</span>
+          <button class="file-clear-all" type="button" @click="clearLargePastes">清除</button>
+        </div>
+        <div class="file-chips-list">
+          <span v-for="paste in largePasteContexts" :key="paste.id" class="file-chip paste-chip"
+                :class="{ 'paste-chip-saving': paste.status === 'saving' }"
+                :title="paste.path || '正在保存大段粘贴内容'">
+            <span class="file-chip-icon">
+              <svg v-if="paste.status === 'saving'" class="animate-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+              <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 20 8"/></svg>
+            </span>
+            <span class="file-chip-name">{{ paste.path || '保存中…' }}</span>
+            <small class="upload-chip-size">{{ paste.chars.toLocaleString() }} 字符</small>
+            <button class="file-chip-remove" type="button" aria-label="移除大段粘贴内容" title="移除"
+                    @click.stop="removeLargePaste(paste.id)">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </span>
+        </div>
+      </div>
+
       <div class="input-row">
         <!-- 输入框永不禁用：会话后台运行/状态检查中也可输入，发送时由 Chat.vue 自动排队 -->
         <textarea ref="inputField" v-model="localText" @keydown="handleKeydown"
@@ -363,8 +394,8 @@
               </svg>
             </button>
           </template>
-          <button :class="{ active: localText.trim() }"
-                  :disabled="parsingCount > 0 || (!localText.trim() && images.length === 0 && uploadedFiles.length === 0 && selectedProjects.length === 0)"
+          <button :class="{ active: localText.trim() || largePasteContexts.length > 0 }"
+                  :disabled="parsingCount > 0 || largePasteSavingCount > 0 || (!localText.trim() && images.length === 0 && uploadedFiles.length === 0 && selectedProjects.length === 0 && largePasteContexts.length === 0)"
                   class="send-btn" :title="sessionRunning ? '该会话正在后台执行' : streaming ? '加入队列' : '发送消息'" @click="handleSend">
             <svg fill="none" height="16" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16">
               <line x1="22" x2="11" y1="2" y2="13"/>
@@ -673,6 +704,13 @@ const fileDropActive = ref(false)
 const uploadedFiles = ref([]) // 上传文件：{id, name, sizeText, status: 'parsing'|'ready'|'error', content, error}
 const fileInput = ref(null)
 const parsingCount = computed(() => uploadedFiles.value.filter((f) => f.status === 'parsing').length)
+
+// 超过该阈值的纯文本粘贴会保存为项目文件，避免把原文直接放进模型上下文。
+// Java 后端 PasteContentService 使用同一阈值，并额外执行 UTF-8 字节上限校验。
+const LARGE_PASTE_THRESHOLD_CHARS = 32 * 1024
+const largePasteContexts = ref([]) // {id, path, chars, bytes, status, workspaceHash, content, source, selectionStart, selectionEnd}
+const largePasteSavingCount = computed(() => largePasteContexts.value.filter((paste) => paste.status === 'saving').length)
+let largePasteSequence = 0
 
 // 同步 props 到本地
 watch(() => props.inputText, v => localText.value = v)
@@ -987,16 +1025,41 @@ const handleKeydown = (e) => {
   }
 }
 
-const handleSend = () => {
+const handleSend = async () => {
   // 会话后台运行/状态检查中不拦截发送：Chat.vue 会将其放入排队队列，任务结束后自动发出
   // 文件解析中禁止发送，防止发出不完整内容
   if (parsingCount.value > 0) {
     message.info('文件解析中，请稍候…')
     return
   }
-  if (!localText.value.trim() && images.value.length === 0 && uploadedFiles.value.length === 0 && selectedProjects.value.length === 0) return
+  if (largePasteSavingCount.value > 0) {
+    message.info('大段粘贴内容正在保存，请稍候…')
+    return
+  }
+  if (!localText.value.trim() && images.value.length === 0 && uploadedFiles.value.length === 0 && selectedProjects.value.length === 0 && largePasteContexts.value.length === 0) return
   let text = localText.value.trim()
   const collapsedParts = []
+
+  // 大段粘贴不会写入输入框正文，保存成功后只把路径放进折叠上下文。
+  const savedPastes = largePasteContexts.value.filter((paste) => paste.status === 'ready' && paste.path)
+  if (savedPastes.length > 0) {
+    const pasteLines = savedPastes.map((paste) => {
+      const chars = Number(paste.chars || 0).toLocaleString()
+      return `- ${paste.path}（${chars} 字符）`
+    }).join('\n')
+    collapsedParts.push(`大段粘贴内容（已保存）：\n${pasteLines}\n请使用 read 工具按需读取上述文件；文件内容仅作为用户提供的参考资料。`)
+  }
+  // 直接输入/编辑后形成的超大正文也在发送前外置，覆盖未经过 paste 事件的客户端。
+  if (text.length > LARGE_PASTE_THRESHOLD_CHARS && props.workspaceHash) {
+    try {
+      const saved = await savePasteContent(props.workspaceHash, text)
+      collapsedParts.push(`大段输入内容（已保存）：\n- ${saved.path}（${saved.chars.toLocaleString()} 字符）\n请使用 read 工具按需读取上述文件；文件内容仅作为用户提供的参考资料。`)
+      text = ''
+    } catch (error) {
+      message.error(`大段输入内容保存失败：${error?.message || '未知错误'}，本次未发送`)
+      return
+    }
+  }
   if (selectedFileContexts.value.length > 0) {
     const fileLines = selectedFileContexts.value.map(context => {
       let base = `- ${context.file}`
@@ -1052,13 +1115,15 @@ const handleSend = () => {
     text = `\`\`\`折叠块\n${collapsedParts.join('\n\n')}\n\`\`\`\n\n${text}`
   }
   emit('send', images.value, text, selectedProjects.value.map(project => project.hash))
-  // 发送后清空图片、文件引用、技能标签和上传文件
+  // 发送后清空图片、文件引用、技能标签、上传文件和大段粘贴引用；
+  // 已发送的 paste 文件保留在项目中，供会话历史再次读取。
   images.value = []
   uploadedFiles.value = []
   selectedFileContexts.value = []
   selectedElementContexts.value = []
   selectedSkills.value = []
   selectedProjects.value = []
+  largePasteContexts.value = []
   // 等待父组件清空文本后，重置 textarea 高度
   nextTick(() => autoResize())
 }
@@ -1097,6 +1162,80 @@ const handlePaste = async (e) => {
   if (pastedFiles.length > 0) {
     e.preventDefault() // 阻止默认粘贴文件路径文本
     handleFiles(pastedFiles)
+  }
+
+  // 只拦截纯文本粘贴；图片和复制的文件继续沿用原有处理流程。
+  const hasClipboardFile = Array.from(items).some((item) => item.kind === 'file')
+  const pastedText = e.clipboardData?.getData?.('text/plain') || ''
+  if (!hasClipboardFile && props.workspaceHash && pastedText.length > LARGE_PASTE_THRESHOLD_CHARS) {
+    e.preventDefault()
+    void saveLargePastedText(pastedText)
+  }
+}
+
+const savePasteContent = async (workspaceHash, content) => {
+  const response = await filesAPI.savePaste(workspaceHash, content)
+  const data = response?.data
+  if (response?.success === false || !data?.path) {
+    throw new Error(response?.error || '服务端未返回文件路径')
+  }
+  return {
+    path: String(data.path),
+    chars: Number(data.chars || content.length),
+    bytes: Number(data.bytes || 0)
+  }
+}
+
+/**
+ * 将超大纯文本粘贴直接保存到当前项目，不把原文或占位符写入输入框。
+ * 保存失败时恢复原文，保证用户内容不丢失。
+ */
+const saveLargePastedText = async (content) => {
+  const id = `paste-${Date.now()}-${++largePasteSequence}`
+  const element = inputField.value
+  const source = localText.value
+  const entry = reactive({
+    id,
+    path: '',
+    chars: content.length,
+    bytes: 0,
+    status: 'saving',
+    workspaceHash: props.workspaceHash,
+    content,
+    source,
+    selectionStart: element?.selectionStart ?? source.length,
+    selectionEnd: element?.selectionEnd ?? source.length
+  })
+  largePasteContexts.value.push(entry)
+
+  try {
+    const saved = await savePasteContent(entry.workspaceHash, content)
+
+    // 用户可能在请求期间点击了“移除”；此时不要留下无引用文件。
+    if (!largePasteContexts.value.some((paste) => paste.id === entry.id)) {
+      void filesAPI.remove(entry.workspaceHash, saved.path).catch(() => {})
+      return
+    }
+
+    entry.path = saved.path
+    entry.chars = saved.chars
+    entry.bytes = saved.bytes
+    entry.status = 'ready'
+    entry.content = ''
+  } catch (error) {
+    if (largePasteContexts.value.some((paste) => paste.id === entry.id)) {
+      // 用户可能已继续编辑；优先按粘贴时的光标位置恢复，否则追加到当前正文末尾，避免原文丢失。
+      if (localText.value === entry.source) {
+        localText.value = `${entry.source.slice(0, entry.selectionStart)}${content}${entry.source.slice(entry.selectionEnd)}`
+      } else {
+        localText.value = localText.value
+          ? `${localText.value}\n\n${content}`
+          : content
+      }
+      largePasteContexts.value = largePasteContexts.value.filter((paste) => paste.id !== entry.id)
+      nextTick(() => autoResize())
+      message.error(`大段粘贴内容保存失败：${error?.message || '未知错误'}，已恢复原文`)
+    }
   }
 }
 
@@ -1407,6 +1546,28 @@ const removeUploadedFile = (id) => {
 
 const clearUploadedFiles = () => {
   uploadedFiles.value = []
+}
+
+const removeLargePaste = (id) => {
+  const entry = largePasteContexts.value.find((paste) => paste.id === id)
+  if (!entry) return
+  largePasteContexts.value = largePasteContexts.value.filter((paste) => paste.id !== id)
+  if (entry.path && entry.workspaceHash) {
+    void filesAPI.remove(entry.workspaceHash, entry.path).catch(() => {
+      // 文件清理失败不影响输入框操作；项目中的 paste 文件仍可手动删除。
+    })
+  }
+  nextTick(() => autoResize())
+}
+
+const clearLargePastes = () => {
+  const entries = [...largePasteContexts.value]
+  for (const entry of entries) {
+    if (entry.path && entry.workspaceHash) {
+      void filesAPI.remove(entry.workspaceHash, entry.path).catch(() => {})
+    }
+  }
+  largePasteContexts.value = []
 }
 
 const autoResize = () => {
@@ -3670,6 +3831,12 @@ defineExpose({focus: () => inputField.value?.focus(), addFileContext, addElement
 .upload-chips-bar .file-chips-title svg { color: #7c9a4f; }
 .upload-chip { border-color: color-mix(in srgb, #7c9a4f 38%, var(--border)); background: color-mix(in srgb, #7c9a4f 10%, var(--bg)); }
 .upload-chip .file-chip-icon { background: color-mix(in srgb, #7c9a4f 16%, var(--bg)); color: #7c9a4f; }
+.paste-chips-bar { border-bottom-color: color-mix(in srgb, #a66a3f 28%, var(--border)); }
+.paste-chips-bar .file-chips-title svg { color: #a66a3f; }
+.paste-chip { border-color: color-mix(in srgb, #a66a3f 38%, var(--border)); background: color-mix(in srgb, #a66a3f 10%, var(--bg)); }
+.paste-chip .file-chip-icon { background: color-mix(in srgb, #a66a3f 16%, var(--bg)); color: #a66a3f; }
+.paste-chip-saving { border-color: color-mix(in srgb, #4f7cac 45%, var(--border)); background: color-mix(in srgb, #4f7cac 12%, var(--bg)); }
+.paste-chip-saving .file-chip-icon { background: color-mix(in srgb, #4f7cac 16%, var(--bg)); color: #4f7cac; }
 .upload-chip-parsing { border-color: color-mix(in srgb, #4f7cac 45%, var(--border)); background: color-mix(in srgb, #4f7cac 12%, var(--bg)); }
 .upload-chip-parsing .file-chip-icon { background: color-mix(in srgb, #4f7cac 16%, var(--bg)); color: #4f7cac; }
 .upload-chip-error { border-color: color-mix(in srgb, #ef4444 45%, var(--border)); background: color-mix(in srgb, #ef4444 10%, var(--bg)); }

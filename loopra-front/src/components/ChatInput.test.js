@@ -6,7 +6,7 @@ import {message} from 'ant-design-vue'
 import {getDocument} from 'pdfjs-dist'
 import {extractRawText} from 'mammoth/mammoth.browser'
 import {read as xlsxRead, utils as xlsxUtils} from 'xlsx'
-import {configAPI, promptPresetsAPI} from '../services/api'
+import {configAPI, filesAPI, promptPresetsAPI} from '../services/api'
 import ChatInput from './ChatInput.vue'
 
 Object.defineProperty(Element.prototype, 'scrollIntoView', {
@@ -57,7 +57,14 @@ vi.mock('../services/api', () => ({
   configAPI: {
     listWorkspaces: vi.fn().mockResolvedValue({success: true, data: []})
   },
-  filesAPI: {search: vi.fn().mockResolvedValue({success: true, data: []})},
+  filesAPI: {
+    search: vi.fn().mockResolvedValue({success: true, data: []}),
+    remove: vi.fn().mockResolvedValue({success: true}),
+    savePaste: vi.fn().mockResolvedValue({
+      success: true,
+      data: {name: 'paste-test.txt', path: '.loopra/paste/paste-test.txt', chars: 32769, bytes: 32769}
+    })
+  },
   petAPI: {
     getInfo: vi.fn().mockResolvedValue({data: null}),
     resolveUrl: vi.fn((url) => url),
@@ -618,6 +625,73 @@ describe('ChatInput file upload', () => {
 
     expect(wrapper.find('.image-preview-item').exists()).toBe(true)
     expect(wrapper.find('.upload-chip').text()).toContain('clip.txt')
+    wrapper.unmount()
+  })
+})
+
+describe('ChatInput large text paste', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('saves oversized plain text and sends only its path in the folded context', async () => {
+    const wrapper = mountInput({workspaceHash: 'workspace-1', sessionName: 'session-1'})
+    const content = '大段内容\n'.repeat(7000)
+    const clipboardData = {
+      items: [{kind: 'string', type: 'text/plain'}],
+      getData: vi.fn(() => content)
+    }
+
+    await wrapper.find('textarea').trigger('paste', {clipboardData})
+    await flushPromises()
+
+    expect(filesAPI.savePaste).toHaveBeenCalledWith('workspace-1', content)
+    expect(wrapper.find('.paste-chip').text()).toContain('.loopra/paste/paste-test.txt')
+    expect(wrapper.find('textarea').element.value).toBe('')
+    expect(wrapper.find('textarea').element.value).not.toContain('大段粘贴内容')
+
+    await wrapper.find('textarea').setValue('请分析这段内容')
+    await wrapper.find('.send-btn').trigger('click')
+
+    const sentText = wrapper.emitted('send')[0][1]
+    expect(sentText).toContain('大段粘贴内容（已保存）')
+    expect(sentText).toContain('.loopra/paste/paste-test.txt')
+    expect(sentText).toContain('请分析这段内容')
+    expect(sentText).not.toContain(content)
+    wrapper.unmount()
+  })
+
+  it('externalizes oversized text entered without a paste event before sending', async () => {
+    const wrapper = mountInput({workspaceHash: 'workspace-1', sessionName: 'session-1'})
+    const content = '直接输入内容'.repeat(9000)
+
+    await wrapper.find('textarea').setValue(content)
+    await wrapper.find('.send-btn').trigger('click')
+    await flushPromises()
+
+    expect(filesAPI.savePaste).toHaveBeenCalledWith('workspace-1', content)
+    const sentText = wrapper.emitted('send')[0][1]
+    expect(sentText).toContain('大段输入内容（已保存）')
+    expect(sentText).toContain('.loopra/paste/paste-test.txt')
+    expect(sentText).not.toContain(content)
+    wrapper.unmount()
+  })
+
+  it('restores the original text when saving the oversized paste fails', async () => {
+    filesAPI.savePaste.mockRejectedValueOnce(new Error('磁盘不可写'))
+    const wrapper = mountInput({workspaceHash: 'workspace-1', sessionName: 'session-1'})
+    const content = 'x'.repeat(32 * 1024 + 1)
+    const clipboardData = {
+      items: [{kind: 'string', type: 'text/plain'}],
+      getData: () => content
+    }
+
+    await wrapper.find('textarea').trigger('paste', {clipboardData})
+    await flushPromises()
+
+    expect(wrapper.find('.paste-chip').exists()).toBe(false)
+    expect(wrapper.find('textarea').element.value).toBe(content)
+    expect(message.error).toHaveBeenCalledWith(expect.stringContaining('已恢复原文'))
     wrapper.unmount()
   })
 })

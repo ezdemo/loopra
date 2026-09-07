@@ -14,6 +14,7 @@ import site.sorghum.loopra.web.common.WebErrorMessages;
 import site.sorghum.loopra.web.model.ApiResponse;
 import site.sorghum.loopra.web.model.ChatRequest;
 import site.sorghum.loopra.web.service.AgentService;
+import site.sorghum.loopra.web.service.PasteContentService;
 import site.sorghum.loopra.web.service.SnapshotService;
 import site.sorghum.loopra.web.service.SseEmitter;
 
@@ -56,6 +57,9 @@ public class ChatController {
 
     @Inject
     private SnapshotService snapshotService;
+
+    @Inject
+    private PasteContentService pasteContentService;
 
     @ApiOperation(value = "中断当前聊天", notes = "发送中断信号给正在进行的聊天会话")
     @Post
@@ -121,9 +125,10 @@ public class ChatController {
         }
 
         SseEmitter emitter = new SseEmitter(ctx);
-        final String message = request.getMessage() != null ? request.getMessage().trim() : "";
-        final UserMessage userMsg = UserMessage.of(message, request.getImages());
+        final String rawMessage = request.getMessage() != null ? request.getMessage().trim() : "";
         final String resolvedPath = agentService.resolveProjectPath(request.getWorkspaceHash());
+        final String message = pasteContentService.externalizeIfNeeded(resolvedPath, rawMessage);
+        final UserMessage userMsg = UserMessage.of(message, request.getImages());
         final String linkedProjectContext = agentService.buildLinkedProjectContext(
                 request.getLinkedProjectHashes(), request.getWorkspaceHash());
         final String sessionName = request.getSessionName();

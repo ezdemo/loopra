@@ -1243,6 +1243,10 @@ export const filesAPI = {
   // 删除项目内文件或目录 - DELETE /api/files/delete?workspaceHash=xxx&path=src/a.js
   remove: (workspaceHash, path) => {
     return api.delete('/files/delete', { params: { workspaceHash, path } })
+  },
+  // 保存超大粘贴文本 - POST /api/files/paste
+  savePaste: (workspaceHash, content) => {
+    return api.post('/files/paste', { workspaceHash, content })
   }
 }
 
