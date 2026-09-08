@@ -86,6 +86,19 @@ describe('DesktopHome 项目拖拽排序', () => {
     expect(wrapper.text()).not.toContain('子代理')
   })
 
+  it('Loopra 标题不再显示下拉按钮，也不响应左键点击', async () => {
+    await flushPromises()
+    const brand = wrapper.find('.desktop-sidebar-brand')
+
+    expect(brand.element.tagName).toBe('DIV')
+    expect(brand.find('svg').exists()).toBe(false)
+    expect(brand.attributes('aria-haspopup')).toBeUndefined()
+    expect(brand.attributes('aria-expanded')).toBeUndefined()
+
+    await brand.trigger('click')
+    expect(wrapper.emitted('show-home')).toBeUndefined()
+  })
+
   it('项目操作按钮默认隐藏，悬停项目标题行时显示', async () => {
     await flushPromises()
     const heading = wrapper.find('.desktop-project-heading')
@@ -599,6 +612,34 @@ describe('DesktopHome 会话原生右键菜单', () => {
     wrapper?.unmount()
     if (initialElectronAPI === undefined) delete window.electronAPI
     else window.electronAPI = initialElectronAPI
+  })
+
+  it('桌面浮层可用时优先通过浮层回传会话菜单动作', async () => {
+    const openNativeSessionMenu = vi.fn().mockResolvedValue(null)
+    const openPopup = vi.fn().mockResolvedValue({success: true})
+    const listeners = new Map()
+    window.electronAPI = {
+      desktopSessionMenu: {open: openNativeSessionMenu},
+      desktopPopup: {open: openPopup},
+      events: {listen: vi.fn((eventName, callback) => {
+        listeners.set(eventName, callback)
+        return () => listeners.delete(eventName)
+      })}
+    }
+    sessionsAPI.list.mockResolvedValue({success: true, data: [{name: 's1', title: '会话一', mtime: Date.now()}]})
+    wrapper = mountHome({sidebarOnly: true})
+    await flushPromises()
+
+    await wrapper.find('.desktop-session').trigger('contextmenu', {clientX: 200, clientY: 200})
+    await flushPromises()
+
+    expect(openNativeSessionMenu).not.toHaveBeenCalled()
+    expect(openPopup).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'context-menu',
+      menuType: 'session',
+      item: expect.objectContaining({workspaceHash: 'h1', name: 's1', title: '会话一'})
+    }))
+    expect(listeners.has('desktop-shell-popup-action')).toBe(true)
   })
 
   it('Electron 环境下右键会话调用系统菜单，并接收主进程回传的重命名动作', async () => {

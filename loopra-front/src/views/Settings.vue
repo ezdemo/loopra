@@ -1,31 +1,56 @@
 <template>
-  <div class="settings-page" :class="{ 'market-only': marketOnly }">
+  <div class="settings-page" :class="{ 'market-only': marketOnly, 'desktop-mode': showBack }">
     <!-- 左侧导航 -->
-    <nav v-if="!marketOnly" class="settings-nav">
-      <div class="nav-header">
-        <svg fill="none" height="16" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16">
-          <circle cx="12" cy="12" r="3"/>
-          <path
-              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    <Teleport v-if="!marketOnly" to="#desktop-settings-sidebar" :disabled="!showBack">
+      <nav class="settings-nav" :class="{ 'desktop-settings-nav': showBack }">
+      <button v-if="showBack" class="settings-back" type="button" @click="emit('back')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="m15 18-6-6 6-6"/>
         </svg>
-        <span>设置</span>
-      </div>
-
+        <span>返回应用</span>
+      </button>
+      <label v-if="showBack" class="settings-search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5"/>
+          <path d="m16 16 4.5 4.5"/>
+        </svg>
+        <input v-model="settingsNavQuery" type="search" placeholder="搜索设置..." aria-label="搜索设置" />
+      </label>
       <div class="nav-items">
-        <button
-            v-for="tab in tabs"
-            :key="tab.id"
-            :class="{ active: activeTab === tab.id }"
-            class="nav-item"
-            @click="activeTab = tab.id"
-        >
-          <span class="nav-icon" v-html="tab.icon"></span>
-          <span class="nav-label">{{ tab.label }}</span>
-          <span v-if="tab.badge" class="nav-badge">{{ tab.badge }}</span>
-        </button>
+        <template v-if="showBack">
+          <template v-for="group in filteredSettingsGroups" :key="group.id">
+            <div class="nav-group-label">{{ group.label }}</div>
+            <button
+                v-for="tab in group.tabs"
+                :key="tab.id"
+                :class="{ active: activeTab === tab.id }"
+                class="nav-item"
+                @click="activeTab = tab.id"
+            >
+              <span class="nav-icon" v-html="tab.icon"></span>
+              <span class="nav-label">{{ tab.label }}</span>
+              <span v-if="tab.badge" class="nav-badge">{{ tab.badge }}</span>
+            </button>
+          </template>
+          <div v-if="filteredSettingsGroups.length === 0" class="nav-empty">未找到匹配的设置</div>
+        </template>
+        <template v-else>
+          <button
+              v-for="tab in tabs"
+              :key="tab.id"
+              :class="{ active: activeTab === tab.id }"
+              class="nav-item"
+              @click="activeTab = tab.id"
+          >
+            <span class="nav-icon" v-html="tab.icon"></span>
+            <span class="nav-label">{{ tab.label }}</span>
+            <span v-if="tab.badge" class="nav-badge">{{ tab.badge }}</span>
+          </button>
+        </template>
       </div>
 
       </nav>
+    </Teleport>
 
     <!-- 主内容区 -->
     <main class="settings-main">
@@ -62,7 +87,7 @@
 
       <!-- 设置内容区 -->
       <div class="settings-content">
-        <!-- 基本设置 -->
+        <!-- 常规设置 -->
         <section v-if="activeTab === 'general'" class="settings-section">
           <div class="section-card">
             <div class="card-header">
@@ -2117,7 +2142,8 @@ const DashboardPanel = defineAsyncComponent({
 const store = useAppStore()
 const props = defineProps({
   initialTab: {type: String, default: 'general'},
-  marketOnly: {type: Boolean, default: false}
+  marketOnly: {type: Boolean, default: false},
+  showBack: {type: Boolean, default: false}
 })
 
 const plugins = ref([])
@@ -2292,6 +2318,7 @@ const setReasoningEffort = (index) => {
 }
 
 const activeTab = ref(props.marketOnly ? 'skill-market' : (props.initialTab === 'ai' ? 'general' : props.initialTab))
+const settingsNavQuery = ref('')
 const showApiKey = ref(false)
 const loading = ref(false)
 const availableModels = ref([])
@@ -2509,7 +2536,7 @@ const autoUpdating = ref(false)
 // 更新源（直连/镜像），与更新窗口共享 localStorage
 const updateSource = ref(loadUpdateSource())
 
-const emit = defineEmits(['auto-update', 'init-pet'])
+const emit = defineEmits(['auto-update', 'init-pet', 'back'])
 
 // 桌面端版本信息（由 handleCheckVersion 一并更新）
 const desktopInfo = ref({
@@ -2781,7 +2808,7 @@ function uninstallInstalledSkill(skill) {
 const tabs = computed(() => [
   {
     id: 'general',
-    label: '基本设置',
+    label: '常规',
     description: '界面主题设置',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -2910,6 +2937,30 @@ const tabs = computed(() => [
     </svg>`
   }
 ])
+
+const settingsNavGroups = computed(() => {
+  const groupDefinitions = [
+    {id: 'general', label: '常规', tabIds: ['general', 'workspace', 'server']},
+    {id: 'ai', label: 'AI', tabIds: ['model-channels', 'tools', 'sub-agents', 'dashboard']},
+    {id: 'integrations', label: '集成', tabIds: ['plugins', 'extpacks', 'openapi', 'mcp', 'lsp']},
+    {id: 'other', label: '其他', tabIds: ['pet', 'prompt', 'about']}
+  ]
+  const tabMap = new Map(tabs.value.map((tab) => [tab.id, tab]))
+  return groupDefinitions
+    .map((group) => ({...group, tabs: group.tabIds.map((id) => tabMap.get(id)).filter(Boolean)}))
+    .filter((group) => group.tabs.length > 0)
+})
+
+const filteredSettingsGroups = computed(() => {
+  const keyword = settingsNavQuery.value.trim().toLowerCase()
+  if (!keyword) return settingsNavGroups.value
+  return settingsNavGroups.value
+    .map((group) => ({
+      ...group,
+      tabs: group.tabs.filter((tab) => `${tab.label} ${tab.description}`.toLowerCase().includes(keyword))
+    }))
+    .filter((group) => group.tabs.length > 0)
+})
 
 // 获取 Electron 版本
 async function fetchElectronVersion() {
@@ -4571,16 +4622,60 @@ const saveLoopraMd = async () => {
   padding: 16px 0;
 }
 
-.nav-header {
+.settings-back {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 20px 20px;
-  font-size: 14px;
-  font-weight: 600;
+  gap: 8px;
+  width: calc(100% - 16px);
+  min-height: 34px;
+  margin: 0 8px 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-back:hover {
+  background: var(--bg-3);
   color: var(--fg);
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 8px;
+}
+
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin: 0 8px 12px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--bg-3);
+  color: var(--fg-4);
+}
+
+.settings-search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.settings-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+.settings-search input::placeholder {
+  color: var(--fg-4);
 }
 
 .nav-items {
@@ -4591,6 +4686,25 @@ const saveLoopraMd = async () => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.nav-group-label {
+  padding: 10px 12px 4px;
+  color: var(--fg-4);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.nav-group-label:first-child {
+  padding-top: 2px;
+}
+
+.nav-empty {
+  padding: 18px 12px;
+  color: var(--fg-4);
+  font-size: 12px;
+  text-align: center;
 }
 
 .nav-item {
@@ -4651,6 +4765,45 @@ const saveLoopraMd = async () => {
   color: white;
   border-radius: 10px;
   line-height: 1;
+}
+
+.settings-page.desktop-mode .settings-nav,
+.settings-nav.desktop-settings-nav {
+  width: 268px;
+  padding: 14px 8px 10px;
+  background: var(--desktop-sidebar, var(--bg-2));
+  border-right-color: var(--desktop-line, var(--border));
+}
+
+.settings-nav.desktop-settings-nav {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.settings-page.desktop-mode .settings-main {
+  background: var(--desktop-paper, var(--bg));
+}
+
+.settings-page.desktop-mode .settings-header {
+  padding: 28px 42px 14px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.settings-page.desktop-mode .header-title h2 {
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+}
+
+.settings-page.desktop-mode .settings-content {
+  padding: 8px 42px 40px;
+}
+
+.settings-page.desktop-mode .settings-section {
+  max-width: 1040px;
+  margin: 0 auto;
 }
 
 /* 主内容区 */
@@ -5857,6 +6010,11 @@ const saveLoopraMd = async () => {
     border-right: none;
     border-bottom: 1px solid var(--border);
     padding: 12px 0;
+  }
+
+  .settings-page.desktop-mode .settings-nav,
+  .settings-nav.desktop-settings-nav {
+    width: 100%;
   }
 
   .nav-items {

@@ -1,20 +1,15 @@
 <template>
-  <section class="desktop-home" :class="{ 'sidebar-only': sidebarOnly }">
-    <div class="desktop-home-grid">
+  <section class="desktop-home" :class="{ 'sidebar-only': sidebarOnly, 'settings-mode': settingsMode }">
+    <div id="desktop-settings-sidebar" v-show="settingsMode" class="desktop-settings-sidebar"></div>
+    <div v-if="!settingsMode" class="desktop-home-grid">
       <aside class="desktop-projects">
         <div class="desktop-sidebar-header">
-          <button
+          <div
             class="desktop-sidebar-brand"
-            type="button"
-            aria-label="Loopra 工作区"
-            aria-haspopup="menu"
-            :aria-expanded="homeMenuOpen"
-            @click="emit('show-home')"
             @contextmenu.prevent.stop="emit('open-home-context', $event)"
           >
             <span>Loopra</span>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
-          </button>
+          </div>
           <div class="desktop-sidebar-header-actions">
             <button
               class="desktop-sidebar-header-button"
@@ -408,15 +403,15 @@ import ServiceProcessManager from './components/ServiceProcessManager.vue'
 
 const props = defineProps({
   sidebarOnly: { type: Boolean, default: false },
+  settingsMode: { type: Boolean, default: false },
   activeSessionName: { type: String, default: '' },
-  homeMenuOpen: { type: Boolean, default: false },
   workspaces: { type: Array, default: () => [] },
   activeWorkspaceHash: { type: String, default: '' },
   theme: { type: String, default: 'gray' },
   refreshKey: { type: Number, default: 0 },
   refreshing: { type: Boolean, default: false }
 })
-const emit = defineEmits(['select-workspace', 'new-session', 'open-session', 'open-skills', 'open-requirement-board', 'open-tools', 'open-sub-agents', 'open-settings', 'toggle-theme', 'add-workspace', 'open-file-search', 'search-visibility-change', 'refresh', 'delete-session', 'delete-sessions', 'clear-workspace', 'clear-old-sessions', 'delete-workspace', 'delete-workspaces', 'reorder-workspaces', 'session-renamed', 'show-home', 'open-home-context'])
+const emit = defineEmits(['select-workspace', 'new-session', 'open-session', 'open-skills', 'open-requirement-board', 'open-tools', 'open-sub-agents', 'open-settings', 'toggle-theme', 'add-workspace', 'open-file-search', 'search-visibility-change', 'refresh', 'delete-session', 'delete-sessions', 'clear-workspace', 'clear-old-sessions', 'delete-workspace', 'delete-workspaces', 'reorder-workspaces', 'session-renamed', 'open-home-context'])
 
 const query = ref('')
 const searchOpen = ref(false)
@@ -898,7 +893,9 @@ function clearDragState() {
 }
 
 async function openContextMenu(event, type, item) {
-  const nativeSessionMenu = type === 'session' ? window.electronAPI?.desktopSessionMenu?.open : null
+  const nativeSessionMenu = type === 'session' && !popupUsesNativeOverlay.value
+    ? window.electronAPI?.desktopSessionMenu?.open
+    : null
   if (nativeSessionMenu) {
     closeContextMenu()
     try {
@@ -1293,9 +1290,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .desktop-home { --project-column: 236px; --column-gap: 32px; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 20px clamp(16px, 3vw, 56px) 24px; box-sizing: border-box; background: var(--bg, #fbfbfc); }
+.desktop-settings-sidebar { display: flex; flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--desktop-sidebar, var(--bg, #fbfbfc)); }
 .desktop-sidebar-header { display: flex; align-items: center; flex: 0 0 auto; min-height: 38px; padding: 0 10px 8px; }
 .desktop-sidebar-brand { display: inline-flex; align-items: center; gap: 5px; color: var(--fg, #27272a); font-size: 18px; font-weight: 650; letter-spacing: -.35px; }
-.desktop-sidebar-brand svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .65; }
 .desktop-home-nav { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
 .desktop-home-nav button { position: relative; width: 100%; min-height: 36px; display: flex; align-items: center; gap: 12px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: var(--fg-2, #52525b); font: inherit; font-size: 14px; text-align: left; cursor: pointer; transition: background-color var(--t), color var(--t); }
 .desktop-home-nav button:hover, .desktop-home-nav button.active { background: var(--bg-hover, #e7e7e5); color: var(--fg, #27272a); }
@@ -1407,8 +1404,6 @@ onBeforeUnmount(() => {
 .desktop-home-heading .desktop-multi-toggle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 3px; box-sizing: border-box; flex: 0 0 24px; color: var(--fg-3, #727987); }.desktop-home-heading .desktop-multi-toggle:hover { background: var(--bg-3, #f2f3f5); color: var(--fg, #202124); }.desktop-home-heading .desktop-multi-toggle.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }.desktop-multi-toggle svg { width: 15px; height: 15px; }
 .desktop-heading-actions .desktop-select-all, .desktop-project-session-actions .desktop-select-all { display: inline-flex; align-items: center; justify-content: center; height: 24px; padding: 2px 8px; border-radius: 5px; background: var(--bg-3, #f2f3f5); color: var(--fg-2, #525866); font-size: 12px; font-weight: 600; }.desktop-heading-actions .desktop-select-all:hover, .desktop-project-session-actions .desktop-select-all:hover { background: var(--bg-4, #e8e9eb); color: var(--fg, #202124); }
 .desktop-sidebar-header { position: relative; }
-.desktop-sidebar-brand { appearance: none; border: 0; background: transparent; cursor: pointer; }
-.desktop-sidebar-brand:hover { color: var(--fg, #27272a); }
 .desktop-sidebar-header-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
 .desktop-sidebar-header-button { position: relative; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--fg-3, #71717a); cursor: pointer; transition: background-color var(--t), color var(--t); }
 .desktop-sidebar-header-button:hover, .desktop-sidebar-header-button[aria-expanded="true"] { background: var(--bg-hover, #e7e7e5); color: var(--fg, #27272a); }

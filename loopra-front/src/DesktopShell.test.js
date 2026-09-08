@@ -55,7 +55,10 @@ async function mountShell() {
       plugins: [pinia],
       stubs: {
         Teleport: false,
-        DesktopHome: { template: '<aside class="desktop-home-stub"><button class="desktop-sidebar-brand" @contextmenu="$emit(\'open-home-context\', $event)" /><slot name="sidebar-header-actions" /><slot name="open-sessions" workspace-hash="h1" /></aside>' },
+        DesktopHome: {
+          props: {settingsMode: Boolean},
+          template: '<aside class="desktop-home-stub"><div v-if="settingsMode" class="desktop-settings-sidebar-stub" /><button v-else class="desktop-sidebar-brand" @contextmenu="$emit(\'open-home-context\', $event)" /><slot name="sidebar-header-actions" /><slot name="open-sessions" workspace-hash="h1" /></aside>'
+        },
         SettingsView: true,
         ModelChannels: true,
         ConfirmDialog: true
@@ -70,6 +73,47 @@ async function openTab(wrapper, sessionName) {
   await wrapper.vm.openSession({workspaceHash: 'h1', sessionName, title: sessionName})
   await flushPromises()
 }
+
+describe('DesktopShell 设置布局', () => {
+  it('打开设置时用设置页替换项目侧栏，返回后恢复应用侧栏', async () => {
+    const {wrapper} = await mountShell()
+
+    await wrapper.vm.openSettings()
+    await nextTick()
+    expect(wrapper.vm.showSettings).toBe(true)
+    expect(wrapper.find('.desktop-home-stub').exists()).toBe(true)
+    expect(wrapper.find('.desktop-settings-sidebar-stub').exists()).toBe(true)
+    expect(wrapper.find('.desktop-sidebar-resize-handle').exists()).toBe(true)
+    expect(wrapper.find('.desktop-workbench').classes()).toContain('settings-mode')
+
+    await wrapper.vm.showHome()
+    await nextTick()
+    await nextTick()
+    expect(wrapper.find('.desktop-home-stub').exists()).toBe(true)
+    expect(wrapper.find('.desktop-sidebar-brand').exists()).toBe(true)
+    expect(wrapper.find('.desktop-settings-sidebar-stub').exists()).toBe(false)
+    expect(wrapper.find('.desktop-sidebar-resize-handle').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('返回应用时恢复打开设置前的会话，不再显示欢迎首页', async () => {
+    const {wrapper} = await mountShell()
+
+    await openTab(wrapper, 'before-settings')
+    expect(wrapper.vm.activeTabId).toBe('h1:before-settings')
+
+    await wrapper.vm.openSettings()
+    expect(wrapper.vm.activeTabId).toBe('')
+
+    await wrapper.vm.showHome()
+    await nextTick()
+    expect(wrapper.vm.activeTabId).toBe('h1:before-settings')
+    expect(wrapper.find('.desktop-shell-welcome').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+})
 
 beforeEach(() => {
   configAPI.getConfig.mockResolvedValue({success: true, data: {modelChannelsConfigured: true}})
@@ -752,6 +796,36 @@ describe('DesktopShell 原生确认弹窗', () => {
     await flushPromises()
 
     expect(desktopChatTabs.show).toHaveBeenCalledWith('h1:slow', expect.any(Object))
+    expect(desktopChatTabs.setLoading).toHaveBeenCalledWith('h1:a', false)
+    expect(wrapper.find('.desktop-session-loading').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('点击新建会话时复用会话 Loading 过渡，创建完成后移除', async () => {
+    const desktopChatTabs = {
+      create: vi.fn().mockResolvedValue({success: true}),
+      show: vi.fn().mockResolvedValue({success: true}),
+      hide: vi.fn().mockResolvedValue({success: true}),
+      close: vi.fn().mockResolvedValue({success: true}),
+      setLoading: vi.fn().mockResolvedValue({success: true})
+    }
+    window.electronAPI = {desktopChatTabs}
+    const {wrapper} = await mountShell()
+    await openTab(wrapper, 'a')
+
+    let resolveCreate
+    sessionsAPI.createNew.mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve }))
+    const creating = wrapper.vm.createTab()
+    await vi.waitFor(() => expect(desktopChatTabs.setLoading).toHaveBeenCalledWith('h1:a', true))
+
+    expect(wrapper.find('.desktop-session-loading').exists()).toBe(true)
+    expect(desktopChatTabs.create).toHaveBeenLastCalledWith(expect.objectContaining({id: 'h1:a'}))
+
+    resolveCreate({success: true, data: {sessionName: 'new-session', workspaceHash: 'h1'}})
+    await creating
+    await flushPromises()
+
+    expect(desktopChatTabs.show).toHaveBeenCalledWith('h1:new-session', expect.any(Object))
     expect(desktopChatTabs.setLoading).toHaveBeenCalledWith('h1:a', false)
     expect(wrapper.find('.desktop-session-loading').exists()).toBe(false)
     wrapper.unmount()

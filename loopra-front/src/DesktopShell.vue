@@ -75,13 +75,13 @@
 
     <div
       class="desktop-workbench"
-      :class="{ 'sidebar-collapsed': sidebarCollapsed, 'sidebar-resizing': sidebarDragging }"
+      :class="{ 'sidebar-collapsed': sidebarCollapsed, 'sidebar-resizing': sidebarDragging, 'settings-mode': showSettings }"
       :style="sidebarStyle"
     >
       <DesktopHome
         sidebar-only
+        :settings-mode="showSettings"
         :active-session-name="tabs.find(tab => tab.id === activeTabId)?.sessionName || ''"
-        :home-menu-open="homeContextMenu.visible"
         :workspaces="workspaces"
         :active-workspace-hash="activeWorkspaceHash"
         :theme="theme"
@@ -108,7 +108,6 @@
         @delete-workspace="confirmDeleteWorkspace"
         @delete-workspaces="confirmDeleteWorkspaces"
         @reorder-workspaces="reorderWorkspaces"
-        @show-home="showHome"
         @open-home-context="openHomeContextMenu"
       >
         <template #sidebar-header-actions>
@@ -176,7 +175,7 @@
         @keydown="handleSidebarResizeKeydown"
         @dblclick="resetSidebarWidth"
       ></div>
-    <main ref="host" class="desktop-view-host">
+    <main ref="host" class="desktop-view-host" :class="{ 'settings-host': showSettings }">
       <div v-if="sessionLoading" class="desktop-session-loading" role="status" aria-live="polite">
         <span class="desktop-session-loading-spinner" aria-hidden="true"></span>
         <span>正在加载会话…</span>
@@ -185,16 +184,9 @@
         <span>{{ startupError }}</span>
         <button type="button" @click="initializeWorkspace">重试</button>
       </div>
-      <section v-else-if="!activeTabId && !showSkills && !showSettings && !showModelChannels" class="desktop-home-workspace desktop-shell-welcome">
-        <div class="desktop-home-welcome">
-          <svg class="desktop-welcome-symbol" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="12"/><path d="m16 18 5 6-5 6M26 30h7"/></svg>
-          <h1>你想让我们构建什么？</h1>
-        </div>
-        <div class="desktop-home-start"><button class="desktop-start-session" type="button" @click="createTab"><span>新建会话</span><span class="desktop-start-arrow" aria-hidden="true">↑</span></button></div>
-      </section>
       <SettingsView v-else-if="showSkills" class="desktop-settings" market-only />
       <ModelChannels v-else-if="showModelChannels" class="desktop-settings" :show-back="false" @saved="reloadAfterModelChannelsSaved" />
-      <SettingsView v-else-if="showSettings" class="desktop-settings" :initial-tab="settingsTab" />
+      <SettingsView v-else-if="showSettings" class="desktop-settings" :initial-tab="settingsTab" show-back @back="showHome" />
     </main>
     </div>
   <ConfirmDialog />
@@ -242,6 +234,7 @@ const showModelChannels = ref(false)
 const modelChannelsRequireReload = ref(false)
 // 设置页打开的初始 tab（工具/子代理/数据面板已收进设置页左侧菜单）
 const settingsTab = ref('general')
+const settingsReturnTabId = ref('')
 const tabs = ref([])
 const activeTabId = ref('')
 const sessionLoading = ref(false)
@@ -755,6 +748,9 @@ async function createTab() {
     return
   }
   creating.value = true
+  // 新建会话与打开历史会话使用同一套过渡：先遮住当前视图，
+  // 等新会话原生视图创建完成后再切换，避免加载期间露出旧内容。
+  const loadingRequest = beginSessionLoading(activeTabId.value)
   try {
     const response = await sessionsAPI.createNew({ workspaceHash: targetHash })
     if (!response.success || !response.data?.sessionName) throw new Error(response.message || '创建会话失败')
@@ -765,12 +761,13 @@ async function createTab() {
     tabs.value = [...tabs.value, { id, sessionName, workspaceHash, title: tabTitle(sessionName), newSession: true }]
     activeTabId.value = id
     startupError.value = ''
-    await renderActiveTab()
+    await renderActiveTab(loadingRequest.shown)
   } catch (error) {
     const errorMessage = '新建会话失败：' + (error.message || '未知错误')
     message.error(errorMessage)
     if (tabs.value.length === 0) startupError.value = errorMessage
   } finally {
+    await finishSessionLoading(loadingRequest)
     creating.value = false
   }
 }
@@ -1068,8 +1065,10 @@ function onWindowKeydown(event) {
 
 async function showHome() {
   closeContextMenus()
+  const returnTabId = settingsReturnTabId.value
+  settingsReturnTabId.value = ''
   hideStandaloneViews()
-  activeTabId.value = ''
+  activeTabId.value = returnTabId && tabs.value.some((tab) => tab.id === returnTabId) ? returnTabId : ''
   await renderActiveTab()
 }
 
@@ -1100,6 +1099,7 @@ async function openSubAgents() {
 }
 
 async function openSettings(tab = 'general') {
+  if (!showSettings.value) settingsReturnTabId.value = activeTabId.value
   settingsTab.value = tab
   hideStandaloneViews()
   showSettings.value = true
@@ -1618,6 +1618,9 @@ onBeforeUnmount(() => {
 .desktop-titlebar-button:hover,
 .desktop-titlebar-button:focus-visible { background: var(--desktop-hover, #e7e7e5); outline: 0; }
 .desktop-workbench { position: relative; }
+.desktop-shell .desktop-workbench.settings-mode > .desktop-view-host {
+  border-radius: 0;
+}
 .desktop-shell .desktop-workbench > .desktop-home {
   max-width: var(--desktop-sidebar-width, 280px);
   will-change: flex-basis, width, max-width, opacity, transform;

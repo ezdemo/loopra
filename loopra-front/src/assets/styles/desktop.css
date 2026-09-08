@@ -17,7 +17,6 @@
 .desktop-shell.desktop-shell .desktop-tab-add { flex: 0 0 28px; height: 28px; width: 100%; border-radius: 8px; }
 .desktop-shell.desktop-shell .desktop-tab-monogram { background: transparent; color: var(--desktop-muted); }
 .desktop-shell.desktop-shell .desktop-view-host { position: relative; overflow: hidden; border-radius: 18px 0 0 0; background: var(--desktop-paper); }
-.desktop-shell .desktop-shell-welcome { height: 100%; }
 .desktop-shell.desktop-shell .desktop-session.active { background: var(--desktop-hover); color: var(--desktop-ink); }
 :is(.desktop-shell, .desktop-chat-tab) {
   --desktop-sidebar: #f1f1ef;

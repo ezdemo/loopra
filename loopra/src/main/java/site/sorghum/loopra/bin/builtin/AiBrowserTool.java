@@ -45,7 +45,8 @@ public class AiBrowserTool extends AbsToolProvider implements SolonToTools {
 
     @ToolMapping(name = "browser_tabs", description = "返回 AI 浏览器当前所有标签页、激活标签页 ID、地址、标题及前进后退状态。")
     public String tabs(@Param(name = "ctx", required = false) ToolContext ctx) {
-        return call("tabs", new ONode());
+        // 空 ONode 的 Snack4 JSON 表示是 null；bridge 端需要一个 JSON 对象。
+        return call("tabs", ONode.ofJson("{}"));
     }
 
     @ToolMapping(name = "browser_navigate", description = "让指定标签页跳转到新的 HTTP(S) 地址。tabId 从 browser_tabs 或 browser_new_tab 的结果中取得。")

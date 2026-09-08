@@ -1702,25 +1702,39 @@ ipcMain.handle('desktop-session-context-menu', (event, rawPayload = {}) => {
   applyNativeMenuTheme(rawPayload?.theme)
 
   return new Promise((resolve) => {
-    let settled = false
-    const finish = (action) => {
-      if (settled) return
-      settled = true
+    let resolved = false
+    const resolveMenu = () => {
+      if (resolved) return
+      resolved = true
+      resolve(null)
+    }
+    const dispatchAction = (action) => {
       if (action && mainWindow && !mainWindow.isDestroyed()) {
         const item = { workspaceHash, name: sessionName }
         if (sessionTitle) item.title = sessionTitle
         mainWindow.webContents.send('desktop-session-context-action', { action, item })
       }
-      // 菜单点击通过事件回传，避免依赖原生菜单关闭时的 IPC Promise 时序。
-      resolve(null)
     }
     const menu = Menu.buildFromTemplate([
-      { label: '重命名会话', click: () => finish('rename-session') },
-      { label: '删除会话', click: () => finish('delete-session') }
+      {
+        label: '重命名会话',
+        click: () => {
+          dispatchAction('rename-session')
+          resolveMenu()
+        }
+      },
+      {
+        label: '删除会话',
+        click: () => {
+          dispatchAction('delete-session')
+          resolveMenu()
+        }
+      }
     ])
     menu.popup({
       window: mainWindow,
-      callback: () => finish(null)
+      // 菜单关闭回调可能先于菜单项 click 回调触发，不能用它吞掉动作派发。
+      callback: resolveMenu
     })
   })
 })
@@ -3435,7 +3449,11 @@ function startAiBrowserBridge() {
       return
     }
     try {
-      const payload = await readBridgeBody(request)
+      const parsedPayload = await readBridgeBody(request)
+      // 兼容空请求体或历史客户端发送的 JSON null，避免后续读取 payload.tabId 崩溃。
+      const payload = parsedPayload && typeof parsedPayload === 'object' && !Array.isArray(parsedPayload)
+        ? parsedPayload
+        : {}
       const method = request.url.slice('/browser/'.length).split('?')[0]
       const targetTabId = String(payload.tabId || aiBrowserActiveTabId || '')
       const actionLabels = { click: '点击元素', fill: '输入内容', select: '选择选项', press: '发送按键', scroll: '定位元素' }
