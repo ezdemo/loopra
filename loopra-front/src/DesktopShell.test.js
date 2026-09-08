@@ -141,6 +141,112 @@ describe('DesktopShell 启动页', () => {
   })
 })
 
+describe('DesktopShell 左侧边栏宽度', () => {
+  const sidebarSizeKey = 'loopra-desktop-sidebar-width'
+
+  beforeEach(() => {
+    localStorage.removeItem(sidebarSizeKey)
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(sidebarSizeKey)
+  })
+
+  it('默认使用窄侧栏，并支持拖动、键盘和双击恢复宽度', async () => {
+    const {wrapper} = await mountShell()
+    const workbench = wrapper.find('.desktop-workbench')
+    const handle = wrapper.find('.desktop-sidebar-resize-handle')
+
+    expect(workbench.attributes('style')).toContain('--desktop-sidebar-width: 280px')
+    expect(handle.attributes('role')).toBe('separator')
+    expect(handle.attributes('aria-valuenow')).toBe('280')
+
+    await handle.trigger('mousedown', {clientX: 280})
+    window.dispatchEvent(new MouseEvent('mousemove', {clientX: 340}))
+    await nextTick()
+    expect(wrapper.vm.sidebarWidth).toBe(340)
+    expect(handle.classes()).toContain('dragging')
+
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    await nextTick()
+    expect(localStorage.getItem(sidebarSizeKey)).toBe('340')
+    expect(handle.classes()).not.toContain('dragging')
+
+    await handle.trigger('keydown', {key: 'ArrowLeft'})
+    expect(wrapper.vm.sidebarWidth).toBe(330)
+    await handle.trigger('dblclick')
+    expect(wrapper.vm.sidebarWidth).toBe(280)
+    expect(localStorage.getItem(sidebarSizeKey)).toBe('280')
+
+    wrapper.unmount()
+  })
+
+  it('拖过最小宽度后自动收起侧边栏', async () => {
+    const {wrapper} = await mountShell()
+    const handle = wrapper.find('.desktop-sidebar-resize-handle')
+
+    await handle.trigger('mousedown', {clientX: 280})
+    // 220px 最小宽度之外再拖出 32px 的吸附区后收起。
+    window.dispatchEvent(new MouseEvent('mousemove', {clientX: 180}))
+    await nextTick()
+
+    expect(wrapper.vm.sidebarWidth).toBe(220)
+    expect(wrapper.vm.sidebarCollapsed).toBe(true)
+    expect(wrapper.find('.desktop-workbench').classes()).toContain('sidebar-collapsed')
+    expect(wrapper.find('.desktop-sidebar-resize-handle').classes()).toContain('collapsed')
+    expect(localStorage.getItem(sidebarSizeKey)).toBe('220')
+
+    // 收起态不保留空的 flex 拖拽条，通过标题栏按钮展开，内容区应贴到最左侧。
+    expect(wrapper.find('.desktop-sidebar-toggle').attributes('title')).toBe('展开侧边栏')
+    await wrapper.find('.desktop-sidebar-toggle').trigger('click')
+    await nextTick()
+    expect(wrapper.vm.sidebarCollapsed).toBe(false)
+    expect(wrapper.vm.sidebarWidth).toBe(220)
+
+    wrapper.unmount()
+  })
+
+  it('鼠标进入原生会话视图后仍能继续拖动', async () => {
+    const listeners = new Map()
+    const desktopChatTabs = {
+      create: vi.fn().mockResolvedValue({success: true}),
+      show: vi.fn().mockResolvedValue({success: true}),
+      hide: vi.fn().mockResolvedValue({success: true}),
+      close: vi.fn().mockResolvedValue({success: true}),
+      startSidebarResize: vi.fn().mockResolvedValue({success: true}),
+      endSidebarResize: vi.fn().mockResolvedValue({success: true})
+    }
+    window.electronAPI = {
+      desktopChatTabs,
+      events: {
+        listen: vi.fn((eventName, callback) => {
+          listeners.set(eventName, callback)
+          return () => listeners.delete(eventName)
+        })
+      }
+    }
+
+    const {wrapper} = await mountShell()
+    const handle = wrapper.find('.desktop-sidebar-resize-handle')
+    await handle.trigger('mousedown', {clientX: 280})
+    expect(desktopChatTabs.startSidebarResize).toHaveBeenCalled()
+
+    // 原生 WebContentsView 接管焦点时，主 renderer 可能收到 blur；这不应结束拖拽。
+    window.dispatchEvent(new Event('blur'))
+    expect(handle.classes()).toContain('dragging')
+    listeners.get('desktop-shell-sidebar-resize-move')({clientX: 380})
+    await nextTick()
+    expect(wrapper.vm.sidebarWidth).toBe(380)
+
+    listeners.get('desktop-shell-sidebar-resize-end')()
+    await nextTick()
+    expect(desktopChatTabs.endSidebarResize).toHaveBeenCalled()
+    expect(handle.classes()).not.toContain('dragging')
+
+    wrapper.unmount()
+  })
+})
+
 describe('DesktopShell 首页右键菜单', () => {
   it('提供需求池、引导、更新和暗色/浅色操作', async () => {
     const {wrapper, store} = await mountShell()

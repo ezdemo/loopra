@@ -161,13 +161,12 @@
         </template>
       </DesktopHome>
       <div
-        v-if="!sidebarCollapsed"
         class="desktop-sidebar-resize-handle"
-        :class="{ dragging: sidebarDragging }"
+        :class="{ dragging: sidebarDragging, collapsed: sidebarCollapsed }"
         role="separator"
         aria-orientation="vertical"
         aria-label="调整左侧边栏宽度"
-        title="拖动调整左侧边栏宽度"
+        :title="sidebarCollapsed ? '拖动展开侧边栏' : '拖动调整左侧边栏宽度'"
         tabindex="0"
         :aria-valuemin="DESKTOP_SIDEBAR_MIN_WIDTH"
         :aria-valuemax="sidebarMaxWidth"
@@ -247,6 +246,156 @@ const tabs = ref([])
 const activeTabId = ref('')
 const sessionLoading = ref(false)
 const sidebarCollapsed = ref(false)
+const DESKTOP_SIDEBAR_SIZE_KEY = 'loopra-desktop-sidebar-width'
+const DESKTOP_SIDEBAR_DEFAULT_WIDTH = 280
+const DESKTOP_SIDEBAR_MIN_WIDTH = 220
+const DESKTOP_SIDEBAR_COLLAPSE_DISTANCE = 32
+const DESKTOP_SIDEBAR_MAX_WIDTH = 420
+const DESKTOP_SIDEBAR_MAX_WIDTH_RATIO = 0.4
+
+function getSidebarMaxWidth(viewportWidthOverride) {
+  const viewportWidth = viewportWidthOverride ?? (typeof window === 'undefined' ? 0 : Number(window.innerWidth))
+  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return DESKTOP_SIDEBAR_MAX_WIDTH
+  return Math.max(
+    DESKTOP_SIDEBAR_MIN_WIDTH,
+    Math.min(DESKTOP_SIDEBAR_MAX_WIDTH, Math.floor(viewportWidth * DESKTOP_SIDEBAR_MAX_WIDTH_RATIO))
+  )
+}
+
+function clampSidebarWidth(value) {
+  const numericValue = Number(value)
+  const width = Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : DESKTOP_SIDEBAR_DEFAULT_WIDTH
+  return Math.round(Math.min(getSidebarMaxWidth(), Math.max(DESKTOP_SIDEBAR_MIN_WIDTH, width)))
+}
+
+function readSidebarWidth() {
+  try {
+    return clampSidebarWidth(window.localStorage.getItem(DESKTOP_SIDEBAR_SIZE_KEY))
+  } catch {
+    return clampSidebarWidth(DESKTOP_SIDEBAR_DEFAULT_WIDTH)
+  }
+}
+
+const sidebarWidth = ref(readSidebarWidth())
+const sidebarDragging = ref(false)
+const sidebarViewportWidth = ref(typeof window === 'undefined' ? 0 : window.innerWidth)
+const sidebarMaxWidth = computed(() => getSidebarMaxWidth(sidebarViewportWidth.value))
+const sidebarStyle = computed(() => ({'--desktop-sidebar-width': `${sidebarWidth.value}px`}))
+let stopSidebarResize = null
+let sidebarResizeMoveHandler = null
+
+function persistSidebarWidth() {
+  try {
+    window.localStorage.setItem(DESKTOP_SIDEBAR_SIZE_KEY, String(sidebarWidth.value))
+  } catch {
+    // 存储不可用时忽略，当前窗口内的调整仍然有效。
+  }
+}
+
+function setSidebarWidth(value) {
+  sidebarWidth.value = clampSidebarWidth(value)
+}
+
+function startSidebarResize(event) {
+  stopSidebarResize?.()
+  const startX = Number(event.clientX) || 0
+  const startWidth = sidebarWidth.value
+  const previousCursor = document.body.style.cursor
+  const previousUserSelect = document.body.style.userSelect
+  const nativeResizeBridge = nativeTabs()
+  let nativeResizeRelayActive = typeof nativeResizeBridge?.startSidebarResize === 'function'
+  let finished = false
+  // 隐藏态保留一条窄拖拽条，按下它即可从最小宽度重新展开。
+  if (sidebarCollapsed.value) sidebarCollapsed.value = false
+  sidebarDragging.value = true
+  document.body.style.cursor = 'ew-resize'
+  document.body.style.userSelect = 'none'
+
+  const updateFromClientX = (clientX) => {
+    if (finished) return
+    const nextWidth = startWidth + (Number(clientX) || 0) - startX
+    if (nextWidth < DESKTOP_SIDEBAR_MIN_WIDTH - DESKTOP_SIDEBAR_COLLAPSE_DISTANCE) {
+      sidebarWidth.value = DESKTOP_SIDEBAR_MIN_WIDTH
+      sidebarCollapsed.value = true
+      onUp()
+      return
+    }
+    setSidebarWidth(nextWidth)
+  }
+
+  const onMove = (moveEvent) => updateFromClientX(moveEvent.clientX)
+
+  const onBlur = () => {
+    // 主页面与原生 WebContentsView 交界时可能发生 renderer blur，
+    // 这只是焦点切换，不代表用户松开了鼠标。
+    if (nativeResizeRelayActive) return
+    onUp()
+  }
+
+  const onUp = () => {
+    if (finished) return
+    finished = true
+    sidebarDragging.value = false
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+    window.removeEventListener('blur', onBlur)
+    document.body.style.cursor = previousCursor
+    document.body.style.userSelect = previousUserSelect
+    stopSidebarResize = null
+    sidebarResizeMoveHandler = null
+    nativeResizeRelayActive = false
+    persistSidebarWidth()
+    void Promise.resolve(nativeResizeBridge?.endSidebarResize?.()).catch((error) => {
+      console.warn('[desktop-shell] failed to stop native sidebar resize relay:', error)
+    })
+  }
+
+  stopSidebarResize = onUp
+  // 原生聊天视图覆盖在主页面之上，鼠标移入后主页面收不到 mousemove。
+  // 将同一个坐标处理函数暴露给主进程转发回来的事件，保证拖拽连续。
+  sidebarResizeMoveHandler = updateFromClientX
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+  window.addEventListener('pointercancel', onUp)
+  window.addEventListener('blur', onBlur)
+  if (nativeResizeBridge?.startSidebarResize) {
+    void Promise.resolve(nativeResizeBridge.startSidebarResize()).then((result) => {
+      if (result?.success === false) nativeResizeRelayActive = false
+    }).catch((error) => {
+      nativeResizeRelayActive = false
+      console.warn('[desktop-shell] failed to start native sidebar resize relay:', error)
+    })
+  }
+}
+
+function handleSidebarResizeKeydown(event) {
+  const step = event.shiftKey ? 32 : 10
+  let nextWidth = null
+  if (event.key === 'ArrowLeft') nextWidth = sidebarWidth.value - step
+  else if (event.key === 'ArrowRight') nextWidth = sidebarWidth.value + step
+  else if (event.key === 'Home') nextWidth = DESKTOP_SIDEBAR_MIN_WIDTH
+  else if (event.key === 'End') nextWidth = getSidebarMaxWidth()
+  if (nextWidth === null) return
+  event.preventDefault()
+  if (sidebarCollapsed.value && event.key !== 'ArrowLeft') sidebarCollapsed.value = false
+  setSidebarWidth(nextWidth)
+  persistSidebarWidth()
+}
+
+function resetSidebarWidth() {
+  sidebarCollapsed.value = false
+  setSidebarWidth(DESKTOP_SIDEBAR_DEFAULT_WIDTH)
+  persistSidebarWidth()
+}
+
+function onSidebarViewportResize() {
+  sidebarViewportWidth.value = window.innerWidth
+  setSidebarWidth(sidebarWidth.value)
+}
+
 const documentTitle = computed(() => {
   if (showSkills.value) return 'Loopra - 工具箱'
   if (showModelChannels.value) return 'Loopra - 模型渠道'
@@ -369,6 +518,14 @@ const tabTitle = (sessionName) => {
 }
 
 const nativeTabs = () => window.electronAPI?.desktopChatTabs
+
+const stopNativeSidebarResizeMoveListener = window.electronAPI?.events?.listen('desktop-shell-sidebar-resize-move', (payload) => {
+  const clientX = Number(payload?.clientX)
+  if (Number.isFinite(clientX)) sidebarResizeMoveHandler?.(clientX)
+})
+const stopNativeSidebarResizeEndListener = window.electronAPI?.events?.listen('desktop-shell-sidebar-resize-end', () => {
+  stopSidebarResize?.()
+})
 
 function beginSessionLoading(previousTabId) {
   const request = {version: ++sessionLoadingVersion}
@@ -1317,6 +1474,7 @@ onMounted(() => {
   // 服务已由启动窗口（SplashScreen）完成检测/安装/启动，主窗口直接初始化
   resizeObserver = new ResizeObserver(() => { void renderActiveTab() })
   if (host.value) resizeObserver.observe(host.value)
+  window.addEventListener('resize', onSidebarViewportResize)
   // 启动后立即检查更新，并开启定时检查
   void checkForUpdates()
   updateCheckTimer = setInterval(() => { void checkForUpdates() }, UPDATE_CHECK_INTERVAL)
@@ -1355,6 +1513,7 @@ function reloadAfterModelChannelsSaved() {
 }
 
 onBeforeUnmount(() => {
+  stopSidebarResize?.()
   resizeObserver?.disconnect()
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer)
@@ -1362,6 +1521,7 @@ onBeforeUnmount(() => {
   }
   window.removeEventListener('click', onWindowClick)
   window.removeEventListener('keydown', onWindowKeydown)
+  window.removeEventListener('resize', onSidebarViewportResize)
   stopTitleListener?.()
   stopWorkspaceListener?.()
   stopOpenHomeListener?.()
@@ -1370,6 +1530,8 @@ onBeforeUnmount(() => {
   stopSearchActionListener?.()
   stopPopupActionListener?.()
   stopPopupClosedListener?.()
+  stopNativeSidebarResizeMoveListener?.()
+  stopNativeSidebarResizeEndListener?.()
   void nativeTabs()?.hide()
 })
 </script>
@@ -1409,19 +1571,70 @@ onBeforeUnmount(() => {
 .desktop-titlebar-button.active { color: var(--desktop-ink, #343432); }
 .desktop-titlebar-button:hover,
 .desktop-titlebar-button:focus-visible { background: var(--desktop-hover, #e7e7e5); outline: 0; }
+.desktop-workbench { position: relative; }
 .desktop-shell .desktop-workbench > .desktop-home {
-  will-change: flex-basis, width, opacity, transform;
-  transition: flex-basis .24s ease, width .24s ease, opacity .18s ease, transform .24s ease;
+  max-width: var(--desktop-sidebar-width, 280px);
+  will-change: flex-basis, width, max-width, opacity, transform;
+  transition: flex-basis .24s ease, width .24s ease, max-width .24s ease, opacity .18s ease, transform .24s ease;
 }
+.desktop-shell .desktop-workbench.sidebar-resizing > .desktop-home { transition: none; }
 .desktop-shell .desktop-workbench.sidebar-collapsed > .desktop-home {
   flex: 0 0 0;
   width: 0;
+  max-width: 0;
   min-width: 0;
+  padding: 0;
+  margin: 0;
+  border-width: 0;
   overflow: hidden;
   opacity: 0;
   transform: translateX(-12px);
   pointer-events: none;
 }
+.desktop-sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* 整个热区留在主页面侧栏内，避免右半边被原生会话视图盖住。 */
+  left: calc(var(--desktop-sidebar-width, 280px) - 12px);
+  z-index: 30;
+  width: 12px;
+  cursor: ew-resize;
+  outline: 0;
+  -webkit-app-region: no-drag;
+  user-select: none;
+}
+.desktop-sidebar-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 10.5px;
+  width: 1px;
+  background: transparent;
+  content: '';
+  transition: background-color .15s ease;
+}
+.desktop-sidebar-resize-handle:hover::after,
+.desktop-sidebar-resize-handle.dragging::after,
+.desktop-sidebar-resize-handle:focus-visible::after {
+  background: color-mix(in srgb, var(--desktop-ink, #343432) 32%, transparent);
+}
+.desktop-sidebar-resize-handle:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--desktop-ink, #343432) 18%, transparent);
+}
+.desktop-shell .desktop-workbench.sidebar-collapsed > .desktop-sidebar-resize-handle {
+  /* 收起态不再作为 flex 子项占位；通过顶部侧栏按钮重新展开。 */
+  position: absolute;
+  top: auto;
+  right: auto;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  height: 100%;
+  flex: 0 0 0;
+  pointer-events: none;
+}
+.desktop-shell .desktop-workbench.sidebar-collapsed > .desktop-sidebar-resize-handle::after { display: none; }
 .desktop-sidebar-header-actions { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
 .desktop-sidebar-header-button { position: relative; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--desktop-muted, #969692); cursor: pointer; transition: background-color .15s ease, color .15s ease; -webkit-app-region: no-drag; }
 .desktop-sidebar-header-button:hover, .desktop-sidebar-header-button[aria-expanded="true"] { background: var(--desktop-hover, #e7e7e5); color: var(--desktop-ink, #343432); }

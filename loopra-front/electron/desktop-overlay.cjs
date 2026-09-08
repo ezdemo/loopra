@@ -114,6 +114,11 @@ class DesktopNativeOverlayManager {
     }
     if (this.get(overlayKey) !== entry || entry.view.webContents.isDestroyed()) return null
 
+    if (!show) {
+      entry.visible = false
+      if (this.topKey === overlayKey) this.topKey = ''
+      if (!entry.view.webContents.isDestroyed()) entry.view.setVisible(false)
+    }
     // 先把视图放到正确的原生层级并发送上下文，再决定是否显示。
     // 某些浮层（例如探索菜单）需要等待渲染进程确认上下文已绘制，
     // 因此不能在上下文到达前先暴露一个默认的左上角首帧。

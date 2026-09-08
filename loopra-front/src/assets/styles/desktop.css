@@ -1,6 +1,11 @@
 /* Desktop surfaces share a quiet, neutral frame. Web routes retain their theme. */
 .desktop-shell .desktop-workbench { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-.desktop-shell.desktop-shell .desktop-home.sidebar-only { width: 320px; flex: 0 0 320px; height: auto; }
+.desktop-shell.desktop-shell .desktop-home.sidebar-only {
+  width: var(--desktop-sidebar-width, 280px);
+  flex: 0 0 var(--desktop-sidebar-width, 280px);
+  min-width: 0;
+  height: auto;
+}
 .desktop-shell.desktop-shell .sidebar-only .desktop-home-grid { display: flex; flex: 1; overflow: hidden; }
 .desktop-shell.desktop-shell .sidebar-only .desktop-projects { width: 100%; }
 .desktop-shell.desktop-shell .desktop-home.sidebar-only { overflow: visible; }

@@ -358,7 +358,42 @@ let stopFocusComposerListener = null
 let stopSendCommandListener = null
 let stopSessionTitleListener = null
 let stopGlobalLoadingListener = null
+let stopSidebarResizeStartListener = null
+let stopSidebarResizeEndListener = null
+let stopSidebarResizeRelay = null
 let stopLeftPanelResize = null
+
+function finishSidebarResizeRelay(notifyMain = true) {
+  const stop = stopSidebarResizeRelay
+  stopSidebarResizeRelay = null
+  stop?.()
+  if (notifyMain) window.electronAPI?.desktopChatTabs?.reportSidebarResizeEnd?.()
+}
+
+function startSidebarResizeRelay() {
+  finishSidebarResizeRelay(false)
+  const previousCursor = document.body.style.cursor
+  const previousUserSelect = document.body.style.userSelect
+  document.body.style.cursor = 'ew-resize'
+  document.body.style.userSelect = 'none'
+  const onMove = (event) => {
+    const clientX = Number(event.clientX)
+    if (Number.isFinite(clientX)) {
+      window.electronAPI?.desktopChatTabs?.reportSidebarResizeMove?.({clientX})
+    }
+  }
+  const onUp = () => finishSidebarResizeRelay(true)
+  stopSidebarResizeRelay = () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+    document.body.style.cursor = previousCursor
+    document.body.style.userSelect = previousUserSelect
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+  window.addEventListener('pointercancel', onUp)
+}
 
 function waitForPaint(frames = 2) {
   return new Promise((resolve) => {
@@ -430,6 +465,12 @@ onMounted(() => {
         window.electronAPI?.desktopChatTabs?.loadingReady?.(requestId)
       })()
     }
+  })
+  // 主窗口开始调整左侧栏后，鼠标会进入当前原生 WebContentsView；
+  // 在这里继续采集坐标并回传，避免主窗口 renderer 丢失 mousemove。
+  stopSidebarResizeStartListener = window.electronAPI?.events?.listen('desktop-shell-sidebar-resize-start', startSidebarResizeRelay)
+  stopSidebarResizeEndListener = window.electronAPI?.events?.listen('desktop-shell-sidebar-resize-end', () => {
+    finishSidebarResizeRelay(false)
   })
   // Agent 调用 bash_start 时自动展开右侧栏“命令”页签（仅当前 tab 响应）
   window.addEventListener('loopra:bash-start', onBashStart)
@@ -956,6 +997,9 @@ onBeforeUnmount(() => {
   stopSendCommandListener?.()
   stopSessionTitleListener?.()
   stopGlobalLoadingListener?.()
+  stopSidebarResizeStartListener?.()
+  stopSidebarResizeEndListener?.()
+  finishSidebarResizeRelay(false)
   window.removeEventListener('loopra:bash-start', onBashStart)
   stopLeftPanelResize?.()
   leftPanelDragging.value = false

@@ -59,7 +59,8 @@ const DESKTOP_CHAT_DEV_RENDERER_ORIGINS = ['http://localhost:3000', 'http://127.
 const DESKTOP_CHAT_LOAD_ATTEMPTS = DESKTOP_CHAT_DEV_RENDERER_ORIGINS.length
 const DESKTOP_CHAT_LOAD_RETRY_DELAY_MS = 200
 const DESKTOP_CHAT_LOAD_TIMEOUT_MS = 10000
-const DESKTOP_SIDEBAR_CONTEXT_WIDTH = 360
+// Keep developer context menus suppressed across the full resizable sidebar.
+const DESKTOP_SIDEBAR_CONTEXT_WIDTH = 440
 
 let mainWindow = null
 let splashWindow = null
@@ -2142,23 +2143,62 @@ function normalizeDesktopPopupAction(rawAction = {}) {
   return { type, action, kind, payload: normalizeDesktopPopupData(payload) }
 }
 
+function resolveDesktopPopupContextWaiter(requestId, entry, painted) {
+  const waiter = desktopPopupContextWaiters.get(requestId)
+  if (!waiter || (entry && waiter.entry !== entry)) return false
+  desktopPopupContextWaiters.delete(requestId)
+  clearTimeout(waiter.timeout)
+  waiter.resolve(painted)
+  return true
+}
+
+function cancelDesktopPopupContextWaiters() {
+  for (const [requestId, waiter] of desktopPopupContextWaiters) {
+    desktopPopupContextWaiters.delete(requestId)
+    clearTimeout(waiter.timeout)
+    waiter.resolve(false)
+  }
+}
+
+function waitForDesktopPopupContext(entry, requestId, timeoutMs = 2_000) {
+  if (!entry || entry.view.webContents.isDestroyed()) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolveDesktopPopupContextWaiter(requestId, entry, false), timeoutMs)
+    desktopPopupContextWaiters.set(requestId, {entry, resolve, timeout})
+  })
+}
+
+function sendDesktopPopupContext(entry = desktopOverlayManager.get('popup')) {
+  if (!entry || entry.view.webContents.isDestroyed() || !desktopPopupContext) return false
+  entry.view.webContents.send('desktop-popup-context', {
+    ...desktopPopupContext,
+    __desktopPopupRequestId: desktopPopupContextRequestId
+  })
+  return true
+}
+
 function hideDesktopPopup({ notify = true, refocus = true } = {}) {
   const hidden = desktopOverlayManager.hide('popup')
   setTitleBarOverlayDimmed(false)
-  if (!hidden) return false
   const type = desktopPopupContext?.type || ''
+  const hadContext = Boolean(desktopPopupContext)
   desktopPopupContext = null
+  desktopPopupContextRequestId += 1
+  cancelDesktopPopupContextWaiters()
+  if (!hidden && !hadContext) return false
   if (notify && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('desktop-shell-popup-closed', { type })
   }
   if (refocus) refocusDesktopShell()
-  return true
+  return hidden || hadContext
 }
 
 async function openDesktopPopupView(rawContext = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return false
   const context = normalizeDesktopPopupContext(rawContext)
   if (!context) return false
+  cancelDesktopPopupContextWaiters()
+  const requestId = ++desktopPopupContextRequestId
   desktopPopupContext = context
   const entry = await desktopOverlayManager.open('popup', {
     query: {
@@ -2167,13 +2207,18 @@ async function openDesktopPopupView(rawContext = {}) {
       theme: context.theme
     },
     backgroundColor: '#00000000',
-    contextChannel: 'desktop-popup-context',
-    context
+    show: false
   })
-  if (entry) {
-    setTitleBarOverlayDimmed(DESKTOP_POPUP_MODAL_TYPES.has(context.type))
-  }
-  return Boolean(entry)
+  if (!entry || requestId !== desktopPopupContextRequestId || desktopPopupContext !== context) return false
+
+  const contextPainted = waitForDesktopPopupContext(entry, requestId)
+  sendDesktopPopupContext(entry)
+  if (!await contextPainted) return false
+  if (requestId !== desktopPopupContextRequestId || desktopPopupContext !== context) return false
+
+  const shown = desktopOverlayManager.show('popup')
+  if (shown) setTitleBarOverlayDimmed(DESKTOP_POPUP_MODAL_TYPES.has(context.type))
+  return shown
 }
 
 ipcMain.handle('desktop-popup-open', async (event, rawContext) => {
@@ -2190,7 +2235,12 @@ ipcMain.handle('desktop-popup-open', async (event, rawContext) => {
 // 握手并补取当前上下文，避免首次打开时丢失 item/payload。
 ipcMain.on('desktop-popup-ready', (event) => {
   if (!isDesktopOverlaySender('popup', event.sender) || !desktopPopupContext) return
-  event.sender.send('desktop-popup-context', desktopPopupContext)
+  sendDesktopPopupContext(desktopOverlayManager.get('popup'))
+})
+
+ipcMain.on('desktop-popup-context-ready', (event, requestId) => {
+  if (!isDesktopOverlaySender('popup', event.sender) || !Number.isSafeInteger(requestId)) return
+  resolveDesktopPopupContextWaiter(requestId, desktopOverlayManager.get('popup'), true)
 })
 
 ipcMain.handle('desktop-popup-close', (event) => {
@@ -2292,6 +2342,22 @@ ipcMain.handle('desktop-chat-tab-show', async (event, tabId, rawBounds) => {
   return { success: true }
 })
 
+// 侧边栏拖拽从主窗口 renderer 开始，但鼠标移入原生聊天 WebContentsView 后，
+// 后续 mousemove 会由聊天 renderer 接收。这里把拖拽生命周期和坐标在两个视图间转发。
+ipcMain.handle('desktop-chat-tab-sidebar-resize-start', (event) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop sidebar resize request')
+  const tab = desktopChatTabs.get(desktopChatActiveTabId)
+  if (!tab || !tab.visible || !tab.rendererReady) return { success: false }
+  return { success: sendDesktopChatTabEvent(tab, 'desktop-shell-sidebar-resize-start') }
+})
+
+ipcMain.handle('desktop-chat-tab-sidebar-resize-end-request', (event) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop sidebar resize request')
+  const tab = desktopChatTabs.get(desktopChatActiveTabId)
+  if (tab && tab.visible) sendDesktopChatTabEvent(tab, 'desktop-shell-sidebar-resize-end')
+  return { success: true }
+})
+
 ipcMain.handle('desktop-chat-tab-hide', async (event) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop chat tab request')
   hideDesktopChatViews()
@@ -2368,6 +2434,21 @@ ipcMain.on('desktop-chat-tab-loading-ready', (event, requestId) => {
   if (!resolve) return
   tab.loadingWaiters.delete(requestId)
   resolve(true)
+})
+
+ipcMain.on('desktop-chat-tab-sidebar-resize-move', (event, payload) => {
+  const tab = [...desktopChatTabs.values()].find((item) => item.view.webContents === event.sender)
+  if (!tab || tab.id !== desktopChatActiveTabId || !tab.visible || !mainWindow || mainWindow.isDestroyed()) return
+  const localClientX = Number(payload?.clientX)
+  if (!Number.isFinite(localClientX)) return
+  const bounds = tab.view.getBounds()
+  mainWindow.webContents.send('desktop-shell-sidebar-resize-move', {clientX: bounds.x + localClientX})
+})
+
+ipcMain.on('desktop-chat-tab-sidebar-resize-end', (event) => {
+  const tab = [...desktopChatTabs.values()].find((item) => item.view.webContents === event.sender)
+  if (!tab || tab.id !== desktopChatActiveTabId || !tab.visible || !mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('desktop-shell-sidebar-resize-end')
 })
 
 ipcMain.on('desktop-chat-tab-report-title', (event, payload) => {
