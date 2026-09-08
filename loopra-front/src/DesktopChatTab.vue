@@ -1,5 +1,5 @@
 <template>
-  <main class="desktop-chat-tab" :data-theme="theme">
+  <main class="desktop-chat-tab" :data-theme="theme" :style="typographyStyle">
     <!-- 会话进行中的波动条：横跨两侧边栏之上 -->
     <div v-if="sessionActive" class="desktop-streaming-bar">
       <div class="desktop-streaming-bar-inner"></div>
@@ -265,6 +265,11 @@ import ActionConfirmDialog from './components/ActionConfirmDialog.vue'
 import ProjectCapabilitiesPanel from './components/ProjectCapabilitiesPanel.vue'
 import {fileIconFor} from './utils/fileIcons'
 import {applyHighlightTheme} from './utils/highlight'
+import {
+  DEFAULT_CODE_FONT_SIZE,
+  DEFAULT_UI_FONT_SIZE,
+  normalizeFontSize
+} from './utils/fonts'
 
 const EnvironmentPanel = defineAsyncComponent(() => import('./components/EnvironmentPanel.vue'))
 const RightPanel = defineAsyncComponent(() => import('./components/RightPanel.vue'))
@@ -280,6 +285,16 @@ const workspaceHash = ref(params.get('workspaceHash') || null)
 const store = useAppStore()
 const pageTheme = ref(params.get('theme') === 'dark' ? 'dark' : store.settings.theme)
 const theme = computed(() => pageTheme.value)
+const typographyStyle = computed(() => {
+  const ui = normalizeFontSize(store.settings.uiFontSize, DEFAULT_UI_FONT_SIZE, 11, 18)
+  const code = normalizeFontSize(store.settings.codeFontSize, DEFAULT_CODE_FONT_SIZE, 10, 16)
+  return {
+    '--font-ui-size': `${ui}px`,
+    '--font-ui-line-height': `${Math.max(16, Math.round(ui * 1.428571))}px`,
+    '--font-message-size': `${ui}px`,
+    '--font-code-size': `${code}px`
+  }
+})
 // 页面主题（dark | gray）同步 Shiki 高亮主题：桌面 Chat Tab 不挂载 App.vue，需自行跟随，否则暗色下代码 token 仍为浅色主题配色
 watch(pageTheme, applyHighlightTheme, {immediate: true})
 const workspaces = ref([])
@@ -1096,7 +1111,7 @@ async function openOnboarding() {
   gap: 14px;
   background: var(--desktop-paper, var(--bg, #fff));
   color: var(--desktop-muted, var(--fg-3, #8b8b87));
-  font-size: 13px;
+  font-size: var(--font-ui-size, 14px);
   letter-spacing: .02em;
 }
 

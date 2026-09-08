@@ -574,6 +574,7 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   border-top-right-radius: 7px;
   box-shadow: none;
+  font-size: var(--font-message-size, 14px);
 }
 
 .compacted-body {
@@ -655,6 +656,7 @@ onBeforeUnmount(() => {
   border-radius: 0;
   padding: 0;
   box-shadow: none;
+  font-size: var(--font-message-size, 14px);
 }
 
 .msg-blocks {
@@ -680,7 +682,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--fg-3);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-message-size, 14px);
   text-align: left;
   cursor: pointer;
   transition: color var(--t), background-color var(--t);
@@ -721,7 +723,7 @@ onBeforeUnmount(() => {
 }
 
 .msg-text {
-  font-size: 14px;
+  font-size: var(--font-message-size, 14px);
   line-height: 1.7;
   color: var(--fg);
   white-space: pre-wrap;
@@ -793,7 +795,7 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--fg-2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-code-size, 12px);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1074,7 +1076,7 @@ onBeforeUnmount(() => {
   border-radius: 0 0 6px 6px;
   background: var(--bg-2);
   color: var(--fg-3);
-  font-size: 12px;
+  font-size: var(--font-code-size, 12px);
   line-height: 1.55;
   white-space: pre-wrap;
 }

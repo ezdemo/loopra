@@ -141,6 +141,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     actionEvent: (payload) => ipcRenderer.send('desktop-popup-action-event', toPlainIpcValue(payload))
   },
 
+  desktopMessage: {
+    show: (payload) => ipcRenderer.send('desktop-message-show', toPlainIpcValue(payload)),
+    clear: (key) => ipcRenderer.send('desktop-message-clear', toPlainIpcValue(key)),
+    ready: () => ipcRenderer.send('desktop-message-ready'),
+    contextReady: (requestId) => ipcRenderer.send('desktop-message-context-ready', requestId)
+  },
+
   requirementBoardWindow: {
     open: () => ipcRenderer.invoke('open-requirement-board-window')
   },
@@ -271,7 +278,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     merge: (payload) => ipcRenderer.invoke('git-environment-merge', payload)
   },
 
-  // 桌面端 UI 设置持久化（主题/中文字体，写入 userData/ui-settings.json，避免 file:// 下 localStorage 丢失）
+  // 桌面端 UI 设置持久化（主题/中文字体/字号，写入 userData/ui-settings.json，避免 file:// 下 localStorage 丢失）
   uiSettings: {
     get: () => ipcRenderer.invoke('ui-settings-get'),
     set: (payload) => ipcRenderer.invoke('ui-settings-set', payload)

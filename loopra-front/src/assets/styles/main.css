@@ -110,6 +110,11 @@
   --font-medium: 500;
   --font-semibold: 600;
   --font-bold: 700;
+  /* Codex-like UI rhythm: primary navigation and rendered message text. */
+  --font-ui-size: 14px;
+  --font-ui-line-height: 20px;
+  --font-message-size: 14px;
+  --font-code-size: 12px;
   --text-xs: 11px;
   --text-sm: 13px;
   --text-base: 14px;
@@ -199,7 +204,7 @@
 html, body, #app { height: 100%; overflow: hidden; background: transparent; }
 body {
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: var(--font-ui-size);
   line-height: 1.5;
   color: var(--fg);
   background: transparent;
@@ -368,7 +373,7 @@ a:hover { text-decoration: underline; }
   padding: 1px 6px;
   border-radius: var(--r-sm);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-code-size, 12px);
   transition: color var(--t), background var(--t), border-color var(--t);
 }
 .ai-link:hover {
@@ -378,7 +383,7 @@ a:hover { text-decoration: underline; }
 
 code {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-code-size, 12px);
   background: var(--bg-3);
   padding: 1px 4px;
   border-radius: var(--r-sm);
@@ -392,7 +397,7 @@ code {
 
 pre {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--font-code-size, 12px);
   line-height: 1.6;
   background: var(--bg-2);
   border: 1px solid var(--border);

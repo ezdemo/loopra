@@ -108,6 +108,12 @@ const desktopOverlayManager = new DesktopNativeOverlayManager({
 let desktopPopupContext = null
 let desktopPopupContextRequestId = 0
 const desktopPopupContextWaiters = new Map()
+let desktopMessageContext = null
+let desktopMessageContextRequestId = 0
+const desktopMessageContextWaiters = new Map()
+let desktopMessageHideTimer = null
+let desktopMessageWindow = null
+let desktopMessageWindowReady = false
 
 if (isWin) app.setAppUserModelId('com.loopra.desktop')
 
@@ -899,7 +905,11 @@ function createWindow() {
     wc.focus()
     sendDesktopChatTabEvent(tab, 'desktop-chat-tab-focus-composer')
   })
-  const syncNativeOverlays = () => desktopOverlayManager.syncAll()
+  const syncNativeOverlays = () => {
+    desktopOverlayManager.syncAll()
+    syncDesktopMessageWindow()
+  }
+  mainWindow.on('move', syncNativeOverlays)
   mainWindow.on('resize', syncNativeOverlays)
   mainWindow.on('maximize', syncNativeOverlays)
   mainWindow.on('unmaximize', syncNativeOverlays)
@@ -927,6 +937,15 @@ function createWindow() {
     if (desktopPetWindow && !desktopPetWindow.isDestroyed()) desktopPetWindow.close()
     if (onboardingWindow && !onboardingWindow.isDestroyed()) onboardingWindow.close()
     if (elementWebView && !elementWebView.webContents.isDestroyed()) elementWebView.webContents.close()
+    if (desktopMessageHideTimer) {
+      clearTimeout(desktopMessageHideTimer)
+      desktopMessageHideTimer = null
+    }
+    if (desktopMessageWindow && !desktopMessageWindow.isDestroyed()) desktopMessageWindow.close()
+    desktopMessageWindow = null
+    desktopMessageWindowReady = false
+    desktopMessageContext = null
+    cancelDesktopMessageContextWaiters()
     desktopOverlayManager.destroyAll()
     destroyDesktopChatTabs()
     elementWebView = null
@@ -1099,7 +1118,7 @@ registerGitEnvironmentIpc(ipcMain)
 registerOnboardingIpc(ipcMain, { getOnboardingWindow: () => onboardingWindow })
 
 // ==================== 桌面端 UI 设置持久化 ====================
-// file:// 页面 localStorage 不可靠，主题/中文字体等外观设置写入 userData/ui-settings.json
+// file:// 页面 localStorage 不可靠，主题/中文字体/字号等外观设置写入 userData/ui-settings.json
 const uiSettingsFile = () => path.join(app.getPath('userData'), 'ui-settings.json')
 
 const isUiSettingsSender = (event) => {
@@ -1125,9 +1144,35 @@ ipcMain.handle('ui-settings-get', (event) => {
 ipcMain.handle('ui-settings-set', (event, payload = {}) => {
   if (!isUiSettingsSender(event)) return false
   try {
+    let previous = {}
+    try {
+      if (fs.existsSync(uiSettingsFile())) {
+        const parsed = JSON.parse(fs.readFileSync(uiSettingsFile(), 'utf-8'))
+        if (parsed && typeof parsed === 'object') previous = parsed
+      }
+    } catch {
+      previous = {}
+    }
     const sanitized = {}
     if (typeof payload.theme === 'string') sanitized.theme = payload.theme
+    else if (typeof previous.theme === 'string') sanitized.theme = previous.theme
     if (typeof payload.fontFamily === 'string') sanitized.fontFamily = payload.fontFamily
+    else if (typeof previous.fontFamily === 'string') sanitized.fontFamily = previous.fontFamily
+    const sanitizeFontSize = (value, fallback, min, max) => {
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) return fallback
+      return Math.min(max, Math.max(min, Math.round(numeric)))
+    }
+    if (payload.uiFontSize !== undefined) {
+      sanitized.uiFontSize = sanitizeFontSize(payload.uiFontSize, 14, 11, 18)
+    } else if (previous.uiFontSize !== undefined) {
+      sanitized.uiFontSize = sanitizeFontSize(previous.uiFontSize, 14, 11, 18)
+    }
+    if (payload.codeFontSize !== undefined) {
+      sanitized.codeFontSize = sanitizeFontSize(payload.codeFontSize, 12, 10, 16)
+    } else if (previous.codeFontSize !== undefined) {
+      sanitized.codeFontSize = sanitizeFontSize(previous.codeFontSize, 12, 10, 16)
+    }
     // 原子写：先写临时文件再替换，避免中途断电损坏配置
     const file = uiSettingsFile()
     const tmp = file + '.tmp'
@@ -1955,6 +2000,201 @@ function isDesktopOverlaySender(key, sender) {
   // 但同一个原生 WebContents 的 id 是稳定的。
   return sender === webContents || sender.id === webContents.id
 }
+
+const DESKTOP_MESSAGE_TYPES = new Set(['success', 'error', 'warning', 'info', 'loading'])
+
+function normalizeDesktopMessage(rawMessage = {}) {
+  const type = String(rawMessage?.type || 'info').trim().toLowerCase()
+  const content = String(rawMessage?.content || '').trim()
+  if (!DESKTOP_MESSAGE_TYPES.has(type) || !content) return null
+  const rawDuration = Number(rawMessage?.duration)
+  const duration = Number.isFinite(rawDuration) ? Math.max(0, Math.min(rawDuration, 30)) : 3
+  return {
+    type,
+    content: content.slice(0, 1200),
+    duration,
+    theme: rawMessage?.theme === 'dark' ? 'dark' : 'gray'
+  }
+}
+
+function getDesktopMessageWindowBounds() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  const contentBounds = mainWindow.getContentBounds()
+  return {
+    x: Math.round(contentBounds.x),
+    y: Math.round(contentBounds.y),
+    width: Math.max(1, Math.round(contentBounds.width)),
+    height: Math.max(1, Math.round(contentBounds.height))
+  }
+}
+
+function syncDesktopMessageWindow() {
+  if (!desktopMessageWindow || desktopMessageWindow.isDestroyed()) return false
+  const bounds = getDesktopMessageWindowBounds()
+  if (!bounds) return false
+  desktopMessageWindow.setBounds(bounds)
+  return true
+}
+
+function isDesktopMessageWindowSender(sender) {
+  const webContents = desktopMessageWindow?.webContents
+  if (!webContents || webContents.isDestroyed() || !sender) return false
+  return sender === webContents || sender.id === webContents.id
+}
+
+function ensureDesktopMessageWindow() {
+  if (desktopMessageWindow && !desktopMessageWindow.isDestroyed()) return desktopMessageWindow
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+
+  const bounds = getDesktopMessageWindowBounds()
+  if (!bounds) return null
+  const messageWindow = new BrowserWindow({
+    ...bounds,
+    parent: mainWindow,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false
+    }
+  })
+  desktopMessageWindow = messageWindow
+  desktopMessageWindowReady = false
+  messageWindow.setIgnoreMouseEvents(true, {forward: false})
+  messageWindow.on('closed', () => {
+    if (desktopMessageWindow !== messageWindow) return
+    desktopMessageWindow = null
+    desktopMessageWindowReady = false
+    cancelDesktopMessageContextWaiters()
+  })
+  messageWindow.webContents.setWindowOpenHandler(() => ({action: 'deny'}))
+
+  if (isDev) {
+    messageWindow.loadURL('http://localhost:3000/?desktopMessage=1')
+  } else {
+    messageWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {query: {desktopMessage: '1'}})
+  }
+  return messageWindow
+}
+
+function sendDesktopMessageContext(target = desktopMessageWindow?.webContents) {
+  if (!target || target.isDestroyed() || !desktopMessageContext) return false
+  target.send('desktop-message-context', {
+    ...desktopMessageContext,
+    __desktopMessageRequestId: desktopMessageContextRequestId
+  })
+  return true
+}
+
+function resolveDesktopMessageContextWaiter(requestId, target, painted) {
+  const waiter = desktopMessageContextWaiters.get(requestId)
+  if (!waiter || (target && waiter.target !== target)) return false
+  desktopMessageContextWaiters.delete(requestId)
+  clearTimeout(waiter.timeout)
+  waiter.resolve(painted)
+  return true
+}
+
+function cancelDesktopMessageContextWaiters() {
+  for (const [requestId, waiter] of desktopMessageContextWaiters) {
+    desktopMessageContextWaiters.delete(requestId)
+    clearTimeout(waiter.timeout)
+    waiter.resolve(false)
+  }
+}
+
+function waitForDesktopMessageContext(target, requestId, timeoutMs = 2_000) {
+  if (!target || target.isDestroyed()) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolveDesktopMessageContextWaiter(requestId, target, false), timeoutMs)
+    desktopMessageContextWaiters.set(requestId, {target, resolve, timeout})
+  })
+}
+
+function hideDesktopMessage() {
+  if (desktopMessageHideTimer) {
+    clearTimeout(desktopMessageHideTimer)
+    desktopMessageHideTimer = null
+  }
+  const hidden = Boolean(desktopMessageWindow && !desktopMessageWindow.isDestroyed() && desktopMessageWindow.isVisible())
+  if (desktopMessageWindow && !desktopMessageWindow.isDestroyed()) desktopMessageWindow.hide()
+  desktopMessageContext = null
+  desktopMessageContextRequestId += 1
+  cancelDesktopMessageContextWaiters()
+  return hidden
+}
+
+function isDesktopMessageSender(sender) {
+  if (!sender) return false
+  if (sender === mainWindow?.webContents || sender.id === mainWindow?.webContents?.id) return true
+  return [...desktopChatTabs.values()].some((tab) => {
+    const webContents = tab.view.webContents
+    return webContents === sender || webContents.id === sender.id
+  })
+}
+
+async function openDesktopMessageView(rawMessage = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const context = normalizeDesktopMessage(rawMessage)
+  if (!context) return false
+
+  if (desktopMessageHideTimer) {
+    clearTimeout(desktopMessageHideTimer)
+    desktopMessageHideTimer = null
+  }
+  cancelDesktopMessageContextWaiters()
+  const requestId = ++desktopMessageContextRequestId
+  desktopMessageContext = context
+
+  const messageWindow = ensureDesktopMessageWindow()
+  if (!messageWindow || requestId !== desktopMessageContextRequestId || desktopMessageContext !== context) return false
+  syncDesktopMessageWindow()
+
+  const contextPainted = waitForDesktopMessageContext(messageWindow.webContents, requestId)
+  if (desktopMessageWindowReady) sendDesktopMessageContext(messageWindow.webContents)
+  if (!await contextPainted) return false
+  if (requestId !== desktopMessageContextRequestId || desktopMessageContext !== context) return false
+
+  messageWindow.showInactive()
+  if (context.duration > 0) {
+    desktopMessageHideTimer = setTimeout(() => {
+      if (requestId === desktopMessageContextRequestId) hideDesktopMessage()
+    }, context.duration * 1000)
+  }
+  return true
+}
+
+ipcMain.on('desktop-message-show', (event, rawMessage) => {
+  if (!isDesktopMessageSender(event.sender)) return
+  void openDesktopMessageView(rawMessage).catch((error) => {
+    console.warn('[desktop-message] failed to show message:', error)
+  })
+})
+
+ipcMain.on('desktop-message-clear', (event) => {
+  if (!isDesktopMessageSender(event.sender)) return
+  hideDesktopMessage()
+})
+
+ipcMain.on('desktop-message-ready', (event) => {
+  if (!isDesktopMessageWindowSender(event.sender)) return
+  desktopMessageWindowReady = true
+  sendDesktopMessageContext(event.sender)
+})
+
+ipcMain.on('desktop-message-context-ready', (event, requestId) => {
+  if (!isDesktopMessageWindowSender(event.sender) || !Number.isSafeInteger(requestId)) return
+  resolveDesktopMessageContextWaiter(requestId, event.sender, true)
+})
 
 function hideDesktopSearchView({ notify = true, refocus = true } = {}) {
   if (!desktopOverlayManager.hide('search')) return false

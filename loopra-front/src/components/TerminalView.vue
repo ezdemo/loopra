@@ -97,6 +97,7 @@ const emit = defineEmits(['close'])
 
 const store = useAppStore()
 const unsupported = ref(false)
+const codeFontSize = computed(() => Number(store.settings.codeFontSize) || 12)
 // 可用 shell 列表（主进程按系统检测）与「+」菜单开关；新建时默认用列表第一项
 const availableShells = ref([])
 const shellMenuOpen = ref(false)
@@ -378,7 +379,7 @@ async function addTerminal(shellId = '') {
   const hostEl = slotEls.get(tab.id)
   const term = new Terminal({
     cursorBlink: true,
-    fontSize: 13,
+    fontSize: codeFontSize.value,
     fontFamily: "'JetBrains Mono Variable', Consolas, Menlo, 'Courier New', monospace",
     theme: currentTheme(),
     scrollback: 5000
@@ -406,6 +407,15 @@ async function addTerminal(shellId = '') {
     console.warn('[terminal] 创建 PTY 失败:', error)
   }
 }
+
+// 设置页修改代码字号后，已打开的终端也立即跟随更新。
+watch(codeFontSize, (size) => {
+  for (const state of tabState.values()) {
+    if (!state.term) continue
+    state.term.options.fontSize = size
+    state.fitAddon?.fit()
+  }
+})
 
 function activateTerminal(id) {
   if (activeId.value === id) return

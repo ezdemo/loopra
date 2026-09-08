@@ -3004,7 +3004,7 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
   overflow: auto;
   padding: 12px 16px;
   color: var(--fg-2);
-  font-size: 13px;
+  font-size: var(--font-message-size, 14px);
   line-height: 1.7;
 }
 
@@ -3014,19 +3014,19 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
 }
 
 .plan-review-content :deep(h1) {
-  font-size: 1.5em;
-  margin: 0.5em 0;
-  font-weight: 600;
-}
-
-.plan-review-content :deep(h2) {
   font-size: 1.3em;
   margin: 0.5em 0;
   font-weight: 600;
 }
 
+.plan-review-content :deep(h2) {
+  font-size: 1.15em;
+  margin: 0.5em 0;
+  font-weight: 600;
+}
+
 .plan-review-content :deep(h3) {
-  font-size: 1.1em;
+  font-size: 1.05em;
   margin: 0.5em 0;
   font-weight: 600;
 }
@@ -3038,13 +3038,13 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
 }
 
 .plan-review-content :deep(h5) {
-  font-size: 0.9em;
+  font-size: 0.95em;
   margin: 0.5em 0;
   font-weight: 600;
 }
 
 .plan-review-content :deep(h6) {
-  font-size: 0.8em;
+  font-size: 0.9em;
   margin: 0.5em 0;
   font-weight: 600;
 }
@@ -3078,12 +3078,13 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
   border-radius: var(--r);
   padding: 10px;
   margin: 6px 0;
+  font-size: var(--font-code-size, 12px);
   overflow-x: auto;
 }
 
 .plan-review-content :deep(code) {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-code-size, 12px);
 }
 
 .plan-review-content :deep(pre code) {

@@ -92,7 +92,7 @@
           <div class="section-card">
             <div class="card-header">
               <h3>外观设置</h3>
-              <p>自定义界面主题</p>
+              <p>自定义界面主题与阅读字号</p>
             </div>
             <div class="card-body">
               <div class="setting-row">
@@ -128,6 +128,40 @@
                       <optgroup v-if="systemFonts.length" label="系统已安装字体">
                         <option v-for="name in systemFonts" :key="name" :value="name">{{ name }}</option>
                       </optgroup>
+                    </select>
+                    <svg class="select-arrow" fill="none" height="12" stroke="currentColor" stroke-width="2"
+                         viewBox="0 0 24 24" width="12">
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label class="setting-label">界面字号</label>
+                  <p class="setting-hint">侧边栏、按钮和消息正文等 UI 文字（Web 与桌面端同步）</p>
+                </div>
+                <div class="setting-control">
+                  <div class="select-wrapper">
+                    <select v-model.number="settings.uiFontSize" class="form-select font-size-select">
+                      <option v-for="size in uiFontSizeOptions" :key="size" :value="size">{{ size }}px{{ size === 14 ? '（默认）' : '' }}</option>
+                    </select>
+                    <svg class="select-arrow" fill="none" height="12" stroke="currentColor" stroke-width="2"
+                         viewBox="0 0 24 24" width="12">
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label class="setting-label">代码字号</label>
+                  <p class="setting-hint">代码块、行内代码和工具输出（Web 与桌面端同步）</p>
+                </div>
+                <div class="setting-control">
+                  <div class="select-wrapper">
+                    <select v-model.number="settings.codeFontSize" class="form-select font-size-select">
+                      <option v-for="size in codeFontSizeOptions" :key="size" :value="size">{{ size }}px{{ size === 12 ? '（默认）' : '' }}</option>
                     </select>
                     <svg class="select-arrow" fill="none" height="12" stroke="currentColor" stroke-width="2"
                          viewBox="0 0 24 24" width="12">
@@ -2281,6 +2315,18 @@ const settings = reactive({
   set fontFamily(v) {
     store.settings.fontFamily = v
   },
+  get uiFontSize() {
+    return store.settings.uiFontSize
+  },
+  set uiFontSize(v) {
+    store.settings.uiFontSize = v
+  },
+  get codeFontSize() {
+    return store.settings.codeFontSize
+  },
+  set codeFontSize(v) {
+    store.settings.codeFontSize = v
+  },
   server: {apiBaseUrl: '', autoConnect: true},
   ai: {
     baseUrl: '', apiKey: '', model: '', reasoningEffort: 'max',
@@ -2992,6 +3038,9 @@ const themes = [
   {value: 'gray', label: '灰色'},
   {value: 'dark', label: '深色'}
 ]
+
+const uiFontSizeOptions = [12, 13, 14, 15, 16]
+const codeFontSizeOptions = [10, 11, 12, 13, 14]
 
 // 桌面端判断（系统字体切换仅桌面端可用）
 const isDesktop = computed(() => !!(typeof window !== 'undefined' && window.electronAPI?.systemFonts))
@@ -5523,6 +5572,10 @@ const saveLoopraMd = async () => {
   appearance: none;
   padding-right: 32px;
   cursor: pointer;
+}
+
+.font-size-select {
+  min-width: 124px;
 }
 
 .select-arrow {

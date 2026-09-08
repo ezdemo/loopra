@@ -752,7 +752,8 @@ const formatName = (n) => {
   background: transparent;
   color: var(--fg-2);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-ui-size, 14px);
+  line-height: var(--font-ui-line-height, 20px);
   text-align: left;
   cursor: pointer;
   transition: background var(--t), color var(--t);
@@ -848,7 +849,8 @@ const formatName = (n) => {
   background: transparent;
   color: var(--fg-3);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-ui-size, 14px);
+  line-height: var(--font-ui-line-height, 20px);
   font-weight: 600;
   cursor: default;
 }
@@ -909,7 +911,7 @@ const formatName = (n) => {
 .project-header.active .project-name { color: var(--fg); }
 .project-chevron { display: none; }
 .project-icon { color: #6b6f7c; }
-.project-name { font-size: 13px; font-weight: 600; }
+.project-name { font-size: var(--font-ui-size, 14px); line-height: var(--font-ui-line-height, 20px); font-weight: 600; }
 .project-meta-row { display: none; }
 
 .project-new,
@@ -927,7 +929,8 @@ const formatName = (n) => {
 .project-empty {
   padding: 7px 8px;
   color: var(--fg-4);
-  font-size: 13px;
+  font-size: var(--font-ui-size, 14px);
+  line-height: var(--font-ui-line-height, 20px);
 }
 
 .project-sessions .session-item {
@@ -941,7 +944,7 @@ const formatName = (n) => {
   background: #f1f1f3;
   box-shadow: none;
 }
-.session-name { font-size: 13px; }
+.session-name { font-size: var(--font-ui-size, 14px); line-height: var(--font-ui-line-height, 20px); }
 .session-item.active .session-name { font-weight: 600; }
 .sidebar-empty { padding: 28px 16px; }
 

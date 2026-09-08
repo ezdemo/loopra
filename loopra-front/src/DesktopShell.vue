@@ -1,5 +1,5 @@
 <template>
-  <div class="desktop-shell" :data-theme="theme">
+  <div class="desktop-shell" :data-theme="theme" :style="typographyStyle">
     <Teleport to="body">
       <div
         v-if="homeContextMenu.visible"
@@ -218,9 +218,27 @@ import ActionConfirmDialog from './components/ActionConfirmDialog.vue'
 import {hasConfiguredModelChannel} from './utils/modelChannels'
 import {switchThemeWithReveal} from './utils/themeTransition'
 import {toPlainIpcValue} from './utils/ipcPayload'
+import {
+  DEFAULT_CODE_FONT_SIZE,
+  DEFAULT_UI_FONT_SIZE,
+  normalizeFontSize
+} from './utils/fonts'
 
 const store = useAppStore()
 const theme = computed(() => store.settings.theme)
+// DesktopShell also owns the persistent left sidebar. Bind the typography
+// variables on this root so settings changes apply immediately in this window,
+// even before the global store watcher finishes its persistence round-trip.
+const typographyStyle = computed(() => {
+  const ui = normalizeFontSize(store.settings.uiFontSize, DEFAULT_UI_FONT_SIZE, 11, 18)
+  const code = normalizeFontSize(store.settings.codeFontSize, DEFAULT_CODE_FONT_SIZE, 10, 16)
+  return {
+    '--font-ui-size': `${ui}px`,
+    '--font-ui-line-height': `${Math.max(16, Math.round(ui * 1.428571))}px`,
+    '--font-message-size': `${ui}px`,
+    '--font-code-size': `${code}px`
+  }
+})
 const popupUsesNativeOverlay = computed(() => Boolean(window.electronAPI?.desktopPopup?.open))
 const creating = ref(false)
 const startupError = ref('')
@@ -1703,7 +1721,7 @@ onBeforeUnmount(() => {
 .desktop-tab:hover { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); }
 .desktop-tab.active { background: var(--bg-active, #f1f1f3); color: var(--fg, #27272a); }
 .desktop-tab.active .desktop-tab-title { font-weight: 500; }
-.desktop-tab-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 400; }
+.desktop-tab-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; font-size: var(--font-ui-size, 14px); font-weight: 400; }
 .desktop-tab-monogram { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border-radius: 4px; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; text-shadow: 0 1px rgba(0, 0, 0, 0.25); box-shadow: inset 0 1px rgba(255, 255, 255, 0.25), 0 1px 1px rgba(0, 0, 0, 0.16); }
 .desktop-tab-monogram.tone-0 { background: linear-gradient(135deg, #8b95a3, #5e6878); }
 .desktop-tab-monogram.tone-1 { background: linear-gradient(135deg, #3dd0e8, #18b4d0); }
@@ -1723,18 +1741,18 @@ onBeforeUnmount(() => {
 .close-mark::before, .close-mark::after { content: ''; position: absolute; top: 6px; left: 0; width: 14px; border-top: 1.5px solid currentColor; transform: rotate(45deg); }
 .close-mark::after { transform: rotate(-45deg); }
 .desktop-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: var(--bg, #fff); }
-.desktop-session-loading { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--desktop-paper, var(--bg, #fff)); color: var(--desktop-muted, var(--fg-3, #8b8b87)); font-size: 13px; letter-spacing: .02em; }
+.desktop-session-loading { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--desktop-paper, var(--bg, #fff)); color: var(--desktop-muted, var(--fg-3, #8b8b87)); font-size: var(--font-ui-size, 14px); letter-spacing: .02em; }
 .desktop-session-loading-spinner { width: 28px; height: 28px; box-sizing: border-box; border: 2px solid color-mix(in srgb, currentColor 22%, transparent); border-top-color: currentColor; border-radius: 50%; animation: desktop-session-loading-spin .75s linear infinite; }
 @keyframes desktop-session-loading-spin { to { transform: rotate(360deg); } }
 .desktop-settings { height: 100%; min-height: 0; overflow: hidden; }
-.desktop-empty { height: 100%; display: grid; place-items: center; color: var(--fg-4, #9ca3af); font-size: 14px; }
+.desktop-empty { height: 100%; display: grid; place-items: center; color: var(--fg-4, #9ca3af); font-size: var(--font-ui-size, 14px); }
 .desktop-error { align-content: center; gap: 12px; }
 .desktop-error button { justify-self: center; border: 1px solid var(--border, #e5e7eb); border-radius: 5px; background: var(--bg, #fff); color: var(--fg, #202124); padding: 6px 14px; cursor: pointer; }
 .desktop-error button:hover { background: var(--bg-3, #f3f4f6); }
 .desktop-shell-context-menu, .desktop-tab-context-menu { box-sizing: border-box; position: fixed; z-index: 1000; padding: 4px; border: 1px solid var(--border, #e5e7eb); border-radius: 6px; background: var(--bg, #fff); box-shadow: var(--shadow-lg, 0 10px 28px rgba(0, 0, 0, 0.16)); }
 .desktop-shell-context-menu { width: 176px; }
 .desktop-tab-context-menu { width: 188px; }
-.desktop-shell-context-menu button, .desktop-tab-context-menu button { width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-2, #525866); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.desktop-shell-context-menu button, .desktop-tab-context-menu button { width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-2, #525866); font: inherit; font-size: var(--font-ui-size, 14px); text-align: left; cursor: pointer; }
 .desktop-shell-context-menu button:hover, .desktop-shell-context-menu button:focus-visible, .desktop-tab-context-menu button:hover, .desktop-tab-context-menu button:focus-visible { color: var(--fg, #202124); background: var(--bg-3, #f2f3f5); outline: 0; }
 .desktop-tab-context-menu button:disabled { opacity: 0.45; cursor: default; }
 .desktop-shell-context-menu svg, .desktop-tab-context-menu svg { width: 15px; height: 15px; flex: 0 0 auto; }

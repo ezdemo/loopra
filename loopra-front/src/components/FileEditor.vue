@@ -54,6 +54,7 @@ let keyDisposable = null
 let stopFileChangeListener = null
 let peekState = null
 let disposed = false
+let typographyObserver = null
 
 const activePath = computed(() => props.activeFile?.path || '')
 // 选中文本浮动按钮（与 DiffViewer 预览弹框的“添加到会话”交互一致）
@@ -61,6 +62,10 @@ const selectionAction = ref({visible: false, left: 0, top: 0, text: '', startLin
 const loading = computed(() => loadingPath.value === activePath.value)
 const explorerAPI = () => window.electronAPI?.fileExplorer
 const editorTheme = () => props.theme === 'dark' ? 'vs-dark' : 'vs'
+const codeFontSize = () => {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-code-size'))
+  return Number.isFinite(value) ? value : 12
+}
 
 function normalizePath(path) {
   return String(path || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
@@ -532,7 +537,7 @@ async function initializeEditor() {
     editor.value = monaco.value.editor.create(editorRef.value, {
       automaticLayout: true,
       fontFamily: "'JetBrains Mono Variable', Consolas, 'Courier New', monospace",
-      fontSize: 13,
+      fontSize: codeFontSize(),
       glyphMargin: true,
       lineHeight: 21,
       minimap: {enabled: true},
@@ -582,12 +587,20 @@ watch([() => props.workspaceHash, () => props.workspacePath], refreshAllBaseline
 onMounted(() => {
   window.addEventListener('loopra:git-changed', onGitChanged)
   stopFileChangeListener = explorerAPI()?.onDidChange?.(onFileSystemChange) || null
+  if (typeof MutationObserver !== 'undefined') {
+    typographyObserver = new MutationObserver(() => {
+      editor.value?.updateOptions?.({fontSize: codeFontSize()})
+    })
+    typographyObserver.observe(document.documentElement, {attributes: true, attributeFilter: ['style']})
+  }
   void initializeEditor()
 })
 
 onBeforeUnmount(() => {
   disposed = true
   window.removeEventListener('loopra:git-changed', onGitChanged)
+  typographyObserver?.disconnect()
+  typographyObserver = null
   stopFileChangeListener?.()
   closeDirtyDiffPeek()
   mouseDisposable?.dispose()

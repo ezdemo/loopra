@@ -1054,7 +1054,7 @@ const onCollapseAllBlocks = () => {
   gap: 6px;
   min-height: 36px;
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: var(--font-message-size, 14px);
   line-height: 20px;
   font-weight: 500;
   color: var(--fg-2);
@@ -1068,7 +1068,7 @@ const onCollapseAllBlocks = () => {
 .reasoning-text {
   padding: 8px 12px 10px;
   border-top: 1px solid var(--border-soft, var(--border, #eeeef0));
-  font-size: 12px;
+  font-size: var(--font-message-size, 14px);
   font-family: var(--mono);
   color: var(--fg-3);
   line-height: 1.6;
@@ -1107,7 +1107,7 @@ const onCollapseAllBlocks = () => {
   padding: 6px 10px;
   margin: 4px 0;
   overflow-x: auto;
-  font-size: 11px;
+  font-size: var(--font-code-size, 12px);
   line-height: 1.5;
 }
 
@@ -1117,7 +1117,7 @@ const onCollapseAllBlocks = () => {
 }
 
 .reasoning-text :deep(code) {
-  font-size: 11px;
+  font-size: var(--font-code-size, 12px);
   background: var(--bg-3);
   padding: 0 4px;
   border-radius: 3px;
@@ -1125,7 +1125,7 @@ const onCollapseAllBlocks = () => {
 
 /* 内容块 */
 .block-content {
-  font-size: 14px;
+  font-size: var(--font-message-size, 14px);
   line-height: 1.7;
   color: var(--fg);
   margin-bottom: 4px;
@@ -1164,12 +1164,13 @@ const onCollapseAllBlocks = () => {
   border-radius: var(--r);
   padding: 8px 10px;
   margin: 6px 0;
+  font-size: var(--font-code-size, 12px);
   overflow-x: auto;
 }
 
 .block-content :deep(code) {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-code-size, 12px);
 }
 
 .block-content :deep(pre code) {
@@ -1192,19 +1193,19 @@ const onCollapseAllBlocks = () => {
 }
 
 .block-content :deep(h1) {
-  font-size: 1.5em;
-  margin: 0.5em 0;
-  font-weight: 600;
-}
-
-.block-content :deep(h2) {
   font-size: 1.3em;
   margin: 0.5em 0;
   font-weight: 600;
 }
 
+.block-content :deep(h2) {
+  font-size: 1.15em;
+  margin: 0.5em 0;
+  font-weight: 600;
+}
+
 .block-content :deep(h3) {
-  font-size: 1.1em;
+  font-size: 1.05em;
   margin: 0.5em 0;
   font-weight: 600;
 }
@@ -1216,13 +1217,13 @@ const onCollapseAllBlocks = () => {
 }
 
 .block-content :deep(h5) {
-  font-size: 0.9em;
+  font-size: 0.95em;
   margin: 0.5em 0;
   font-weight: 600;
 }
 
 .block-content :deep(h6) {
-  font-size: 0.8em;
+  font-size: 0.9em;
   margin: 0.5em 0;
   font-weight: 600;
 }
@@ -1299,7 +1300,7 @@ const onCollapseAllBlocks = () => {
 }
 
 .finish-content {
-  font-size: 14px;
+  font-size: var(--font-message-size, 14px);
   line-height: 1.7;
   color: var(--fg);
 }
@@ -1310,12 +1311,13 @@ const onCollapseAllBlocks = () => {
   border-radius: var(--r);
   padding: 10px;
   margin: 6px 0;
+  font-size: var(--font-code-size, 12px);
   overflow-x: auto;
 }
 
 .finish-content :deep(code) {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-code-size, 12px);
 }
 
 .finish-content :deep(pre code) {
@@ -1337,19 +1339,19 @@ const onCollapseAllBlocks = () => {
 }
 
 .finish-content :deep(h1) {
-  font-size: 1.5em;
-  margin: 0.5em 0;
-  font-weight: 600;
-}
-
-.finish-content :deep(h2) {
   font-size: 1.3em;
   margin: 0.5em 0;
   font-weight: 600;
 }
 
+.finish-content :deep(h2) {
+  font-size: 1.15em;
+  margin: 0.5em 0;
+  font-weight: 600;
+}
+
 .finish-content :deep(h3) {
-  font-size: 1.1em;
+  font-size: 1.05em;
   margin: 0.5em 0;
   font-weight: 600;
 }
@@ -1361,13 +1363,13 @@ const onCollapseAllBlocks = () => {
 }
 
 .finish-content :deep(h5) {
-  font-size: 0.9em;
+  font-size: 0.95em;
   margin: 0.5em 0;
   font-weight: 600;
 }
 
 .finish-content :deep(h6) {
-  font-size: 0.8em;
+  font-size: 0.9em;
   margin: 0.5em 0;
   font-weight: 600;
 }
@@ -2121,7 +2123,7 @@ const onCollapseAllBlocks = () => {
   border-radius: var(--r-sm);
   padding: 8px;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-code-size, 12px);
   max-height: 150px;
   overflow: auto;
 }
@@ -2166,7 +2168,7 @@ const onCollapseAllBlocks = () => {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
+  font-size: var(--font-code-size, 12px);
   line-height: 1.5;
   color: var(--fg-2);
 }

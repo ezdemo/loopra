@@ -1,6 +1,13 @@
 import {defineStore} from 'pinia'
 import {computed, ref, watch} from 'vue'
-import {applyFontPreset, DEFAULT_FONT} from '../utils/fonts'
+import {
+  applyFontPreset,
+  applyTypographyPreset,
+  DEFAULT_CODE_FONT_SIZE,
+  DEFAULT_FONT,
+  DEFAULT_UI_FONT_SIZE,
+  normalizeFontSize
+} from '../utils/fonts'
 
 export const useAppStore = defineStore('app', () => {
   // 连接状态
@@ -23,6 +30,8 @@ export const useAppStore = defineStore('app', () => {
     language: 'zh-CN',
     theme: 'gray',
     fontSize: 14,
+    uiFontSize: DEFAULT_UI_FONT_SIZE,
+    codeFontSize: DEFAULT_CODE_FONT_SIZE,
     fontFamily: DEFAULT_FONT,
     animations: true,
     server: {
@@ -190,9 +199,31 @@ export const useAppStore = defineStore('app', () => {
   }
   
   // 设置管理
+  const persistSettings = () => {
+    if (typeof window === 'undefined') return
+    try {
+      localStorage.setItem('loopra-settings', JSON.stringify(settings.value))
+    } catch (e) {
+      console.warn('保存设置失败:', e)
+    }
+  }
+
+  const normalizeTypographySettings = () => {
+    const legacyUiFontSize = settings.value.uiFontSize ?? settings.value.fontSize
+    const normalizedUiFontSize = normalizeFontSize(legacyUiFontSize, DEFAULT_UI_FONT_SIZE, 11, 18)
+    settings.value.uiFontSize = normalizedUiFontSize
+    // 保留旧字段并同步它，兼容仍读取 fontSize 的旧组件/配置。
+    settings.value.fontSize = normalizedUiFontSize
+    settings.value.codeFontSize = normalizeFontSize(settings.value.codeFontSize, DEFAULT_CODE_FONT_SIZE, 10, 16)
+  }
+
   const updateSettings = (newSettings) => {
     settings.value = { ...settings.value, ...newSettings }
-    localStorage.setItem('loopra-settings', JSON.stringify(settings.value))
+    if (!Object.prototype.hasOwnProperty.call(newSettings, 'uiFontSize') && newSettings.fontSize !== undefined) {
+      settings.value.uiFontSize = newSettings.fontSize
+    }
+    normalizeTypographySettings()
+    persistSettings()
   }
   
   const loadSettings = () => {
@@ -201,6 +232,11 @@ export const useAppStore = defineStore('app', () => {
       try {
         const parsed = JSON.parse(savedSettings)
         settings.value = { ...settings.value, ...parsed }
+        // 旧版本只有 fontSize 字段；只有在新字段确实不存在时才迁移它。
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'uiFontSize') && parsed.fontSize !== undefined) {
+          settings.value.uiFontSize = parsed.fontSize
+        }
+        normalizeTypographySettings()
       } catch (e) {
         console.error('加载设置失败:', e)
       }
@@ -212,6 +248,8 @@ export const useAppStore = defineStore('app', () => {
       language: 'zh-CN',
       theme: 'gray',
       fontSize: 14,
+      uiFontSize: DEFAULT_UI_FONT_SIZE,
+      codeFontSize: DEFAULT_CODE_FONT_SIZE,
       fontFamily: DEFAULT_FONT,
       animations: true,
       server: {
@@ -429,19 +467,26 @@ export const useAppStore = defineStore('app', () => {
         }
     }
 
-  // 桌面端：外观设置（主题/中文字体）同步写入 userData/ui-settings.json，
-  // 因为 file:// 页面 localStorage 在 Electron 中不可靠，重启会丢
+  // 桌面端：外观设置同步写入 userData/ui-settings.json；Web 端写入 localStorage。
+  // 因为 file:// 页面 localStorage 在 Electron 中不可靠，桌面端不依赖它恢复外观。
   const persistUiSettings = () => {
-    if (typeof window === 'undefined' || !window.electronAPI?.uiSettings) return
-    window.electronAPI.uiSettings.set({
-      theme: settings.value.theme,
-      fontFamily: settings.value.fontFamily
-    }).catch(() => {})
+    if (typeof window === 'undefined') return
+    if (window.electronAPI?.uiSettings) {
+      window.electronAPI.uiSettings.set({
+        theme: settings.value.theme,
+        fontFamily: settings.value.fontFamily,
+        uiFontSize: settings.value.uiFontSize,
+        codeFontSize: settings.value.codeFontSize
+      }).catch(() => {})
+      return
+    }
+    persistSettings()
   }
 
   // 初始化
   const initialize = () => {
     loadSettings()
+    normalizeTypographySettings()
     
     // 从独立 key 读取主题
     const savedTheme = localStorage.getItem('loopra-theme')
@@ -455,8 +500,9 @@ export const useAppStore = defineStore('app', () => {
     }
     
     document.documentElement.setAttribute('data-theme', settings.value.theme)
-    document.documentElement.style.fontSize = `${settings.value.fontSize}px`
+    document.documentElement.style.fontSize = `${settings.value.uiFontSize}px`
     applyFontPreset(settings.value.fontFamily)
+    applyTypographyPreset(settings.value.uiFontSize, settings.value.codeFontSize)
 
     // 桌面端：启动后从文件读回外观设置（文件优先于 localStorage，覆盖后 watch 自动应用）
     if (typeof window !== 'undefined' && window.electronAPI?.uiSettings) {
@@ -464,6 +510,12 @@ export const useAppStore = defineStore('app', () => {
         if (!saved || typeof saved !== 'object') return
         if (typeof saved.fontFamily === 'string') settings.value.fontFamily = saved.fontFamily
         if (typeof saved.theme === 'string') settings.value.theme = saved.theme
+        if (saved.uiFontSize !== undefined) {
+          settings.value.uiFontSize = normalizeFontSize(saved.uiFontSize, DEFAULT_UI_FONT_SIZE, 11, 18)
+        }
+        if (saved.codeFontSize !== undefined) {
+          settings.value.codeFontSize = normalizeFontSize(saved.codeFontSize, DEFAULT_CODE_FONT_SIZE, 10, 16)
+        }
       }).catch(() => {})
     }
   }
@@ -478,6 +530,17 @@ export const useAppStore = defineStore('app', () => {
   // 监听中文字体变化，即时切换 --sans/--mono
   watch(() => settings.value.fontFamily, (val) => {
     applyFontPreset(val)
+    persistUiSettings()
+  })
+
+  // 监听字号变化：Web/Electron 使用同一组 CSS 变量，设置页修改后立即生效并持久化。
+  watch(() => [settings.value.uiFontSize, settings.value.codeFontSize], ([uiFontSize, codeFontSize]) => {
+    const normalizedUiFontSize = normalizeFontSize(uiFontSize, DEFAULT_UI_FONT_SIZE, 11, 18)
+    const normalizedCodeFontSize = normalizeFontSize(codeFontSize, DEFAULT_CODE_FONT_SIZE, 10, 16)
+    if (settings.value.uiFontSize !== normalizedUiFontSize) settings.value.uiFontSize = normalizedUiFontSize
+    if (settings.value.codeFontSize !== normalizedCodeFontSize) settings.value.codeFontSize = normalizedCodeFontSize
+    document.documentElement.style.fontSize = `${normalizedUiFontSize}px`
+    applyTypographyPreset(normalizedUiFontSize, normalizedCodeFontSize)
     persistUiSettings()
   })
   
