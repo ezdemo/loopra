@@ -2373,7 +2373,7 @@ defineExpose({focus: () => inputField.value?.focus(), addFileContext, addElement
 .input-area:not(.welcome-mode) .input-box,
 .input-area:not(.welcome-mode) .composer-queue {
   width: 100%;
-  max-width: 1040px;
+  max-width: var(--conversation-composer-max-width, 1040px);
   margin-right: auto;
   margin-left: auto;
   box-sizing: border-box;
@@ -4660,8 +4660,9 @@ defineExpose({focus: () => inputField.value?.focus(), addFileContext, addElement
 
 /* ===== 移动端适配 ===== */
 @media (max-width: 640px) {
-  .input-area {
-    padding: 8px 6px;
+  .input-area:not(.welcome-mode) {
+    padding: 8px 8px 10px;
+    background: linear-gradient(to top, var(--bg) 10px, transparent 10px);
   }
 
   .input-box {

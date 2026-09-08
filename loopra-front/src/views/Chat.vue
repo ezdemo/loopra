@@ -38,7 +38,11 @@
       <!-- 空状态：无会话或新建的空会话（子代理会话模式不展示欢迎页） -->
       <div v-if="!props.sessionName || (messages.length === 0 && !props.subAgent)" class="empty welcome-screen">
         <section class="welcome-panel">
-          <h1 class="welcome-heading" aria-label="Loopra">
+          <div v-if="store.isDesktopEnv" class="desktop-chat-welcome-title">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="12"/><path d="m16 18 5 6-5 6M26 30h7"/></svg>
+            <h1>你想让我们<span v-if="selectedWelcomeWorkspace">在 {{ selectedWelcomeWorkspace.name }} 中</span>构建什么？</h1>
+          </div>
+          <h1 v-else class="welcome-heading" aria-label="Loopra">
             <svg viewBox="0 0 174 42" preserveAspectRatio="none" aria-hidden="true">
               <path d="M0 6H6V30H24V36H0V6Z"/>
               <path fill-rule="evenodd" d="M30 6H54V36H30V6ZM36 12V30H48V12H36Z"/>
@@ -49,13 +53,15 @@
             </svg>
           </h1>
           <div class="welcome-composer" :class="{ 'workspace-menu-open': welcomeWorkspaceMenuOpen }">
-            <div class="welcome-workspace-row">
+            <div ref="welcomeWorkspaceRow" class="welcome-workspace-row">
               <button class="welcome-workspace-button" type="button" @click="toggleWelcomeWorkspace">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
                 <span>{{ selectedWelcomeWorkspace?.name || '选择项目' }}</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
-              <div v-if="welcomeWorkspaceMenuOpen" class="welcome-workspace-menu">
+              <div v-if="welcomeWorkspaceMenuOpen" ref="welcomeWorkspaceMenu" class="welcome-workspace-menu"
+                   :class="{ 'opens-above': welcomeWorkspaceMenuPlacement === 'above' }"
+                   :style="{ '--welcome-workspace-menu-max-height': `${welcomeWorkspaceMenuMaxHeight}px` }">
                 <div class="welcome-workspace-menu-actions">
                   <button class="welcome-workspace-manage" type="button" @click="openWelcomeWorkspaceManager">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 10v6m-3-3h6"/></svg>
@@ -569,7 +575,7 @@ const props = defineProps({
   subAgent: {type: Object, default: null}
 })
 
-const emit = defineEmits(['sessionUpdated', 'sessionBranched', 'startTask', 'switchWorkspace', 'manageWorkspaces', 'manageModels', 'sessionActiveChange', 'welcomeChange', 'refresh-sessions', 'environmentModeChange', 'subAgentEvent'])
+const emit = defineEmits(['sessionUpdated', 'sessionBranched', 'startTask', 'switchWorkspace', 'manageWorkspaces', 'manageModels', 'sessionActiveChange', 'welcomeChange', 'refresh-sessions', 'environmentModeChange', 'subAgentEvent', 'initialLoadComplete'])
 const store = useAppStore()
 
 const messagesContainer = ref(null)
@@ -579,6 +585,10 @@ const welcomeInput = ref(null)
 const welcomeText = ref('')
 const welcomeWorkspaceHash = ref('')
 const welcomeWorkspaceMenuOpen = ref(false)
+const welcomeWorkspaceRow = ref(null)
+const welcomeWorkspaceMenu = ref(null)
+const welcomeWorkspaceMenuPlacement = ref('below')
+const welcomeWorkspaceMenuMaxHeight = ref(248)
 const welcomeModelMenuOpen = ref(false)
 const welcomePermissionSelector = ref(null)
 const welcomeEffortSelector = ref(null)
@@ -613,6 +623,31 @@ const openWelcomeWorkspaceManager = () => {
   emit('manageWorkspaces')
 }
 
+const updateWelcomeWorkspaceMenuPlacement = () => {
+  if (!welcomeWorkspaceMenuOpen.value || !welcomeWorkspaceRow.value) return
+
+  const rowRect = welcomeWorkspaceRow.value.getBoundingClientRect()
+  const boundaryRect = messagesContainer.value?.getBoundingClientRect?.()
+  const hasBoundary = boundaryRect && boundaryRect.height > 0
+  const viewportTop = hasBoundary ? boundaryRect.top : 0
+  const viewportBottom = hasBoundary
+    ? boundaryRect.bottom
+    : (typeof window !== 'undefined' ? window.innerHeight : 768)
+  const menuHeight = welcomeWorkspaceMenu.value?.offsetHeight || 248
+  const gap = 8
+  const spaceAbove = Math.max(0, rowRect.top - viewportTop - gap)
+  const spaceBelow = Math.max(0, viewportBottom - rowRect.bottom - gap)
+  const opensAbove = spaceBelow < menuHeight && spaceAbove > spaceBelow
+  const availableSpace = opensAbove ? spaceAbove : spaceBelow
+
+  welcomeWorkspaceMenuPlacement.value = opensAbove ? 'above' : 'below'
+  welcomeWorkspaceMenuMaxHeight.value = Math.max(0, Math.min(248, availableSpace))
+}
+
+const handleWelcomeWorkspaceViewportChange = () => {
+  if (welcomeWorkspaceMenuOpen.value) updateWelcomeWorkspaceMenuPlacement()
+}
+
 const closeWelcomeMenus = (except = '') => {
   if (except !== 'workspace') welcomeWorkspaceMenuOpen.value = false
   if (except !== 'model') welcomeModelMenuOpen.value = false
@@ -624,7 +659,14 @@ const closeWelcomeMenus = (except = '') => {
 const toggleWelcomeWorkspace = () => {
   const nextOpen = !welcomeWorkspaceMenuOpen.value
   closeWelcomeMenus('workspace')
-  if (nextOpen) welcomeInput.value?.closePickers()
+  if (nextOpen) {
+    welcomeInput.value?.closePickers?.()
+    welcomeWorkspaceMenuPlacement.value = 'below'
+    welcomeWorkspaceMenuMaxHeight.value = 248
+    welcomeWorkspaceMenuOpen.value = true
+    nextTick(updateWelcomeWorkspaceMenuPlacement)
+    return
+  }
   welcomeWorkspaceMenuOpen.value = nextOpen
 }
 
@@ -1479,6 +1521,8 @@ onMounted(() => {
   if (!props.initiallyEmpty && !props.subAgent) startSessionStatusPolling()
   window.addEventListener('keydown', handleImagePreviewKeydown)
   window.addEventListener('resize', updateVirtualViewport)
+  window.addEventListener('resize', handleWelcomeWorkspaceViewportChange)
+  window.addEventListener('scroll', handleWelcomeWorkspaceViewportChange, true)
   // 监听复制成功事件
   window.addEventListener('copy-success', (e) => {
     addLog({level: 'INFO', text: '✅ ' + (e.detail || '已复制'), time: Date.now()})
@@ -1523,6 +1567,8 @@ onBeforeUnmount(() => {
   cancelBottomAnchor()
   window.removeEventListener('keydown', handleImagePreviewKeydown)
   window.removeEventListener('resize', updateVirtualViewport)
+  window.removeEventListener('resize', handleWelcomeWorkspaceViewportChange)
+  window.removeEventListener('scroll', handleWelcomeWorkspaceViewportChange, true)
   messageResizeObserver?.disconnect()
   messageResizeObserver = null
   if (scrollAdjustmentFrame) cancelAnimationFrame(scrollAdjustmentFrame)
@@ -2772,19 +2818,27 @@ const appendElementInspection = async (inspection) => {
 // 加载历史消息（仅在明确选了 session 时）
 onMounted(() => {
   document.addEventListener('click', handleWelcomeOutsideClick)
-  if (props.sessionName) {
-    if (props.subAgent) {
-      // 子代理会话模式：消息来自容器块，不加载主会话历史
-      void focusComposer()
-    } else if (!props.initiallyEmpty) {
-      void loadHistory().finally(focusComposer)
-      void syncPlanMode()
-    } else {
-      void focusComposer()
+  void (async () => {
+    try {
+      if (props.sessionName) {
+        if (props.subAgent) {
+          // 子代理会话模式：消息来自容器块，不加载主会话历史
+          await focusComposer()
+        } else if (!props.initiallyEmpty) {
+          await loadHistory()
+          await focusComposer()
+          void syncPlanMode()
+        } else {
+          await focusComposer()
+        }
+      } else {
+        await focusComposer()
+      }
+    } finally {
+      // 桌面原生会话视图据此移除首次加载遮罩；历史请求失败时也不能让界面永久锁住。
+      emit('initialLoadComplete')
     }
-  } else {
-    void focusComposer()
-  }
+  })()
 })
 
 onBeforeUnmount(() => document.removeEventListener('click', handleWelcomeOutsideClick))
@@ -2815,6 +2869,9 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
 
 <style scoped>
 .chat {
+  --conversation-content-max-width: 1000px;
+  --conversation-composer-max-width: 1040px;
+  --conversation-content-width-gap: 40px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -3167,8 +3224,11 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
 
 .virtual-message-item,
 .messages > .msg.assistant {
-  width: 100%;
-  max-width: 1000px;
+  width: min(
+    calc(100% - var(--conversation-content-width-gap)),
+    var(--conversation-content-max-width)
+  );
+  max-width: var(--conversation-content-max-width);
   margin-right: auto;
   margin-left: auto;
   box-sizing: border-box;
@@ -4094,6 +4154,7 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
 }
 
 @media (max-width: 640px) {
+  .chat { --conversation-content-width-gap: 16px; }
   .messages { padding: 12px 8px 100px; }
   .messages.messages-with-queue { padding-bottom: 138px; }
   .msg-body { max-width: 95%; }
@@ -4269,9 +4330,15 @@ defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, start
   left: 8px;
   width: min(300px, calc(100vw - 64px));
   height: 248px;
+  max-height: var(--welcome-workspace-menu-max-height, 248px);
   padding: 4px;
   display: flex;
   flex-direction: column;
+}
+
+.welcome-workspace-menu.opens-above {
+  top: auto;
+  bottom: calc(100% - 3px);
 }
 
 .welcome-workspace-menu-actions {

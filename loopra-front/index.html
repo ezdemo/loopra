@@ -4,11 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
-      if (new URLSearchParams(window.location.search).get('theme') === 'dark') {
+      const initialPageParams = new URLSearchParams(window.location.search)
+      if (initialPageParams.get('theme') === 'dark') {
         document.documentElement.setAttribute('data-theme', 'dark')
       }
-      if (new URLSearchParams(window.location.search).get('desktopPet') === '1') {
+      if (initialPageParams.get('desktopPet') === '1') {
         document.documentElement.classList.add('desktop-pet-window')
+      }
+      if (initialPageParams.get('desktopChatTab') === '1') {
+        document.documentElement.classList.add('desktop-chat-tab-window')
       }
     </script>
     <meta name="description" content="Loopra - AI 代码助手" />
@@ -28,6 +32,7 @@
       [data-theme="retro"] #app-loader { background: #FAFAFA; }
       [data-theme="retro-yellow"] #app-loader { background: #f5e6c8; }
       .desktop-pet-window #app-loader { display: none; }
+      .desktop-chat-tab-window #app-loader { display: none; }
       .desktop-pet-window body { background: transparent; }
 
       .loader-icon {

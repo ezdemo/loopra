@@ -5,6 +5,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import DesktopHome from './DesktopHome.vue'
 import {sessionsAPI} from './services/api'
 
+const initialElectronAPI = window.electronAPI
+
 vi.mock('./services/api', () => ({
   sessionsAPI: {
     list: vi.fn().mockResolvedValue({success: true, data: []}),
@@ -69,22 +71,49 @@ describe('DesktopHome 项目拖拽排序', () => {
     expect(projectNames(wrapper)).toEqual(['A', 'B', 'C'])
   })
 
-  it('左下角菜单精简：常用入口外露，低频工具收进更多菜单', async () => {
+  it('顶部导航保持 Codex 风格，设置固定在左侧底部，低频功能收进探索菜单', async () => {
     await flushPromises()
+    const scrollRegion = wrapper.find('.desktop-sidebar-scroll')
     const menuButtons = wrapper.findAll('.desktop-project-footer-menu > button')
-    expect(menuButtons.map((button) => button.text().trim())).toEqual(['需求池', '技能'])
-    expect(wrapper.find('.desktop-project-footer-settings').text()).toContain('设置')
-    expect(wrapper.find('.desktop-more-button').text()).toContain('更多')
+    expect(menuButtons.map((button) => button.text().trim())).toEqual(['需求池', '技能', '插件'])
+    expect(scrollRegion.find('.desktop-project-list').exists()).toBe(true)
+    expect(scrollRegion.find('.desktop-more-button').text()).toContain('探索')
+    expect(scrollRegion.find('.desktop-home-nav').exists()).toBe(false)
+    expect(scrollRegion.find('.desktop-project-footer-settings').exists()).toBe(false)
+    expect(wrapper.find('.desktop-sidebar-settings').text()).toContain('设置')
+    expect(wrapper.find('.desktop-home-nav').text()).toContain('新对话')
     expect(wrapper.find('.desktop-footer-more-menu').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('子代理')
   })
 
-  it('打开更多菜单后可访问低频工具，选择工具后自动收起', async () => {
+  it('项目操作按钮默认隐藏，悬停项目标题行时显示', async () => {
+    await flushPromises()
+    const heading = wrapper.find('.desktop-project-heading')
+    expect(heading.exists()).toBe(true)
+    expect(heading.classes()).not.toContain('multi-selecting')
+
+    await heading.trigger('mouseenter')
+    expect(heading.find('.desktop-refresh-projects').exists()).toBe(true)
+    expect(heading.find('.desktop-add-project').exists()).toBe(true)
+    expect(heading.find('.desktop-multi-toggle-project').exists()).toBe(true)
+  })
+
+  it('会话标题行不再提供新建会话按钮', async () => {
+    const sidebarWrapper = mountHome({sidebarOnly: true})
+    await flushPromises()
+    expect(sidebarWrapper.find('.desktop-sessions .desktop-new-session').exists()).toBe(false)
+    expect(sidebarWrapper.find('.desktop-sessions .desktop-home-heading').exists()).toBe(false)
+    sidebarWrapper.unmount()
+  })
+
+  it('打开探索菜单后可访问站点、自定义和低频工具，选择工具后自动收起', async () => {
     await flushPromises()
     await wrapper.find('.desktop-more-button').trigger('click')
 
     const moreMenu = wrapper.find('.desktop-footer-more-menu')
     expect(moreMenu.exists()).toBe(true)
+    expect(moreMenu.text()).toContain('站点')
+    expect(moreMenu.text()).toContain('自定义')
     expect(moreMenu.text()).toContain('子代理')
     expect(moreMenu.text()).toContain('工具')
     expect(moreMenu.text()).toContain('深色模式')
@@ -95,7 +124,7 @@ describe('DesktopHome 项目拖拽排序', () => {
     expect(wrapper.find('.desktop-footer-more-menu').exists()).toBe(false)
   })
 
-  it('点击其他底部入口时自动收起更多菜单', async () => {
+  it('点击其他顶部入口时自动收起探索菜单', async () => {
     await flushPromises()
     await wrapper.find('.desktop-more-button').trigger('click')
     expect(wrapper.find('.desktop-footer-more-menu').exists()).toBe(true)
@@ -351,12 +380,12 @@ describe('DesktopHome 项目多选删除', () => {
   })
 })
 
-describe('DesktopHome 会话多选删除', () => {
+describe('DesktopHome 项目内会话多选删除', () => {
   let wrapper
 
   function mountWithSessions(sessions) {
     sessionsAPI.list.mockResolvedValue({success: true, data: sessions})
-    wrapper = mountHome()
+    wrapper = mountHome({sidebarOnly: true})
   }
 
   const SESSIONS = [
@@ -365,141 +394,128 @@ describe('DesktopHome 会话多选删除', () => {
     {name: 's3', title: '会话三', mtime: Date.now() - 7200_000}
   ]
 
+  function projectGroup(index) {
+    return wrapper.findAll('.desktop-project-group')[index]
+  }
+
   afterEach(() => {
     wrapper.unmount()
   })
 
-  it('未开启多选时不渲染会话复选框，点击开关后进入多选模式', async () => {
+  it('会话多选按钮位于项目行，开启后只显示该项目的会话复选框', async () => {
     mountWithSessions(SESSIONS)
     await flushPromises()
-    expect(wrapper.find('.desktop-session-check').exists()).toBe(false)
+    const groups = wrapper.findAll('.desktop-project-group')
+    expect(groups).toHaveLength(3)
+    expect(wrapper.findAll('.desktop-multi-toggle-session')).toHaveLength(3)
+    expect(wrapper.findAll('.desktop-session-check')).toHaveLength(0)
 
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
-    expect(wrapper.findAll('.desktop-session-check')).toHaveLength(9)
-    // 多选模式下隐藏新建会话按钮
-    expect(wrapper.text()).not.toContain('新建会话')
+    await groups[0].find('.desktop-multi-toggle-session').trigger('click')
+    expect(groups[0].findAll('.desktop-session-check')).toHaveLength(3)
+    expect(groups[1].findAll('.desktop-session-check')).toHaveLength(0)
+    expect(groups[2].findAll('.desktop-session-check')).toHaveLength(0)
+    expect(groups[0].find('.desktop-multi-toggle-session').attributes('aria-pressed')).toBe('true')
   })
 
-  it('勾选会话后出现删除选中按钮，点击发出 delete-sessions（含全部选中项）', async () => {
+  it('项目内勾选和删除只发出当前项目的会话', async () => {
     mountWithSessions(SESSIONS)
     await flushPromises()
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
-    // 未选中项目时加载全部项目（h1/h2/h3）的会话，每项目 3 个
-    const sessions = wrapper.findAll('.desktop-session')
-    expect(sessions).toHaveLength(9)
+    const group = projectGroup(0)
+    await group.find('.desktop-multi-toggle-session').trigger('click')
+    const sessions = group.findAll('.desktop-session')
 
     await sessions[0].find('.desktop-session-check').trigger('click')
-    await sessions[8].find('.desktop-session-check').trigger('click')
+    await sessions[2].find('.desktop-session-check').trigger('click')
     expect(sessions[0].classes()).toContain('selected')
-    expect(sessions[8].classes()).toContain('selected')
-    expect(sessions[1].classes()).not.toContain('selected')
+    expect(sessions[2].classes()).toContain('selected')
+    expect(projectGroup(1).findAll('.desktop-session.selected')).toHaveLength(0)
 
-    const deleteButton = wrapper.find('.desktop-delete-selected')
-    expect(deleteButton.exists()).toBe(true)
+    const deleteButton = group.find('.desktop-delete-sessions')
     expect(deleteButton.text()).toContain('2')
-
     await deleteButton.trigger('click')
     const emitted = wrapper.emitted('delete-sessions')[0][0]
     expect(emitted).toHaveLength(2)
-    expect(emitted[0]).toMatchObject({workspaceHash: 'h1', name: 's1', title: '会话一'})
-    expect(emitted[1]).toMatchObject({workspaceHash: 'h3', name: 's3', title: '会话三'})
+    expect(emitted.every((session) => session.workspaceHash === 'h1')).toBe(true)
   })
 
-  it('Shift+点击会话复选框按显示顺序区间选中（跨分组）', async () => {
-    // s1/s2 今天，s3 三天前 → 两个分组
-    mountWithSessions([
-      {name: 's1', title: '会话一', mtime: Date.now()},
-      {name: 's2', title: '会话二', mtime: Date.now() - 4 * 86400_000},
-      {name: 's3', title: '会话三', mtime: Date.now() - 5 * 86400_000}
-    ])
+  it('Shift+点击只在当前项目内按显示顺序选择区间', async () => {
+    mountWithSessions(SESSIONS)
     await flushPromises()
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
-    const sessions = wrapper.findAll('.desktop-session')
+    const group = projectGroup(0)
+    await group.find('.desktop-multi-toggle-session').trigger('click')
+    const sessions = group.findAll('.desktop-session')
 
     await sessions[2].find('.desktop-session-check').trigger('click')
     await sessions[0].find('.desktop-session-check').trigger('click', {shiftKey: true})
-    expect(wrapper.findAll('.desktop-session.selected')).toHaveLength(3)
-    expect(wrapper.find('.desktop-delete-selected').text()).toContain('3')
+    expect(group.findAll('.desktop-session.selected')).toHaveLength(3)
+    expect(projectGroup(1).findAll('.desktop-session.selected')).toHaveLength(0)
+    expect(group.find('.desktop-delete-sessions').text()).toContain('3')
   })
 
-  it('全选按钮全选全部会话，再次点击取消全选', async () => {
+  it('全选按钮只全选当前项目的会话', async () => {
     mountWithSessions(SESSIONS)
     await flushPromises()
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
+    const group = projectGroup(0)
+    await group.find('.desktop-multi-toggle-session').trigger('click')
 
-    await wrapper.find('.desktop-select-all').trigger('click')
-    expect(wrapper.findAll('.desktop-session.selected')).toHaveLength(9)
-    expect(wrapper.find('.desktop-delete-selected').text()).toContain('9')
-    expect(wrapper.find('.desktop-select-all').text()).toContain('取消全选')
+    await group.find('.desktop-select-all-sessions').trigger('click')
+    expect(group.findAll('.desktop-session.selected')).toHaveLength(3)
+    expect(projectGroup(1).findAll('.desktop-session.selected')).toHaveLength(0)
+    expect(group.find('.desktop-select-all-sessions').text()).toContain('取消全选')
 
-    await wrapper.find('.desktop-select-all').trigger('click')
-    expect(wrapper.findAll('.desktop-session.selected')).toHaveLength(0)
-    expect(wrapper.find('.desktop-delete-selected').exists()).toBe(false)
-    expect(wrapper.find('.desktop-select-all').text()).toContain('全选')
+    await group.find('.desktop-select-all-sessions').trigger('click')
+    expect(group.findAll('.desktop-session.selected')).toHaveLength(0)
+    expect(group.find('.desktop-delete-sessions').exists()).toBe(false)
   })
 
-  it('开启多选后点击整行与点击复选框效果一致（切换选择，不打开会话）', async () => {
+  it('只有开启多选的项目拦截会话点击，其他项目仍可打开会话', async () => {
     mountWithSessions(SESSIONS)
     await flushPromises()
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
-    const sessions = wrapper.findAll('.desktop-session')
+    const selectedGroup = projectGroup(0)
+    const normalGroup = projectGroup(1)
+    await selectedGroup.find('.desktop-multi-toggle-session').trigger('click')
 
-    // 点击复选框：切换选择
-    await sessions[4].find('.desktop-session-check').trigger('click')
-    expect(sessions[4].classes()).toContain('selected')
+    await selectedGroup.findAll('.desktop-session')[0].trigger('click')
+    expect(selectedGroup.findAll('.desktop-session.selected')).toHaveLength(1)
     expect(wrapper.emitted('open-session')).toBeUndefined()
 
-    // 点击行主体：同样切换选择
-    await sessions[4].trigger('click')
-    expect(sessions[4].classes()).not.toContain('selected')
-    expect(wrapper.emitted('open-session')).toBeUndefined()
-    expect(wrapper.findAll('.desktop-session.selected')).toHaveLength(0)
-
-    await sessions[4].trigger('click')
-    expect(wrapper.findAll('.desktop-session.selected')).toHaveLength(1)
-    expect(wrapper.emitted('open-session')).toBeUndefined()
+    await normalGroup.findAll('.desktop-session')[0].trigger('click')
+    expect(wrapper.emitted('open-session')[0][0]).toMatchObject({workspaceHash: 'h2', sessionName: 's1'})
   })
 
-  it('关闭多选后点击会话行主体恢复打开会话', async () => {
+  it('关闭一个项目的多选只清空该项目，其他项目状态保留', async () => {
     mountWithSessions(SESSIONS)
     await flushPromises()
-    const sessions = wrapper.findAll('.desktop-session')
+    const first = projectGroup(0)
+    const second = projectGroup(1)
+    await first.find('.desktop-multi-toggle-session').trigger('click')
+    await second.find('.desktop-multi-toggle-session').trigger('click')
+    await first.findAll('.desktop-session')[0].find('.desktop-session-check').trigger('click')
+    await second.findAll('.desktop-session')[0].find('.desktop-session-check').trigger('click')
 
-    await sessions[4].trigger('click')
-    expect(wrapper.emitted('open-session')[0][0]).toMatchObject({workspaceHash: 'h2', sessionName: 's2'})
-    expect(wrapper.findAll('.desktop-session.selected')).toHaveLength(0)
+    await first.find('.desktop-multi-toggle-session').trigger('click')
+    expect(first.findAll('.desktop-session-check')).toHaveLength(0)
+    expect(first.findAll('.desktop-session.selected')).toHaveLength(0)
+    expect(second.findAll('.desktop-session-check')).toHaveLength(3)
+    expect(second.findAll('.desktop-session.selected')).toHaveLength(1)
+    expect(second.find('.desktop-delete-sessions').text()).toContain('1')
   })
 
-  it('关闭开关退出会话多选并清空全部选中，恢复新建会话按钮', async () => {
+  it('会话列表刷新后清理当前项目内已删除的勾选', async () => {
     mountWithSessions(SESSIONS)
     await flushPromises()
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
-    const sessions = wrapper.findAll('.desktop-session')
-
-    await sessions[0].find('.desktop-session-check').trigger('click')
-    expect(wrapper.find('.desktop-delete-selected').text()).toContain('1')
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
-    expect(wrapper.find('.desktop-delete-selected').exists()).toBe(false)
-    expect(wrapper.findAll('.desktop-session.selected')).toHaveLength(0)
-    expect(wrapper.findAll('.desktop-session-check')).toHaveLength(0)
-    expect(wrapper.text()).toContain('新建会话')
-  })
-
-  it('会话列表刷新后自动清理已被删除的勾选（不残留）', async () => {
-    mountWithSessions(SESSIONS)
-    await flushPromises()
-    await wrapper.find('.desktop-multi-toggle-session').trigger('click')
-    const sessions = wrapper.findAll('.desktop-session')
+    const group = projectGroup(0)
+    await group.find('.desktop-multi-toggle-session').trigger('click')
+    const sessions = group.findAll('.desktop-session')
     await sessions[0].find('.desktop-session-check').trigger('click')
     await sessions[1].find('.desktop-session-check').trigger('click')
-    expect(wrapper.find('.desktop-delete-selected').text()).toContain('2')
+    expect(group.find('.desktop-delete-sessions').text()).toContain('2')
 
-    // 模拟删除后刷新：每个项目只剩 s3（共 3 个）
     sessionsAPI.list.mockResolvedValue({success: true, data: [SESSIONS[2]]})
     await wrapper.setProps({refreshKey: 1})
     await flushPromises()
-    expect(wrapper.find('.desktop-delete-selected').exists()).toBe(false)
-    expect(wrapper.findAll('.desktop-session')).toHaveLength(3)
+    expect(group.find('.desktop-delete-sessions').exists()).toBe(false)
+    expect(group.findAll('.desktop-session')).toHaveLength(1)
   })
 })
 
@@ -576,6 +592,71 @@ describe('DesktopHome 会话重命名', () => {
   })
 })
 
+describe('DesktopHome 会话原生右键菜单', () => {
+  let wrapper
+
+  afterEach(() => {
+    wrapper?.unmount()
+    if (initialElectronAPI === undefined) delete window.electronAPI
+    else window.electronAPI = initialElectronAPI
+  })
+
+  it('Electron 环境下右键会话调用系统菜单，并接收主进程回传的重命名动作', async () => {
+    const openNativeSessionMenu = vi.fn().mockResolvedValue(null)
+    const listeners = new Map()
+    window.electronAPI = {
+      desktopSessionMenu: {open: openNativeSessionMenu},
+      events: {listen: vi.fn((eventName, callback) => {
+        listeners.set(eventName, callback)
+        return () => listeners.delete(eventName)
+      })}
+    }
+    sessionsAPI.list.mockResolvedValue({success: true, data: [{name: 's1', title: '会话一', mtime: Date.now()}]})
+    wrapper = mountHome()
+    await flushPromises()
+
+    await wrapper.find('.desktop-session').trigger('contextmenu', {clientX: 200, clientY: 200})
+    await flushPromises()
+    listeners.get('desktop-session-context-action')({
+      action: 'rename-session',
+      item: {workspaceHash: 'h1', name: 's1', title: '会话一'}
+    })
+    await flushPromises()
+
+    expect(openNativeSessionMenu).toHaveBeenCalledWith({
+      theme: 'gray',
+      workspaceHash: 'h1',
+      sessionName: 's1',
+      sessionTitle: '会话一'
+    })
+    expect(document.body.querySelector('.desktop-rename-dialog')).not.toBeNull()
+    expect(document.body.querySelector('.desktop-context-menu')).toBeNull()
+  })
+
+  it('Electron 环境下接收删除动作并发出 delete-session', async () => {
+    const listeners = new Map()
+    window.electronAPI = {
+      desktopSessionMenu: {open: vi.fn().mockResolvedValue(null)},
+      events: {listen: vi.fn((eventName, callback) => {
+        listeners.set(eventName, callback)
+        return () => listeners.delete(eventName)
+      })}
+    }
+    sessionsAPI.list.mockResolvedValue({success: true, data: [{name: 's1', title: '会话一', mtime: Date.now()}]})
+    wrapper = mountHome()
+    await flushPromises()
+
+    await wrapper.find('.desktop-session').trigger('contextmenu', {clientX: 200, clientY: 200})
+    listeners.get('desktop-session-context-action')({
+      action: 'delete-session',
+      item: {workspaceHash: 'h1', name: 's1', title: '会话一'}
+    })
+    await flushPromises()
+
+    expect(wrapper.emitted('delete-session')[0][0]).toEqual({workspaceHash: 'h1', name: 's1', title: '会话一'})
+  })
+})
+
 describe('DesktopHome 会话列表时间字段', () => {
   let wrapper
 
@@ -603,14 +684,11 @@ describe('DesktopHome 会话列表时间字段', () => {
     const times = wrapper.findAll('.desktop-session-time')
     expect(times).toHaveLength(9)
     const todayText = `${pad(d.getHours())}:${pad(d.getMinutes())}`
-    expect(times[0].text()).toBe(todayText)
-    expect(times[1].text()).toBe(todayText)
-    expect(times[2].text()).toBe(todayText)
-    expect(times[3].text()).toBe('昨天')
-    expect(times[4].text()).toBe('昨天')
-    expect(times[5].text()).toBe('昨天')
-    expect(times[6].text()).toBe('2024/3/15')
-    expect(times[8].text()).toBe('2024/3/15')
+    expect(times.map(time => time.text())).toEqual([
+      todayText, '昨天', '2024/3/15',
+      todayText, '昨天', '2024/3/15',
+      todayText, '昨天', '2024/3/15'
+    ])
     expect(times[0].attributes('title')).toBe(`${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${todayText}`)
   })
 
@@ -620,5 +698,204 @@ describe('DesktopHome 会话列表时间字段', () => {
     // 每个项目都有一条无时间会话（共 3 行），但均不渲染时间
     expect(wrapper.findAll('.desktop-session-time')).toHaveLength(0)
     expect(wrapper.findAll('.desktop-session')).toHaveLength(3)
+  })
+})
+
+
+describe('DesktopHome 项目与会话层级', () => {
+  it('会话已高亮时不再同时高亮所属项目', async () => {
+    sessionsAPI.list.mockResolvedValue({success: true, data: [
+      {name: 's1', title: '会话一', mtime: 300}
+    ]})
+    const wrapper = mountHome({sidebarOnly: true, activeWorkspaceHash: 'h1', activeSessionName: 's1'})
+    await flushPromises()
+
+    const activeSession = wrapper.find('.desktop-session.active')
+    const firstProjectRow = wrapper.findAll('.desktop-project-row')[0]
+    const firstProject = firstProjectRow.find('.desktop-project')
+    expect(activeSession.exists()).toBe(true)
+    expect(firstProjectRow.classes()).not.toContain('active')
+    expect(firstProject.classes()).not.toContain('active')
+
+    await wrapper.setProps({activeSessionName: ''})
+    expect(firstProjectRow.classes()).toContain('active')
+    expect(firstProject.classes()).toContain('active')
+    wrapper.unmount()
+  })
+
+  it('项目超过十个时默认只显示前十个，并可展开和收起完整列表', async () => {
+    const workspaces = Array.from({length: 12}, (_, index) => ({
+      hash: `h${index + 1}`,
+      name: `项目 ${index + 1}`,
+      path: `/p/${index + 1}`
+    }))
+    sessionsAPI.list.mockResolvedValue({success: true, data: []})
+    const wrapper = mountHome({sidebarOnly: true, workspaces})
+    await flushPromises()
+
+    expect(wrapper.findAll('.desktop-project')).toHaveLength(10)
+    expect(wrapper.find('.desktop-show-projects').text()).toBe('展开显示')
+    expect(wrapper.find('.desktop-show-projects').attributes('aria-expanded')).toBe('false')
+
+    await wrapper.find('.desktop-show-projects').trigger('click')
+    expect(wrapper.findAll('.desktop-project')).toHaveLength(12)
+    expect(wrapper.find('.desktop-show-projects').text()).toBe('收起')
+    expect(wrapper.find('.desktop-show-projects').attributes('aria-expanded')).toBe('true')
+
+    await wrapper.find('.desktop-show-projects').trigger('click')
+    expect(wrapper.findAll('.desktop-project')).toHaveLength(10)
+    wrapper.unmount()
+  })
+
+  it('侧边栏切换项目时不重复加载会话', async () => {
+    sessionsAPI.list.mockResolvedValue({success: true, data: [
+      {name: 's1', title: '会话一', mtime: 300}
+    ]})
+    const wrapper = mountHome({sidebarOnly: true, activeWorkspaceHash: 'h1'})
+    await flushPromises()
+    const requestCount = sessionsAPI.list.mock.calls.length
+
+    await wrapper.findAll('.desktop-project')[1].trigger('click')
+    await flushPromises()
+
+    expect(sessionsAPI.list.mock.calls.length).toBe(requestCount)
+    expect(wrapper.find('.desktop-home-muted').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('点击项目行可以收起和展开该项目的全部会话', async () => {
+    sessionsAPI.list.mockResolvedValue({success: true, data: [
+      {name: 's1', title: '会话一', mtime: 300},
+      {name: 's2', title: '会话二', mtime: 200}
+    ]})
+    const wrapper = mountHome({sidebarOnly: true})
+    await flushPromises()
+
+    const firstGroup = wrapper.findAll('.desktop-project-group')[0]
+    const project = firstGroup.find('.desktop-project')
+    expect(project.attributes('aria-expanded')).toBe('true')
+    expect(project.find('.desktop-folder-icon-open').exists()).toBe(true)
+    expect(project.find('.desktop-folder-icon-closed').exists()).toBe(false)
+    expect(firstGroup.findAll('.desktop-session')).toHaveLength(2)
+
+    await project.trigger('click')
+    expect(project.attributes('aria-expanded')).toBe('false')
+    expect(project.find('.desktop-folder-icon-open').exists()).toBe(false)
+    expect(project.find('.desktop-folder-icon-closed').exists()).toBe(true)
+    expect(firstGroup.findAll('.desktop-session')).toHaveLength(0)
+    expect(wrapper.findAll('.desktop-project-group')[1].findAll('.desktop-session')).toHaveLength(2)
+
+    await project.trigger('click')
+    expect(project.attributes('aria-expanded')).toBe('true')
+    expect(project.find('.desktop-folder-icon-open').exists()).toBe(true)
+    expect(firstGroup.findAll('.desktop-session')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('默认只展开并选中第一个项目，其他项目可手动展开', async () => {
+    sessionsAPI.list.mockImplementation(async hash => ({success: true, data:
+      Array.from({length: 7}, (_, i) => ({name: hash + '-' + i, title: hash + ' 会话 ' + i, mtime: 100 - i}))
+    }))
+    const wrapper = mountHome({sidebarOnly: true, activeWorkspaceHash: 'h1'})
+    await flushPromises()
+    const groups = wrapper.findAll('.desktop-project-group')
+    expect(groups).toHaveLength(3)
+    expect(groups[0].find('.desktop-project').classes()).toContain('active')
+    expect(groups[0].find('.desktop-project').attributes('aria-expanded')).toBe('true')
+    expect(groups[0].findAll('.desktop-session')).toHaveLength(5)
+    expect(groups[1].find('.desktop-project').attributes('aria-expanded')).toBe('false')
+    expect(groups[1].findAll('.desktop-session')).toHaveLength(0)
+    expect(groups[2].find('.desktop-project').attributes('aria-expanded')).toBe('false')
+    expect(groups[2].findAll('.desktop-session')).toHaveLength(0)
+
+    await groups[1].find('.desktop-project').trigger('click')
+    expect(groups[1].findAll('.desktop-session')).toHaveLength(5)
+    expect(groups[1].find('.desktop-session-name').text()).toBe('h2 会话 0')
+    await groups[0].find('.desktop-show-sessions').trigger('click')
+    expect(groups[0].findAll('.desktop-session')).toHaveLength(7)
+    expect(groups[1].findAll('.desktop-session')).toHaveLength(5)
+    await wrapper.find('input[type="search"]').setValue('h2 会话 6')
+    expect(wrapper.findAll('.desktop-session')).toHaveLength(1)
+    expect(groups[1].find('.desktop-session-name').text()).toBe('h2 会话 6')
+    wrapper.unmount()
+  })
+})
+
+describe('DesktopHome 左侧会话顺序', () => {
+  it('激活会话后仍保留在原列表位置，只更新当前高亮', async () => {
+    sessionsAPI.list.mockImplementation(async () => ({success: true, data: [
+      {name: 's1', title: '会话一', mtime: 300},
+      {name: 's2', title: '会话二', mtime: 200},
+      {name: 's3', title: '会话三', mtime: 100}
+    ]}))
+    const wrapper = mountHome({sidebarOnly: true})
+    await flushPromises()
+
+    const sessionNames = () => wrapper.findAll('.desktop-project-group')[0]
+      .findAll('.desktop-session-name')
+      .map((item) => item.text())
+    expect(sessionNames()).toEqual(['会话一', '会话二', '会话三'])
+
+    await wrapper.setProps({
+      activeSessionName: 's2',
+      activeWorkspaceHash: 'h1'
+    })
+
+    expect(sessionNames()).toEqual(['会话一', '会话二', '会话三'])
+    expect(wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')[1].classes()).toContain('active')
+    wrapper.unmount()
+  })
+})
+
+describe('DesktopHome 桌面搜索面板', () => {
+  let wrapper
+
+  beforeEach(() => {
+    sessionsAPI.list.mockImplementation(async hash => ({success: true, data: [
+      {name: `${hash}-0`, title: `${hash} 会话 0`, mtime: 300},
+      {name: `${hash}-1`, title: `${hash} 会话 1`, mtime: 200}
+    ]}))
+    wrapper = mountHome({sidebarOnly: true, activeWorkspaceHash: 'h1', activeSessionName: 'h1-0'})
+  })
+
+  afterEach(() => {
+    wrapper.unmount()
+  })
+
+  it('点击放大镜打开居中的聊天面板，并展示最近会话与快捷操作', async () => {
+    await flushPromises()
+    await wrapper.find('[aria-label="搜索会话"]').trigger('click')
+
+    const palette = document.body.querySelector('.desktop-search-palette')
+    expect(palette).not.toBeNull()
+    expect(wrapper.emitted('search-visibility-change')[0]).toEqual([true])
+    expect(palette.querySelector('input[aria-label="搜索聊天"]')).not.toBeNull()
+    expect(palette.textContent).toContain('聊天')
+    expect(palette.textContent).toContain('h1 会话 0')
+    expect(palette.textContent).toContain('快捷操作')
+    expect(palette.textContent).toContain('打开文件夹')
+    expect(palette.textContent).toContain('Ctrl+P')
+  })
+
+  it('输入内容后筛选结果，Enter 可触发快捷操作，Esc 关闭面板', async () => {
+    await flushPromises()
+    await wrapper.find('[aria-label="搜索会话"]').trigger('click')
+    const input = document.body.querySelector('input[aria-label="搜索聊天"]')
+
+    input.value = '搜索文件'
+    input.dispatchEvent(new Event('input', {bubbles: true}))
+    await flushPromises()
+    expect(document.body.querySelectorAll('.desktop-search-result')).toHaveLength(1)
+    expect(document.body.querySelector('.desktop-search-result-title').textContent).toBe('搜索文件')
+    input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+    await flushPromises()
+    expect(wrapper.emitted('open-file-search')).toBeTruthy()
+    expect(document.body.querySelector('.desktop-search-palette')).toBeNull()
+
+    await wrapper.find('[aria-label="搜索会话"]').trigger('click')
+    document.body.querySelector('input[aria-label="搜索聊天"]').dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))
+    await flushPromises()
+    expect(document.body.querySelector('.desktop-search-palette')).toBeNull()
+    expect(wrapper.emitted('search-visibility-change').at(-1)).toEqual([false])
   })
 })

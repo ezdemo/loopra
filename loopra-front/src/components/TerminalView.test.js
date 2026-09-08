@@ -1,19 +1,36 @@
 /* @vitest-environment jsdom */
 
 import {flushPromises, mount} from '@vue/test-utils'
+import {nextTick} from 'vue'
 import {createPinia} from 'pinia'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import TerminalView from './TerminalView.vue'
 
-vi.mock('@xterm/xterm', () => ({Terminal: class {}}))
-vi.mock('@xterm/addon-fit', () => ({FitAddon: class {}}))
+vi.mock('@xterm/xterm', () => ({
+  Terminal: class {
+    cols = 80
+    rows = 24
+    loadAddon() {}
+    open() {}
+    onData() {}
+    refresh() {}
+    dispose() {}
+  }
+}))
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: class {
+    fit() {}
+  }
+}))
 
 const initialElectronAPI = window.electronAPI
 const originalInnerWidth = window.innerWidth
 const originalInnerHeight = window.innerHeight
 
 const terminalAPI = {
+  create: vi.fn(),
   listShells: vi.fn(),
+  kill: vi.fn(),
   onData: vi.fn(() => vi.fn()),
   onExit: vi.fn(() => vi.fn())
 }
@@ -37,6 +54,8 @@ beforeEach(() => {
     {id: 'powershell', name: 'PowerShell'},
     {id: 'pwsh', name: 'PowerShell 7 (pwsh)'}
   ])
+  terminalAPI.create.mockResolvedValue({id: 'pty-1', pid: 1234})
+  terminalAPI.kill.mockResolvedValue({success: true})
   terminalAPI.onData.mockReturnValue(vi.fn())
   terminalAPI.onExit.mockReturnValue(vi.fn())
   window.electronAPI = {terminal: terminalAPI}
@@ -58,6 +77,26 @@ afterEach(() => {
 })
 
 describe('TerminalView Shell 菜单', () => {
+  it('keeps horizontal bottom-panel height resizable', async () => {
+    Object.defineProperty(window, 'innerHeight', {configurable: true, value: 400})
+    const wrapper = mount(TerminalView, {
+      props: {open: true},
+      global: {plugins: [createPinia()]}
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.terminal-panel').classes()).not.toContain('vertical')
+    expect(wrapper.find('.terminal-panel').attributes('style')).toContain('height: 187px')
+
+    await wrapper.find('.terminal-resize-handle').trigger('mousedown', {clientY: 100})
+    window.dispatchEvent(new MouseEvent('mousemove', {clientY: 80}))
+    await nextTick()
+    expect(wrapper.find('.terminal-panel').attributes('style')).toContain('height: 207px')
+
+    window.dispatchEvent(new MouseEvent('mouseup', {clientY: 80}))
+    wrapper.unmount()
+  })
+
   it('靠近视口左下角时完整显示并向上展开', async () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
       if (this.classList.contains('terminal-tab-add')) {

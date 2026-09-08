@@ -339,12 +339,14 @@ const formatName = (n) => {
   backdrop-filter: blur(var(--blur));
   -webkit-backdrop-filter: blur(var(--blur));
   border-right: 1px solid var(--glass-border);
-  transition: width 0.2s, opacity 0.2s;
+  transition: width 0.24s ease, opacity 0.18s ease, transform 0.24s ease;
+  will-change: width, opacity, transform;
   overflow: hidden;
 }
 .sidebar.collapsed {
   width: 0;
   opacity: 0;
+  transform: translateX(-10px);
   overflow: hidden;
   pointer-events: none;
 }
@@ -714,7 +716,7 @@ const formatName = (n) => {
     top: 33px;
     bottom: 0;
     z-index: 200;
-    transition: left 0.2s;
+    transition: left 0.24s ease, width 0.24s ease, opacity 0.18s ease, transform 0.24s ease;
   }
   .sidebar:not(.collapsed) { left: 0; }
 }

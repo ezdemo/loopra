@@ -36,7 +36,11 @@ beforeEach(() => {
   subSessionsAPI.events.mockResolvedValue({success: true, data: []})
   window.electronAPI = {
     events: {listen: vi.fn(() => () => {})},
-    desktopChatTabs: {ready: vi.fn(), reportTitle: vi.fn(), reportWorkspace: vi.fn()}
+    desktopChatTabs: {ready: vi.fn(), reportTitle: vi.fn(), reportWorkspace: vi.fn()},
+    desktopChatHeaderMenu: {open: vi.fn().mockResolvedValue(null)},
+    elementInspectorWindow: {open: vi.fn().mockResolvedValue({success: true})},
+    aiBrowserWindow: {open: vi.fn().mockResolvedValue({success: true})},
+    onboarding: {open: vi.fn().mockResolvedValue({success: true})}
   }
 })
 
@@ -89,10 +93,94 @@ const item = (overrides = {}) => ({
 })
 
 describe('DesktopChatTab 子代理回放标签', () => {
+  it('renders Codex-style chat header toolbar with existing tool actions', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+
+    expect(wrapper.find('.desktop-chat-header').exists()).toBe(true)
+    expect(wrapper.find('.desktop-chat-header-title').text()).toBe('新对话')
+    expect(wrapper.find('.desktop-activity-bar').exists()).toBe(false)
+    expect(wrapper.find('.desktop-right-activity-bar').exists()).toBe(false)
+    expect(wrapper.find('.desktop-chat-header-actions').exists()).toBe(true)
+    expect(wrapper.findAll('.desktop-chat-header-action')).toHaveLength(9)
+
+    await wrapper.find('.desktop-chat-header-action[aria-label="审查"]').trigger('click')
+    await wrapper.find('.desktop-chat-header-action[aria-label="浏览器"]').trigger('click')
+    await wrapper.find('.desktop-chat-header-action[aria-label="引导"]').trigger('click')
+    expect(window.electronAPI.elementInspectorWindow.open).toHaveBeenCalled()
+    expect(window.electronAPI.aiBrowserWindow.open).toHaveBeenCalled()
+    expect(window.electronAPI.onboarding.open).toHaveBeenCalled()
+
+    await wrapper.find('.desktop-chat-header-action[aria-label="文件"]').trigger('click')
+    expect(wrapper.vm.leftPanelOpen).toBe(true)
+    expect(wrapper.vm.leftPanelView).toBe('files')
+  })
+
+  it('opens the native session menu and handles its selected action', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+
+    const trigger = wrapper.find('.desktop-chat-header-menu-trigger')
+    expect(trigger.attributes('aria-haspopup')).toBe('menu')
+    window.electronAPI.desktopChatHeaderMenu.open.mockResolvedValue('project-capabilities')
+    await trigger.trigger('click')
+    await flushPromises()
+
+    expect(window.electronAPI.desktopChatHeaderMenu.open).toHaveBeenCalledWith('gray')
+    expect(wrapper.vm.leftPanelOpen).toBe(true)
+    expect(wrapper.vm.leftPanelView).toBe('project-capabilities')
+    expect(wrapper.find('.desktop-chat-header-menu').exists()).toBe(false)
+  })
+
   it('keeps chat tab fixed at first position', async () => {
     const wrapper = mountTab()
     await flushPromises()
     expect(wrapper.vm.editorTabs[0]).toMatchObject({id: 'chat', closable: false})
+  })
+
+  it('renders the session title instead of the session id', async () => {
+    const originalHref = window.location.href
+    window.history.replaceState({}, '', '/?desktopChatTab=1&sessionName=loopra-20260907120754&sessionTitle=%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AAHTML')
+    const wrapper = mountTab()
+    await flushPromises()
+
+    expect(wrapper.find('.desktop-chat-header-title').text()).toBe('创建一个HTML')
+    expect(wrapper.find('.desktop-chat-header-title').text()).not.toContain('loopra-20260907120754')
+
+    wrapper.unmount()
+    window.history.replaceState({}, '', originalHref)
+  })
+
+  it('keeps a global loading layer inside the native chat view until history is ready', async () => {
+    const originalHref = window.location.href
+    const listeners = {}
+    window.history.replaceState({}, '', '/?desktopChatTab=1&sessionName=slow-session&workspaceHash=h1')
+    window.electronAPI.events.listen.mockImplementation((channel, callback) => {
+      listeners[channel] = callback
+      return vi.fn()
+    })
+
+    const wrapper = mountTab()
+    await flushPromises()
+
+    expect(wrapper.find('.desktop-chat-global-loading').exists()).toBe(true)
+    expect(wrapper.find('.desktop-chat-global-loading').attributes('role')).toBe('status')
+
+    // ChatView 的 initial-load-complete 事件会更新这个独立的首次历史加载状态。
+    wrapper.vm.initialLoading = false
+    await nextTick()
+    expect(wrapper.find('.desktop-chat-global-loading').exists()).toBe(false)
+
+    listeners['desktop-chat-tab-global-loading'](true)
+    await nextTick()
+    expect(wrapper.find('.desktop-chat-global-loading').exists()).toBe(true)
+
+    listeners['desktop-chat-tab-global-loading'](false)
+    await nextTick()
+    expect(wrapper.find('.desktop-chat-global-loading').exists()).toBe(false)
+
+    wrapper.unmount()
+    window.history.replaceState({}, '', originalHref)
   })
 
   it('openSubAgentTab creates tab, loads events and activates it', async () => {
@@ -249,7 +337,7 @@ describe('DesktopChatTab 子代理回放标签', () => {
     expect(subPanelRefreshSpy).toHaveBeenCalled()
   })
 
-  it('opens the project capabilities panel from the left activity bar', async () => {
+  it('opens the project capabilities panel from the right activity bar', async () => {
     const wrapper = mountTab()
     await flushPromises()
 
@@ -259,7 +347,7 @@ describe('DesktopChatTab 子代理回放标签', () => {
     expect(wrapper.vm.projectCapabilitiesPanelMounted).toBe(true)
     expect(wrapper.vm.leftPanelOpen).toBe(true)
     expect(wrapper.vm.leftPanelView).toBe('project-capabilities')
-    expect(wrapper.find('.activity-bar-item[aria-label="项目能力"]').exists()).toBe(true)
+    expect(wrapper.find('.desktop-chat-header-action[aria-label="项目能力"]').exists()).toBe(true)
   })
 
   it('openSubAgentTab fills blocks through the reactive proxy (ChatView perceives updates)', async () => {

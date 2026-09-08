@@ -8,6 +8,7 @@ const { compareVersions } = require('./version.cjs')
 const { registerTerminalIpc, killAllTerminals } = require('./terminal.cjs')
 const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
 const { registerOnboardingIpc } = require('./onboarding.cjs')
+const { DesktopNativeOverlayManager } = require('./desktop-overlay.cjs')
 const fs = require('fs')
 const net = require('net')
 
@@ -58,6 +59,7 @@ const DESKTOP_CHAT_DEV_RENDERER_ORIGINS = ['http://localhost:3000', 'http://127.
 const DESKTOP_CHAT_LOAD_ATTEMPTS = DESKTOP_CHAT_DEV_RENDERER_ORIGINS.length
 const DESKTOP_CHAT_LOAD_RETRY_DELAY_MS = 200
 const DESKTOP_CHAT_LOAD_TIMEOUT_MS = 10000
+const DESKTOP_SIDEBAR_CONTEXT_WIDTH = 360
 
 let mainWindow = null
 let splashWindow = null
@@ -86,11 +88,25 @@ const AI_BROWSER_SCREENSHOT_MAX_WIDTH = 1600
 const desktopChatTabs = new Map()
 const fileExplorerWatchers = new Map()
 let desktopChatActiveTabId = null
+let desktopChatLoadingRequestId = 0
 const AI_BROWSER_BRIDGE_PREFERRED_PORT = Number(process.env.LOOPRA_BROWSER_BRIDGE_PORT || 0)
 const AI_BROWSER_TAB_CLEANUP_THRESHOLD = 16
 const AI_BROWSER_MAX_TABS = 20
 const execFileAsync = promisify(execFile)
 const appIconPath = path.join(__dirname, 'favicon.png')
+const desktopOverlayManager = new DesktopNativeOverlayManager({
+  getParentWindow: () => mainWindow,
+  preloadPath: path.join(__dirname, 'preload.cjs'),
+  rendererPath: path.join(__dirname, '../renderer/index.html'),
+  isDev,
+  devRendererOrigins: DESKTOP_CHAT_DEV_RENDERER_ORIGINS,
+  loadAttempts: DESKTOP_CHAT_LOAD_ATTEMPTS,
+  retryDelayMs: DESKTOP_CHAT_LOAD_RETRY_DELAY_MS,
+  loadTimeoutMs: DESKTOP_CHAT_LOAD_TIMEOUT_MS
+})
+let desktopPopupContext = null
+let desktopPopupContextRequestId = 0
+const desktopPopupContextWaiters = new Map()
 
 if (isWin) app.setAppUserModelId('com.loopra.desktop')
 
@@ -792,13 +808,67 @@ function openOnboardingWindow() {
   return onboardingWindow
 }
 
+const NATIVE_TITLEBAR_LIGHT = '#f1f1ef'
+const NATIVE_TITLEBAR_DARK = '#20201f'
+const NATIVE_TITLEBAR_INK_LIGHT = '#343432'
+const NATIVE_TITLEBAR_INK_DARK = '#ededeb'
+const NATIVE_TITLEBAR_MODAL_MASK = '#16181b'
+const NATIVE_TITLEBAR_MODAL_MASK_OPACITY = 0.24
+let nativeTitleBarTheme = nativeTheme.shouldUseDarkColors ? 'dark' : 'gray'
+let nativeTitleBarDimmed = false
+
+function blendHexColors(background, foreground, opacity) {
+  const parse = (color, offset) => Number.parseInt(color.slice(offset, offset + 2), 16)
+  const channel = (offset) => Math.round(
+    parse(background, offset) * (1 - opacity) + parse(foreground, offset) * opacity
+  ).toString(16).padStart(2, '0')
+  return `#${channel(1)}${channel(3)}${channel(5)}`
+}
+
+function nativeTitleBarOverlay(isDark, dimmed = nativeTitleBarDimmed) {
+  const color = isDark ? NATIVE_TITLEBAR_DARK : NATIVE_TITLEBAR_LIGHT
+  const symbolColor = isDark ? NATIVE_TITLEBAR_INK_DARK : NATIVE_TITLEBAR_INK_LIGHT
+  return {
+    // Windows 的原生标题栏按钮绘制在 renderer/WebContentsView 之上，网页遮罩
+    // 无法覆盖它；模态浮层显示时用相同颜色与透明度合成，视觉上保持连续。
+    color: dimmed ? blendHexColors(color, NATIVE_TITLEBAR_MODAL_MASK, NATIVE_TITLEBAR_MODAL_MASK_OPACITY) : color,
+    symbolColor: dimmed ? blendHexColors(symbolColor, NATIVE_TITLEBAR_MODAL_MASK, NATIVE_TITLEBAR_MODAL_MASK_OPACITY) : symbolColor,
+    height: 36
+  }
+}
+
+function applyTitleBarOverlayTheme(rawTheme) {
+  nativeTitleBarTheme = rawTheme === 'dark' ? 'dark' : 'gray'
+  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return
+  try {
+    mainWindow.setTitleBarOverlay(nativeTitleBarOverlay(nativeTitleBarTheme === 'dark'))
+  } catch (error) {
+    console.warn('[desktop-shell] failed to update native titlebar overlay:', error.message)
+  }
+}
+
+function setTitleBarOverlayDimmed(dimmed) {
+  const next = dimmed === true
+  if (nativeTitleBarDimmed === next) return
+  nativeTitleBarDimmed = next
+  applyTitleBarOverlayTheme(nativeTitleBarTheme)
+}
+
 function createWindow() {
+  const titleBarOptions = process.platform === 'win32'
+    ? {
+      frame: false,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: nativeTitleBarOverlay(nativeTitleBarTheme === 'dark')
+    }
+    : process.platform === 'darwin'
+      ? { frame: false, titleBarStyle: 'hiddenInset' }
+      : { frame: true }
   mainWindow = new BrowserWindow({
     width: 1200, height: 800,
     minWidth: 800, minHeight: 600,
-    frame: false,
-    titleBarStyle: 'hidden',
     icon: appIconPath,
+    ...titleBarOptions,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -817,15 +887,29 @@ function createWindow() {
   if (shouldOpenDevTools) mainWindow.webContents.openDevTools()
 
   mainWindow.on('focus', () => {
+    const activeOverlay = desktopOverlayManager.getTopVisible()
+    if (activeOverlay && !activeOverlay.view.webContents.isDestroyed()) {
+      activeOverlay.view.webContents.focus()
+      return
+    }
     const tab = desktopChatTabs.get(desktopChatActiveTabId)
     const wc = tab?.view.webContents
     if (!tab || !tab.visible || !wc || wc.isDestroyed()) return
     wc.focus()
     sendDesktopChatTabEvent(tab, 'desktop-chat-tab-focus-composer')
   })
+  const syncNativeOverlays = () => desktopOverlayManager.syncAll()
+  mainWindow.on('resize', syncNativeOverlays)
+  mainWindow.on('maximize', syncNativeOverlays)
+  mainWindow.on('unmaximize', syncNativeOverlays)
+  mainWindow.on('restore', syncNativeOverlays)
 
   mainWindow.webContents.on('context-menu', (event, params) => {
-    if (params.y < 44) return
+    // 侧栏项目/会话由渲染进程分别请求自己的菜单；不要再让旧的开发菜单覆盖它。
+    if (Number(params?.x) < DESKTOP_SIDEBAR_CONTEXT_WIDTH) {
+      event.preventDefault()
+      return
+    }
     const menu = Menu.buildFromTemplate([
       { label: '检查元素', click: () => mainWindow.webContents.inspectElement(params.x, params.y) },
       { type: 'separator' },
@@ -836,17 +920,13 @@ function createWindow() {
     menu.popup()
   })
 
-  // macOS: 隐藏原生窗口控制按钮（红绿灯），应用内使用自定义标题栏按钮
-  if (process.platform === 'darwin') {
-    mainWindow.setWindowButtonVisibility(false)
-  }
-
   mainWindow.on('closed', () => {
     if (elementInspectorWindow && !elementInspectorWindow.isDestroyed()) elementInspectorWindow.close()
     if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.close()
     if (desktopPetWindow && !desktopPetWindow.isDestroyed()) desktopPetWindow.close()
     if (onboardingWindow && !onboardingWindow.isDestroyed()) onboardingWindow.close()
     if (elementWebView && !elementWebView.webContents.isDestroyed()) elementWebView.webContents.close()
+    desktopOverlayManager.destroyAll()
     destroyDesktopChatTabs()
     elementWebView = null
     mainWindow = null
@@ -1586,6 +1666,64 @@ ipcMain.handle('desktop-home-context-menu', (event, rawTheme) => {
   })
 })
 
+ipcMain.handle('desktop-chat-header-menu', (event, rawTheme) => {
+  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized desktop chat header menu request')
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  applyNativeMenuTheme(rawTheme)
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (action) => {
+      if (settled) return
+      settled = true
+      resolve(action)
+    }
+    const menu = Menu.buildFromTemplate([
+      { label: '刷新会话', click: () => finish('refresh-session') },
+      { label: '项目能力', click: () => finish('project-capabilities') },
+      { label: '终端', click: () => finish('terminal') },
+      { label: '侧边栏', click: () => finish('sidebar') }
+    ])
+    menu.popup({
+      window: mainWindow,
+      callback: () => finish(null)
+    })
+  })
+})
+
+ipcMain.handle('desktop-session-context-menu', (event, rawPayload = {}) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop session menu request')
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  const workspaceHash = String(rawPayload?.workspaceHash || '').trim()
+  const sessionName = String(rawPayload?.sessionName || '').trim()
+  const sessionTitle = String(rawPayload?.sessionTitle || '').trim().slice(0, 240)
+  if (!workspaceHash || !sessionName || workspaceHash.length > 240 || sessionName.length > 240) return null
+  applyNativeMenuTheme(rawPayload?.theme)
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (action) => {
+      if (settled) return
+      settled = true
+      if (action && mainWindow && !mainWindow.isDestroyed()) {
+        const item = { workspaceHash, name: sessionName }
+        if (sessionTitle) item.title = sessionTitle
+        mainWindow.webContents.send('desktop-session-context-action', { action, item })
+      }
+      // 菜单点击通过事件回传，避免依赖原生菜单关闭时的 IPC Promise 时序。
+      resolve(null)
+    }
+    const menu = Menu.buildFromTemplate([
+      { label: '重命名会话', click: () => finish('rename-session') },
+      { label: '删除会话', click: () => finish('delete-session') }
+    ])
+    menu.popup({
+      window: mainWindow,
+      callback: () => finish(null)
+    })
+  })
+})
+
 ipcMain.handle('desktop-tab-context-menu', (event, rawPayload = {}) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop tab menu request')
   if (!mainWindow || mainWindow.isDestroyed()) return null
@@ -1609,8 +1747,8 @@ ipcMain.handle('desktop-tab-context-menu', (event, rawPayload = {}) => {
       { label: '刷新', click: () => finish('reload') },
       { label: '关闭', click: () => finish('close') },
       { type: 'separator' },
-      { label: '关闭左侧标签', enabled: canCloseLeft, click: () => finish('close-left') },
-      { label: '关闭右侧标签', enabled: canCloseRight, click: () => finish('close-right') }
+      { label: '关闭上方会话', enabled: canCloseLeft, click: () => finish('close-left') },
+      { label: '关闭下方会话', enabled: canCloseRight, click: () => finish('close-right') }
     ])
     menu.popup({
       window: mainWindow,
@@ -1648,9 +1786,9 @@ ipcMain.handle('chat-update-request', (event, payload = {}) => {
   return true
 })
 
-// 引导页窗口管理：主窗口打开；引导页自身关闭
+// 引导页窗口管理：桌面聊天界面打开；引导页自身关闭
 ipcMain.handle('onboarding-window-open', (event) => {
-  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized onboarding window request')
+  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized onboarding window request')
   openOnboardingWindow()
   return { success: true }
 })
@@ -1752,20 +1890,381 @@ ipcMain.handle('pick_jar_file', async (event) => {
   return result.canceled ? '' : (result.filePaths[0] || '')
 })
 
+// ==================== Desktop Search Overlay ====================
+
+function normalizeDesktopSearchContext(rawContext = {}) {
+  const limit = (value) => String(value || '').trim().slice(0, 240)
+  return {
+    activeSessionName: limit(rawContext?.activeSessionName),
+    activeWorkspaceHash: limit(rawContext?.activeWorkspaceHash),
+    theme: rawContext?.theme === 'dark' ? 'dark' : 'gray'
+  }
+}
+
+function normalizeDesktopSearchAction(rawAction = {}) {
+  const type = rawAction?.type === 'session' ? 'session' : 'action'
+  if (type === 'session') {
+    const workspaceHash = String(rawAction?.workspaceHash || '').trim().slice(0, 240)
+    const sessionName = String(rawAction?.sessionName || '').trim().slice(0, 240)
+    if (!workspaceHash || !sessionName) return null
+    return {
+      type,
+      workspaceHash,
+      sessionName,
+      title: String(rawAction?.title || '').trim().slice(0, 120)
+    }
+  }
+  const allowedActions = new Set(['new-session', 'add-workspace', 'open-file-search'])
+  const id = String(rawAction?.id || '').trim()
+  return allowedActions.has(id) ? { type, id } : null
+}
+
+function refocusDesktopShell() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
+  const tab = desktopChatTabs.get(desktopChatActiveTabId)
+  const wc = tab?.view.webContents
+  if (tab?.visible && wc && !wc.isDestroyed()) {
+    wc.focus()
+    sendDesktopChatTabEvent(tab, 'desktop-chat-tab-focus-composer')
+  } else {
+    mainWindow.webContents.focus()
+  }
+}
+
+function isDesktopOverlaySender(key, sender) {
+  const webContents = desktopOverlayManager.get(key)?.view?.webContents
+  if (!webContents || webContents.isDestroyed() || !sender) return false
+  // WebContentsView 在不同 Electron 版本中可能返回不同的 JS 包装对象，
+  // 但同一个原生 WebContents 的 id 是稳定的。
+  return sender === webContents || sender.id === webContents.id
+}
+
+function hideDesktopSearchView({ notify = true, refocus = true } = {}) {
+  if (!desktopOverlayManager.hide('search')) return false
+  if (notify && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('desktop-shell-search-closed')
+  }
+  if (refocus) refocusDesktopShell()
+  return true
+}
+
+async function openDesktopSearchView(rawContext = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const context = normalizeDesktopSearchContext(rawContext)
+  const entry = await desktopOverlayManager.open('search', {
+    query: {
+      desktopSearch: '1',
+      activeSessionName: context.activeSessionName,
+      activeWorkspaceHash: context.activeWorkspaceHash,
+      theme: context.theme
+    },
+    backgroundColor: '#00000000',
+    contextChannel: 'desktop-search-context',
+    context
+  })
+  return Boolean(entry)
+}
+
+ipcMain.handle('desktop-search-open', async (event, rawContext) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop search request')
+  try {
+    return { success: await openDesktopSearchView(rawContext) }
+  } catch (error) {
+    console.error('[desktop-search] failed to open search overlay:', error)
+    throw error
+  }
+})
+
+ipcMain.handle('desktop-search-close', (event) => {
+  const overlaySender = isDesktopOverlaySender('search', event.sender)
+  if (event.sender !== mainWindow?.webContents && !overlaySender) throw new Error('Unauthorized desktop search close')
+  hideDesktopSearchView()
+  return { success: true }
+})
+
+ipcMain.handle('desktop-search-action', (event, rawAction) => {
+  if (!isDesktopOverlaySender('search', event.sender)) throw new Error('Unauthorized desktop search action')
+  const action = normalizeDesktopSearchAction(rawAction)
+  if (!action || !mainWindow || mainWindow.isDestroyed()) return { success: false }
+  hideDesktopSearchView()
+  mainWindow.webContents.send('desktop-shell-search-action', action)
+  return { success: true }
+})
+
+// ==================== Desktop Popup Overlay ====================
+
+const DESKTOP_POPUP_TYPES = new Set(['explore', 'home-context', 'tab-context', 'context-menu', 'rename-session', 'confirm'])
+const DESKTOP_POPUP_MODAL_TYPES = new Set(['rename-session', 'confirm'])
+const DESKTOP_POPUP_ACTIONS = new Set([
+  'open-skills', 'open-settings', 'open-sub-agents', 'open-tools', 'toggle-theme',
+  'open-requirement-board', 'open-onboarding', 'open-update', 'reload', 'close', 'close-left', 'close-right',
+  'rename-session', 'delete-session', 'copy-workspace-path', 'clear-workspace',
+  'clear-old-sessions', 'delete-workspace', 'confirm', 'cancel'
+])
+const DESKTOP_POPUP_CONFIRM_KINDS = new Set([
+  'session', 'sessions', 'clearWorkspace', 'clearOldSessions', 'deleteWorkspace', 'deleteWorkspaces'
+])
+
+function popupText(value, maxLength = 240) {
+  return String(value || '').trim().slice(0, maxLength)
+}
+
+function normalizeDesktopPopupItem(rawItem) {
+  if (!rawItem || typeof rawItem !== 'object') return null
+  const item = {}
+  for (const key of ['hash', 'workspaceHash', 'name', 'title', 'path']) {
+    const value = popupText(rawItem[key], key === 'path' ? 1000 : 240)
+    if (value) item[key] = value
+  }
+  if (typeof rawItem.mtime === 'number' && Number.isFinite(rawItem.mtime)) item.mtime = rawItem.mtime
+  return item
+}
+
+function normalizeDesktopPopupData(value, depth = 0) {
+  if (value === undefined) return undefined
+  if (value === null || typeof value === 'boolean') return value
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string') return value.slice(0, 1000)
+  if (depth >= 3 || typeof value !== 'object') return null
+  if (Array.isArray(value)) return value.slice(0, 100).map((item) => normalizeDesktopPopupData(item, depth + 1))
+  return Object.fromEntries(Object.entries(value).slice(0, 40).map(([key, entry]) => [popupText(key, 80), normalizeDesktopPopupData(entry, depth + 1)]))
+}
+
+function normalizeDesktopPopupActions(rawActions) {
+  if (!Array.isArray(rawActions)) return []
+  return rawActions.slice(0, 4).map((action) => ({
+    key: popupText(action?.key, 40),
+    label: popupText(action?.label, 80),
+    variant: action?.variant === 'danger' ? 'danger' : 'default',
+    disabled: action?.disabled === true
+  })).filter((action) => action.key && action.label)
+}
+
+function normalizeDesktopPopupContext(rawContext = {}) {
+  const type = popupText(rawContext?.type, 40)
+  if (!DESKTOP_POPUP_TYPES.has(type)) return null
+  const context = {
+    type,
+    theme: rawContext?.theme === 'dark' ? 'dark' : 'gray'
+  }
+  if (type === 'explore') {
+    context.x = Number.isFinite(Number(rawContext?.x)) ? Math.round(Number(rawContext.x)) : 8
+    context.y = Number.isFinite(Number(rawContext?.y)) ? Math.round(Number(rawContext.y)) : 8
+    return context
+  }
+  if (type === 'home-context') {
+    context.x = Number.isFinite(Number(rawContext?.x)) ? Math.round(Number(rawContext.x)) : 8
+    context.y = Number.isFinite(Number(rawContext?.y)) ? Math.round(Number(rawContext.y)) : 8
+    return context
+  }
+  if (type === 'tab-context') {
+    const tabId = popupText(rawContext?.tabId)
+    if (!tabId) return null
+    context.tabId = tabId
+    context.x = Number.isFinite(Number(rawContext?.x)) ? Math.round(Number(rawContext.x)) : 8
+    context.y = Number.isFinite(Number(rawContext?.y)) ? Math.round(Number(rawContext.y)) : 8
+    context.canCloseLeft = rawContext?.canCloseLeft === true
+    context.canCloseRight = rawContext?.canCloseRight === true
+    return context
+  }
+  if (type === 'context-menu') {
+    const menuType = rawContext?.menuType === 'session' ? 'session' : 'workspace'
+    const item = normalizeDesktopPopupItem(rawContext?.item)
+    if (!item) return null
+    context.menuType = menuType
+    context.item = item
+    context.x = Number.isFinite(Number(rawContext?.x)) ? Math.round(Number(rawContext.x)) : 8
+    context.y = Number.isFinite(Number(rawContext?.y)) ? Math.round(Number(rawContext.y)) : 8
+    return context
+  }
+  if (type === 'rename-session') {
+    const item = normalizeDesktopPopupItem(rawContext?.item)
+    if (!item?.name || !item?.workspaceHash) return null
+    context.item = item
+    context.value = popupText(rawContext?.value, 100)
+    return context
+  }
+  const kind = popupText(rawContext?.kind, 40)
+  if (!DESKTOP_POPUP_CONFIRM_KINDS.has(kind)) return null
+  context.kind = kind
+  context.title = popupText(rawContext?.title, 120)
+  context.message = popupText(rawContext?.message, 1000)
+  context.actions = normalizeDesktopPopupActions(rawContext?.actions)
+  context.payload = normalizeDesktopPopupData(rawContext?.payload)
+  return context
+}
+
+function normalizeDesktopPopupAction(rawAction = {}) {
+  const type = popupText(rawAction?.type, 40)
+  const action = popupText(rawAction?.action, 60)
+  if (!DESKTOP_POPUP_TYPES.has(type) || !DESKTOP_POPUP_ACTIONS.has(action)) return null
+  if (type === 'explore') {
+    return ['open-skills', 'open-settings', 'open-sub-agents', 'open-tools', 'toggle-theme'].includes(action)
+      ? { type, action }
+      : null
+  }
+  if (type === 'home-context') {
+    return ['open-requirement-board', 'open-onboarding', 'open-update', 'toggle-theme'].includes(action)
+      ? { type, action }
+      : null
+  }
+  if (type === 'tab-context') {
+    const tabId = popupText(rawAction?.tabId)
+    return tabId && ['reload', 'close', 'close-left', 'close-right'].includes(action)
+      ? { type, action, tabId }
+      : null
+  }
+  if (type === 'context-menu') {
+    const menuType = rawAction?.menuType === 'session' ? 'session' : 'workspace'
+    const allowed = menuType === 'session'
+      ? ['rename-session', 'delete-session']
+      : ['copy-workspace-path', 'clear-workspace', 'clear-old-sessions', 'delete-workspace']
+    const item = normalizeDesktopPopupItem(rawAction?.item)
+    return item && allowed.includes(action) ? { type, menuType, action, item } : null
+  }
+  if (type === 'rename-session') {
+    if (action === 'confirm') {
+      const currentContext = desktopPopupContext?.type === type ? desktopPopupContext : null
+      const item = normalizeDesktopPopupItem(rawAction?.item || currentContext?.item)
+      const value = popupText(rawAction?.value || currentContext?.value, 100)
+      return item?.name && item?.workspaceHash
+        ? { type, action, value, item }
+        : null
+    }
+    return action === 'cancel' ? { type, action } : null
+  }
+  const currentContext = desktopPopupContext?.type === type ? desktopPopupContext : null
+  const kind = popupText(rawAction?.kind || currentContext?.kind, 40)
+  if (!DESKTOP_POPUP_CONFIRM_KINDS.has(kind) || !['confirm', 'cancel'].includes(action)) return null
+  const payload = rawAction?.payload == null ? currentContext?.payload : rawAction.payload
+  return { type, action, kind, payload: normalizeDesktopPopupData(payload) }
+}
+
+function hideDesktopPopup({ notify = true, refocus = true } = {}) {
+  const hidden = desktopOverlayManager.hide('popup')
+  setTitleBarOverlayDimmed(false)
+  if (!hidden) return false
+  const type = desktopPopupContext?.type || ''
+  desktopPopupContext = null
+  if (notify && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('desktop-shell-popup-closed', { type })
+  }
+  if (refocus) refocusDesktopShell()
+  return true
+}
+
+async function openDesktopPopupView(rawContext = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const context = normalizeDesktopPopupContext(rawContext)
+  if (!context) return false
+  desktopPopupContext = context
+  const entry = await desktopOverlayManager.open('popup', {
+    query: {
+      desktopPopup: '1',
+      popupType: context.type,
+      theme: context.theme
+    },
+    backgroundColor: '#00000000',
+    contextChannel: 'desktop-popup-context',
+    context
+  })
+  if (entry) {
+    setTitleBarOverlayDimmed(DESKTOP_POPUP_MODAL_TYPES.has(context.type))
+  }
+  return Boolean(entry)
+}
+
+ipcMain.handle('desktop-popup-open', async (event, rawContext) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop popup request')
+  try {
+    return { success: await openDesktopPopupView(rawContext) }
+  } catch (error) {
+    console.error('[desktop-popup] failed to open popup overlay:', error)
+    throw error
+  }
+})
+
+// did-finish-load 可能早于异步 Vue 根组件挂载；由浮层在监听器安装完成后主动
+// 握手并补取当前上下文，避免首次打开时丢失 item/payload。
+ipcMain.on('desktop-popup-ready', (event) => {
+  if (!isDesktopOverlaySender('popup', event.sender) || !desktopPopupContext) return
+  event.sender.send('desktop-popup-context', desktopPopupContext)
+})
+
+ipcMain.handle('desktop-popup-close', (event) => {
+  const overlaySender = isDesktopOverlaySender('popup', event.sender)
+  if (event.sender !== mainWindow?.webContents && !overlaySender) throw new Error('Unauthorized desktop popup close')
+  hideDesktopPopup()
+  return { success: true }
+})
+
+function dispatchDesktopPopupAction(event, rawAction) {
+  if (!isDesktopOverlaySender('popup', event.sender)) throw new Error('Unauthorized desktop popup action')
+  const action = normalizeDesktopPopupAction(rawAction)
+  if (!action || !mainWindow || mainWindow.isDestroyed()) return { success: false }
+  // 动作事件要先于 popup-closed 到达主窗口；否则确认弹窗的监听器会先清空
+  // deleteConfirm.payload，导致“删除”按钮看似点击成功但没有删除目标。
+  hideDesktopPopup({notify: false, refocus: false})
+  mainWindow.webContents.send('desktop-shell-popup-action', action)
+  refocusDesktopShell()
+  return { success: true }
+}
+
+ipcMain.handle('desktop-popup-action', dispatchDesktopPopupAction)
+
+// 原生 WebContentsView 中的按钮只需要把动作送回主进程，不依赖 invoke 的 Promise
+// 生命周期。保留上面的 invoke 通道兼容旧版 preload，同时使用事件通道处理当前浮层。
+ipcMain.on('desktop-popup-action-event', (event, rawAction) => {
+  try {
+    dispatchDesktopPopupAction(event, rawAction)
+  } catch (error) {
+    console.warn('[desktop-popup] failed to dispatch popup action event:', error.message)
+  }
+})
+
+ipcMain.on('desktop-popup-close-event', (event) => {
+  const overlaySender = isDesktopOverlaySender('popup', event.sender)
+  if (event.sender !== mainWindow?.webContents && !overlaySender) {
+    console.warn('[desktop-popup] rejected popup close event')
+    return
+  }
+  hideDesktopPopup()
+})
+
 // ==================== Desktop Chat Tabs ====================
 
 ipcMain.handle('desktop-chat-tab-create', async (event, rawTab) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop chat tab request')
   const tabId = String(rawTab?.id || '').trim()
   const sessionName = String(rawTab?.sessionName || '').trim()
+  const sessionTitle = String(rawTab?.sessionTitle || '').trim()
   const workspaceHash = String(rawTab?.workspaceHash || '').trim()
   const theme = rawTab?.theme === 'dark' ? 'dark' : 'gray'
   const newSession = rawTab?.newSession === true
   if (!tabId || !sessionName || tabId.length > 240 || sessionName.length > 240 || workspaceHash.length > 240) {
     throw new Error('Invalid desktop chat tab')
   }
-  await getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, theme, newSession)
+  await getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, theme, newSession, sessionTitle)
   return { success: true, tabId }
+})
+
+ipcMain.handle('desktop-chat-tab-set-loading', (event, tabId, loading) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop chat tab request')
+  const tab = desktopChatTabs.get(String(tabId || ''))
+  if (!tab || tab.view.webContents.isDestroyed()) return { success: false }
+  const requestId = ++desktopChatLoadingRequestId
+  const waitForPaint = waitForDesktopChatLoadingPaint(tab, requestId)
+  const sent = sendDesktopChatTabEvent(tab, 'desktop-chat-tab-global-loading', {
+    loading: loading === true,
+    requestId
+  })
+  if (!sent) {
+    tab.loadingWaiters.delete(requestId)
+    return { success: false }
+  }
+  return waitForPaint.then(() => ({ success: true }))
 })
 
 ipcMain.handle('desktop-chat-tab-show', async (event, tabId, rawBounds) => {
@@ -1774,6 +2273,11 @@ ipcMain.handle('desktop-chat-tab-show', async (event, tabId, rawBounds) => {
   if (!tab) throw new Error('Desktop chat tab no longer exists')
   if (tab.ready) await tab.ready
   if (tab.view.webContents.isDestroyed()) throw new Error('Desktop chat tab no longer exists')
+  // index.html 的旧启动动画在桌面聊天页被禁用；等 Vue 根组件与会话级
+  // Loading 已挂载后再显示新视图，避免旧动画或空白首帧闪现。
+  if (!tab.rendererReady && !await waitForDesktopChatReady(tab)) {
+    throw new Error('Desktop chat tab did not become ready')
+  }
   if (!tab.attached) {
     mainWindow.contentView.addChildView(tab.view)
     tab.attached = true
@@ -1818,6 +2322,14 @@ ipcMain.handle('desktop-chat-tab-toggle-right-panel', (event, tabId) => {
   return { success: true }
 })
 
+ipcMain.handle('desktop-chat-tab-toggle-file-panel', (event, tabId) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop chat tab request')
+  const tab = desktopChatTabs.get(String(tabId || ''))
+  if (!tab) throw new Error('Desktop chat tab no longer exists')
+  sendDesktopChatTabEvent(tab, 'desktop-chat-tab-toggle-file-panel')
+  return { success: true }
+})
+
 ipcMain.handle('desktop-chat-tab-toggle-terminal', (event, tabId) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop chat tab request')
   const tab = desktopChatTabs.get(String(tabId || ''))
@@ -1833,6 +2345,12 @@ ipcMain.handle('desktop-chat-tab-set-theme', (event, rawTheme) => {
   return { success: true }
 })
 
+ipcMain.handle('desktop-titlebar-theme', (event, rawTheme) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop titlebar request')
+  applyTitleBarOverlayTheme(rawTheme)
+  return { success: true }
+})
+
 ipcMain.on('desktop-chat-tab-ready', (event) => {
   const tab = [...desktopChatTabs.values()].find((item) => item.view.webContents === event.sender)
   if (!tab || tab.view.webContents.isDestroyed()) return
@@ -1841,6 +2359,15 @@ ipcMain.on('desktop-chat-tab-ready', (event) => {
   for (const [channel, payload] of tab.pendingEvents.splice(0)) {
     tab.view.webContents.send(channel, payload)
   }
+})
+
+ipcMain.on('desktop-chat-tab-loading-ready', (event, requestId) => {
+  const tab = [...desktopChatTabs.values()].find((item) => item.view.webContents === event.sender)
+  if (!tab || !Number.isSafeInteger(requestId)) return
+  const resolve = tab.loadingWaiters.get(requestId)
+  if (!resolve) return
+  tab.loadingWaiters.delete(requestId)
+  resolve(true)
 })
 
 ipcMain.on('desktop-chat-tab-report-title', (event, payload) => {
@@ -1873,10 +2400,16 @@ ipcMain.on('desktop-chat-tab-open-model-channels', (event) => {
 
 function normalizeAiBrowserUrl(rawUrl, allowBlank = false) {
   const value = String(rawUrl || '').trim()
-  if (!value && allowBlank) return 'about:blank'
-  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(value)
+  if (!value) {
+    if (allowBlank) return 'about:blank'
+    throw new Error('Only HTTP(S) URLs are supported')
+  }
+  if (allowBlank && /^about:blank$/i.test(value)) return 'about:blank'
+  const isLocalHost = /^(localhost|127\.0\.0\.1)(:\d+)?(\/.*)?$/i.test(value)
+  const hasExplicitScheme = /^[a-z][a-z0-9+.-]*:/i.test(value)
+  const withScheme = (hasExplicitScheme && !isLocalHost)
     ? value
-    : (value.startsWith('localhost') || value.startsWith('127.0.0.1') ? `http://${value}` : `https://${value}`)
+    : (isLocalHost ? `http://${value}` : `https://${value}`)
   const url = new URL(withScheme)
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP(S) URLs are supported')
   return url.href
@@ -1919,9 +2452,27 @@ function detachDesktopChatTab(tab) {
   tab.attached = false
 }
 
+function waitForDesktopChatLoadingPaint(tab, requestId, timeoutMs = 2_000) {
+  if (!tab || tab.view.webContents.isDestroyed()) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (painted) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      tab.loadingWaiters.delete(requestId)
+      resolve(painted)
+    }
+    const timeout = setTimeout(() => finish(false), timeoutMs)
+    tab.loadingWaiters.set(requestId, finish)
+  })
+}
+
 function destroyDesktopChatTab(tab) {
   if (!tab) return
   for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
+  for (const resolve of tab.loadingWaiters.values()) resolve(false)
+  tab.loadingWaiters.clear()
   tab.pendingEvents.length = 0
   const wc = tab.view.webContents
   if (wc && !wc.isDestroyed()) tab.view.setVisible(false)
@@ -1988,10 +2539,11 @@ function waitForDesktopChatLoad(view, load, target) {
   })
 }
 
-async function loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession) {
+async function loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession, sessionTitle = '') {
   const queryParams = {
     desktopChatTab: '1',
     sessionName,
+    sessionTitle,
     workspaceHash: workspaceHash || '',
     theme,
     newSession: newSession ? '1' : '0'
@@ -2027,7 +2579,7 @@ async function loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSe
   throw lastError || new Error('Failed to load desktop chat tab')
 }
 
-async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, theme = 'gray', newSession = false) {
+async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, theme = 'gray', newSession = false, sessionTitle = '') {
   let existing = desktopChatTabs.get(tabId)
   if (existing) {
     const wc = existing.view.webContents
@@ -2038,6 +2590,10 @@ async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, them
   }
   if (existing) {
     if (existing.ready) await existing.ready
+    if (sessionTitle && sessionTitle !== existing.sessionTitle) {
+      existing.sessionTitle = sessionTitle
+      sendDesktopChatTabEvent(existing, 'desktop-chat-tab-session-title', sessionTitle)
+    }
     sendDesktopChatTabEvent(existing, 'desktop-chat-tab-theme', theme)
     return existing
   }
@@ -2055,6 +2611,7 @@ async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, them
   const tab = {
     id: tabId,
     sessionName,
+    sessionTitle,
     workspaceHash,
     newSession,
     view,
@@ -2062,6 +2619,7 @@ async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, them
     visible: false,
     rendererReady: false,
     readyWaiters: [],
+    loadingWaiters: new Map(),
     pendingEvents: [],
     ready: null
   }
@@ -2076,6 +2634,8 @@ async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, them
   })
   view.webContents.on('destroyed', () => {
     for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
+    for (const resolve of [...tab.loadingWaiters.values()]) resolve(false)
+    tab.loadingWaiters.clear()
     tab.pendingEvents.length = 0
     tab.attached = false
     tab.visible = false
@@ -2088,7 +2648,7 @@ async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, them
     // Keep the view attached while it loads so a concurrent show call cannot interrupt navigation.
     mainWindow.contentView.addChildView(view)
     tab.attached = true
-    tab.ready = loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession)
+    tab.ready = loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession, sessionTitle)
     await tab.ready
     return tab
   } catch (error) {
@@ -2128,6 +2688,7 @@ function aiBrowserTabSummary(tab) {
     id: tab.id,
     url: contents.isDestroyed() ? tab.url : (contents.getURL() || tab.url),
     title: tab.title || '新标签页',
+    favicon: tab.favicon || null,
     loading: tab.loading,
     canGoBack: !contents.isDestroyed() && contents.canGoBack(),
     canGoForward: !contents.isDestroyed() && contents.canGoForward()
@@ -2181,12 +2742,13 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
   const id = `tab-${aiBrowserNextTabId++}`
   const view = new WebContentsView({
     webPreferences: {
+      preload: path.join(__dirname, 'element-preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
     }
   })
-  const tab = { id, url, title: '新标签页', loading: false, lastLoadError: null, snapshotVersion: 0, snapshotId: null, view, attached: false }
+  const tab = { id, url, title: '新标签页', favicon: null, loading: false, lastLoadError: null, snapshotVersion: 0, snapshotId: null, view, attached: false }
   aiBrowserTabs.set(id, tab)
   view.setVisible(false)
   view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
@@ -2200,6 +2762,13 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
     tab.title = String(title || '').trim().slice(0, 160) || '新标签页'
     sendAiBrowserState()
   })
+  view.webContents.on('page-favicon-updated', (event, favicons) => {
+    const favicon = (Array.isArray(favicons) ? favicons : []).find((item) => /^https?:\/\//i.test(item || ''))
+    if (favicon && favicon !== tab.favicon) {
+      tab.favicon = favicon
+      sendAiBrowserState()
+    }
+  })
   view.webContents.on('did-start-loading', () => {
     tab.loading = true
     sendAiBrowserState()
@@ -2208,6 +2777,7 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
     if (!isMainFrame || isInPlace) return
     tab.loading = true
     tab.lastLoadError = null
+    tab.favicon = null
     tab.url = targetUrl || tab.url
     sendAiBrowserState()
   })
@@ -2888,13 +3458,13 @@ function stopAiBrowserBridge() {
 }
 
 ipcMain.handle('open-ai-browser-window', (event) => {
-  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized browser request')
   openAiBrowserWindow()
   return { success: true }
 })
 
 ipcMain.handle('get-ai-browser-bridge-address', async (event) => {
-  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized browser request')
   await startAiBrowserBridge()
   if (!aiBrowserBridgeAddress) throw new Error('AI browser bridge is not listening')
   return aiBrowserBridgeAddress
@@ -3055,7 +3625,9 @@ ipcMain.on('element-inspector-ready', (event) => {
 })
 
 ipcMain.on('element-inspector-send', (event, payload) => {
-  if (event.sender !== elementInspectorWindow?.webContents || !payload || typeof payload !== 'object') return
+  const isElementWindow = event.sender === elementInspectorWindow?.webContents
+  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  if ((!isElementWindow && !isAiBrowserSender) || !payload || typeof payload !== 'object') return
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (mainWindow?.isMinimized()) mainWindow.restore()
   mainWindow.show()
@@ -3139,8 +3711,13 @@ ipcMain.handle('element-webview-hide', (event) => {
 })
 
 ipcMain.on('element-inspected', (event, payload) => {
-  if (event.sender !== elementWebView?.webContents || !payload || typeof payload !== 'object') return
-  elementInspectorWindow?.webContents.send('element-inspected', payload)
+  if (!payload || typeof payload !== 'object') return
+  if (event.sender === elementWebView?.webContents) {
+    elementInspectorWindow?.webContents.send('element-inspected', payload)
+    return
+  }
+  const isAiBrowserTab = [...aiBrowserTabs.values()].some((tab) => tab.view.webContents === event.sender)
+  if (isAiBrowserTab) aiBrowserWindow?.webContents.send('element-inspected', payload)
 })
 
 /** 在主窗口的 child frame 中寻找 ElementPanel 的 iframe */
@@ -3165,10 +3742,19 @@ function findIframeFrame(frame) {
  * 利用 Electron 主进程权限，跨域 iframe 也能执行 JS
  */
 ipcMain.handle('inspector-inject', async (event) => {
-  if (event.sender !== elementInspectorWindow?.webContents) throw new Error('Unauthorized inspector request')
-  if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
-
-  const inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
+  const isElementWindow = event.sender === elementInspectorWindow?.webContents
+  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
+  let inspectorTarget = null
+  if (isAiBrowserSender) {
+    const activeTab = aiBrowserTabs.get(String(aiBrowserActiveTabId || ''))
+    inspectorTarget = activeTab?.view?.webContents
+    if (!inspectorTarget || inspectorTarget.isDestroyed()) return { success: false, reason: 'no_active_tab' }
+    if (!activeTab.url || activeTab.url === 'about:blank') return { success: false, reason: 'no_page' }
+  } else {
+    if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
+    inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
+  }
   if (!inspectorTarget) return { success: false, reason: 'no_preview' }
 
   const code = `
@@ -3369,10 +3955,18 @@ ipcMain.handle('inspector-inject', async (event) => {
 
 /** 移除 iframe 中的检测脚本 */
 ipcMain.handle('inspector-remove', async (event) => {
-  if (event.sender !== elementInspectorWindow?.webContents) throw new Error('Unauthorized inspector request')
-  if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
-
-  const inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
+  const isElementWindow = event.sender === elementInspectorWindow?.webContents
+  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
+  let inspectorTarget = null
+  if (isAiBrowserSender) {
+    const activeTab = aiBrowserTabs.get(String(aiBrowserActiveTabId || ''))
+    inspectorTarget = activeTab?.view?.webContents
+    if (!inspectorTarget || inspectorTarget.isDestroyed()) return { success: false, reason: 'no_active_tab' }
+  } else {
+    if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
+    inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
+  }
   if (!inspectorTarget) return { success: false, reason: 'no_preview' }
 
   try {

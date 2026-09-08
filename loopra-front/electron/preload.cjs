@@ -1,5 +1,15 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+// Vue 的 ref/reactive 会把嵌套对象包装成 Proxy，Electron IPC 无法直接克隆它们。
+// popup 的上下文和动作都经过这里，先递归复制成纯对象再跨进程发送。
+function toPlainIpcValue(value) {
+  if (Array.isArray(value)) return value.map(toPlainIpcValue)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toPlainIpcValue(entry)]))
+  }
+  return value
+}
+
 // 暴露 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
   // loopra-web 服务管理
@@ -103,6 +113,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open: (payload) => ipcRenderer.invoke('desktop-tab-context-menu', payload)
   },
 
+  desktopSessionMenu: {
+    open: (payload) => ipcRenderer.invoke('desktop-session-context-menu', payload)
+  },
+
+  desktopChatHeaderMenu: {
+    open: (theme) => ipcRenderer.invoke('desktop-chat-header-menu', theme)
+  },
+
+  desktopTitleBar: {
+    setTheme: (theme) => ipcRenderer.invoke('desktop-titlebar-theme', theme)
+  },
+
+  desktopSearch: {
+    open: (context) => ipcRenderer.invoke('desktop-search-open', context),
+    close: () => ipcRenderer.invoke('desktop-search-close'),
+    action: (payload) => ipcRenderer.invoke('desktop-search-action', payload)
+  },
+
+  desktopPopup: {
+    open: (context) => ipcRenderer.invoke('desktop-popup-open', toPlainIpcValue(context)),
+    ready: () => ipcRenderer.send('desktop-popup-ready'),
+    contextReady: (requestId) => ipcRenderer.send('desktop-popup-context-ready', requestId),
+    close: () => ipcRenderer.invoke('desktop-popup-close'),
+    closeEvent: () => ipcRenderer.send('desktop-popup-close-event'),
+    action: (payload) => ipcRenderer.invoke('desktop-popup-action', toPlainIpcValue(payload)),
+    actionEvent: (payload) => ipcRenderer.send('desktop-popup-action-event', toPlainIpcValue(payload))
+  },
+
   requirementBoardWindow: {
     open: () => ipcRenderer.invoke('open-requirement-board-window')
   },
@@ -142,17 +180,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     closeTab: (tabId) => ipcRenderer.invoke('ai-browser-close-tab', tabId),
     getState: () => ipcRenderer.invoke('ai-browser-get-state'),
     showView: (tabId, bounds) => ipcRenderer.invoke('ai-browser-view-show', tabId, bounds),
-    hideView: () => ipcRenderer.invoke('ai-browser-view-hide')
+    hideView: () => ipcRenderer.invoke('ai-browser-view-hide'),
+    sendElement: (payload) => ipcRenderer.send('element-inspector-send', payload)
   },
 
   desktopChatTabs: {
     create: (tab) => ipcRenderer.invoke('desktop-chat-tab-create', tab),
     ready: () => ipcRenderer.send('desktop-chat-tab-ready'),
+    setLoading: (tabId, loading) => ipcRenderer.invoke('desktop-chat-tab-set-loading', tabId, loading),
+    loadingReady: (requestId) => ipcRenderer.send('desktop-chat-tab-loading-ready', requestId),
     show: (tabId, bounds) => ipcRenderer.invoke('desktop-chat-tab-show', tabId, bounds),
     hide: () => ipcRenderer.invoke('desktop-chat-tab-hide'),
     close: (tabId) => ipcRenderer.invoke('desktop-chat-tab-close', tabId),
     reload: (tabId) => ipcRenderer.invoke('desktop-chat-tab-reload', tabId),
     toggleRightPanel: (tabId) => ipcRenderer.invoke('desktop-chat-tab-toggle-right-panel', tabId),
+    toggleFilePanel: (tabId) => ipcRenderer.invoke('desktop-chat-tab-toggle-file-panel', tabId),
     toggleTerminal: (tabId) => ipcRenderer.invoke('desktop-chat-tab-toggle-terminal', tabId),
     setTheme: (theme) => ipcRenderer.invoke('desktop-chat-tab-set-theme', theme),
     openHome: () => ipcRenderer.send('desktop-chat-tab-open-home'),

@@ -20,7 +20,7 @@ const api = vi.hoisted(() => {
   return {
     agentAPI: {
       getSessionStatus: fn(), getUsage: fn(), getInfo: fn(), getStats: fn(),
-      getCommands: fn(), getSkills: fn(), getSystemPrompt: fn(), getMode: fn()
+      getCommands: fn(), getSkills: fn(), getSystemPrompt: fn(), getMode: fn(), getHistory: fn()
     },
     chatAPI: {abort: fn()},
     configAPI: {
@@ -85,6 +85,7 @@ const makeTab = (overrides = {}) => ({
 describe('ChatView 子代理会话模式（复用主会话聊天界面）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    api.agentAPI.getHistory.mockResolvedValue({success: true, data: []})
   })
 
   it('shows placeholder while subAgent blocks are empty', async () => {
@@ -156,5 +157,36 @@ describe('ChatView 子代理会话模式（复用主会话聊天界面）', () =
     const wrapper = mountChat(makeTab())
     await flushPromises()
     expect(wrapper.find('.welcome-screen').exists()).toBe(false)
+  })
+
+  it('notifies the native host after initial session history finishes loading', async () => {
+    let resolveHistory
+    api.agentAPI.getHistory.mockImplementationOnce(() => new Promise((resolve) => { resolveHistory = resolve }))
+    const wrapper = mountChat(null)
+    await nextTick()
+
+    expect(wrapper.emitted('initialLoadComplete')).toBeUndefined()
+
+    resolveHistory({success: true, data: []})
+    await flushPromises()
+
+    expect(wrapper.emitted('initialLoadComplete')).toHaveLength(1)
+  })
+
+  it('opens the workspace menu upward when the space below is insufficient', async () => {
+    const wrapper = mountChat(null, {
+      sessionName: null,
+      workspaceHash: null,
+      workspaces: [{hash: 'h1', name: '项目一', path: '/tmp/project'}]
+    })
+    const row = wrapper.find('.welcome-workspace-row').element
+    const messages = wrapper.find('.messages').element
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({top: 640, bottom: 684, height: 44})
+    vi.spyOn(messages, 'getBoundingClientRect').mockReturnValue({top: 100, bottom: 720, height: 620})
+
+    await wrapper.find('.welcome-workspace-button').trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('.welcome-workspace-menu').classes()).toContain('opens-above')
   })
 })

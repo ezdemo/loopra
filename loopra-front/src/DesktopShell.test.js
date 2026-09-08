@@ -54,7 +54,7 @@ async function mountShell() {
       plugins: [pinia],
       stubs: {
         Teleport: false,
-        DesktopHome: true,
+        DesktopHome: { template: '<aside class="desktop-home-stub"><button class="desktop-sidebar-brand" @contextmenu="$emit(\'open-home-context\', $event)" /><slot name="sidebar-header-actions" /><slot name="open-sessions" workspace-hash="h1" /></aside>' },
         SettingsView: true,
         ModelChannels: true,
         ConfirmDialog: true
@@ -89,23 +89,62 @@ afterEach(() => {
 })
 
 describe('DesktopShell 更新按钮', () => {
-  it('仅在检测到新版本时显示', async () => {
+  it('始终保留通知入口，仅在检测到新版本时标记提醒', async () => {
     systemAPI.checkLatestVersion.mockResolvedValueOnce({success: true, data: {hasNewVersion: false, latestVersion: '26.8.121'}})
     const {wrapper} = await mountShell()
-    expect(wrapper.find('.update-check-button').exists()).toBe(false)
+    expect(wrapper.find('.desktop-notification-button').exists()).toBe(true)
+    expect(wrapper.find('.desktop-notification-button').classes()).not.toContain('has-update')
     wrapper.unmount()
 
     systemAPI.checkLatestVersion.mockResolvedValueOnce({success: true, data: {hasNewVersion: true, latestVersion: '26.8.122'}})
     const updated = await mountShell()
-    expect(updated.wrapper.find('.update-check-button').exists()).toBe(true)
+    expect(updated.wrapper.find('.desktop-notification-button').classes()).toContain('has-update')
     updated.wrapper.unmount()
+  })
+})
+
+describe('DesktopShell 启动页', () => {
+  it('初始化默认项目后自动打开新建对话页', async () => {
+    const desktopChatTabs = {
+      create: vi.fn().mockResolvedValue({success: true}),
+      show: vi.fn().mockResolvedValue({success: true}),
+      hide: vi.fn().mockResolvedValue({success: true}),
+      close: vi.fn().mockResolvedValue({success: true})
+    }
+    window.electronAPI = {desktopChatTabs}
+    configAPI.listWorkspaces.mockResolvedValue({success: true, data: [
+      {hash: 'h1', name: 'A', path: '/p/a'},
+      {hash: 'h2', name: 'B', path: '/p/b'}
+    ]})
+    configAPI.getWorkspace.mockResolvedValue({success: true, data: '/p/b'})
+    configAPI.switchWorkspace.mockClear()
+    sessionsAPI.createNew.mockClear()
+    sessionsAPI.createNew.mockResolvedValue({
+      success: true,
+      data: {sessionName: 'startup-session', workspaceHash: 'h1'}
+    })
+
+    const {wrapper} = await mountShell()
+    await vi.waitFor(() => expect(wrapper.vm.activeTabId).toBe('h1:startup-session'))
+
+    expect(configAPI.switchWorkspace).toHaveBeenCalledWith('/p/a')
+    expect(sessionsAPI.createNew).toHaveBeenCalledWith({workspaceHash: 'h1'})
+    expect(wrapper.find('.desktop-shell-welcome').exists()).toBe(false)
+    expect(desktopChatTabs.create).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'h1:startup-session',
+      sessionName: 'startup-session',
+      newSession: true
+    }))
+    expect(desktopChatTabs.show).toHaveBeenCalledWith('h1:startup-session', expect.any(Object))
+
+    wrapper.unmount()
   })
 })
 
 describe('DesktopShell 首页右键菜单', () => {
   it('提供需求池、引导、更新和暗色/浅色操作', async () => {
     const {wrapper, store} = await mountShell()
-    const homeButton = wrapper.find('.icon-button')
+    const homeButton = wrapper.find('.desktop-sidebar-brand')
 
     await homeButton.trigger('contextmenu', {clientX: 40, clientY: 30})
 
@@ -118,8 +157,6 @@ describe('DesktopShell 首页右键菜单', () => {
     expect(menu.textContent).not.toContain('打开需求池')
     expect(menu.textContent).not.toContain('打开引导')
     expect(menu.textContent).not.toContain('切换主题')
-    expect(homeButton.attributes('aria-expanded')).toBe('true')
-
     const menuItems = menu.querySelectorAll('[role="menuitem"]')
     menuItems[0].click()
     await nextTick()
@@ -147,7 +184,7 @@ describe('DesktopShell 首页右键菜单', () => {
     window.electronAPI = {desktopHomeMenu: {open: openNativeMenu}}
 
     const {wrapper, store} = await mountShell()
-    await wrapper.find('.icon-button').trigger('contextmenu', {clientX: 40, clientY: 30})
+    await wrapper.find('.desktop-sidebar-brand').trigger('contextmenu', {clientX: 40, clientY: 30})
     await nextTick()
 
     expect(openNativeMenu).toHaveBeenCalledWith('gray')
@@ -164,7 +201,7 @@ describe('DesktopShell 首页右键菜单', () => {
 
     const {wrapper, store} = await mountShell()
     store.settings.theme = 'dark'
-    await wrapper.find('.icon-button').trigger('contextmenu', {clientX: 40, clientY: 30})
+    await wrapper.find('.desktop-sidebar-brand').trigger('contextmenu', {clientX: 40, clientY: 30})
 
     expect(openNativeMenu).toHaveBeenCalledWith('dark')
     expect(document.body.querySelector('.desktop-shell-context-menu')).toBeNull()
@@ -174,7 +211,7 @@ describe('DesktopShell 首页右键菜单', () => {
 
   it('点击外部或按 Escape 会关闭菜单', async () => {
     const {wrapper} = await mountShell()
-    const homeButton = wrapper.find('.icon-button')
+    const homeButton = wrapper.find('.desktop-sidebar-brand')
 
     await homeButton.trigger('contextmenu', {clientX: 40, clientY: 30})
     expect(document.body.querySelector('.desktop-shell-context-menu')).not.toBeNull()
@@ -200,6 +237,7 @@ describe('DesktopShell 会话标签右键菜单', () => {
       hide: vi.fn().mockResolvedValue({success: true}),
       close: vi.fn().mockResolvedValue({success: true}),
       reload: vi.fn().mockResolvedValue({success: true}),
+      setLoading: vi.fn().mockResolvedValue({success: true}),
       sendCommand: vi.fn().mockResolvedValue(true)
     }
   }
@@ -208,8 +246,26 @@ describe('DesktopShell 会话标签右键菜单', () => {
     const desktopChatTabs = chatTabsBridge()
     window.electronAPI = {desktopChatTabs}
     const {wrapper} = await mountShell()
+    // Native chat views must stay to the right of the persistent session sidebar.
+    wrapper.find('.desktop-view-host').element.getBoundingClientRect = () => ({
+      left: 300, top: 36, width: 1170, height: 856
+    })
     await openTab(wrapper, 'a')
     await openTab(wrapper, 'b')
+
+    expect(wrapper.find('.desktop-titlebar').exists()).toBe(true)
+    expect(wrapper.find('.desktop-home-stub .desktop-tabs').exists()).toBe(true)
+    expect(desktopChatTabs.create).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: 'h1:b',
+      sessionName: 'b',
+      sessionTitle: 'b'
+    }))
+    expect(desktopChatTabs.show).toHaveBeenLastCalledWith('h1:b', {
+      x: 300, y: 36, width: 1170, height: 856
+    })
+
+    await wrapper.find('.desktop-sidebar-toggle').trigger('click')
+    expect(wrapper.find('.desktop-workbench').classes()).toContain('sidebar-collapsed')
 
     const tab = wrapper.findAll('.desktop-tab')[1]
     const middleMouseDown = new MouseEvent('mousedown', {button: 1, bubbles: true, cancelable: true})
@@ -230,14 +286,17 @@ describe('DesktopShell 会话标签右键菜单', () => {
     await openTab(wrapper, 'b')
     await openTab(wrapper, 'c')
 
+    expect(wrapper.find('.desktop-tab-reload').exists()).toBe(false)
+    expect(wrapper.find('.desktop-tab-close').exists()).toBe(false)
+
     let tab = wrapper.findAll('.desktop-tab')[1]
     await tab.trigger('contextmenu', {clientX: 40, clientY: 30})
     let menu = document.body.querySelector('.desktop-tab-context-menu')
     expect(menu).not.toBeNull()
     expect(menu.textContent).toContain('刷新')
     expect(menu.textContent).toContain('关闭')
-    expect(menu.textContent).toContain('关闭左侧标签')
-    expect(menu.textContent).toContain('关闭右侧标签')
+    expect(menu.textContent).toContain('关闭上方会话')
+    expect(menu.textContent).toContain('关闭下方会话')
 
     let menuItems = menu.querySelectorAll('[role="menuitem"]')
     menuItems[0].click()
@@ -315,7 +374,7 @@ describe('DesktopShell 会话标签右键菜单', () => {
     await openTab(wrapper, 'failed')
 
     expect(wrapper.findAll('.desktop-tab')).toHaveLength(0)
-    expect(wrapper.find('desktop-home-stub').exists()).toBe(true)
+    expect(wrapper.find('.desktop-home-stub').exists()).toBe(true)
     expect(desktopChatTabs.show).not.toHaveBeenCalled()
     expect(desktopChatTabs.close).toHaveBeenCalledWith('h1:failed')
     expect(desktopChatTabs.hide).toHaveBeenCalled()
@@ -484,6 +543,80 @@ describe('DesktopShell 清空三天前的会话', () => {
 
     expect(sessionsAPI.clearBefore).toHaveBeenCalledWith('h1', expect.any(Number))
 
+    wrapper.unmount()
+  })
+})
+
+describe('DesktopShell 原生确认弹窗', () => {
+  it('原生弹窗回传空 payload 时仍删除当前确认的会话', async () => {
+    const listeners = {}
+    window.electronAPI = {
+      desktopPopup: {
+        open: vi.fn().mockResolvedValue({success: true}),
+        close: vi.fn().mockResolvedValue({success: true})
+      },
+      events: {
+        listen: vi.fn((eventName, callback) => {
+          listeners[eventName] = callback
+          return () => {
+            if (listeners[eventName] === callback) delete listeners[eventName]
+          }
+        })
+      }
+    }
+    sessionsAPI.deleteSession.mockResolvedValue({success: true})
+    const {wrapper} = await mountShell()
+    const session = {workspaceHash: 'h1', name: 's1', title: '你好啊'}
+
+    wrapper.vm.confirmDeleteSession(session)
+    expect(wrapper.vm.deleteConfirm.visible).toBe(true)
+    // 模拟主进程动作事件的时序：确认动作不再先触发 popup-closed 清空目标。
+    listeners['desktop-shell-popup-action']({
+      type: 'confirm',
+      action: 'confirm',
+      kind: 'session',
+      payload: null
+    })
+    await flushPromises()
+
+    expect(sessionsAPI.deleteSession).toHaveBeenCalledWith('s1', 'h1')
+    expect(wrapper.vm.deleteConfirm.visible).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('首次打开会话时立即在当前原生视图显示 Loading，显示完成后移除', async () => {
+    const desktopChatTabs = {
+      create: vi.fn().mockResolvedValue({success: true}),
+      show: vi.fn().mockResolvedValue({success: true}),
+      hide: vi.fn().mockResolvedValue({success: true}),
+      close: vi.fn().mockResolvedValue({success: true}),
+      reload: vi.fn().mockResolvedValue({success: true}),
+      setLoading: vi.fn().mockResolvedValue({success: true}),
+      sendCommand: vi.fn().mockResolvedValue(true)
+    }
+    window.electronAPI = {desktopChatTabs}
+    const {wrapper} = await mountShell()
+    await openTab(wrapper, 'a')
+
+    let resolveCreate
+    const pendingCreate = new Promise((resolve) => { resolveCreate = resolve })
+    desktopChatTabs.create.mockImplementationOnce(() => pendingCreate)
+    desktopChatTabs.setLoading.mockClear()
+
+    const opening = wrapper.vm.openSession({workspaceHash: 'h1', sessionName: 'slow', title: '慢会话'})
+    await vi.waitFor(() => expect(desktopChatTabs.create).toHaveBeenCalledWith(expect.objectContaining({id: 'h1:slow'})))
+
+    expect(desktopChatTabs.setLoading).toHaveBeenCalledWith('h1:a', true)
+    expect(wrapper.find('.desktop-session-loading').exists()).toBe(true)
+    expect(desktopChatTabs.show).not.toHaveBeenCalledWith('h1:slow', expect.any(Object))
+
+    resolveCreate({success: true})
+    await opening
+    await flushPromises()
+
+    expect(desktopChatTabs.show).toHaveBeenCalledWith('h1:slow', expect.any(Object))
+    expect(desktopChatTabs.setLoading).toHaveBeenCalledWith('h1:a', false)
+    expect(wrapper.find('.desktop-session-loading').exists()).toBe(false)
     wrapper.unmount()
   })
 })

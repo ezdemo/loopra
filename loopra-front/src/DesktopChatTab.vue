@@ -4,70 +4,16 @@
     <div v-if="sessionActive" class="desktop-streaming-bar">
       <div class="desktop-streaming-bar-inner"></div>
     </div>
-    <!-- 左侧固定活动栏：文件 / 环境 / 子代理 / 项目能力 -->
-    <nav class="desktop-activity-bar" aria-label="侧边栏菜单">
-      <button
-        type="button"
-        class="activity-bar-item"
-        :class="{ active: leftPanelOpen && leftPanelView === 'files' }"
-        title="文件"
-        aria-label="文件"
-        @click="toggleFilePanel"
-      >
-        <svg class="activity-bar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4.2l1.9 2h5.4A2.5 2.5 0 0 1 20 9.5v7A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/>
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="activity-bar-item"
-        :class="{ active: leftPanelOpen && leftPanelView === 'environment', 'environment-attention': environmentAttention }"
-        title="环境信息"
-        aria-label="环境信息"
-        @click="toggleEnvironmentPanel"
-        @animationend="environmentAttention = false"
-      >
-        <svg class="activity-bar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="7.5" cy="7" r="2.5"/>
-          <circle cx="7.5" cy="17" r="2.5"/>
-          <circle cx="17.5" cy="17" r="2.5"/>
-          <line x1="7.5" y1="9.5" x2="7.5" y2="14.5"/>
-          <path d="M10 7h4a3.5 3.5 0 0 1 3.5 3.5V14.5"/>
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="activity-bar-item"
-        :class="{ active: leftPanelOpen && leftPanelView === 'sub-agents' }"
-        title="子代理"
-        aria-label="子代理"
-        @click="toggleSubAgentPanel"
-      >
-        <svg class="activity-bar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="5.5" cy="6" r="2"/>
-          <circle cx="18.5" cy="6" r="2"/>
-          <circle cx="12" cy="18" r="2"/>
-          <path d="M5.5 8v3.5A2.5 2.5 0 0 0 8 14h8a2.5 2.5 0 0 0 2.5-2.5V8"/>
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="activity-bar-item"
-        :class="{ active: leftPanelOpen && leftPanelView === 'project-capabilities' }"
-        title="项目能力"
-        aria-label="项目能力"
-        @click="toggleProjectCapabilitiesPanel"
-      >
-        <svg class="activity-bar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M5 6h14" />
-          <path d="M5 12h14" />
-          <path d="M5 18h14" />
-          <circle cx="9" cy="6" r="1.5" />
-          <circle cx="15" cy="12" r="1.5" />
-          <circle cx="11" cy="18" r="1.5" />
-        </svg>
-      </button>
-    </nav>
+    <div
+      v-if="globalLoading"
+      class="desktop-chat-global-loading"
+      role="status"
+      aria-live="polite"
+      aria-label="正在加载会话"
+    >
+      <span class="desktop-chat-global-loading-spinner" aria-hidden="true"></span>
+      <span>正在加载会话…</span>
+    </div>
     <aside
       class="desktop-files-left"
       :class="{ collapsed: !leftPanelOpen }"
@@ -119,6 +65,115 @@
       />
     </aside>
     <div class="desktop-chat-area">
+      <header class="desktop-chat-header">
+        <div class="desktop-chat-header-leading">
+          <span class="desktop-chat-header-folder" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4.2l1.9 2h5.4A2.5 2.5 0 0 1 20 9.5v7A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/></svg>
+          </span>
+          <span class="desktop-chat-header-title" :title="chatHeaderTitle">{{ chatHeaderTitle }}</span>
+          <button
+            type="button"
+            class="desktop-chat-header-menu-trigger"
+            title="会话菜单"
+            aria-label="会话菜单"
+            aria-haspopup="menu"
+            :aria-expanded="chatHeaderMenuOpen"
+            @click.stop="openChatHeaderMenu"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+          </button>
+        </div>
+        <div class="desktop-chat-header-actions" aria-label="聊天工具栏">
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            title="审查"
+            aria-label="审查"
+            @click="openElementInspector"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 21h8M12 16.5V21M8 10l2.5 2.5L8 15M13 15h3.5"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            :class="{ active: showTerminal }"
+            title="终端"
+            aria-label="终端"
+            @click="toggleTerminalFromHeader"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            title="浏览器"
+            aria-label="浏览器"
+            @click="openAiBrowser"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            :class="{ active: leftPanelOpen && leftPanelView === 'files' }"
+            title="文件"
+            aria-label="文件"
+            @click="toggleFilePanel"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4.2l1.9 2h5.4A2.5 2.5 0 0 1 20 9.5v7A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            :class="{ active: leftPanelOpen && leftPanelView === 'environment', 'environment-attention': environmentAttention }"
+            title="环境信息"
+            aria-label="环境信息"
+            @click="toggleEnvironmentPanel"
+            @animationend="environmentAttention = false"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="7" r="2.5"/><circle cx="7.5" cy="17" r="2.5"/><circle cx="17.5" cy="17" r="2.5"/><path d="M7.5 9.5v5M10 7h4a3.5 3.5 0 0 1 3.5 3.5V14.5"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            :class="{ active: leftPanelOpen && leftPanelView === 'sub-agents' }"
+            title="子代理"
+            aria-label="子代理"
+            @click="toggleSubAgentPanel"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="6" r="2"/><circle cx="18.5" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M5.5 8v3.5A2.5 2.5 0 0 0 8 14h8a2.5 2.5 0 0 0 2.5-2.5V8"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            :class="{ active: leftPanelOpen && leftPanelView === 'project-capabilities' }"
+            title="项目能力"
+            aria-label="项目能力"
+            @click="toggleProjectCapabilitiesFromHeader"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="11" cy="18" r="1.5"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            :class="{ active: rightPanelOpen }"
+            title="侧边栏"
+            aria-label="侧边栏"
+            @click="toggleRightPanelFromHeader"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18M7 8h4M7 12h4M7 16h4"/></svg>
+          </button>
+          <button
+            type="button"
+            class="desktop-chat-header-action"
+            title="引导"
+            aria-label="引导"
+            @click="openOnboarding"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4V2M15 10V8M11.5 5.5H9.5M20.5 5.5H18.5M17.99 8.5 19.5 10M12.01 8.5 10.5 10"/><path d="m3 21 8-8"/></svg>
+          </button>
+        </div>
+      </header>
       <!-- 编辑器标签栏：Chat 固定第一且不可关闭，文件标签可关闭 -->
       <EditorTabs v-if="fileTabs.length > 0 || subAgentTabs.length > 0" :tabs="editorTabs" :active-id="activeTabId" @set-active="setActiveTab" @close="closeTab" />
       <!-- 内容区：Chat 保活 + 单个 Monaco 实例复用多个文件 model + 子代理回放视图 -->
@@ -139,6 +194,7 @@
           @switch-workspace="switchWorkspace"
           @session-updated="refreshTabTitle"
           @session-active-change="sessionActive = $event"
+          @initial-load-complete="initialLoading = false"
           @welcome-change="onWelcomeChange"
           @environment-mode-change="setWelcomeEnvironmentMode"
           @manage-workspaces="requestHome"
@@ -169,9 +225,9 @@
             @sub-agent-event="handleSubAgentEvent"
         />
       </div>
+      <!-- 终端：聊天区底部面板，保留高度拖拽 -->
+      <TerminalView v-if="terminalMounted" :open="showTerminal" :cwd="activeWorkspacePath" :theme="theme" @close="showTerminal = false" />
     </div>
-    <!-- 终端：独立右侧面板（与右侧栏并排，可拖宽/收起） -->
-    <TerminalView v-if="terminalMounted" vertical :open="showTerminal" :cwd="activeWorkspacePath" :theme="theme" @close="showTerminal = false" />
     <RightPanel
       v-if="rightPanelMounted"
       :open="rightPanelOpen"
@@ -218,6 +274,7 @@ const SubAgentPanel = defineAsyncComponent(() => import('./components/SubAgentPa
 
 const params = new URLSearchParams(window.location.search)
 const sessionName = params.get('sessionName') || ''
+const initialSessionTitle = params.get('sessionTitle') || ''
 const newSession = params.get('newSession') === '1'
 const workspaceHash = ref(params.get('workspaceHash') || null)
 const store = useAppStore()
@@ -228,6 +285,9 @@ watch(pageTheme, applyHighlightTheme, {immediate: true})
 const workspaces = ref([])
 const sessions = ref([])
 const chatRef = ref(null)
+const sessionTitle = ref(initialSessionTitle)
+const chatHeaderMenuOpen = ref(false)
+const chatHeaderTitle = computed(() => sessionTitle.value || '新对话')
 const rightPanelOpen = ref(false)
 const rightPanelMounted = ref(false)
 const leftPanelOpen = ref(false)
@@ -258,6 +318,12 @@ const environmentAttention = ref(false)
 const showTerminal = ref(false)
 const terminalMounted = ref(false)
 const sessionActive = ref(false)
+// 会话首次创建 WebContentsView 时，在视图自己的 DOM 中覆盖全局 Loading。
+// 主窗口里的普通元素无法盖住原生 WebContentsView，因此切换期间旧视图也会通过 IPC 打开同一遮罩。
+// 新会话也先经过同一层遮罩，避免欢迎页、工作区信息和输入区在初始化过程中逐帧变化。
+const initialLoading = ref(Boolean(sessionName))
+const hostSwitchLoading = ref(false)
+const globalLoading = computed(() => initialLoading.value || hostSwitchLoading.value)
 const rightPanelTab = ref('schedule')
 // 编辑器标签：Chat 固定第一且不可关闭，文件标签可关闭
 const CHAT_TAB_ID = 'chat'
@@ -283,17 +349,56 @@ const activeWorkspaceName = computed(() => {
 })
 const tabId = `${workspaceHash.value || ''}:${sessionName}`
 let stopRightPanelListener = null
+let stopFilePanelListener = null
 let stopTerminalListener = null
 let stopThemeListener = null
 let stopElementInspectionListener = null
 let stopRefreshHistoryListener = null
 let stopFocusComposerListener = null
 let stopSendCommandListener = null
+let stopSessionTitleListener = null
+let stopGlobalLoadingListener = null
 let stopLeftPanelResize = null
+
+function waitForPaint(frames = 2) {
+  return new Promise((resolve) => {
+    let remaining = Math.max(1, frames)
+    let settled = false
+    let fallbackTimer = null
+    const finish = () => {
+      if (settled) return
+      settled = true
+      if (fallbackTimer) clearTimeout(fallbackTimer)
+      resolve()
+    }
+    const tick = () => {
+      if (settled) return
+      remaining -= 1
+      if (remaining <= 0) {
+        finish()
+        return
+      }
+      if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(tick)
+      else setTimeout(tick, 0)
+    }
+    // 隐藏的 WebContentsView 在部分 Electron 版本中可能暂停 RAF；超时只作
+    // 兜底，正常可见帧仍优先通过 RAF 完成确认。
+    fallbackTimer = setTimeout(finish, 150)
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(tick)
+    else setTimeout(tick, 0)
+  })
+}
+
+async function signalRendererReady() {
+  await nextTick()
+  await waitForPaint()
+  window.electronAPI?.desktopChatTabs?.ready?.()
+}
 
 onMounted(() => {
   // 先注册主进程事件，避免初始化请求期间丢失聚焦或自动发送命令。
   stopRightPanelListener = window.electronAPI?.events?.listen('desktop-chat-tab-toggle-right-panel', toggleRightPanel)
+  stopFilePanelListener = window.electronAPI?.events?.listen('desktop-chat-tab-toggle-file-panel', toggleFilePanel)
   stopTerminalListener = window.electronAPI?.events?.listen('desktop-chat-tab-toggle-terminal', toggleTerminal)
   stopThemeListener = window.electronAPI?.events?.listen('desktop-chat-tab-theme', (nextTheme) => {
     const applied = nextTheme === 'dark' ? 'dark' : 'gray'
@@ -311,10 +416,27 @@ onMounted(() => {
   stopSendCommandListener = window.electronAPI?.events?.listen('desktop-chat-tab-send-command', (command) => {
     if (command) void chatRef.value?.sendCommand?.(command)
   })
+  stopSessionTitleListener = window.electronAPI?.events?.listen('desktop-chat-tab-session-title', (title) => {
+    if (title) sessionTitle.value = title
+  })
+  stopGlobalLoadingListener = window.electronAPI?.events?.listen('desktop-chat-tab-global-loading', (payload) => {
+    const loading = typeof payload === 'object' ? payload?.loading === true : payload === true
+    hostSwitchLoading.value = loading
+    const requestId = typeof payload === 'object' ? payload?.requestId : null
+    if (Number.isSafeInteger(requestId)) {
+      void (async () => {
+        await nextTick()
+        await waitForPaint()
+        window.electronAPI?.desktopChatTabs?.loadingReady?.(requestId)
+      })()
+    }
+  })
   // Agent 调用 bash_start 时自动展开右侧栏“命令”页签（仅当前 tab 响应）
   window.addEventListener('loopra:bash-start', onBashStart)
-  window.electronAPI?.desktopChatTabs?.ready?.()
   document.documentElement.setAttribute('data-theme', pageTheme.value)
+  // `onMounted` 只代表 Vue 已提交 DOM，不代表原生 WebContentsView 已经
+  // 绘出首帧；等两帧后再通知主进程，避免 show 后先露出空白/旧 Logo。
+  void signalRendererReady()
   void initializeTabContext()
 })
 
@@ -487,6 +609,40 @@ async function toggleTerminal() {
   showTerminal.value = true
 }
 
+async function refreshChatFromHeader() {
+  await chatRef.value?.refreshHistory?.()
+}
+
+function toggleProjectCapabilitiesFromHeader() {
+  toggleProjectCapabilitiesPanel()
+}
+
+function toggleRightPanelFromHeader() {
+  toggleRightPanel()
+}
+
+async function toggleTerminalFromHeader() {
+  await toggleTerminal()
+}
+
+async function openChatHeaderMenu() {
+  if (chatHeaderMenuOpen.value) return
+  const openNativeMenu = window.electronAPI?.desktopChatHeaderMenu?.open
+  if (!openNativeMenu) return
+  chatHeaderMenuOpen.value = true
+  try {
+    const action = await openNativeMenu(theme.value)
+    if (action === 'refresh-session') await refreshChatFromHeader()
+    else if (action === 'project-capabilities') toggleProjectCapabilitiesFromHeader()
+    else if (action === 'terminal') await toggleTerminalFromHeader()
+    else if (action === 'sidebar') toggleRightPanelFromHeader()
+  } catch (error) {
+    message.error('打开会话菜单失败：' + (error?.message || '未知错误'))
+  } finally {
+    chatHeaderMenuOpen.value = false
+  }
+}
+
 async function switchWorkspace(nextWorkspaceHash) {
   if (!nextWorkspaceHash || nextWorkspaceHash === workspaceHash.value) return
   const workspace = workspaces.value.find((item) => item.hash === nextWorkspaceHash)
@@ -513,6 +669,7 @@ async function refreshTabTitle() {
     const response = await sessionsAPI.list(workspaceHash.value)
     const session = response.success ? (response.data || []).find((item) => item.name === sessionName) : null
     const title = String(session?.title || '').trim()
+    if (title) sessionTitle.value = title
     if (title) window.electronAPI?.desktopChatTabs?.reportTitle({ tabId, title })
   } catch (error) {
     console.warn('[desktop-chat-tab] failed to refresh session title:', error)
@@ -790,12 +947,15 @@ function requestModelSettings() {
 
 onBeforeUnmount(() => {
   stopRightPanelListener?.()
+  stopFilePanelListener?.()
   stopTerminalListener?.()
   stopThemeListener?.()
   stopElementInspectionListener?.()
   stopRefreshHistoryListener?.()
   stopFocusComposerListener?.()
   stopSendCommandListener?.()
+  stopSessionTitleListener?.()
+  stopGlobalLoadingListener?.()
   window.removeEventListener('loopra:bash-start', onBashStart)
   stopLeftPanelResize?.()
   leftPanelDragging.value = false
@@ -809,6 +969,30 @@ watch(workspaceHash, (hash) => {
   fileTabs.value = []
   activeTabId.value = CHAT_TAB_ID
 }, { immediate: true })
+
+async function openElementInspector() {
+  try {
+    await window.electronAPI?.elementInspectorWindow?.open?.()
+  } catch (error) {
+    message.error('打开审查失败：' + (error.message || '未知错误'))
+  }
+}
+
+async function openAiBrowser() {
+  try {
+    await window.electronAPI?.aiBrowserWindow?.open?.()
+  } catch (error) {
+    message.error('打开浏览器失败：' + (error.message || '未知错误'))
+  }
+}
+
+async function openOnboarding() {
+  try {
+    await window.electronAPI?.onboarding?.open?.()
+  } catch (error) {
+    message.error('打开引导失败：' + (error.message || '未知错误'))
+  }
+}
 </script>
 
 <style scoped>
@@ -857,6 +1041,35 @@ watch(workspaceHash, (hash) => {
   transition: color var(--t), background-color var(--t), border-color var(--t);
 }
 
+.desktop-chat-global-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--desktop-paper, var(--bg, #fff));
+  color: var(--desktop-muted, var(--fg-3, #8b8b87));
+  font-size: 13px;
+  letter-spacing: .02em;
+}
+
+.desktop-chat-global-loading-spinner {
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: desktop-chat-global-loading-spin .75s linear infinite;
+}
+
+@keyframes desktop-chat-global-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
 .activity-bar-item:hover {
   color: var(--fg);
   background: var(--bg-3);
@@ -872,11 +1085,11 @@ watch(workspaceHash, (hash) => {
   background: color-mix(in srgb, var(--accent) 11%, transparent);
 }
 
-.activity-bar-item.environment-attention {
+.desktop-chat-header-action.environment-attention {
   animation: environment-attention-pulse 1s ease-in-out 2;
 }
 
-.activity-bar-item.environment-attention .activity-bar-icon {
+.desktop-chat-header-action.environment-attention svg {
   animation: environment-attention-icon 1s ease-in-out 2;
 }
 

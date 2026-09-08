@@ -7,6 +7,7 @@ import '@fontsource-variable/jetbrains-mono' // JetBrains Mono 全局字体（�
 // 中文字体：不预置，桌面端可在设置 → 外观 → 中文字体 中选择系统已安装字体
 import './utils/highlight' // 高亮初始化（Shiki 预载在模块加载时自动开始，不阻塞首屏）
 import './assets/styles/main.css'
+import './assets/styles/desktop.css'
 
 const resolveRootComponent = (page) => {
   if (page.get('desktopShell') === '1') return () => import('./DesktopShell.vue')
@@ -14,6 +15,8 @@ const resolveRootComponent = (page) => {
   if (page.get('desktopUpdate') === '1') return () => import('./DesktopUpdate.vue')
   if (page.get('desktopOnboarding') === '1') return () => import('./DesktopOnboarding.vue')
   if (page.get('desktopChatTab') === '1') return () => import('./DesktopChatTab.vue')
+  if (page.get('desktopSearch') === '1') return () => import('./DesktopSearch.vue')
+  if (page.get('desktopPopup') === '1') return () => import('./DesktopPopup.vue')
   if (page.get('desktopPet') === '1') return () => import('./DesktopPet.vue')
   if (page.get('requirementBoard') === '1') return () => import('./views/RequirementBoard.vue')
   return () => import('./App.vue')
@@ -23,8 +26,10 @@ const resolveRootComponent = (page) => {
 const initApp = async () => {
   const page = new URLSearchParams(window.location.search)
   const desktopChatTab = page.get('desktopChatTab') === '1'
+  const desktopSearch = page.get('desktopSearch') === '1'
+  const desktopPopup = page.get('desktopPopup') === '1'
   const webApp = ![...page.keys()].some((key) => [
-    'desktopShell', 'desktopSplash', 'desktopUpdate', 'desktopOnboarding', 'desktopChatTab', 'desktopPet', 'requirementBoard'
+    'desktopShell', 'desktopSplash', 'desktopUpdate', 'desktopOnboarding', 'desktopChatTab', 'desktopSearch', 'desktopPopup', 'desktopPet', 'requirementBoard'
   ].includes(key) && page.get(key) === '1')
 
   // 根页面代码与运行时配置并行加载，避免每个桌面子窗口加载无关页面。
@@ -71,7 +76,7 @@ const initApp = async () => {
   // 桌面聊天标签优先展示可交互首屏；其他窗口保留原加载动画。
   const loader = document.getElementById('app-loader')
   if (loader) {
-    if (desktopChatTab) {
+    if (desktopChatTab || desktopSearch || desktopPopup) {
       requestAnimationFrame(() => loader.remove())
     } else {
       setTimeout(() => {

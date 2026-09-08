@@ -1,97 +1,5 @@
 <template>
   <div class="desktop-shell" :data-theme="theme">
-    <header class="desktop-titlebar">
-      <div class="desktop-left-controls">
-        <button
-          ref="homeButton"
-          class="icon-button"
-          :class="{ active: isHomeActive }"
-          type="button"
-          title="会话首页"
-          :aria-pressed="isHomeActive"
-          aria-haspopup="menu"
-          :aria-expanded="homeContextMenu.visible"
-          @click="showHome"
-          @contextmenu.prevent.stop="openHomeContextMenu"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg>
-        </button>
-      </div>
-
-      <nav ref="tabsNav" class="desktop-tabs" aria-label="会话标签" @wheel="scrollTabs">
-        <div
-          v-for="tab in tabs"
-          :key="tab.id"
-          class="desktop-tab"
-          :class="{ active: tab.id === activeTabId, dragging: tab.id === draggedTabId, 'drag-over': tab.id === dragOverTabId }"
-          draggable="true"
-          role="tab"
-          :aria-selected="tab.id === activeTabId"
-          :aria-haspopup="'menu'"
-          :aria-expanded="tabContextMenu.visible && tabContextMenu.tabId === tab.id"
-          tabindex="0"
-          :title="tab.title"
-          @dragstart="startTabReorder($event, tab.id)"
-          @dragover="dragOverTab($event, tab.id)"
-          @drop="dropTab($event, tab.id)"
-          @dragend="endTabReorder"
-          @click="activateTab(tab.id)"
-          @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
-          @mousedown.middle.prevent.stop="closeTab(tab.id)"
-          @keydown.enter="activateTab(tab.id)"
-          @keydown.space.prevent="activateTab(tab.id)"
-        >
-          <span v-if="workspaceNameOf(tab.workspaceHash)" class="desktop-tab-monogram" :class="badgeTone(workspaceNameOf(tab.workspaceHash))">{{ initial(workspaceNameOf(tab.workspaceHash)) }}</span>
-          <span v-else class="desktop-tab-monogram desktop-tab-monogram-default" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-          </span>
-          <span class="desktop-tab-title">{{ tab.title }}</span>
-          <div class="desktop-tab-actions">
-            <button class="desktop-tab-reload" type="button" :aria-label="`刷新 ${tab.title}`" title="刷新会话" @click.stop="reloadTab(tab.id)">
-              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            </button>
-            <button class="desktop-tab-close" type="button" :aria-label="`关闭 ${tab.title}`" @click.stop="closeTab(tab.id)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg>
-            </button>
-          </div>
-        </div>
-        <button class="desktop-tab-add" type="button" title="新建会话" aria-label="新建会话" @click="createTab">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
-        </button>
-      </nav>
-
-      <div class="desktop-window-controls">
-        <button
-          v-if="hasNewVersion"
-          class="window-button update-check-button"
-          :class="{ 'has-update': hasNewVersion }"
-          type="button"
-          :title="hasNewVersion ? `发现新版本 v${latestVersion}，点击打开更新` : (latestVersion ? `已是最新版本 v${latestVersion}，点击打开更新窗口` : '点击打开更新窗口')"
-          @click="onUpdateButtonClick"
-        >
-          <svg v-if="checkingUpdate" class="update-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span v-if="hasNewVersion" class="update-label">更新</span>
-          <i v-if="hasNewVersion" class="update-dot" />
-        </button>
-        <button v-if="activeTabId" class="window-button" type="button" title="元素检查" @click="openElementInspector">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-        </button>
-        <button v-if="activeTabId" class="window-button" type="button" title="切换右侧栏" @click="toggleRightPanel">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/><path d="M7 8h4M7 12h4M7 16h4"/></svg>
-        </button>
-        <button v-if="activeTabId" class="window-button" type="button" title="终端" aria-label="终端" @click="toggleTerminal">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
-        </button>
-        <button class="window-button" type="button" title="引导" aria-label="引导" @click="openOnboarding">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2M15 10V8M11.5 5.5H9.5M20.5 5.5H18.5M17.99 8.5 19.5 10M12.01 8.5 10.5 10"/><path d="m3 21 8-8"/></svg>
-        </button>
-        <button class="window-button" type="button" title="最小化" @click="minimize"><span class="minimize-mark" /></button>
-        <button class="window-button" type="button" title="最大化" @click="maximize"><span class="maximize-mark" /></button>
-        <button class="window-button close" type="button" title="关闭" @click="closeWindow"><span class="close-mark" /></button>
-      </div>
-    </header>
-
     <Teleport to="body">
       <div
         v-if="homeContextMenu.visible"
@@ -128,7 +36,7 @@
         v-if="tabContextMenu.visible"
         class="desktop-tab-context-menu"
         role="menu"
-        aria-label="会话标签菜单"
+        aria-label="会话操作菜单"
         :style="{ left: `${tabContextMenu.x}px`, top: `${tabContextMenu.y}px` }"
         @contextmenu.prevent
       >
@@ -142,22 +50,38 @@
         </button>
         <button type="button" role="menuitem" :disabled="!hasTabsToClose('left')" @click="chooseTabContextAction('close-left')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5v14M9 8h10M9 12h7M9 16h10"/></svg>
-          关闭左侧标签
+          关闭上方会话
         </button>
         <button type="button" role="menuitem" :disabled="!hasTabsToClose('right')" @click="chooseTabContextAction('close-right')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5v14M5 8h10M8 12h7M5 16h10"/></svg>
-          关闭右侧标签
+          关闭下方会话
         </button>
       </div>
     </Teleport>
 
-    <main ref="host" class="desktop-view-host">
-      <div v-if="startupError" class="desktop-empty desktop-error">
-        <span>{{ startupError }}</span>
-        <button type="button" @click="initializeWorkspace">重试</button>
-      </div>
+    <header class="desktop-titlebar">
+      <button
+        type="button"
+        class="desktop-titlebar-button desktop-sidebar-toggle"
+        :class="{ active: !sidebarCollapsed }"
+        :aria-pressed="!sidebarCollapsed"
+        :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        aria-label="切换侧边栏"
+        @click="toggleSidebar"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2.5"/><path d="M10 5v14"/></svg>
+      </button>
+    </header>
+
+    <div
+      class="desktop-workbench"
+      :class="{ 'sidebar-collapsed': sidebarCollapsed, 'sidebar-resizing': sidebarDragging }"
+      :style="sidebarStyle"
+    >
       <DesktopHome
-        v-else-if="!activeTabId && !showSkills && !showSettings && !showModelChannels"
+        sidebar-only
+        :active-session-name="tabs.find(tab => tab.id === activeTabId)?.sessionName || ''"
+        :home-menu-open="homeContextMenu.visible"
         :workspaces="workspaces"
         :active-workspace-hash="activeWorkspaceHash"
         :theme="theme"
@@ -166,6 +90,8 @@
         @select-workspace="selectWorkspace"
         @new-session="createTab"
         @open-session="openSession"
+        @open-file-search="openFileSearch"
+        @search-visibility-change="handleSearchVisibilityChange"
         @open-skills="openSkills"
         @open-requirement-board="openRequirementBoard"
         @open-tools="openTools"
@@ -182,13 +108,99 @@
         @delete-workspace="confirmDeleteWorkspace"
         @delete-workspaces="confirmDeleteWorkspaces"
         @reorder-workspaces="reorderWorkspaces"
-      />
+        @show-home="showHome"
+        @open-home-context="openHomeContextMenu"
+      >
+        <template #sidebar-header-actions>
+          <button
+            class="desktop-sidebar-header-button desktop-notification-button"
+            :class="{ 'has-update': hasNewVersion }"
+            type="button"
+            :title="hasNewVersion ? `发现新版本 v${latestVersion}，点击打开更新` : '更新与通知'"
+            aria-label="更新与通知"
+            @click="onUpdateButtonClick"
+          >
+            <svg v-if="checkingUpdate" class="update-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+            <i v-if="hasNewVersion" class="desktop-update-dot" />
+          </button>
+        </template>
+        <template #open-sessions="{ workspaceHash }">
+      <nav v-if="tabs.some(tab => tab.workspaceHash === workspaceHash)" class="desktop-tabs" aria-label="已打开的会话">
+        <div
+          v-for="tab in tabs.filter(tab => tab.workspaceHash === workspaceHash)"
+          :key="tab.id"
+          class="desktop-tab"
+          :class="{ active: tab.id === activeTabId, dragging: tab.id === draggedTabId, 'drag-over': tab.id === dragOverTabId }"
+          draggable="true"
+          role="tab"
+          :aria-selected="tab.id === activeTabId"
+          :aria-haspopup="'menu'"
+          :aria-expanded="tabContextMenu.visible && tabContextMenu.tabId === tab.id"
+          tabindex="0"
+          :title="tab.title"
+          @dragstart="startTabReorder($event, tab.id)"
+          @dragover="dragOverTab($event, tab.id)"
+          @drop="dropTab($event, tab.id)"
+          @dragend="endTabReorder"
+          @click="activateTab(tab.id)"
+          @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
+          @mousedown.middle.prevent.stop="closeTab(tab.id)"
+          @keydown.enter="activateTab(tab.id)"
+          @keydown.space.prevent="activateTab(tab.id)"
+        >
+          <span v-if="workspaceNameOf(tab.workspaceHash)" class="desktop-tab-monogram" :class="badgeTone(workspaceNameOf(tab.workspaceHash))">{{ initial(workspaceNameOf(tab.workspaceHash)) }}</span>
+          <span v-else class="desktop-tab-monogram desktop-tab-monogram-default" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+          </span>
+          <span class="desktop-tab-title">{{ tab.title }}</span>
+        </div>
+
+      </nav>
+
+        </template>
+      </DesktopHome>
+      <div
+        v-if="!sidebarCollapsed"
+        class="desktop-sidebar-resize-handle"
+        :class="{ dragging: sidebarDragging }"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整左侧边栏宽度"
+        title="拖动调整左侧边栏宽度"
+        tabindex="0"
+        :aria-valuemin="DESKTOP_SIDEBAR_MIN_WIDTH"
+        :aria-valuemax="sidebarMaxWidth"
+        :aria-valuenow="sidebarWidth"
+        :aria-valuetext="`${sidebarWidth}px`"
+        @mousedown.prevent="startSidebarResize"
+        @keydown="handleSidebarResizeKeydown"
+        @dblclick="resetSidebarWidth"
+      ></div>
+    <main ref="host" class="desktop-view-host">
+      <div v-if="sessionLoading" class="desktop-session-loading" role="status" aria-live="polite">
+        <span class="desktop-session-loading-spinner" aria-hidden="true"></span>
+        <span>正在加载会话…</span>
+      </div>
+      <div v-if="startupError" class="desktop-empty desktop-error">
+        <span>{{ startupError }}</span>
+        <button type="button" @click="initializeWorkspace">重试</button>
+      </div>
+      <section v-else-if="!activeTabId && !showSkills && !showSettings && !showModelChannels" class="desktop-home-workspace desktop-shell-welcome">
+        <div class="desktop-home-welcome">
+          <svg class="desktop-welcome-symbol" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="12"/><path d="m16 18 5 6-5 6M26 30h7"/></svg>
+          <h1>你想让我们构建什么？</h1>
+        </div>
+        <div class="desktop-home-start"><button class="desktop-start-session" type="button" @click="createTab"><span>新建会话</span><span class="desktop-start-arrow" aria-hidden="true">↑</span></button></div>
+      </section>
       <SettingsView v-else-if="showSkills" class="desktop-settings" market-only />
       <ModelChannels v-else-if="showModelChannels" class="desktop-settings" :show-back="false" @saved="reloadAfterModelChannelsSaved" />
       <SettingsView v-else-if="showSettings" class="desktop-settings" :initial-tab="settingsTab" />
     </main>
+    </div>
   <ConfirmDialog />
   <ActionConfirmDialog
+    v-if="!popupUsesNativeOverlay"
     :model-value="deleteConfirm.visible"
     :title="deleteConfirm.title"
     :message="deleteConfirm.message"
@@ -214,9 +226,11 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import ActionConfirmDialog from './components/ActionConfirmDialog.vue'
 import {hasConfiguredModelChannel} from './utils/modelChannels'
 import {switchThemeWithReveal} from './utils/themeTransition'
+import {toPlainIpcValue} from './utils/ipcPayload'
 
 const store = useAppStore()
 const theme = computed(() => store.settings.theme)
+const popupUsesNativeOverlay = computed(() => Boolean(window.electronAPI?.desktopPopup?.open))
 const creating = ref(false)
 const startupError = ref('')
 const workspaces = ref([])
@@ -231,13 +245,26 @@ const modelChannelsRequireReload = ref(false)
 const settingsTab = ref('general')
 const tabs = ref([])
 const activeTabId = ref('')
-const isHomeActive = computed(() => !startupError.value
-  && !activeTabId.value && !showSkills.value && !showSettings.value && !showModelChannels.value)
-const tabsNav = ref(null)
+const sessionLoading = ref(false)
+const sidebarCollapsed = ref(false)
+const documentTitle = computed(() => {
+  if (showSkills.value) return 'Loopra - 工具箱'
+  if (showModelChannels.value) return 'Loopra - 模型渠道'
+  if (showSettings.value) return 'Loopra - 设置'
+  return tabs.value.find((tab) => tab.id === activeTabId.value)?.title || 'Loopra'
+})
+watch(documentTitle, (title) => { document.title = title }, { immediate: true })
+watch(theme, (value) => {
+  window.electronAPI?.desktopTitleBar?.setTheme?.(value)
+}, { immediate: true })
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
 const draggedTabId = ref('')
 const dragOverTabId = ref('')
 const host = ref(null)
-const homeButton = ref(null)
 const homeContextMenu = reactive({visible: false, x: 0, y: 0})
 const tabContextMenu = reactive({visible: false, tabId: '', x: 0, y: 0})
 const HOME_CONTEXT_MENU_WIDTH = 176
@@ -247,6 +274,10 @@ const TAB_CONTEXT_MENU_HEIGHT = 146
 let resizeObserver = null
 let renderVersion = 0
 let renderQueue = Promise.resolve()
+let lastShownTabId = ''
+let lastShownBounds = null
+let sessionLoadingVersion = 0
+const loadingCoveredTabIds = new Set()
 
 // 版本更新检查：启动后立即检查一次，之后每 30 分钟自动定时检查
 const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000
@@ -338,6 +369,32 @@ const tabTitle = (sessionName) => {
 }
 
 const nativeTabs = () => window.electronAPI?.desktopChatTabs
+
+function beginSessionLoading(previousTabId) {
+  const request = {version: ++sessionLoadingVersion}
+  sessionLoading.value = true
+  if (previousTabId) {
+    loadingCoveredTabIds.add(previousTabId)
+    request.shown = Promise.resolve(nativeTabs()?.setLoading?.(previousTabId, true)).catch((error) => {
+      console.warn('[desktop-shell] failed to show session loading state:', error)
+    })
+  } else {
+    request.shown = Promise.resolve()
+  }
+  return request
+}
+
+async function finishSessionLoading(request) {
+  if (!request || request.version !== sessionLoadingVersion) return
+  // 若打开和关闭 IPC 几乎同时发生，先等“显示”完成，避免迟到的 true 覆盖最终 false。
+  await request.shown
+  sessionLoading.value = false
+  const coveredTabIds = [...loadingCoveredTabIds]
+  loadingCoveredTabIds.clear()
+  await Promise.all(coveredTabIds.map((id) => Promise.resolve(nativeTabs()?.setLoading?.(id, false)).catch((error) => {
+    console.warn('[desktop-shell] failed to hide session loading state:', error)
+  })))
+}
 const isElectronRuntime = () => {
   const hasNativeMenuAPI = Boolean(window.electronAPI?.desktopHomeMenu || window.electronAPI?.desktopTabMenu)
   const isDesktopShellRoute = typeof window !== 'undefined'
@@ -356,15 +413,6 @@ const workspaceNameOf = (workspaceHash) => {
   if (!workspaceHash) return ''
   const ws = workspaces.value.find((item) => item.hash === workspaceHash)
   return ws ? ws.name : ''
-}
-
-function scrollTabs(event) {
-  const nav = tabsNav.value
-  if (!nav || nav.scrollWidth <= nav.clientWidth) return
-  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-  if (!delta) return
-  event.preventDefault()
-  nav.scrollLeft += delta
 }
 
 function startTabReorder(event, tabId) {
@@ -419,20 +467,32 @@ const stopOpenSettingsListener = window.electronAPI?.events?.listen('desktop-she
 const stopChatUpdateListener = window.electronAPI?.events?.listen('chat-update-request', ({ source }) => {
   void runChatUpdate(source)
 })
+const stopSearchActionListener = window.electronAPI?.events?.listen('desktop-shell-search-action', (action) => {
+  handleDesktopSearchAction(action)
+})
+const stopPopupActionListener = window.electronAPI?.events?.listen('desktop-shell-popup-action', (action) => {
+  handleDesktopPopupAction(action)
+})
+const stopPopupClosedListener = window.electronAPI?.events?.listen('desktop-shell-popup-closed', () => {
+  closeContextMenus()
+  dismissDeleteConfirm({notify: false})
+})
 
-function renderActiveTab() {
+function renderActiveTab(beforeShow = null) {
   const version = ++renderVersion
-  const task = renderQueue.then(() => renderActiveTabNow(version))
+  const task = renderQueue.then(() => renderActiveTabNow(version, beforeShow))
   renderQueue = task.catch(() => {})
   return task
 }
 
-async function renderActiveTabNow(version) {
+async function renderActiveTabNow(version, beforeShow = null) {
   const current = tabs.value.find((tab) => tab.id === activeTabId.value)
   const bridge = nativeTabs()
   if (!bridge) return true
   if (!current) {
     try { await bridge.hide() } catch (error) { console.warn('[desktop-shell] failed to hide tabs:', error) }
+    lastShownTabId = ''
+    lastShownBounds = null
     return true
   }
   await nextTick()
@@ -441,6 +501,7 @@ async function renderActiveTabNow(version) {
     await bridge.create({
       id: current.id,
       sessionName: current.sessionName,
+      sessionTitle: current.title || '',
       workspaceHash: current.workspaceHash,
       theme: theme.value,
       newSession: current.newSession === true
@@ -449,11 +510,22 @@ async function renderActiveTabNow(version) {
       try { await bridge.close(current.id) } catch (cleanupError) { console.warn('[desktop-shell] failed to clean up closed tab:', cleanupError) }
       return false
     }
+    if (beforeShow) await beforeShow
     if (version !== renderVersion) return false
     const bounds = host.value.getBoundingClientRect()
+    const sameBounds = lastShownBounds
+      && ['x', 'y', 'width', 'height'].every((key) => lastShownBounds[key] === Math.round(bounds[key]))
+    // ResizeObserver、启动初始化和快速切换可能把同一目标排入多个渲染任务。
+    // 已经是当前可见视图且尺寸没有变化时不再重复 show，避免原生视图重复
+    // 参与合成而产生一两帧的闪烁。
+    if (lastShownTabId === current.id && sameBounds) return true
     await bridge.show(current.id, {
       x: Math.round(bounds.left), y: Math.round(bounds.top), width: Math.round(bounds.width), height: Math.round(bounds.height)
     })
+    lastShownTabId = current.id
+    lastShownBounds = {
+      x: Math.round(bounds.left), y: Math.round(bounds.top), width: Math.round(bounds.width), height: Math.round(bounds.height)
+    }
     return true
   } catch (error) {
     if (!tabs.value.some((tab) => tab.id === current.id)) {
@@ -465,6 +537,8 @@ async function renderActiveTabNow(version) {
     try { await bridge.close(current.id) } catch (cleanupError) { console.warn('[desktop-shell] failed to clean up failed tab:', cleanupError) }
     if (activeTabId.value === current.id) {
       activeTabId.value = ''
+      lastShownTabId = ''
+      lastShownBounds = null
       try { await bridge.hide() } catch (hideError) { console.warn('[desktop-shell] failed to hide tabs after load error:', hideError) }
     }
     message.error('打开会话失败：' + (error.message || '未知错误'))
@@ -538,14 +612,21 @@ async function openSession({ workspaceHash, sessionName, title }) {
   }
   hideStandaloneViews()
   const id = tabId(workspaceHash, sessionName)
-  if (!tabs.value.some((tab) => tab.id === id)) {
+  const isFirstOpen = !tabs.value.some((tab) => tab.id === id)
+  const previousTabId = activeTabId.value
+  if (isFirstOpen) {
     tabs.value = [...tabs.value, { id, sessionName, workspaceHash, title: title || tabTitle(sessionName) }]
   }
   activeTabId.value = id
+  const loadingRequest = isFirstOpen ? beginSessionLoading(previousTabId) : null
   try {
-    await renderActiveTab()
+    // 先把等待旧视图遮罩的 Promise 交给渲染任务；这样快速连续点击时，
+    // 新请求仍能立即提升 renderVersion，但真正 show 前会等遮罩完成绘制。
+    await renderActiveTab(loadingRequest?.shown)
   } catch (error) {
     message.error('打开会话失败：' + (error.message || '未知错误'))
+  } finally {
+    await finishSessionLoading(loadingRequest)
   }
   void selectWorkspace(workspaceHash).catch((error) => {
     console.warn('[desktop-shell] failed to synchronize workspace:', error)
@@ -553,10 +634,7 @@ async function openSession({ workspaceHash, sessionName, title }) {
 }
 
 async function initializeWorkspaceContext() {
-  const [workspacesResult, currentWorkspaceResult] = await Promise.all([
-    configAPI.listWorkspaces(),
-    configAPI.getWorkspace()
-  ])
+  const workspacesResult = await configAPI.listWorkspaces()
   if (!workspacesResult.success) {
     throw new Error(workspacesResult.message || '加载项目失败')
   }
@@ -566,10 +644,7 @@ async function initializeWorkspaceContext() {
     throw new Error('未找到可用项目，请先在网页版添加项目。')
   }
 
-  const currentPath = currentWorkspaceResult.success
-    ? (currentWorkspaceResult.data?.workspace || currentWorkspaceResult.data)
-    : ''
-  const selectedWorkspace = workspaces.value.find((item) => item.path === currentPath) || workspaces.value[0]
+  const selectedWorkspace = workspaces.value[0]
   const switchResult = await configAPI.switchWorkspace(selectedWorkspace.path)
   if (!switchResult.success) {
     throw new Error(switchResult.message || '切换默认项目失败')
@@ -578,13 +653,15 @@ async function initializeWorkspaceContext() {
 }
 
 async function initializeWorkspace() {
-  if (creating.value) return
+  if (creating.value) return false
   startupError.value = ''
   try {
     await initializeWorkspaceContext()
+    return true
   } catch (error) {
     console.error('[desktop-shell] failed to initialize workspace:', error)
     startupError.value = error.message || '初始化默认项目失败'
+    return false
   }
 }
 
@@ -668,6 +745,14 @@ function setContextMenuPosition(menu, event, rect, width, height) {
 }
 
 async function openHomeContextMenu(event = {}) {
+  const nativePopup = window.electronAPI?.desktopPopup?.open
+  if (nativePopup) {
+    setContextMenuPosition(homeContextMenu, event, event.currentTarget?.getBoundingClientRect?.(), 210, 160)
+    closeTabContextMenu()
+    const opened = await openDesktopNativePopup('home-context', {x: homeContextMenu.x, y: homeContextMenu.y})
+    homeContextMenu.visible = opened
+    return
+  }
   const nativeMenu = window.electronAPI?.desktopHomeMenu?.open
   if (isElectronRuntime()) {
     if (!nativeMenu) {
@@ -684,7 +769,7 @@ async function openHomeContextMenu(event = {}) {
     return
   }
 
-  setContextMenuPosition(homeContextMenu, event, homeButton.value?.getBoundingClientRect(), HOME_CONTEXT_MENU_WIDTH, HOME_CONTEXT_MENU_HEIGHT)
+  setContextMenuPosition(homeContextMenu, event, event.currentTarget?.getBoundingClientRect?.(), HOME_CONTEXT_MENU_WIDTH, HOME_CONTEXT_MENU_HEIGHT)
   closeTabContextMenu()
   homeContextMenu.visible = true
 }
@@ -692,6 +777,23 @@ async function openHomeContextMenu(event = {}) {
 async function openTabContextMenu(event, id) {
   const index = tabs.value.findIndex((tab) => tab.id === id)
   if (index < 0) return
+  const nativePopup = window.electronAPI?.desktopPopup?.open
+  if (nativePopup) {
+    setContextMenuPosition(tabContextMenu, event, event.currentTarget?.getBoundingClientRect(), 210, 150)
+    closeHomeContextMenu()
+    const opened = await openDesktopNativePopup('tab-context', {
+      tabId: id,
+      index,
+      tabCount: tabs.value.length,
+      canCloseLeft: index > 0,
+      canCloseRight: index >= 0 && index < tabs.value.length - 1,
+      x: tabContextMenu.x,
+      y: tabContextMenu.y
+    })
+    tabContextMenu.tabId = id
+    tabContextMenu.visible = opened
+    return
+  }
   const nativeMenu = window.electronAPI?.desktopTabMenu?.open
   if (isElectronRuntime()) {
     if (!nativeMenu) {
@@ -822,6 +924,79 @@ async function toggleTerminal() {
   }
 }
 
+async function openFileSearch() {
+  if (!activeTabId.value) {
+    message.info('请先打开一个会话')
+    return
+  }
+  try {
+    await nativeTabs()?.toggleFilePanel?.(activeTabId.value)
+  } catch (error) {
+    message.error('打开文件面板失败：' + (error.message || '未知错误'))
+  }
+}
+
+function handleDesktopSearchAction(action = {}) {
+  if (action.type === 'session') {
+    void openSession(action)
+    return
+  }
+  if (action.type !== 'action') return
+  if (action.id === 'new-session') void createTab()
+  else if (action.id === 'add-workspace') void addWorkspaceFromFolder()
+  else if (action.id === 'open-file-search') void openFileSearch()
+}
+
+async function openDesktopNativePopup(type, payload = {}) {
+  const popup = window.electronAPI?.desktopPopup
+  if (!popup?.open) return false
+  try {
+    const response = await popup.open(toPlainIpcValue({type, theme: theme.value, ...payload}))
+    return response?.success !== false
+  } catch (error) {
+    console.warn('[desktop-shell] failed to open native popup:', error)
+    return false
+  }
+}
+
+function handleDesktopPopupAction(action = {}) {
+  if (action.type === 'home-context') {
+    chooseHomeContextAction(action.action)
+    return
+  }
+  if (action.type === 'tab-context') {
+    chooseTabContextAction(action.action, action.tabId)
+    return
+  }
+  if (action.type !== 'confirm') return
+  const kind = action.kind || deleteConfirm.value.kind
+  // 原生 WebContentsView 回传时 payload 可能被规范化为 null；此时仍使用
+  // 主窗口里保留的确认对象，避免点击“删除”后没有目标可执行。
+  const payload = action.payload == null ? deleteConfirm.value.payload : action.payload
+  dismissDeleteConfirm({notify: false})
+  if (action.action === 'confirm') runDeleteConfirmAction(kind, payload)
+}
+
+// 搜索使用独立的原生 WebContentsView，和聊天视图处在同一个 contentView 层级。
+async function handleSearchVisibilityChange(visible) {
+  const search = window.electronAPI?.desktopSearch
+  if (!search) return
+  try {
+    if (visible) {
+      const activeTab = tabs.value.find((tab) => tab.id === activeTabId.value)
+      await search.open({
+        activeSessionName: activeTab?.sessionName || '',
+        activeWorkspaceHash: activeTab?.workspaceHash || activeWorkspaceHash.value,
+        theme: theme.value
+      })
+    } else {
+      await search.close()
+    }
+  } catch (error) {
+    console.warn('[desktop-shell] failed to toggle native search overlay:', error)
+  }
+}
+
 function hideStandaloneViews() {
   closeContextMenus()
   showSkills.value = false
@@ -940,21 +1115,37 @@ const deleteConfirmActions = computed(() => {
 })
 const openDeleteConfirm = (kind, title, message, payload) => {
   deleteConfirm.value = { visible: true, kind, title, message, payload }
+  if (popupUsesNativeOverlay.value) {
+    void openDesktopNativePopup('confirm', {
+      kind,
+      title,
+      message,
+      actions: deleteConfirmActions.value,
+      payload
+    })
+  }
 }
-const dismissDeleteConfirm = () => {
+const dismissDeleteConfirm = (options = {}) => {
+  const wasVisible = deleteConfirm.value.visible
   deleteConfirm.value.visible = false
   deleteConfirm.value.payload = null
+  if (wasVisible && options?.notify !== false && popupUsesNativeOverlay.value) {
+    void window.electronAPI?.desktopPopup?.close?.()
+  }
 }
-const handleDeleteConfirmAction = (action) => {
-  if (action !== 'confirm') return dismissDeleteConfirm()
-  const { kind, payload } = deleteConfirm.value
-  dismissDeleteConfirm()
+function runDeleteConfirmAction(kind, payload) {
   if (kind === 'session') void performDeleteSession(payload)
   else if (kind === 'sessions') void performDeleteSessions(payload)
   else if (kind === 'clearWorkspace') void performClearWorkspace(payload)
   else if (kind === 'clearOldSessions') void performClearOldSessions(payload)
   else if (kind === 'deleteWorkspace') void performDeleteWorkspace(payload)
   else if (kind === 'deleteWorkspaces') void performDeleteWorkspaces(payload)
+}
+const handleDeleteConfirmAction = (action) => {
+  if (action !== 'confirm') return dismissDeleteConfirm()
+  const { kind, payload } = deleteConfirm.value
+  dismissDeleteConfirm()
+  runDeleteConfirmAction(kind, payload)
 }
 
 function onSessionRenamed({ workspaceHash, sessionName, title }) {
@@ -1133,7 +1324,8 @@ onMounted(() => {
   window.addEventListener('keydown', onWindowKeydown)
   void (async () => {
     if (await redirectToModelChannelsWhenUnconfigured()) return
-    await initializeWorkspace()
+    // 桌面端打开后直接进入新建对话页，避免用户还要从欢迎页再点一次“新建会话”。
+    if (await initializeWorkspace()) await createTab()
   })()
   // 首次运行（未完成过引导）自动打开引导窗口；失败静默，不阻塞主界面
   if (platform.isElectron && !localStorage.getItem('loopra-onboarding-done')) {
@@ -1162,10 +1354,6 @@ function reloadAfterModelChannelsSaved() {
   modelChannelsRequireReload.value = false
 }
 
-async function minimize() { await platform.implementation.window.minimize() }
-async function maximize() { await platform.implementation.window.maximize() }
-async function closeWindow() { await platform.implementation.window.close() }
-
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   if (updateCheckTimer) {
@@ -1179,19 +1367,72 @@ onBeforeUnmount(() => {
   stopOpenHomeListener?.()
   stopOpenSettingsListener?.()
   stopChatUpdateListener?.()
+  stopSearchActionListener?.()
+  stopPopupActionListener?.()
+  stopPopupClosedListener?.()
   void nativeTabs()?.hide()
 })
 </script>
 
 <style scoped>
 .desktop-shell { width: 100vw; height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg, #fbfbfc); color: var(--fg, #27272a); }
-.desktop-titlebar { position: relative; height: 44px; min-height: 44px; display: flex; align-items: center; background: var(--bg, #fbfbfc); -webkit-app-region: drag; user-select: none; }
-.desktop-titlebar::after { position: absolute; right: 0; bottom: 0; left: 0; height: 1px; background: var(--border, #eeeeF0); content: ''; pointer-events: none; }
-.desktop-left-controls { display: flex; align-items: center; gap: 4px; padding: 0 8px 0 32px; flex: 0 0 auto; }
-.icon-button, .desktop-tab, .desktop-tab-add, .window-button { -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--fg-3, #71717a); }
+.desktop-titlebar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  height: env(titlebar-area-height, 36px);
+  min-height: 36px;
+  padding: 0 12px;
+  left: env(titlebar-area-x, 0);
+  width: env(titlebar-area-width, 100%);
+  box-sizing: border-box;
+  -webkit-app-region: drag;
+  background: var(--desktop-sidebar, #f1f1ef);
+}
+.desktop-titlebar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--desktop-muted, #969692);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background-color .15s ease, color .15s ease;
+}
+.desktop-titlebar-button svg { width: 17px; height: 17px; }
+.desktop-titlebar-button:hover,
+.desktop-titlebar-button.active { color: var(--desktop-ink, #343432); }
+.desktop-titlebar-button:hover,
+.desktop-titlebar-button:focus-visible { background: var(--desktop-hover, #e7e7e5); outline: 0; }
+.desktop-shell .desktop-workbench > .desktop-home {
+  will-change: flex-basis, width, opacity, transform;
+  transition: flex-basis .24s ease, width .24s ease, opacity .18s ease, transform .24s ease;
+}
+.desktop-shell .desktop-workbench.sidebar-collapsed > .desktop-home {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-12px);
+  pointer-events: none;
+}
+.desktop-sidebar-header-actions { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.desktop-sidebar-header-button { position: relative; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--desktop-muted, #969692); cursor: pointer; transition: background-color .15s ease, color .15s ease; -webkit-app-region: no-drag; }
+.desktop-sidebar-header-button:hover, .desktop-sidebar-header-button[aria-expanded="true"] { background: var(--desktop-hover, #e7e7e5); color: var(--desktop-ink, #343432); }
+.desktop-sidebar-header-button svg { width: 18px; height: 18px; }
+.desktop-notification-button.has-update { color: #c2413b; }
+.desktop-notification-button.has-update:hover { color: #b42318; }
+.desktop-update-dot { position: absolute; top: 6px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: #ef4444; }
+.icon-button, .desktop-tab, .desktop-tab-add { border: 0; background: transparent; color: var(--fg-3, #71717a); }
 .icon-button { width: 32px; height: 32px; padding: 6px; border-radius: 8px; transition: background-color var(--t), color var(--t); }
 .icon-button svg, .desktop-tab svg, .desktop-tab-add svg { width: 18px; height: 18px; }
-.icon-button:hover, .icon-button.active, .desktop-tab-add:hover, .window-button:hover { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); }
+.icon-button:hover, .icon-button.active, .desktop-tab-add:hover { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); }
 .desktop-tabs { height: 100%; display: flex; align-items: center; gap: 4px; min-width: 80px; flex: 1; overflow-x: auto; padding: 0 18px 0 8px; scrollbar-width: none; }
 .desktop-tab.dragging { opacity: 0.55; }
 .desktop-tab.drag-over { background: var(--bg-hover, #f6f6f7); box-shadow: inset 0 0 0 1px var(--border, #e8e8eb); }
@@ -1201,13 +1442,6 @@ onBeforeUnmount(() => {
 .desktop-tab.active { background: var(--bg-active, #f1f1f3); color: var(--fg, #27272a); }
 .desktop-tab.active .desktop-tab-title { font-weight: 500; }
 .desktop-tab-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 400; }
-.desktop-tab-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
-.desktop-tab-reload, .desktop-tab-close { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
-.desktop-tab-reload { display: none; }
-.desktop-tab:hover .desktop-tab-reload, .desktop-tab:focus-within .desktop-tab-reload { display: inline-flex; }
-.desktop-tab-reload svg { width: 12px; height: 12px; }
-.desktop-tab-close svg { width: 14px; height: 14px; }
-.desktop-tab-reload:hover, .desktop-tab-close:hover { background: var(--bg-hover, #f6f6f7); }
 .desktop-tab-monogram { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border-radius: 4px; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; text-shadow: 0 1px rgba(0, 0, 0, 0.25); box-shadow: inset 0 1px rgba(255, 255, 255, 0.25), 0 1px 1px rgba(0, 0, 0, 0.16); }
 .desktop-tab-monogram.tone-0 { background: linear-gradient(135deg, #8b95a3, #5e6878); }
 .desktop-tab-monogram.tone-1 { background: linear-gradient(135deg, #3dd0e8, #18b4d0); }
@@ -1220,34 +1454,16 @@ onBeforeUnmount(() => {
 .desktop-tab-monogram-default { background: var(--bg-3, #f3f4f6); color: var(--fg-3, #9ca3af); box-shadow: none; text-shadow: none; }
 .desktop-tab-monogram-default svg { width: 12px; height: 12px; }
 
-/* 会话标签分级收缩：会话变多时标签自动变窄，最窄仅保留 图标 + 两字标题 + 关闭按钮 */
-/* 注意：@container 内不能修改容器自身影响 content-box 的属性（padding/gap 会被 Chromium 忽略），只能作用于子元素 */
-@container (max-width: 149px) {
-  .desktop-tab-reload { display: none !important; }
-}
-@container (max-width: 99px) {
-  .desktop-tab-title { flex: 0 1 auto; max-width: 2em; }
-}
 .desktop-tab-add { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 8px; flex: 0 0 auto; cursor: pointer; transition: background-color var(--t), color var(--t); }
-.desktop-window-controls { height: 100%; display: flex; align-items: center; padding-right: 14px; flex: 0 0 auto; -webkit-app-region: no-drag; }
-.window-button { width: 44px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; transition: background-color var(--t), color var(--t); }
-.update-check-button.has-update { width: auto; padding: 0 12px; gap: 5px; background: rgba(59, 130, 246, 0.1); color: #2563eb; }
-.update-check-button.has-update:hover { background: rgba(59, 130, 246, 0.16); color: #1d4ed8; }
-.update-label { font-size: 12px; font-weight: 500; line-height: 1; }
-.update-dot { width: 5px; height: 5px; border-radius: 50%; background: #ff4d4f; flex: 0 0 auto; }
 .update-spinner { animation: update-spin 0.9s linear infinite; }
 @keyframes update-spin { to { transform: rotate(360deg); } }
-[data-theme="dark"] .update-check-button.has-update { background: rgba(96, 165, 250, 0.14); color: #93c5fd; }
-[data-theme="dark"] .update-check-button.has-update:hover { background: rgba(96, 165, 250, 0.22); color: #bfdbfe; }
-.window-button svg { width: 17px; height: 17px; }
-.update-check-button svg { width: 14px; height: 14px; }
-.window-button.close:hover { background: #e81123; color: #fff; }
-.minimize-mark { width: 13px; border-top: 1.5px solid currentColor; }
-.maximize-mark { width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 2px; }
 .close-mark { width: 14px; height: 14px; position: relative; }
 .close-mark::before, .close-mark::after { content: ''; position: absolute; top: 6px; left: 0; width: 14px; border-top: 1.5px solid currentColor; transform: rotate(45deg); }
 .close-mark::after { transform: rotate(-45deg); }
-.desktop-view-host { flex: 1; min-width: 0; min-height: 0; background: var(--bg, #fff); }
+.desktop-view-host { position: relative; flex: 1; min-width: 0; min-height: 0; background: var(--bg, #fff); }
+.desktop-session-loading { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--desktop-paper, var(--bg, #fff)); color: var(--desktop-muted, var(--fg-3, #8b8b87)); font-size: 13px; letter-spacing: .02em; }
+.desktop-session-loading-spinner { width: 28px; height: 28px; box-sizing: border-box; border: 2px solid color-mix(in srgb, currentColor 22%, transparent); border-top-color: currentColor; border-radius: 50%; animation: desktop-session-loading-spin .75s linear infinite; }
+@keyframes desktop-session-loading-spin { to { transform: rotate(360deg); } }
 .desktop-settings { height: 100%; min-height: 0; overflow: hidden; }
 .desktop-empty { height: 100%; display: grid; place-items: center; color: var(--fg-4, #9ca3af); font-size: 14px; }
 .desktop-error { align-content: center; gap: 12px; }
