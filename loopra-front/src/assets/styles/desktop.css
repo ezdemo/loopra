@@ -220,7 +220,11 @@
 .desktop-chat-tab.desktop-chat-tab .welcome-panel { width: min(100%, 920px); min-height: 100%; margin: 0 auto; transform: none; }
 .desktop-chat-welcome-title { flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 40px 0 70px; color: var(--desktop-ink); text-align: center; }
 .desktop-chat-welcome-title > svg { width: 66px; height: 66px; color: var(--desktop-muted); }
+.desktop-chat-welcome-workspace { margin-top: -8px; padding: 4px 11px; border: 1px solid color-mix(in srgb, var(--desktop-muted) 35%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--desktop-muted) 7%, transparent); color: color-mix(in srgb, var(--desktop-ink) 78%, transparent); font: inherit; font-size: 17px; font-weight: 550; cursor: pointer; }
+.desktop-chat-welcome-workspace:hover, .desktop-chat-welcome-workspace:focus-visible { border-color: color-mix(in srgb, var(--desktop-muted) 55%, transparent); background: color-mix(in srgb, var(--desktop-muted) 12%, transparent); outline: none; }
 .desktop-chat-tab.desktop-chat-tab .welcome-workspace-row { margin: 0 16px; padding: 4px 8px; border-radius: 16px 16px 0 0; background: var(--desktop-sidebar); }
+.desktop-chat-tab.desktop-chat-tab .welcome-composer { background: transparent !important; }
+.desktop-chat-tab.desktop-chat-tab .welcome-composer textarea { background: transparent !important; }
 .desktop-chat-tab.desktop-chat-tab .input-area .input-box { border: 1px solid var(--desktop-line); border-radius: 24px; background: var(--desktop-paper); box-shadow: 0 4px 24px #00000006; }
 .desktop-chat-tab.desktop-chat-tab .input-area .input-box.focused { border-color: var(--desktop-muted); box-shadow: 0 4px 24px #00000008; }
 .desktop-chat-tab.desktop-chat-tab .input-area .send-btn { border-radius: 50%; }

@@ -119,6 +119,23 @@ describe('DesktopHome 项目拖拽排序', () => {
     sidebarWrapper.unmount()
   })
 
+  it('悬停项目行时显示项目内新增对话按钮，并携带项目标识', async () => {
+    const sidebarWrapper = mountHome({sidebarOnly: true})
+    await flushPromises()
+
+    const firstProjectRow = sidebarWrapper.find('.desktop-project-row')
+    const newSessionButton = firstProjectRow.find('.desktop-project-new-session')
+
+    expect(newSessionButton.exists()).toBe(true)
+    expect(newSessionButton.attributes('title')).toBe('在 A 中新增对话')
+    expect(newSessionButton.attributes('aria-label')).toBe('在 A 中新增对话')
+
+    await newSessionButton.trigger('click')
+
+    expect(sidebarWrapper.emitted('new-session')).toEqual([['h1']])
+    sidebarWrapper.unmount()
+  })
+
   it('打开探索菜单后可访问站点、自定义和低频工具，选择工具后自动收起', async () => {
     await flushPromises()
     await wrapper.find('.desktop-more-button').trigger('click')

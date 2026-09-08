@@ -39,8 +39,9 @@
       <div v-if="!props.sessionName || (messages.length === 0 && !props.subAgent)" class="empty welcome-screen">
         <section class="welcome-panel">
           <div v-if="store.isDesktopEnv" class="desktop-chat-welcome-title">
-            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="12"/><path d="m16 18 5 6-5 6M26 30h7"/></svg>
-            <h1>你想让我们<span v-if="selectedWelcomeWorkspace">在 {{ selectedWelcomeWorkspace.name }} 中</span>构建什么？</h1>
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="L"><rect x="7" y="7" width="34" height="34" rx="8"/><path d="M18 14v20h13" stroke-width="3.5" stroke-linecap="square"/></svg>
+            <button v-if="selectedWelcomeWorkspace" class="desktop-chat-welcome-workspace" type="button" :aria-expanded="welcomeWorkspaceMenuOpen" aria-haspopup="menu" @click="toggleWelcomeWorkspace">{{ selectedWelcomeWorkspace.name }}</button>
+            <h1>{{ welcomeGreeting }}</h1>
           </div>
           <h1 v-else class="welcome-heading" aria-label="Loopra">
             <svg viewBox="0 0 174 42" preserveAspectRatio="none" aria-hidden="true">
@@ -601,6 +602,33 @@ const activeWorkspacePath = computed(() =>
   props.workspaces.find(workspace => workspace.hash === props.workspaceHash)?.path || ''
 )
 
+const welcomeGreetingPools = {
+  morning: ['早上好，今天想从什么开始？', '早安，先定一个小目标吧。', '新的一天，准备好一起动手了吗？'],
+  noon: ['中午好，忙里偷个闲，接下来想做什么？', '午间好，带着一个想法来聊聊吧。', '中午好，吃饱了吗？我们继续把事情做好。'],
+  afternoon: ['下午好，灵感正适合落地。', '下午好，接下来想一起解决什么？', '午后好，慢慢来，把难题拆开就好。'],
+  evening: ['晚上好，今天想完成点什么？', '晚上好，留一点时间给你的新想法。', '夜幕降临，准备好开始了吗？'],
+  lateNight: ['深夜了，慢慢来，想从哪里开始？', '夜深了，我还在，陪你把想法理清。', '深夜灵感也很珍贵，今天想做点什么？']
+}
+
+const getWelcomeGreetingPeriod = (date = new Date()) => {
+  const hour = date.getHours()
+  if (hour < 5) return 'lateNight'
+  if (hour < 11) return 'morning'
+  if (hour < 14) return 'noon'
+  if (hour < 18) return 'afternoon'
+  return 'evening'
+}
+
+const pickWelcomeGreeting = (period = getWelcomeGreetingPeriod()) => {
+  const choices = welcomeGreetingPools[period] || welcomeGreetingPools.morning
+  return choices[Math.floor(Math.random() * choices.length)]
+}
+
+const welcomeGreeting = ref(pickWelcomeGreeting())
+const refreshWelcomeGreeting = () => {
+  welcomeGreeting.value = pickWelcomeGreeting()
+}
+
 
 watch(() => props.workspaceHash, (hash) => {
   if (hash) welcomeWorkspaceHash.value = hash
@@ -687,7 +715,7 @@ const toggleWelcomeModel = () => {
 
 const handleWelcomeOutsideClick = (event) => {
   const target = event.target
-  if (target.closest('.welcome-workspace-row, .welcome-model-selector, .permission-selector, .reasoning-selector, .skill-selector')) return
+  if (target.closest('.desktop-chat-welcome-workspace, .welcome-workspace-row, .welcome-model-selector, .permission-selector, .reasoning-selector, .skill-selector')) return
   closeWelcomeMenus()
 }
 
@@ -1234,7 +1262,10 @@ watch([streaming, sessionTaskRunning], ([s, r]) => {
 const welcomeActive = computed(() => isSubAgentMode.value
     ? false
     : !props.sessionName || messages.value.length === 0)
-watch(welcomeActive, (active) => emit('welcomeChange', active), { immediate: true })
+watch(welcomeActive, (active) => {
+  if (active) refreshWelcomeGreeting()
+  emit('welcomeChange', active)
+}, { immediate: true })
 
 const isCurrentSessionStatus = (token, workspaceHash, sessionName) =>
   token === sessionStatusToken.value

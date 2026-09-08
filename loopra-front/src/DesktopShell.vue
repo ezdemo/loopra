@@ -758,9 +758,9 @@ async function renderActiveTabNow(version, beforeShow = null) {
   }
 }
 
-async function createTab() {
+async function createTab(workspaceHash = '') {
   if (creating.value) return
-  const targetHash = activeWorkspaceHash.value || (workspaces.value[0] && workspaces.value[0].hash)
+  const targetHash = workspaceHash || activeWorkspaceHash.value || (workspaces.value[0] && workspaces.value[0].hash)
   if (!targetHash) {
     startupError.value = '未找到可用项目，请先在网页版添加项目。'
     return

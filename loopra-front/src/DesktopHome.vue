@@ -189,6 +189,16 @@
                   删除选中 ({{ selectedSessionsFor(workspace.hash).length }})
                 </button>
               </template>
+              <button
+                v-if="!isSessionMultiSelect(workspace.hash)"
+                class="desktop-project-new-session"
+                type="button"
+                :title="`在 ${workspace.name} 中新增对话`"
+                :aria-label="`在 ${workspace.name} 中新增对话`"
+                @click.stop="emit('new-session', workspace.hash)"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M9 15l2-6 7-7 5 5-7 7z"/></svg>
+              </button>
               <button class="desktop-multi-toggle desktop-multi-toggle-session" type="button" :class="{ active: isSessionMultiSelect(workspace.hash) }" :title="isSessionMultiSelect(workspace.hash) ? '退出会话多选' : '开启会话多选'" :aria-label="isSessionMultiSelect(workspace.hash) ? '退出会话多选' : '开启会话多选'" :aria-pressed="isSessionMultiSelect(workspace.hash)" @click.stop="toggleSessionMultiSelect(workspace.hash)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
               </button>
@@ -1349,6 +1359,9 @@ onBeforeUnmount(() => {
     .desktop-project-session-actions .desktop-multi-toggle { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 3px; box-sizing: border-box; border: 0; border-radius: 8px; background: transparent; color: var(--fg-3, #71717a); cursor: pointer; }
     .desktop-project-session-actions .desktop-multi-toggle:hover, .desktop-project-session-actions .desktop-multi-toggle.active { background: transparent; color: var(--fg, #27272a); }
     .desktop-project-session-actions .desktop-multi-toggle svg { width: 15px; height: 15px; }
+    .desktop-project-session-actions .desktop-project-new-session { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 20px; padding: 2px; box-sizing: border-box; border: 0; border-radius: 5px; background: transparent; color: var(--fg-3, #71717a); cursor: pointer; transition: background-color var(--t), color var(--t); }
+    .desktop-project-session-actions .desktop-project-new-session:hover, .desktop-project-session-actions .desktop-project-new-session:focus-visible { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); outline: none; }
+    .desktop-project-session-actions .desktop-project-new-session svg { width: 15px; height: 15px; }
     .desktop-project-children {
       display: grid;
       grid-template-rows: 1fr;

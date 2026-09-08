@@ -1919,6 +1919,7 @@ const onCollapseAllBlocks = () => {
   gap: 12px;
   min-height: 76px;
   padding: 12px 16px;
+  background: var(--bg-muted, #f4f4f5);
 }
 
 .file-changes-head.clickable { cursor: pointer; }
@@ -1997,19 +1998,21 @@ const onCollapseAllBlocks = () => {
 .file-change-del { color: var(--red); }
 
 .file-changes-expand {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 10px 16px 12px;
   border: 0;
-  background: transparent;
+  background: var(--bg-muted, #f4f4f5);
   color: var(--fg-2);
   font-size: 14px;
   cursor: pointer;
 }
 
 .file-changes-expand svg { transition: transform var(--t); }
-.file-changes-expand:hover { color: var(--accent); }
+.file-changes-expand:hover { background: var(--bg-hover); color: var(--accent); }
 
 /* 工具分组展开内容 */
 .tool-group-detail {
