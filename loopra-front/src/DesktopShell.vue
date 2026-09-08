@@ -436,6 +436,50 @@ const hasNewVersion = ref(false)
 const releaseUrl = ref('')
 const checkingUpdate = ref(false)
 
+// AI 浏览器桥接地址保存在核心服务进程内存中；核心服务重启后需要重新登记。
+// 启动页只登记一次，而启动页在进入主界面后会销毁，因此由常驻桌面壳负责保活。
+const AI_BROWSER_BRIDGE_REGISTER_INTERVAL = 10 * 1000
+let aiBrowserBridgeRegisterTimer = null
+let aiBrowserBridgeRegisterPromise = null
+
+function canRegisterAiBrowserBridge() {
+  return typeof window.electronAPI?.aiBrowserWindow?.getBridgeAddress === 'function'
+    && typeof systemAPI.setBrowserBridge === 'function'
+}
+
+async function registerAiBrowserBridge() {
+  if (!canRegisterAiBrowserBridge()) return
+  if (aiBrowserBridgeRegisterPromise) return aiBrowserBridgeRegisterPromise
+
+  aiBrowserBridgeRegisterPromise = (async () => {
+    try {
+      const address = await window.electronAPI.aiBrowserWindow.getBridgeAddress()
+      if (address) await systemAPI.setBrowserBridge(address, {silent: true})
+    } catch (error) {
+      // 后端或 Electron bridge 暂时未就绪时交给下一轮重试，不打断桌面主界面。
+      console.warn('[desktop-shell] failed to register AI browser bridge:', error)
+    } finally {
+      aiBrowserBridgeRegisterPromise = null
+    }
+  })()
+  return aiBrowserBridgeRegisterPromise
+}
+
+function startAiBrowserBridgeKeepalive() {
+  if (aiBrowserBridgeRegisterTimer || !canRegisterAiBrowserBridge()) return
+  void registerAiBrowserBridge()
+  aiBrowserBridgeRegisterTimer = window.setInterval(() => {
+    void registerAiBrowserBridge()
+  }, AI_BROWSER_BRIDGE_REGISTER_INTERVAL)
+}
+
+function stopAiBrowserBridgeKeepalive() {
+  if (aiBrowserBridgeRegisterTimer) {
+    window.clearInterval(aiBrowserBridgeRegisterTimer)
+    aiBrowserBridgeRegisterTimer = null
+  }
+}
+
 async function checkForUpdates() {
   if (checkingUpdate.value) return
   checkingUpdate.value = true
@@ -1475,6 +1519,7 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(() => { void renderActiveTab() })
   if (host.value) resizeObserver.observe(host.value)
   window.addEventListener('resize', onSidebarViewportResize)
+  startAiBrowserBridgeKeepalive()
   // 启动后立即检查更新，并开启定时检查
   void checkForUpdates()
   updateCheckTimer = setInterval(() => { void checkForUpdates() }, UPDATE_CHECK_INTERVAL)
@@ -1515,6 +1560,7 @@ function reloadAfterModelChannelsSaved() {
 onBeforeUnmount(() => {
   stopSidebarResize?.()
   resizeObserver?.disconnect()
+  stopAiBrowserBridgeKeepalive()
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer)
     updateCheckTimer = null

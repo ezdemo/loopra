@@ -276,9 +276,15 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  /* Use the sidebar's right breathing room for the scrollbar instead of
+     leaving a dead strip between the track and the resize edge. */
+  margin-right: -8px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+.desktop-shell.desktop-shell .desktop-sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
 }
 .desktop-shell.desktop-shell .desktop-sidebar-scroll > .desktop-home-heading {
   min-height: 24px;
@@ -308,8 +314,8 @@
  * Match the native Codex sidebar density.  The application-wide --sans stack
  * intentionally starts with JetBrains Mono, but the desktop navigation is UI
  * chrome rather than editor content and therefore uses the platform UI font.
- * Fixed row heights also keep collapsed projects and expanded sessions on the
- * same 31px rhythm instead of inheriting the older 36/38px spacing.
+ * Fixed row heights keep collapsed projects compact while leaving a little
+ * breathing room between the denser session rows.
  */
 .desktop-shell.desktop-shell .desktop-projects {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -322,8 +328,8 @@
 .desktop-shell.desktop-shell .desktop-project-row,
 .desktop-shell.desktop-shell .desktop-project-row > .desktop-project,
 .desktop-shell.desktop-shell .desktop-project-children .desktop-session {
-  height: 31px;
-  min-height: 31px;
+  height: 28px;
+  min-height: 28px;
 }
 .desktop-shell.desktop-shell .desktop-project-row > .desktop-project,
 .desktop-shell.desktop-shell .desktop-project-children .desktop-session,

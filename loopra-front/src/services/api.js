@@ -839,9 +839,10 @@ export const systemAPI = {
     return api.get('/system/version')
   },
 
-  // Electron 启动后登记本机 AI 浏览器桥接地址 - POST /api/system/browser-bridge
-  setBrowserBridge: (address) => {
-    return api.post('/system/browser-bridge', { address })
+  // Electron 登记本机 AI 浏览器桥接地址 - POST /api/system/browser-bridge
+  // options.silent 用于启动/保活场景，避免服务重启时反复弹出错误提示。
+  setBrowserBridge: (address, options = {}) => {
+    return api.post('/system/browser-bridge', { address }, {silent: options.silent})
   },
 
   // 获取当前版本（新版） - GET /api/version/

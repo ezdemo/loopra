@@ -669,7 +669,7 @@ describe('DesktopHome 会话列表时间字段', () => {
     wrapper.unmount()
   })
 
-  it('每行末尾显示时间：今天 HH:mm、昨天「昨天」、跨年 Y/M/D，title 为完整日期时间', async () => {
+  it('会话行保留时间字段供悬停显示：今天 HH:mm、昨天「昨天」、跨年 Y/M/D，title 为完整日期时间', async () => {
     const today = Date.now()
     const d = new Date(today)
     const pad = (n) => String(n).padStart(2, '0')
@@ -817,6 +817,33 @@ describe('DesktopHome 项目与会话层级', () => {
     await wrapper.find('input[type="search"]').setValue('h2 会话 6')
     expect(wrapper.findAll('.desktop-session')).toHaveLength(1)
     expect(groups[1].find('.desktop-session-name').text()).toBe('h2 会话 6')
+    wrapper.unmount()
+  })
+
+  it('悬停超长会话标题时滚动到右侧，移开后回到开头', async () => {
+    sessionsAPI.list.mockResolvedValue({success: true, data: [
+      {name: 's1', title: '这是一个足够长的会话标题，用来测试悬停横向滚动', mtime: 100}
+    ]})
+    const wrapper = mountHome({sidebarOnly: true})
+    await flushPromises()
+
+    const session = wrapper.find('.desktop-session')
+    const name = session.find('.desktop-session-name').element
+    const title = session.find('.desktop-session-name-text').element
+    Object.defineProperty(name, 'clientWidth', {configurable: true, value: 120})
+    Object.defineProperty(title, 'scrollWidth', {configurable: true, value: 280})
+    await session.trigger('mouseenter')
+    expect(name.classList.contains('is-overflowing')).toBe(true)
+    expect(name.style.getPropertyValue('--desktop-session-fade-width')).toBe('22px')
+    expect(title.style.transform).toBe('translateX(-160px)')
+
+    await session.trigger('mouseleave')
+    expect(title.style.transform).toBe('translateX(0)')
+
+    Object.defineProperty(title, 'scrollWidth', {configurable: true, value: 100})
+    await session.trigger('mouseenter')
+    expect(name.classList.contains('is-overflowing')).toBe(false)
+    expect(title.style.transform).toBe('translateX(0)')
     wrapper.unmount()
   })
 })

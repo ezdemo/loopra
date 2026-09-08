@@ -26,7 +26,8 @@ const {configAPI, sessionsAPI, systemAPI, switchThemeWithReveal} = vi.hoisted(()
     clearBefore: vi.fn()
   },
   systemAPI: {
-    checkLatestVersion: vi.fn()
+    checkLatestVersion: vi.fn(),
+    setBrowserBridge: vi.fn()
   },
   switchThemeWithReveal: vi.fn((target, apply) => apply(target))
 }))
@@ -77,6 +78,7 @@ beforeEach(() => {
   configAPI.switchWorkspace.mockResolvedValue({success: true, data: {workspace: ''}})
   sessionsAPI.list.mockResolvedValue({success: true, data: []})
   systemAPI.checkLatestVersion.mockResolvedValue({success: true, data: {hasNewVersion: false}})
+  systemAPI.setBrowserBridge.mockResolvedValue({success: true, data: 'http://127.0.0.1:45678'})
   vi.spyOn(window, 'open').mockImplementation(() => null)
 })
 
@@ -100,6 +102,35 @@ describe('DesktopShell 更新按钮', () => {
     const updated = await mountShell()
     expect(updated.wrapper.find('.desktop-notification-button').classes()).toContain('has-update')
     updated.wrapper.unmount()
+  })
+})
+
+describe('DesktopShell AI 浏览器桥接', () => {
+  it('挂载后立即登记，并按周期重新登记；卸载后停止保活', async () => {
+    vi.useFakeTimers()
+    const getBridgeAddress = vi.fn().mockResolvedValue('http://127.0.0.1:45678')
+    window.electronAPI = {
+      aiBrowserWindow: {getBridgeAddress},
+      desktopChatTabs: {
+        create: vi.fn().mockResolvedValue({success: true}),
+        show: vi.fn().mockResolvedValue({success: true}),
+        hide: vi.fn().mockResolvedValue({success: true}),
+        close: vi.fn().mockResolvedValue({success: true})
+      }
+    }
+
+    const {wrapper} = await mountShell()
+    await flushPromises()
+    expect(systemAPI.setBrowserBridge).toHaveBeenCalledWith('http://127.0.0.1:45678', {silent: true})
+    const callsAfterMount = systemAPI.setBrowserBridge.mock.calls.length
+
+    await vi.advanceTimersByTimeAsync(10 * 1000)
+    expect(systemAPI.setBrowserBridge).toHaveBeenCalledTimes(callsAfterMount + 1)
+
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(10 * 1000)
+    expect(systemAPI.setBrowserBridge).toHaveBeenCalledTimes(callsAfterMount + 1)
+    vi.useRealTimers()
   })
 })
 

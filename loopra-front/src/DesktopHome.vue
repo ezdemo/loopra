@@ -202,7 +202,7 @@
           <Transition name="desktop-project-collapse">
             <div v-if="shouldShowProjectSessions(workspace.hash)" class="desktop-project-children">
               <div class="desktop-project-children-inner">
-                <button v-for="session in visibleProjectSessions(workspace.hash)" :key="`${session.workspaceHash}:${session.name}`" class="desktop-session" :class="{ selected: selectedSessionKeys.has(sessionKey(session)), active: session.name === activeSessionName && session.workspaceHash === activeWorkspaceHash }" type="button" @click="isSessionMultiSelect(session.workspaceHash) ? toggleSelectSession(session, $event) : openSession(session)" @contextmenu.prevent.stop="openContextMenu($event, 'session', session)">
+                <button v-for="session in visibleProjectSessions(workspace.hash)" :key="`${session.workspaceHash}:${session.name}`" v-session-title-scroll class="desktop-session" :class="{ selected: selectedSessionKeys.has(sessionKey(session)), active: session.name === activeSessionName && session.workspaceHash === activeWorkspaceHash }" type="button" @mouseenter="prepareSessionTitleScroll" @mouseleave="resetSessionTitleScroll" @click="isSessionMultiSelect(session.workspaceHash) ? toggleSelectSession(session, $event) : openSession(session)" @contextmenu.prevent.stop="openContextMenu($event, 'session', session)">
                 <span
                   v-if="isSessionMultiSelect(session.workspaceHash)"
                   class="desktop-session-check"
@@ -216,10 +216,12 @@
                   <svg v-if="selectedSessionKeys.has(sessionKey(session))" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                 </span>
                 <span class="desktop-monogram desktop-session-monogram" :class="badgeTone(workspaceNameOf(session.workspaceHash))">{{ initial(workspaceNameOf(session.workspaceHash)) }}</span>
-                <span class="desktop-session-name">{{ session.title || session.name }}</span>
+                <span class="desktop-session-name">
+                  <span class="desktop-session-name-text">{{ session.title || session.name }}</span>
+                </span>
                 <span v-if="formatSessionTime(session)" class="desktop-session-time" :title="formatSessionTime(session, true)">{{ formatSessionTime(session) }}</span>
                 </button>
-                <button v-if="sidebarOnly && !query && !isSessionMultiSelect(workspace.hash) && projectSessions(workspace.hash).length > 5" class="desktop-show-sessions" type="button" @click="expandedProjects.has(workspace.hash) ? expandedProjects.delete(workspace.hash) : expandedProjects.add(workspace.hash)">{{ expandedProjects.has(workspace.hash) ? '收起' : '展开显示' }}</button>
+                <button v-if="shouldShowSessionToggle(workspace.hash)" class="desktop-show-sessions" type="button" @click="expandedProjects.has(workspace.hash) ? expandedProjects.delete(workspace.hash) : expandedProjects.add(workspace.hash)">{{ expandedProjects.has(workspace.hash) ? '收起' : '展开显示' }}</button>
               </div>
             </div>
           </Transition>
@@ -525,6 +527,10 @@ function shouldShowProjectSessions(hash) {
   return !isProjectCollapsed(hash) || query.value || isSessionMultiSelect(hash)
 }
 
+function shouldShowSessionToggle(hash) {
+  return props.sidebarOnly && !query.value && !isSessionMultiSelect(hash) && projectSessions(hash).length > 5
+}
+
 function toggleProjectSessions(hash) {
   if (!props.sidebarOnly) return
   if (collapsedProjects.has(hash)) collapsedProjects.delete(hash)
@@ -544,6 +550,85 @@ function handleProjectClick(workspace, event) {
 function visibleProjectSessions(hash) {
   const list = projectSessions(hash)
   return !props.sidebarOnly || query.value || isSessionMultiSelect(hash) || expandedProjects.has(hash) ? list : list.slice(0, 5)
+}
+
+function measureSessionTitle(row) {
+  const container = row?.querySelector('.desktop-session-name')
+  const title = container?.querySelector('.desktop-session-name-text')
+  if (!container || !title) return null
+
+  // The time and optional checkbox are flex siblings, so clientWidth is the
+  // title's real remaining width for the current row/sidebar size.
+  const availableWidth = container.clientWidth || container.getBoundingClientRect().width
+  if (availableWidth <= 0) return null
+  // The title is absolutely positioned at max-content width. offsetWidth is
+  // therefore its natural rendered width instead of the clipped flex width.
+  const titleWidth = Math.max(title.offsetWidth, title.scrollWidth, title.getBoundingClientRect().width)
+  const scrollDistance = Math.max(0, Math.ceil(titleWidth - availableWidth))
+  const overflowing = scrollDistance > 1
+  const fadeWidth = Math.max(12, Math.min(36, Math.round(availableWidth * 0.18)))
+
+  container.classList.toggle('is-overflowing', overflowing)
+  container.style.setProperty('--desktop-session-fade-width', `${fadeWidth}px`)
+  row.dataset.sessionTitleScrollDistance = overflowing ? String(scrollDistance) : '0'
+
+  if (!overflowing) {
+    title.style.transition = 'none'
+    title.style.transform = 'translateX(0)'
+  } else if (row.classList.contains('is-title-scrolling')) {
+    title.style.transform = `translateX(-${scrollDistance}px)`
+  }
+
+  return {title, scrollDistance, overflowing}
+}
+
+const sessionTitleObservers = new WeakMap()
+const vSessionTitleScroll = {
+  mounted(row) {
+    nextTick(() => measureSessionTitle(row))
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measureSessionTitle(row))
+    observer.observe(row)
+    sessionTitleObservers.set(row, observer)
+  },
+  updated(row) {
+    nextTick(() => measureSessionTitle(row))
+  },
+  beforeUnmount(row) {
+    sessionTitleObservers.get(row)?.disconnect()
+    sessionTitleObservers.delete(row)
+  }
+}
+
+function prepareSessionTitleScroll(event) {
+  const row = event.currentTarget
+  const title = row?.querySelector('.desktop-session-name-text')
+  if (!title) return
+
+  // Always measure from the origin. Otherwise a second pointer entry could
+  // read the transformed rectangle and underestimate the natural text width.
+  row.classList.remove('is-title-scrolling')
+  title.style.transition = 'none'
+  title.style.transform = 'translateX(0)'
+  void title.offsetWidth
+  const metrics = measureSessionTitle(row)
+  if (!metrics?.overflowing) return
+  const {scrollDistance} = metrics
+
+  row.classList.add('is-title-scrolling')
+  const duration = Math.max(0.8, Math.min(2.8, scrollDistance / 90))
+  title.style.transition = `transform ${duration}s ease-in-out`
+  title.style.transform = `translateX(-${scrollDistance}px)`
+}
+
+function resetSessionTitleScroll(event) {
+  const row = event.currentTarget
+  const container = row?.querySelector('.desktop-session-name')
+  const title = container?.querySelector('.desktop-session-name-text')
+  if (!title) return
+  row.classList.remove('is-title-scrolling')
+  title.style.transition = 'transform .25s ease-out'
+  title.style.transform = 'translateX(0)'
 }
 
 function projectSessions(hash) {
@@ -1249,10 +1334,10 @@ onBeforeUnmount(() => {
 .desktop-home-heading { min-height: 32px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; color: var(--fg, #27272a); font-size: 14px; font-weight: 600; flex: 0 0 auto; order: 1; }.desktop-home-heading > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desktop-home-heading button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--fg-3, #71717a); font: inherit; font-size: 13px; cursor: pointer; padding: 4px; border-radius: 8px; transition: background-color var(--t), color var(--t); }.desktop-home-heading button:hover { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); }.desktop-home-heading button svg { width: 15px; height: 15px; }
 .desktop-heading-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; white-space: nowrap; }.desktop-project-heading .desktop-heading-actions { opacity: 0; pointer-events: none; transition: opacity var(--t); }.desktop-project-heading:hover .desktop-heading-actions, .desktop-project-heading:focus-within .desktop-heading-actions, .desktop-project-heading.multi-selecting .desktop-heading-actions { opacity: 1; pointer-events: auto; }.desktop-home-heading .desktop-refresh-projects, .desktop-home-heading .desktop-add-project { width: 24px; height: 24px; justify-content: center; padding: 3px; box-sizing: border-box; flex: 0 0 24px; color: var(--fg-3, #727987); }.desktop-home-heading .desktop-refresh-projects:disabled { cursor: wait; opacity: 0.65; }.desktop-home-heading .desktop-refresh-projects :deep(svg) { width: 12px; height: 12px; }.desktop-home-heading .desktop-add-project svg { width: 16px; height: 16px; }.spinning { animation: desktop-spin 0.8s linear infinite; } @keyframes desktop-spin { to { transform: rotate(360deg); } }
-.desktop-project-list, .desktop-session-timeline { min-height: 0; overflow: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: transparent transparent; }.desktop-project-list { display: grid; gap: 2px; flex: 1; align-content: start; order: 3; }.desktop-sessions { order: 2; }.desktop-session-timeline { padding-right: 4px; }.desktop-session-list { display: grid; gap: 2px; }.desktop-session-group + .desktop-session-group { margin-top: 16px; }.desktop-session-group h3 { height: 24px; display: flex; align-items: center; margin: 0 0 8px; color: var(--fg-3, #71717a); font-size: 13px; font-weight: 500; }
+    .desktop-project-list, .desktop-session-timeline { min-height: 0; overflow: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: transparent transparent; }.desktop-project-list { display: grid; gap: 2px; flex: 1; align-content: start; order: 3; }.desktop-sessions { order: 2; }.desktop-session-timeline { padding-right: 4px; }.desktop-session-list { display: grid; gap: 2px; }.desktop-session-group + .desktop-session-group { margin-top: 16px; }.desktop-session-group h3 { height: 24px; display: flex; align-items: center; margin: 0 0 8px; color: var(--fg-3, #71717a); font-size: 13px; font-weight: 500; }
 .desktop-sidebar-scroll > .desktop-project-list { min-height: auto; flex: 0 0 auto; overflow: visible; scrollbar-gutter: auto; }
-.desktop-sidebar-scroll::-webkit-scrollbar, .desktop-project-list::-webkit-scrollbar, .desktop-session-timeline::-webkit-scrollbar { width: 6px; height: 6px; }
-.desktop-sidebar-scroll::-webkit-scrollbar-thumb, .desktop-project-list::-webkit-scrollbar-thumb, .desktop-session-timeline::-webkit-scrollbar-thumb { background: transparent; border-radius: 6px; }
+.desktop-sidebar-scroll::-webkit-scrollbar, .desktop-project-list::-webkit-scrollbar, .desktop-session-timeline::-webkit-scrollbar { width: 4px; height: 4px; }
+.desktop-sidebar-scroll::-webkit-scrollbar-thumb, .desktop-project-list::-webkit-scrollbar-thumb, .desktop-session-timeline::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
 .desktop-sidebar-scroll:hover, .desktop-project-list:hover, .desktop-session-timeline:hover { scrollbar-color: var(--fg-4, #9ca3af) transparent; }
 .desktop-sidebar-scroll:hover::-webkit-scrollbar-thumb, .desktop-project-list:hover::-webkit-scrollbar-thumb, .desktop-session-timeline:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--fg-4, #9ca3af) 55%, transparent); border-radius: 6px; }
 .desktop-sidebar-scroll::-webkit-scrollbar-track, .desktop-sidebar-scroll::-webkit-scrollbar-track-piece, .desktop-sidebar-scroll::-webkit-scrollbar-corner, .desktop-project-list::-webkit-scrollbar-track, .desktop-project-list::-webkit-scrollbar-track-piece, .desktop-session-timeline::-webkit-scrollbar-track, .desktop-session-timeline::-webkit-scrollbar-track-piece, .desktop-project-list::-webkit-scrollbar-corner, .desktop-session-timeline::-webkit-scrollbar-corner { background: transparent; border: 0; }
@@ -1274,7 +1359,7 @@ onBeforeUnmount(() => {
       overflow: hidden;
       padding-top: 4px;
     }
-    .desktop-project-children-inner { min-height: 0; overflow: hidden; }
+    .desktop-project-children-inner { min-height: 0; display: grid; gap: 3px; overflow: hidden; }
     .desktop-project-collapse-enter-active,
     .desktop-project-collapse-leave-active {
       display: grid;
@@ -1291,8 +1376,8 @@ onBeforeUnmount(() => {
     }
     .desktop-project { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fg-2, #52525b); font: inherit; font-size: 13px; text-align: left; cursor: pointer; padding: 0 10px; box-sizing: border-box; transition: background-color var(--t), color var(--t); }
     .desktop-project:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent, #52525b) 45%, transparent); outline-offset: -2px; }
-    .desktop-session { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fg-2, #52525b); font: inherit; font-size: 13px; text-align: left; cursor: pointer; padding: 6px 10px; box-sizing: border-box; transition: background-color var(--t), color var(--t); }
-    .desktop-project:hover, .desktop-session:hover { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); }.desktop-project.active, .desktop-project.selected, .desktop-session.selected { background: var(--bg-active, #f1f1f3); color: var(--fg, #27272a); }.desktop-project > span:last-child, .desktop-session-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex: 1; }.desktop-session-time { flex: 0 0 auto; margin-left: auto; color: var(--fg-4, #a1a1aa); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }.desktop-project-check, .desktop-session-check { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border: 1px solid var(--fg-4, #a1a1aa); border-radius: 4px; color: #fff; opacity: 0; transition: opacity .12s ease, background-color .12s ease, border-color .12s ease; }.desktop-project:hover .desktop-project-check, .desktop-project.selected .desktop-project-check, .desktop-session:hover .desktop-session-check, .desktop-session.selected .desktop-session-check { opacity: 1; }.desktop-project-check.checked, .desktop-session-check.checked { background: var(--accent, #52525b); border-color: var(--accent, #52525b); opacity: 1; }.desktop-session { font-weight: 400; }.desktop-home-muted { padding: 12px 8px; color: var(--fg-4, #a1a1aa); font-size: 12px; }
+    .desktop-session { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fg-2, #52525b); font: inherit; font-size: 13px; text-align: left; cursor: pointer; padding: 4px 10px; box-sizing: border-box; transition: background-color var(--t), color var(--t); }
+    .desktop-project:hover, .desktop-session:hover { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); }.desktop-project.active, .desktop-project.selected, .desktop-session.selected, .desktop-session.active { background: var(--bg-active, #f1f1f3); color: var(--fg, #27272a); }.desktop-project > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex: 1; }.desktop-session-name { --desktop-session-fade-width: clamp(12px, 18%, 36px); position: relative; height: 20px; overflow: hidden; white-space: nowrap; text-overflow: clip; min-width: 0; flex: 1; -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - var(--desktop-session-fade-width)), transparent 100%); mask-image: linear-gradient(to right, #000 0, #000 calc(100% - var(--desktop-session-fade-width)), transparent 100%); }.desktop-session-name-text { position: absolute; top: 0; left: 0; display: block; width: max-content; white-space: nowrap; line-height: 20px; transform: translateX(0); transition: transform .25s ease-out; will-change: transform; }.desktop-session-time { flex: 0 0 auto; margin-left: auto; color: var(--fg-4, #a1a1aa); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; visibility: hidden; opacity: 0; transition: opacity .12s ease, visibility .12s ease; }.desktop-session:hover .desktop-session-time, .desktop-session:focus-visible .desktop-session-time { visibility: visible; opacity: 1; }.desktop-project-check, .desktop-session-check { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border: 1px solid var(--fg-4, #a1a1aa); border-radius: 4px; color: #fff; opacity: 0; transition: opacity .12s ease, background-color .12s ease, border-color .12s ease; }.desktop-project:hover .desktop-project-check, .desktop-project.selected .desktop-project-check, .desktop-session:hover .desktop-session-check, .desktop-session.selected .desktop-session-check { opacity: 1; }.desktop-project-check.checked, .desktop-session-check.checked { background: var(--accent, #52525b); border-color: var(--accent, #52525b); opacity: 1; }.desktop-session { font-weight: 400; }.desktop-home-muted { padding: 12px 8px; color: var(--fg-4, #a1a1aa); font-size: 12px; }
 .desktop-project.dragging { opacity: 0.55; }.desktop-project.drag-over-before, .desktop-project.drag-over-after { background: var(--accent-bg, var(--bg-3, #f2f3f5)); }.desktop-project.drag-over-before { box-shadow: inset 0 2px 0 0 var(--blue, #52525b); }.desktop-project.drag-over-after { box-shadow: inset 0 -2px 0 0 var(--blue, #52525b); }
 .desktop-monogram { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border-radius: 5px; color: #fff; font-size: 11px; font-weight: 600; line-height: 1; text-shadow: none; box-shadow: none; }.desktop-monogram.tone-0 { background: linear-gradient(135deg, #8b95a3, #5e6878); }.desktop-monogram.tone-1 { background: linear-gradient(135deg, #3dd0e8, #18b4d0); }.desktop-monogram.tone-2 { background: linear-gradient(135deg, #ffa86b, #ff7a3d); }.desktop-monogram.tone-3 { background: linear-gradient(135deg, #9aacf5, #6d80e8); }.desktop-monogram.tone-4 { background: linear-gradient(135deg, #6dd49d, #3eb878); }.desktop-monogram.tone-5 { background: linear-gradient(135deg, #f87fb5, #e85a9c); }.desktop-monogram.tone-6 { background: linear-gradient(135deg, #fcd34d, #f5b800); }.desktop-monogram.tone-7 { background: linear-gradient(135deg, #4dd9a6, #20c084); }.desktop-session-monogram { background: linear-gradient(135deg, #737373, #4c4c4c); }
 .desktop-project-footer { position: relative; display: contents; }

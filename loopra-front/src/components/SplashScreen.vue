@@ -742,7 +742,7 @@ async function registerBrowserBridge() {
   if (!window.electronAPI?.aiBrowserWindow?.getBridgeAddress) return
   try {
     const address = await window.electronAPI.aiBrowserWindow.getBridgeAddress()
-    await systemAPI.setBrowserBridge(address)
+    await systemAPI.setBrowserBridge(address, {silent: true})
   } catch (error) {
     console.warn('[Splash] Failed to register AI browser bridge:', error)
   }
