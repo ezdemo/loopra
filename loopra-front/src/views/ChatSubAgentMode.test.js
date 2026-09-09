@@ -24,11 +24,14 @@ const api = vi.hoisted(() => {
     },
     chatAPI: {abort: fn()},
     configAPI: {
-      listWorkspaces: fn(), updateConfig: fn(), getConfig: fn(),
+      listWorkspaces: fn(), updateConfig: fn(), getConfig: fn(), getModels: fn(),
       getCustomBaseURL: fn(), getBaseURL: fn()
     },
     gitAPI: {environment: fn(), workingFileContent: fn()},
-    sessionsAPI: {list: fn(), getDetails: fn(), getChecklist: fn(), getGoal: fn(), getMode: fn()},
+    sessionsAPI: {
+      list: fn(), getDetails: fn(), getChecklist: fn(), getGoal: fn(), getMode: fn(),
+      getSettings: fn(), setSettings: fn()
+    },
     snapshotAPI: {list: fn(), create: fn(), rollback: fn()},
     subSessionsAPI: {chat: fn(), events: fn(), list: fn()}
   }
@@ -171,6 +174,38 @@ describe('ChatView 子代理会话模式（复用主会话聊天界面）', () =
     await flushPromises()
 
     expect(wrapper.emitted('initialLoadComplete')).toHaveLength(1)
+  })
+
+  it('also fixes the current session model when setting the global default', async () => {
+    const wrapper = mountChat(null)
+    await flushPromises()
+    api.configAPI.updateConfig.mockResolvedValueOnce({success: true})
+    api.sessionsAPI.setSettings.mockResolvedValueOnce({success: true})
+
+    await wrapper.vm.handleSetDefaultModel('gpt-image-1', 'bearjia')
+
+    expect(api.configAPI.updateConfig).toHaveBeenCalledWith({
+      model: 'gpt-image-1',
+      modelChannelId: 'bearjia'
+    })
+    expect(api.sessionsAPI.setSettings).toHaveBeenCalledWith('sess-1', 'h1', {
+      model: 'gpt-image-1',
+      modelChannelId: 'bearjia'
+    })
+  })
+
+  it('also updates the global reasoning default without replacing the session override', async () => {
+    const wrapper = mountChat(null)
+    await flushPromises()
+    api.configAPI.updateConfig.mockResolvedValueOnce({success: true})
+    api.sessionsAPI.setSettings.mockResolvedValueOnce({success: true})
+
+    await wrapper.vm.handleSwitchReasoningEffort('low')
+
+    expect(api.sessionsAPI.setSettings).toHaveBeenCalledWith('sess-1', 'h1', {
+      reasoningEffort: 'low'
+    })
+    expect(api.configAPI.updateConfig).toHaveBeenCalledWith({reasoningEffort: 'low'})
   })
 
   it('opens the workspace menu upward when the space below is insufficient', async () => {

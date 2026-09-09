@@ -36,7 +36,7 @@ beforeEach(() => {
   subSessionsAPI.events.mockResolvedValue({success: true, data: []})
   window.electronAPI = {
     events: {listen: vi.fn(() => () => {})},
-    desktopChatTabs: {ready: vi.fn(), reportTitle: vi.fn(), reportWorkspace: vi.fn()},
+    desktopChatTabs: {ready: vi.fn(), reportTitle: vi.fn(), reportSessionUpdated: vi.fn(), reportSessionStatus: vi.fn(), reportWorkspace: vi.fn()},
     desktopChatHeaderMenu: {open: vi.fn().mockResolvedValue(null)},
     elementInspectorWindow: {open: vi.fn().mockResolvedValue({success: true})},
     aiBrowserWindow: {open: vi.fn().mockResolvedValue({success: true})},
@@ -93,6 +93,53 @@ const item = (overrides = {}) => ({
 })
 
 describe('DesktopChatTab 子代理回放标签', () => {
+  it('首条消息产生时立即向主窗口上报会话更新', async () => {
+    const originalHref = window.location.href
+    window.history.replaceState({}, '', '/?desktopChatTab=1&sessionName=new-session&workspaceHash=h1')
+    sessionsAPI.list.mockResolvedValue({success: true, data: []})
+    const wrapper = mountTab()
+    await flushPromises()
+
+    await wrapper.vm.onSessionUpdated('new-session', true)
+
+    expect(window.electronAPI.desktopChatTabs.reportSessionUpdated).toHaveBeenCalledWith({
+      tabId: 'h1:new-session',
+      sessionName: 'new-session',
+      workspaceHash: 'h1',
+      optimistic: true
+    })
+
+    wrapper.unmount()
+    window.history.replaceState({}, '', originalHref)
+  })
+
+  it('把输入框的运行状态同步上报给主窗口侧栏', async () => {
+    const originalHref = window.location.href
+    window.history.replaceState({}, '', '/?desktopChatTab=1&sessionName=running-session&workspaceHash=h1')
+    const wrapper = mountTab()
+    await flushPromises()
+    window.electronAPI.desktopChatTabs.reportSessionStatus.mockClear()
+
+    wrapper.vm.onSessionActiveChange(true)
+    expect(window.electronAPI.desktopChatTabs.reportSessionStatus).toHaveBeenLastCalledWith({
+      tabId: 'h1:running-session',
+      sessionName: 'running-session',
+      workspaceHash: 'h1',
+      running: true
+    })
+
+    wrapper.vm.onSessionActiveChange(false)
+    expect(window.electronAPI.desktopChatTabs.reportSessionStatus).toHaveBeenLastCalledWith({
+      tabId: 'h1:running-session',
+      sessionName: 'running-session',
+      workspaceHash: 'h1',
+      running: false
+    })
+
+    wrapper.unmount()
+    window.history.replaceState({}, '', originalHref)
+  })
+
   it('renders Codex-style chat header toolbar with existing tool actions', async () => {
     const wrapper = mountTab()
     await flushPromises()

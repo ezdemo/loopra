@@ -2356,7 +2356,7 @@ function normalizeDesktopPopupAction(rawAction = {}) {
   const action = popupText(rawAction?.action, 60)
   if (!DESKTOP_POPUP_TYPES.has(type) || !DESKTOP_POPUP_ACTIONS.has(action)) return null
   if (type === 'explore') {
-    return ['open-skills', 'open-settings', 'open-sub-agents', 'open-tools', 'toggle-theme'].includes(action)
+    return ['open-sub-agents', 'open-tools'].includes(action)
       ? { type, action }
       : null
   }
@@ -2710,6 +2710,33 @@ ipcMain.on('desktop-chat-tab-report-title', (event, payload) => {
   const title = String(payload?.title || '').trim()
   if (!tab || !title || title.length > 120 || !mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('desktop-chat-tab-title', { tabId: tab.id, title })
+})
+
+ipcMain.on('desktop-chat-tab-session-status', (event, payload) => {
+  const tab = [...desktopChatTabs.values()].find((item) => item.view.webContents === event.sender)
+  const sessionName = String(payload?.sessionName || '').trim()
+  const running = payload?.running
+  if (!tab || !sessionName || sessionName !== tab.sessionName
+      || (running !== true && running !== false && running !== null)
+      || !mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('desktop-chat-tab-session-status', {
+    tabId: tab.id,
+    sessionName: tab.sessionName,
+    workspaceHash: tab.workspaceHash,
+    running
+  })
+})
+
+ipcMain.on('desktop-chat-tab-session-updated', (event, payload) => {
+  const tab = [...desktopChatTabs.values()].find((item) => item.view.webContents === event.sender)
+  const sessionName = String(payload?.sessionName || '').trim()
+  if (!tab || !sessionName || sessionName !== tab.sessionName || !mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('desktop-chat-tab-session-updated', {
+    tabId: tab.id,
+    sessionName: tab.sessionName,
+    workspaceHash: tab.workspaceHash,
+    optimistic: payload?.optimistic === true
+  })
 })
 
 ipcMain.on('desktop-chat-tab-report-workspace', (event, payload) => {

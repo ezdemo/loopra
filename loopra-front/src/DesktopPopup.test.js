@@ -4,6 +4,7 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {isProxy} from 'vue'
 import DesktopPopup from './DesktopPopup.vue'
+import ServiceProcessManager from './components/ServiceProcessManager.vue'
 
 const initialElectronAPI = window.electronAPI
 
@@ -39,6 +40,20 @@ function mountPopup() {
 }
 
 describe('DesktopPopup 原生浮层动作', () => {
+  it('探索浮层只保留子代理、工具和服务进程', async () => {
+    const {wrapper, listeners} = mountPopup()
+    listeners['desktop-popup-context']({type: 'explore', x: 10, y: 10})
+    await flushPromises()
+
+    const menu = wrapper.find('.desktop-popup-explore-menu')
+    expect(menu.findAll('.desktop-popup-menu-item').map((button) => button.text().trim())).toEqual(['子代理', '工具'])
+    expect(menu.findComponent(ServiceProcessManager).exists()).toBe(true)
+    expect(menu.text()).not.toContain('站点')
+    expect(menu.text()).not.toContain('自定义')
+    expect(menu.text()).not.toContain('深色模式')
+    wrapper.unmount()
+  })
+
   it('确认弹窗的取消和确定都通过事件通道回传', async () => {
     const {wrapper, listeners, desktopPopup} = mountPopup()
     expect(desktopPopup.ready).toHaveBeenCalledTimes(1)

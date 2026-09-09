@@ -190,10 +190,16 @@
           </section>
         </div>
 
-        <button v-if="channels.length > 1" class="model-channels-delete" type="button" @click="removeChannel(activeIndex)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
-          删除此渠道
-        </button>
+        <div class="model-channel-footer-actions">
+          <button class="model-channels-copy" type="button" title="复制当前渠道配置" @click="copyChannel(activeChannel)">
+            <CopyOutlined />
+            复制此渠道
+          </button>
+          <button v-if="channels.length > 1" class="model-channels-delete" type="button" @click="removeChannel(activeIndex)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+            删除此渠道
+          </button>
+        </div>
       </main>
       <main v-else class="model-channels-detail">
         <div class="model-channels-empty">暂无渠道，请先添加</div>
@@ -205,7 +211,7 @@
 <script setup>
 import {computed, onMounted, ref} from 'vue'
 import {message} from 'ant-design-vue'
-import {DeleteOutlined, LoadingOutlined, ReloadOutlined} from '@ant-design/icons-vue'
+import {CopyOutlined, DeleteOutlined, LoadingOutlined, ReloadOutlined} from '@ant-design/icons-vue'
 import {useAppStore} from './stores/app'
 import {configAPI} from './services/api'
 
@@ -319,6 +325,7 @@ function normalizeChannel(channel, index) {
       ? apiProtocol
       : 'chat_completions',
     specialCompatibility,
+    copyFromId: channel.copyFromId || '',
     apiKey: '',
     secretConfigured: Boolean(channel.apiKey),
     models
@@ -429,6 +436,34 @@ function addChannel() {
   selectChannel(channel)
 }
 
+function copyChannel(channel) {
+  if (!channel) return
+  const sourceIndex = channels.value.findIndex((item) => item.id === channel.id)
+  if (sourceIndex < 0) return
+  const sourceChannel = channel.copyFromId
+    ? channels.value.find((item) => item.id === channel.copyFromId)
+    : channel
+  const hasSavedSecret = Boolean(channel.secretConfigured || sourceChannel?.secretConfigured)
+
+  const copy = normalizeChannel({
+    name: `${channel.name || `渠道 ${sourceIndex + 1}`} - 副本`,
+    baseUrl: channel.baseUrl,
+    apiProtocol: channel.apiProtocol,
+    specialCompatibility: channel.specialCompatibility,
+    apiKey: channel.apiKey,
+    copyFromId: channel.copyFromId || channel.id,
+    models: channel.models.map(modelPayload)
+  }, sourceIndex + 1)
+  // 已输入但尚未保存的密钥可以直接复制；已保存的密钥由后端按 copyFromId 继承。
+  copy.apiKey = channel.apiKey
+  copy.secretConfigured = Boolean(channel.apiKey)
+  channels.value.splice(sourceIndex + 1, 0, copy)
+  selectChannel(copy)
+  message.success(hasSavedSecret && !channel.apiKey.trim()
+    ? '渠道已复制，已保存的 API 密钥将在保存时继承'
+    : '渠道已复制，请保存后生效')
+}
+
 function removeChannel(index) {
   const channel = channels.value[index]
   if (channel?.id === validationModelChannelId.value) {
@@ -505,7 +540,8 @@ async function save() {
     apiProtocol: channel.apiProtocol,
     specialCompatibility: channel.specialCompatibility,
     apiKey: channel.apiKey.trim(),
-    models: namedModels(channel).map(modelPayload)
+    models: namedModels(channel).map(modelPayload),
+    ...(channel.copyFromId ? {copyFromId: channel.copyFromId} : {})
   }))
   const active = payloadChannels.find((channel) => channel.id === activeChannelId.value) || payloadChannels[0]
   if (!active?.name || !active.baseUrl || !active.models.length) {
@@ -529,7 +565,10 @@ async function save() {
     })
     if (!response.success) throw new Error(response.message || '保存模型配置失败')
     for (const channel of channels.value) {
-      if (channel.apiKey.trim()) channel.secretConfigured = true
+      const source = channel.copyFromId
+        ? channels.value.find((item) => item.id === channel.copyFromId)
+        : null
+      if (channel.apiKey.trim() || source?.secretConfigured) channel.secretConfigured = true
       channel.apiKey = ''
     }
     currentModel.value = model
@@ -662,5 +701,10 @@ onMounted(load)
 .model-channels-delete { display: inline-flex; align-items: center; gap: 6px; margin-top: 26px; padding: 4px 6px; border: 0; border-radius: 5px; background: transparent; color: #c2413b; font: inherit; font-size: 13px; cursor: pointer; }
 .model-channels-delete:hover { background: rgba(220, 38, 38, .09); }
 .model-channels-delete svg { width: 15px; height: 15px; }
+.model-channel-footer-actions { display: flex; align-items: center; gap: 12px; margin-top: 26px; }
+.model-channels-copy { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg-3); font: inherit; font-size: 13px; cursor: pointer; }
+.model-channels-copy:hover { background: var(--bg-3); color: var(--accent); }
+.model-channels-copy :deep(svg) { width: 15px; height: 15px; }
+.model-channel-footer-actions .model-channels-delete { margin-top: 0; }
 @media (max-width: 700px) { .model-channels-header { padding: 0 14px; } .model-channels-header p { display: none; } .model-channels-body { padding-inline: 8px; } .model-channels-sidebar { flex-basis: 172px; } .model-channels-detail { padding: 14px 14px 32px; } .model-channel-fields-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; } .model-config-main { grid-template-columns: minmax(0, 1fr) auto; } .model-config-main .model-config-switch { grid-column: 1 / -1; } .model-config-price { flex-wrap: wrap; } .model-config-price .model-config-switch { width: 100%; } }
 </style>

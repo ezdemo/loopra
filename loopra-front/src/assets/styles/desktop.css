@@ -318,14 +318,14 @@
 }
 
 /*
- * Match the native Codex sidebar density.  The application-wide --sans stack
- * intentionally starts with JetBrains Mono, but the desktop navigation is UI
- * chrome rather than editor content and therefore uses the platform UI font.
+ * Match the native Codex sidebar density while respecting the user's Chinese
+ * font setting.  The application-wide --sans stack keeps English/numbers in
+ * JetBrains Mono and inserts the configured Chinese font when selected.
  * Fixed row heights keep collapsed projects compact while leaving a little
  * breathing room between the denser session rows.
  */
 .desktop-shell.desktop-shell .desktop-projects {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--sans);
   font-size: var(--font-ui-size, 14px);
   line-height: 20px;
 }
@@ -341,11 +341,17 @@
 .desktop-shell.desktop-shell .desktop-project-row > .desktop-project,
 .desktop-shell.desktop-shell .desktop-project-children .desktop-session,
 .desktop-shell.desktop-shell .desktop-show-sessions,
-.desktop-shell.desktop-shell .desktop-show-projects {
-  font-family: inherit;
+.desktop-shell.desktop-shell .desktop-show-projects,
+.desktop-shell.desktop-shell .desktop-home-nav button,
+.desktop-shell.desktop-shell .desktop-project-footer button {
+  font-family: var(--sans);
   font-size: var(--font-ui-size, 14px);
-  font-weight: 400;
+  font-weight: 530;
   line-height: 20px;
+}
+.desktop-shell.desktop-shell .desktop-home-nav > button:first-child > svg {
+  width: 17px;
+  height: 17px;
 }
 .desktop-shell.desktop-shell .desktop-project-row > .desktop-project {
   gap: 10px;

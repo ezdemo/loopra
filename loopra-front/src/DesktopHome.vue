@@ -28,23 +28,14 @@
           <button type="button" @click="runFooterAction('new-session')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M9 15l2-6 7-7 5 5-7 7z"/></svg>
             <span>新对话</span>
-            <span class="desktop-nav-plus" aria-hidden="true">+</span>
           </button>
         </nav>
         <div class="desktop-sidebar-scroll">
           <div class="desktop-project-footer desktop-top-actions">
             <div class="desktop-project-footer-menu">
-              <button type="button" title="需求池" aria-label="需求池" @click="runFooterAction('open-requirement-board')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-                需求池
-              </button>
               <button type="button" @click="runFooterAction('open-skills')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
                 技能
-              </button>
-              <button type="button" title="工具" aria-label="工具" @click="runFooterAction('open-tools')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                插件
               </button>
             </div>
             <div class="desktop-project-footer-more" @click.stop>
@@ -53,15 +44,6 @@
                 <span>探索</span>
               </button>
               <div v-if="exploreOpen && !popupUsesNativeOverlay" class="desktop-footer-more-menu desktop-explore-menu" role="menu" aria-label="探索" @click.stop>
-                <button class="desktop-footer-more-item desktop-explore-item" type="button" role="menuitem" @click="runFooterAction('open-skills')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
-                  <span>站点</span>
-                </button>
-                <button class="desktop-footer-more-item desktop-explore-item" type="button" role="menuitem" @click="runFooterAction('open-settings')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg, #fff)"/><circle cx="15" cy="17" r="2" fill="var(--bg, #fff)"/></svg>
-                  <span>自定义</span>
-                </button>
-                <div class="desktop-explore-divider"></div>
                 <button class="desktop-footer-more-item desktop-explore-item" type="button" role="menuitem" @click="runFooterAction('open-sub-agents')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2A4 4 0 0 1 21 18v1"/></svg>
                   <span>子代理</span>
@@ -71,11 +53,6 @@
                   <span>工具</span>
                 </button>
                 <ServiceProcessManager placement="bottom" :show-label="true" />
-                <button class="desktop-footer-more-item desktop-explore-item" type="button" role="menuitem" @click="runFooterAction('toggle-theme')">
-                  <svg v-if="theme === 'dark'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.2 14.1A8.5 8.5 0 0 1 9.9 3.8 8.5 8.5 0 1 0 20.2 14.1Z"/></svg>
-                  <span>{{ theme === 'dark' ? '浅色模式' : '深色模式' }}</span>
-                </button>
               </div>
             </div>
           </div>
@@ -207,7 +184,7 @@
           <Transition name="desktop-project-collapse">
             <div v-if="shouldShowProjectSessions(workspace.hash)" class="desktop-project-children">
               <div class="desktop-project-children-inner">
-                <button v-for="session in visibleProjectSessions(workspace.hash)" :key="`${session.workspaceHash}:${session.name}`" v-session-title-scroll class="desktop-session" :class="{ selected: selectedSessionKeys.has(sessionKey(session)), active: session.name === activeSessionName && session.workspaceHash === activeWorkspaceHash }" type="button" @mouseenter="prepareSessionTitleScroll" @mouseleave="resetSessionTitleScroll" @click="isSessionMultiSelect(session.workspaceHash) ? toggleSelectSession(session, $event) : openSession(session)" @contextmenu.prevent.stop="openContextMenu($event, 'session', session)">
+                <button v-for="session in visibleProjectSessions(workspace.hash)" :key="`${session.workspaceHash}:${session.name}`" v-session-title-scroll class="desktop-session" :class="{ selected: selectedSessionKeys.has(sessionKey(session)), active: session.name === activeSessionName && session.workspaceHash === activeWorkspaceHash, dragging: draggingSessionKey === sessionKey(session), 'drag-over-before': dragOverSessionKey === sessionKey(session) && dragOverSessionBefore, 'drag-over-after': dragOverSessionKey === sessionKey(session) && !dragOverSessionBefore }" :draggable="!isSessionMultiSelect(session.workspaceHash)" type="button" @dragstart.stop="onSessionDragStart($event, session)" @dragover.prevent.stop="onSessionDragOver($event, session)" @drop.prevent.stop="onSessionDrop($event, session)" @dragend.stop="onSessionDragEnd" @mouseenter="prepareSessionTitleScroll" @mouseleave="resetSessionTitleScroll" @click="isSessionMultiSelect(session.workspaceHash) ? toggleSelectSession(session, $event) : handleSessionClick(session)" @contextmenu.prevent.stop="openContextMenu($event, 'session', session)">
                 <span
                   v-if="isSessionMultiSelect(session.workspaceHash)"
                   class="desktop-session-check"
@@ -225,7 +202,21 @@
                   <span class="desktop-session-name-text">{{ session.title || session.name }}</span>
                 </span>
                 <span v-if="formatSessionTime(session)" class="desktop-session-time" :title="formatSessionTime(session, true)">{{ formatSessionTime(session) }}</span>
-                </button>
+                <span
+                  v-if="sessionStatusOf(session) === 'running'"
+                  class="desktop-session-status desktop-session-status-running"
+                  role="img"
+                  aria-label="运行中"
+                  title="运行中"
+                />
+                <span
+                  v-else-if="hasUnreadCompletion(session)"
+                  class="desktop-session-status desktop-session-status-completed"
+                  role="img"
+                  aria-label="已完成"
+                  title="已完成"
+                />
+              </button>
                 <button v-if="shouldShowSessionToggle(workspace.hash)" class="desktop-show-sessions" type="button" @click="expandedProjects.has(workspace.hash) ? expandedProjects.delete(workspace.hash) : expandedProjects.add(workspace.hash)">{{ expandedProjects.has(workspace.hash) ? '收起' : '展开显示' }}</button>
               </div>
             </div>
@@ -406,7 +397,7 @@
 import {computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
 import {ReloadOutlined} from '@ant-design/icons-vue'
 import {message} from 'ant-design-vue'
-import {sessionsAPI} from './services/api'
+import {agentAPI, sessionsAPI} from './services/api'
 import {copyToClipboard} from './utils/helpers'
 import {toPlainIpcValue} from './utils/ipcPayload'
 import ServiceProcessManager from './components/ServiceProcessManager.vue'
@@ -419,7 +410,9 @@ const props = defineProps({
   activeWorkspaceHash: { type: String, default: '' },
   theme: { type: String, default: 'gray' },
   refreshKey: { type: Number, default: 0 },
-  refreshing: { type: Boolean, default: false }
+  refreshing: { type: Boolean, default: false },
+  optimisticSessions: { type: Array, default: () => [] },
+  liveSessionStatuses: { type: Object, default: () => ({}) }
 })
 const emit = defineEmits(['select-workspace', 'new-session', 'open-session', 'open-skills', 'open-requirement-board', 'open-tools', 'open-sub-agents', 'open-settings', 'toggle-theme', 'add-workspace', 'open-file-search', 'search-visibility-change', 'refresh', 'delete-session', 'delete-sessions', 'clear-workspace', 'clear-old-sessions', 'delete-workspace', 'delete-workspaces', 'reorder-workspaces', 'session-renamed', 'open-home-context'])
 
@@ -433,6 +426,72 @@ const paletteActiveIndex = ref(0)
 const sessions = ref([])
 const loading = ref(false)
 const sessionsLoaded = ref(false)
+const sessionStatuses = reactive({})
+const SESSION_STATUS_POLL_INTERVAL = 3000
+const SESSION_UNREAD_WINDOW_MS = 24 * 60 * 60 * 1000
+let sessionStatusTimer = null
+let sessionStatusRequestVersion = 0
+let sessionStatusDisposed = false
+// 会话拖拽排序：顺序按项目保存到本地，避免刷新后又恢复为按修改时间排序。
+const SESSION_ORDER_STORAGE_KEY = 'loopra.desktop.session-order'
+const SESSION_READ_STATE_STORAGE_KEY = 'loopra.desktop.session-read-state'
+const sessionOrderByWorkspace = reactive({})
+const sessionReadStates = reactive({})
+const draggingSessionKey = ref('')
+const dragOverSessionKey = ref('')
+const dragOverSessionBefore = ref(false)
+
+function restoreSessionOrder() {
+  if (typeof window === 'undefined') return
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(SESSION_ORDER_STORAGE_KEY) || '{}')
+    if (!saved || typeof saved !== 'object') return
+    for (const [hash, names] of Object.entries(saved)) {
+      if (Array.isArray(names)) sessionOrderByWorkspace[hash] = names.filter((name) => typeof name === 'string')
+    }
+  } catch {
+    // 本地缓存损坏时忽略，列表仍按默认时间顺序展示。
+  }
+}
+
+function persistSessionOrder() {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(SESSION_ORDER_STORAGE_KEY, JSON.stringify(sessionOrderByWorkspace))
+  } catch {
+    // 存储不可用时不影响当前会话内的排序。
+  }
+}
+
+function restoreSessionReadStates() {
+  if (typeof window === 'undefined') return
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(SESSION_READ_STATE_STORAGE_KEY) || '{}')
+    if (!saved || typeof saved !== 'object') return
+    for (const [key, state] of Object.entries(saved)) {
+      if (!state || typeof state !== 'object') continue
+      const mtime = Number(state.mtime)
+      const messageCount = Number(state.messageCount)
+      if (Number.isFinite(mtime) && Number.isFinite(messageCount)) {
+        sessionReadStates[key] = {mtime, messageCount}
+      }
+    }
+  } catch {
+    // 本地缓存损坏时忽略，完成提示仍按当前会话状态显示。
+  }
+}
+
+function persistSessionReadStates() {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(SESSION_READ_STATE_STORAGE_KEY, JSON.stringify(sessionReadStates))
+  } catch {
+    // 存储不可用时不影响当前会话内的已读状态。
+  }
+}
+
+restoreSessionOrder()
+restoreSessionReadStates()
 // 项目拖拽排序：本地副本用于实时预览，props 变化时同步
 const displayWorkspaces = ref([])
 const draggingHash = ref('')
@@ -459,9 +518,28 @@ const visibleWorkspaces = computed(() => {
 const shouldShowWorkspaceToggle = computed(() =>
   props.sidebarOnly && !projectMultiSelect.value && displayWorkspaces.value.length > PROJECT_PREVIEW_LIMIT
 )
+const displayedSessions = computed(() => {
+  const merged = [...sessions.value]
+  for (const optimistic of props.optimisticSessions || []) {
+    if (!optimistic?.workspaceHash || !optimistic?.name) continue
+    const key = sessionKey(optimistic)
+    const index = merged.findIndex((session) => sessionKey(session) === key)
+    if (index === -1) {
+      merged.unshift(optimistic)
+      continue
+    }
+    const existing = merged[index]
+    merged[index] = {
+      ...optimistic,
+      ...existing,
+      title: existing.title || optimistic.title || ''
+    }
+  }
+  return merged
+})
 const filteredSessions = computed(() => {
   const keyword = query.value.trim().toLowerCase()
-  return sessions.value.filter((session) => !keyword || `${session.title || ''} ${session.name || ''}`.toLowerCase().includes(keyword))
+  return displayedSessions.value.filter((session) => !keyword || `${session.title || ''} ${session.name || ''}`.toLowerCase().includes(keyword))
 })
 const paletteActions = [
   { kind: 'action', id: 'new-session', title: '新聊天', shortcut: 'Ctrl+N', keywords: '新对话 新建会话 chat new' },
@@ -470,7 +548,7 @@ const paletteActions = [
 ]
 const searchChatResults = computed(() => {
   const keyword = paletteQuery.value.trim().toLowerCase()
-  return [...sessions.value]
+  return [...displayedSessions.value]
     .filter((session) => {
       if (!keyword) return true
       return `${session.title || ''} ${session.name || ''} ${workspaceNameOf(session.workspaceHash)}`.toLowerCase().includes(keyword)
@@ -636,11 +714,27 @@ function resetSessionTitleScroll(event) {
   title.style.transform = 'translateX(0)'
 }
 
+function sortProjectSessions(hash, list) {
+  const sorted = [...list].sort((a, b) => sessionTime(b) - sessionTime(a))
+  const savedOrder = sessionOrderByWorkspace[hash]
+  if (!Array.isArray(savedOrder) || !savedOrder.length) return sorted
+
+  const rank = new Map(savedOrder.map((name, index) => [name, index]))
+  return sorted.sort((a, b) => {
+    const aRank = rank.get(a.name)
+    const bRank = rank.get(b.name)
+    // 新会话没有进入过手动排序时，仍显示在项目最上方。
+    if (aRank === undefined && bRank === undefined) return sessionTime(b) - sessionTime(a)
+    if (aRank === undefined) return -1
+    if (bRank === undefined) return 1
+    return aRank - bRank
+  })
+}
+
 function projectSessions(hash) {
-  return filteredSessions.value
+  return sortProjectSessions(hash, filteredSessions.value
     // 左侧列表只由会话数据决定；打开状态不会额外插入或移除列表项。
-    .filter(session => session.workspaceHash === hash)
-    .sort((a, b) => sessionTime(b) - sessionTime(a))
+    .filter(session => session.workspaceHash === hash))
 }
 
 function initial(name) {
@@ -682,6 +776,87 @@ function formatSessionTime(session, full = false) {
   if (ts >= yesterdayStart.getTime()) return '昨天'
   if (date.getFullYear() === now.getFullYear()) return `${date.getMonth() + 1}/${date.getDate()}`
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`
+}
+
+function sessionStatusOf(session) {
+  const key = sessionKey(session)
+  if (Object.prototype.hasOwnProperty.call(props.liveSessionStatuses, key)) {
+    return props.liveSessionStatuses[key] ? 'running' : (Number(session?.messageCount) > 0 ? 'completed' : '')
+  }
+  if (sessionStatuses[key]) return sessionStatuses[key]
+  return Number(session?.messageCount) > 0 ? 'completed' : ''
+}
+
+function hasUnreadCompletion(session) {
+  if (sessionStatusOf(session) !== 'completed') return false
+  if (session.name === props.activeSessionName && session.workspaceHash === props.activeWorkspaceHash) return false
+  if (Date.now() - sessionTime(session) >= SESSION_UNREAD_WINDOW_MS) return false
+  const readState = sessionReadStates[sessionKey(session)]
+  if (!readState) return true
+  return sessionTime(session) > readState.mtime || (Number(session?.messageCount) || 0) > readState.messageCount
+}
+
+function markSessionRead(session) {
+  if (sessionStatusOf(session) !== 'completed') return
+  sessionReadStates[sessionKey(session)] = {
+    mtime: sessionTime(session),
+    messageCount: Number(session?.messageCount) || 0
+  }
+  persistSessionReadStates()
+}
+
+function handleSessionClick(session) {
+  markSessionRead(session)
+  openSession(session)
+}
+
+function clearSessionStatusTimer() {
+  if (sessionStatusTimer) {
+    clearTimeout(sessionStatusTimer)
+    sessionStatusTimer = null
+  }
+}
+
+function scheduleSessionStatusRefresh() {
+  clearSessionStatusTimer()
+  if (sessionStatusDisposed || displayedSessions.value.length === 0) return
+  sessionStatusTimer = setTimeout(() => {
+    void refreshSessionStatuses()
+  }, SESSION_STATUS_POLL_INTERVAL)
+}
+
+async function refreshSessionStatuses() {
+  if (sessionStatusDisposed) return
+  const list = displayedSessions.value.filter((session) => session.workspaceHash && session.name)
+  const requestVersion = ++sessionStatusRequestVersion
+  if (list.length === 0) {
+    for (const key of Object.keys(sessionStatuses)) delete sessionStatuses[key]
+    scheduleSessionStatusRefresh()
+    return
+  }
+
+  const results = await Promise.all(list.map(async (session) => {
+    const key = sessionKey(session)
+    try {
+      const response = await agentAPI.getSessionStatus(session.workspaceHash, session.name)
+      const running = Boolean(response?.success && response.data?.running)
+      return {key, status: running ? 'running' : (Number(session.messageCount) > 0 ? 'completed' : '')}
+    } catch {
+      // 状态接口暂时不可用时保留已有运行状态，避免图标闪烁；历史会话仍可显示完成点。
+      return {key, status: sessionStatuses[key] === 'running' ? 'running' : (Number(session.messageCount) > 0 ? 'completed' : '')}
+    }
+  }))
+
+  if (sessionStatusDisposed || requestVersion !== sessionStatusRequestVersion) return
+  const validKeys = new Set(list.map((session) => sessionKey(session)))
+  for (const key of Object.keys(sessionStatuses)) {
+    if (!validKeys.has(key)) delete sessionStatuses[key]
+  }
+  for (const {key, status} of results) {
+    if (status) sessionStatuses[key] = status
+    else delete sessionStatuses[key]
+  }
+  scheduleSessionStatusRefresh()
 }
 
 function openSession(session) {
@@ -902,6 +1077,75 @@ function clearDragState() {
   dragOverHash.value = ''
 }
 
+// ============ 会话拖拽排序 ============
+
+function onSessionDragStart(event, session) {
+  if (isSessionMultiSelect(session.workspaceHash)) {
+    event.preventDefault()
+    return
+  }
+  draggingSessionKey.value = sessionKey(session)
+  dragOverSessionKey.value = ''
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', draggingSessionKey.value)
+  }
+}
+
+function onSessionDragOver(event, session) {
+  if (!draggingSessionKey.value) return
+  const targetKey = sessionKey(session)
+  if (targetKey === draggingSessionKey.value) {
+    dragOverSessionKey.value = ''
+    return
+  }
+  const row = event.currentTarget
+  const rect = row?.getBoundingClientRect?.()
+  dragOverSessionBefore.value = Boolean(rect && event.clientY < rect.top + rect.height / 2)
+  dragOverSessionKey.value = targetKey
+}
+
+function onSessionDrop(_event, session) {
+  if (!draggingSessionKey.value) return
+  const hash = session.workspaceHash
+  const sourceKey = draggingSessionKey.value
+  const targetKey = sessionKey(session)
+  const current = sortProjectSessions(hash, displayedSessions.value.filter((item) => item.workspaceHash === hash))
+  const next = [...current]
+  const fromIndex = next.findIndex((item) => sessionKey(item) === sourceKey)
+  const dragged = fromIndex !== -1 ? next.splice(fromIndex, 1)[0] : null
+
+  if (!dragged) {
+    clearSessionDragState()
+    return
+  }
+
+  const targetIndex = next.findIndex((item) => sessionKey(item) === targetKey)
+  if (targetIndex === -1) {
+    next.splice(fromIndex, 0, dragged)
+  } else {
+    next.splice(dragOverSessionBefore.value ? targetIndex : targetIndex + 1, 0, dragged)
+  }
+
+  const currentNames = current.map((item) => item.name)
+  const nextNames = next.map((item) => item.name)
+  clearSessionDragState()
+  if (nextNames.join('\u0000') === currentNames.join('\u0000')) return
+
+  sessionOrderByWorkspace[hash] = nextNames
+  persistSessionOrder()
+}
+
+function onSessionDragEnd() {
+  clearSessionDragState()
+}
+
+function clearSessionDragState() {
+  draggingSessionKey.value = ''
+  dragOverSessionKey.value = ''
+  dragOverSessionBefore.value = false
+}
+
 async function openContextMenu(event, type, item) {
   const nativeSessionMenu = type === 'session' && !popupUsesNativeOverlay.value
     ? window.electronAPI?.desktopSessionMenu?.open
@@ -1003,7 +1247,8 @@ function selectPaletteItem(item) {
   if (!item) return
   closeSearch()
   if (item.kind === 'session') {
-    openSession(item)
+    const session = displayedSessions.value.find((candidate) => sessionKey(candidate) === item.id) || item
+    handleSessionClick(session)
     return
   }
   if (item.id === 'new-session') emit('new-session')
@@ -1210,6 +1455,7 @@ async function loadSessions() {
     console.error('[desktop-home] failed to load sessions:', error)
     sessions.value = []
   } finally {
+    void refreshSessionStatuses()
     loading.value = false
     sessionsLoaded.value = true
   }
@@ -1218,7 +1464,7 @@ async function loadSessions() {
 // 侧边栏模式一次加载所有项目会话，切换项目只改变高亮，不需要重复请求并闪出加载占位。
 watch(() => [props.sidebarOnly ? null : props.activeWorkspaceHash, props.refreshKey, props.workspaces], loadSessions, { immediate: true })
 // 会话列表刷新后清理失效选中项（如批量删除后），避免残留勾选
-watch(sessions, (list) => {
+watch(displayedSessions, (list) => {
   const valid = new Set((list || []).map((session) => sessionKey(session)))
   const kept = [...selectedSessionKeys.value].filter((key) => valid.has(key))
   if (kept.length !== selectedSessionKeys.value.size) {
@@ -1285,6 +1531,9 @@ onMounted(() => {
   })
 })
 onBeforeUnmount(() => {
+  sessionStatusDisposed = true
+  sessionStatusRequestVersion++
+  clearSessionStatusTimer()
   window.removeEventListener('click', onWindowClick)
   window.removeEventListener('keydown', onWindowKeydown)
   stopNativeSearchClosed?.()
@@ -1307,7 +1556,6 @@ onBeforeUnmount(() => {
 .desktop-home-nav button { position: relative; width: 100%; min-height: 36px; display: flex; align-items: center; gap: 12px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: var(--fg-2, #52525b); font: inherit; font-size: var(--font-ui-size, 14px); text-align: left; cursor: pointer; transition: background-color var(--t), color var(--t); }
 .desktop-home-nav button:hover, .desktop-home-nav button.active { background: var(--bg-hover, #e7e7e5); color: var(--fg, #27272a); }
 .desktop-home-nav button svg { width: 19px; height: 19px; flex: 0 0 auto; }
-.desktop-nav-plus { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; margin-left: auto; border: 1px solid currentColor; border-radius: 50%; color: var(--fg-4, #9a9a95); font-size: 15px; font-weight: 400; line-height: 1; }
 .desktop-home-search { height: 40px; margin: 0 0 14px; display: flex; align-items: center; gap: 10px; padding: 0 12px; box-sizing: border-box; color: var(--fg-4, #a1a1aa); background: var(--bg-3, #f5f5f6); border: 1px solid transparent; border-radius: 10px; flex: 0 0 auto; transition: background-color var(--t), border-color var(--t), box-shadow var(--t); }
 .desktop-home-search:hover { background: var(--bg-hover, #f6f6f7); }
 .desktop-home-search:focus-within { border-color: var(--border, #e8e8eb); background: var(--bg-3, #f5f5f6); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.02); }
@@ -1388,7 +1636,7 @@ onBeforeUnmount(() => {
     .desktop-project:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent, #52525b) 45%, transparent); outline-offset: -2px; }
     .desktop-session { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fg-2, #52525b); font: inherit; font-size: var(--font-ui-size, 14px); line-height: var(--font-ui-line-height, 20px); text-align: left; cursor: pointer; padding: 4px 10px; box-sizing: border-box; transition: background-color var(--t), color var(--t); }
     .desktop-project:hover, .desktop-session:hover { background: var(--bg-hover, #f6f6f7); color: var(--fg, #27272a); }.desktop-project.active, .desktop-project.selected, .desktop-session.selected, .desktop-session.active { background: var(--bg-active, #f1f1f3); color: var(--fg, #27272a); }.desktop-project > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex: 1; }.desktop-session-name { --desktop-session-fade-width: clamp(12px, 18%, 36px); position: relative; height: 20px; overflow: hidden; white-space: nowrap; text-overflow: clip; min-width: 0; flex: 1; -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - var(--desktop-session-fade-width)), transparent 100%); mask-image: linear-gradient(to right, #000 0, #000 calc(100% - var(--desktop-session-fade-width)), transparent 100%); }.desktop-session-name-text { position: absolute; top: 0; left: 0; display: block; width: max-content; white-space: nowrap; line-height: 20px; transform: translateX(0); transition: transform .25s ease-out; will-change: transform; }.desktop-session-time { flex: 0 0 auto; margin-left: auto; color: var(--fg-4, #a1a1aa); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; visibility: hidden; opacity: 0; transition: opacity .12s ease, visibility .12s ease; }.desktop-session:hover .desktop-session-time, .desktop-session:focus-visible .desktop-session-time { visibility: visible; opacity: 1; }.desktop-project-check, .desktop-session-check { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border: 1px solid var(--fg-4, #a1a1aa); border-radius: 4px; color: #fff; opacity: 0; transition: opacity .12s ease, background-color .12s ease, border-color .12s ease; }.desktop-project:hover .desktop-project-check, .desktop-project.selected .desktop-project-check, .desktop-session:hover .desktop-session-check, .desktop-session.selected .desktop-session-check { opacity: 1; }.desktop-project-check.checked, .desktop-session-check.checked { background: var(--accent, #52525b); border-color: var(--accent, #52525b); opacity: 1; }.desktop-session { font-weight: 400; }.desktop-home-muted { padding: 12px 8px; color: var(--fg-4, #a1a1aa); font-size: 12px; }
-.desktop-project.dragging { opacity: 0.55; }.desktop-project.drag-over-before, .desktop-project.drag-over-after { background: var(--accent-bg, var(--bg-3, #f2f3f5)); }.desktop-project.drag-over-before { box-shadow: inset 0 2px 0 0 var(--blue, #52525b); }.desktop-project.drag-over-after { box-shadow: inset 0 -2px 0 0 var(--blue, #52525b); }
+.desktop-project.dragging, .desktop-session.dragging { opacity: 0.55; }.desktop-project.drag-over-before, .desktop-project.drag-over-after, .desktop-session.drag-over-before, .desktop-session.drag-over-after { background: var(--accent-bg, var(--bg-3, #f2f3f5)); }.desktop-project.drag-over-before, .desktop-session.drag-over-before { box-shadow: inset 0 2px 0 0 var(--blue, #52525b); }.desktop-project.drag-over-after, .desktop-session.drag-over-after { box-shadow: inset 0 -2px 0 0 var(--blue, #52525b); }.desktop-session:not([draggable="false"]) { cursor: grab; }.desktop-session:not([draggable="false"]):active { cursor: grabbing; }
 .desktop-monogram { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border-radius: 5px; color: #fff; font-size: 11px; font-weight: 600; line-height: 1; text-shadow: none; box-shadow: none; }.desktop-monogram.tone-0 { background: linear-gradient(135deg, #8b95a3, #5e6878); }.desktop-monogram.tone-1 { background: linear-gradient(135deg, #3dd0e8, #18b4d0); }.desktop-monogram.tone-2 { background: linear-gradient(135deg, #ffa86b, #ff7a3d); }.desktop-monogram.tone-3 { background: linear-gradient(135deg, #9aacf5, #6d80e8); }.desktop-monogram.tone-4 { background: linear-gradient(135deg, #6dd49d, #3eb878); }.desktop-monogram.tone-5 { background: linear-gradient(135deg, #f87fb5, #e85a9c); }.desktop-monogram.tone-6 { background: linear-gradient(135deg, #fcd34d, #f5b800); }.desktop-monogram.tone-7 { background: linear-gradient(135deg, #4dd9a6, #20c084); }.desktop-session-monogram { background: linear-gradient(135deg, #737373, #4c4c4c); }
 .desktop-project-footer { position: relative; display: contents; }
 .desktop-project-footer-menu { display: grid; gap: 2px; width: 100%; order: 0; }
@@ -1407,9 +1655,9 @@ onBeforeUnmount(() => {
 .desktop-footer-more-item { width: 100%; justify-content: flex-start; }
 .desktop-footer-more-item:hover { background: var(--bg-3, #f2f3f5); }
 .desktop-explore-divider { height: 1px; margin: 7px 4px; background: var(--border, #e5e7eb); }
-.desktop-explore-item { width: 100%; justify-content: flex-start; min-height: 34px; }
+.desktop-explore-item { width: 100%; justify-content: flex-start; min-height: 34px; height: 34px; gap: 9px; padding: 0 9px; }
 .desktop-footer-more-menu :deep(.service-manager) { width: 100%; }
-.desktop-footer-more-menu :deep(.tb-service-btn) { width: 100%; height: 32px; justify-content: flex-start; gap: 8px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--fg-3, #727987); font: inherit; font-size: 13px; cursor: pointer; }
+.desktop-footer-more-menu :deep(.tb-service-btn) { width: 100%; min-height: 34px; height: 34px; justify-content: flex-start; gap: 9px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent; color: var(--fg-3, #727987); font: inherit; font-size: 13px; cursor: pointer; }
 .desktop-footer-more-menu :deep(.tb-service-btn:hover), .desktop-footer-more-menu :deep(.tb-service-btn.active) { background: var(--bg-3, #f2f3f5); color: var(--fg, #202124); }
 .desktop-footer-more-menu :deep(.tb-service-btn > svg) { width: 16px; height: 16px; }
 .desktop-heading-actions .desktop-delete-selected, .desktop-project-session-actions .desktop-delete-selected { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 2px 8px; border-radius: 5px; background: rgba(220, 38, 38, 0.09); color: #c2413b; font-size: 12px; font-weight: 600; }.desktop-heading-actions .desktop-delete-selected:hover, .desktop-project-session-actions .desktop-delete-selected:hover { background: rgba(220, 38, 38, 0.15); color: #b42318; }.desktop-delete-selected svg { width: 12px; height: 12px; }.desktop-heading-actions .desktop-clear-selection { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 3px; border-radius: 5px; color: var(--fg-3, #727987); }.desktop-heading-actions .desktop-clear-selection:hover { background: var(--bg-3, #f2f3f5); color: var(--fg, #202124); }.desktop-clear-selection svg { width: 13px; height: 13px; }
@@ -1431,6 +1679,11 @@ onBeforeUnmount(() => {
 .desktop-rename-actions button { height: 30px; padding: 0 14px; border: 0; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer; }
 .desktop-rename-cancel { background: var(--bg-3, #f2f3f5); color: var(--fg-2, #525866); }.desktop-rename-cancel:hover { background: var(--bg-4, #e8e9eb); }
 .desktop-rename-confirm { background: var(--accent-btn, var(--accent)); color: #fff; }.desktop-rename-confirm:hover { filter: brightness(1.05); }.desktop-rename-confirm:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.desktop-session-status { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; margin-left: 8px; }
+.desktop-session-status-running { width: 12px; height: 12px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--fg-4, #a1a1aa) 35%, transparent); border-top-color: var(--fg-3, #71717a); border-radius: 50%; animation: desktop-session-status-spin .8s linear infinite; }
+.desktop-session-status-completed { width: 7px; height: 7px; margin-right: 3px; border-radius: 50%; background: #ec4899; }
+@keyframes desktop-session-status-spin { to { transform: rotate(360deg); } }
 
 /* Visible sidebar controls all follow the selected UI typography scale. */
 .desktop-home-heading button,

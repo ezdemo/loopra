@@ -420,9 +420,9 @@ const BlockRenderer = defineAsyncComponent(() => import('../components/BlockRend
 import {useAppStore} from '../stores/app'
 
 // ============= 模型切换 =============
-const handleSwitchModel = async (modelName, channelId) => {
+const handleSwitchModel = async (modelName, channelId, forceSessionUpdate = false) => {
   const currentChannelId = availableModels.value.find((model) => model.active)?.channelId
-  if (modelName === currentModel.value && (!channelId || channelId === currentChannelId)) return
+  if (!forceSessionUpdate && modelName === currentModel.value && (!channelId || channelId === currentChannelId)) return
   if (props.sessionName) {
     const selection = {model: modelName, channelId: channelId || currentChannelId || ''}
     sessionModelSelections.value = {...sessionModelSelections.value, [conversationKey()]: selection}
@@ -471,6 +471,9 @@ const handleSetDefaultModel = async (modelName, channelId) => {
     if (response.success) {
       defaultModel.value = modelName
       defaultModelChannelId.value = channelId || defaultModelChannelId.value
+      // 在已有会话中设为默认模型时，同时固定当前会话使用该模型。
+      // 这样切换会话或刷新页面后，当前会话不会又回到原来的模型。
+      if (props.sessionName) await handleSwitchModel(modelName, channelId, true)
       message.success('默认模型已更新')
       await loadUsage()
     }
@@ -501,10 +504,9 @@ const handleSwitchReasoningEffort = async (value) => {
       // 内存状态仍保留本次会话选择，后续聊天请求也会把显式设置同步到后端。
       console.error('持久化会话思考强度失败:', e)
     }
-    return
   }
   try {
-    // 未绑定具体会话时，才更新全局默认值。
+    // 会话内调整同时更新全局默认值；其他会话已有的显式设置不会被覆盖。
     await configAPI.updateConfig({reasoningEffort})
   } catch (e) {
     console.error('持久化推理强度失败:', e)

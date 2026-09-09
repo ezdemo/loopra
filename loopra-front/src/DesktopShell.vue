@@ -87,6 +87,8 @@
         :theme="theme"
         :refresh-key="homeRefreshKey"
         :refreshing="refreshingHome"
+        :optimistic-sessions="optimisticSessions"
+        :live-session-statuses="liveSessionStatuses"
         @select-workspace="selectWorkspace"
         @new-session="createTab"
         @open-session="openSession"
@@ -110,20 +112,6 @@
         @reorder-workspaces="reorderWorkspaces"
         @open-home-context="openHomeContextMenu"
       >
-        <template #sidebar-header-actions>
-          <button
-            class="desktop-sidebar-header-button desktop-notification-button"
-            :class="{ 'has-update': hasNewVersion }"
-            type="button"
-            :title="hasNewVersion ? `发现新版本 v${latestVersion}，点击打开更新` : '更新与通知'"
-            aria-label="更新与通知"
-            @click="onUpdateButtonClick"
-          >
-            <svg v-if="checkingUpdate" class="update-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
-            <i v-if="hasNewVersion" class="desktop-update-dot" />
-          </button>
-        </template>
         <template #open-sessions="{ workspaceHash }">
       <nav v-if="tabs.some(tab => tab.workspaceHash === workspaceHash)" class="desktop-tabs" aria-label="已打开的会话">
         <div
@@ -246,6 +234,10 @@ const workspaces = ref([])
 const activeWorkspaceHash = ref('')
 const homeRefreshKey = ref(0)
 const refreshingHome = ref(false)
+// 首条消息写入后，后端列表可能还没来得及落盘；先把该会话乐观显示在侧栏。
+const optimisticSessions = ref([])
+// 当前已打开聊天页上报的真实运行状态，优先于侧栏自己的定时轮询。
+const liveSessionStatuses = reactive({})
 const showSkills = ref(false)
 const showSettings = ref(false)
 const showModelChannels = ref(false)
@@ -535,11 +527,6 @@ function compareVersions(a, b) {
   return 0
 }
 
-// 点击更新按钮始终打开更新窗口，窗口内会自行检查版本
-function onUpdateButtonClick() {
-  void openUpdateWindow()
-}
-
 async function openUpdateWindow() {
   if (platform.isElectron) {
     try {
@@ -668,13 +655,57 @@ watch(theme, (value) => { void nativeTabs()?.setTheme(value) })
 const stopTitleListener = window.electronAPI?.events?.listen('desktop-chat-tab-title', ({ tabId, title }) => {
   if (!tabId || !title) return
   tabs.value = tabs.value.map((tab) => tab.id === tabId ? { ...tab, title } : tab)
+  const tab = tabs.value.find((item) => item.id === tabId)
+  if (tab?.workspaceHash && tab.sessionName) {
+    optimisticSessions.value = optimisticSessions.value.map((session) =>
+      session.workspaceHash === tab.workspaceHash && session.name === tab.sessionName
+        ? { ...session, title }
+        : session
+    )
+  }
+  homeRefreshKey.value++
 })
+function updateLiveSessionStatus({workspaceHash, sessionName, running} = {}) {
+  if (!workspaceHash || !sessionName) return
+  const key = `${workspaceHash}:${sessionName}`
+  if (running === null) delete liveSessionStatuses[key]
+  else if (typeof running === 'boolean') liveSessionStatuses[key] = running
+}
+const stopSessionStatusListener = window.electronAPI?.events?.listen('desktop-chat-tab-session-status', updateLiveSessionStatus)
+const stopSessionUpdatedListener = window.electronAPI?.events?.listen('desktop-chat-tab-session-updated', ({ tabId, sessionName, workspaceHash, title }) => {
+  if (!tabId || !sessionName) return
+  const tab = tabs.value.find((item) => item.id === tabId)
+  const resolvedWorkspaceHash = workspaceHash || tab?.workspaceHash
+  if (!resolvedWorkspaceHash) return
+  const existing = optimisticSessions.value.find((session) =>
+    session.workspaceHash === resolvedWorkspaceHash && session.name === sessionName
+  )
+  const nextSession = {
+    ...(existing || {}),
+    name: sessionName,
+    workspaceHash: resolvedWorkspaceHash,
+    title: title || existing?.title || '',
+    messageCount: Math.max(1, Number(existing?.messageCount) || 0),
+    mtime: Date.now()
+  }
+  const key = `${resolvedWorkspaceHash}:${sessionName}`
+  optimisticSessions.value = [
+    nextSession,
+    ...optimisticSessions.value.filter((session) => `${session.workspaceHash}:${session.name}` !== key)
+  ]
+  homeRefreshKey.value++
+})
+
+function removeOptimisticSessions(predicate) {
+  optimisticSessions.value = optimisticSessions.value.filter((session) => !predicate(session))
+}
+
 const stopWorkspaceListener = window.electronAPI?.events?.listen('desktop-chat-tab-workspace', ({ tabId, workspaceHash }) => {
   if (!tabId || !workspaceHash) return
   tabs.value = tabs.value.map((tab) => tab.id === tabId ? { ...tab, workspaceHash } : tab)
 })
 const stopOpenHomeListener = window.electronAPI?.events?.listen('desktop-shell-open-home', () => { void showHome() })
-const stopOpenSettingsListener = window.electronAPI?.events?.listen('desktop-shell-open-model-channels', () => { void openModelChannels() })
+const stopOpenSettingsListener = window.electronAPI?.events?.listen('desktop-shell-open-model-channels', () => { void openSettings('model-channels') })
 // 更新窗口发起的「更新核心服务」：新建会话并由 Agent 在聊天框执行更新命令
 const stopChatUpdateListener = window.electronAPI?.events?.listen('chat-update-request', ({ source }) => {
   void runChatUpdate(source)
@@ -1385,6 +1416,7 @@ async function performDeleteSession(session) {
     const response = await sessionsAPI.deleteSession(session.name, session.workspaceHash)
     if (!response.success) throw new Error(response.message || '删除会话失败')
     await closeTab(tabId(session.workspaceHash, session.name))
+    removeOptimisticSessions((item) => item.workspaceHash === session.workspaceHash && item.name === session.name)
     homeRefreshKey.value++
     message.success('会话已删除')
   } catch (error) {
@@ -1413,6 +1445,8 @@ async function performDeleteSessions(sessions) {
     }
   }
   if (deleted.length) {
+    const deletedKeys = new Set(deleted.map((session) => `${session.workspaceHash}:${session.name}`))
+    removeOptimisticSessions((session) => deletedKeys.has(`${session.workspaceHash}:${session.name}`))
     // 关闭仍打开着但已被删除的会话标签
     await Promise.all(deleted.map(async (session) => {
       try { await closeTab(tabId(session.workspaceHash, session.name)) } catch (error) { console.warn('[desktop-shell] failed to close deleted session tab:', error) }
@@ -1437,6 +1471,7 @@ async function performClearWorkspace(workspace) {
     const response = await sessionsAPI.clearAll(workspace.hash)
     if (!response.success) throw new Error(response.message || '清空会话失败')
     await closeWorkspaceTabs(workspace.hash)
+    removeOptimisticSessions((session) => session.workspaceHash === workspace.hash)
     homeRefreshKey.value++
     message.success('项目会话已清空')
   } catch (error) {
@@ -1456,6 +1491,7 @@ async function performClearOldSessions(workspace) {
     const deletedNames = new Set(response.data?.sessionNames || [])
     // 关闭仍打开着但已被删除的会话标签
     if (deletedNames.size) {
+      removeOptimisticSessions((session) => session.workspaceHash === workspace.hash && deletedNames.has(session.name))
       const removedTabs = tabs.value.filter((tab) => tab.workspaceHash === workspace.hash && deletedNames.has(tab.sessionName))
       await Promise.all(removedTabs.map(async (tab) => {
         try { await nativeTabs()?.close(tab.id) } catch (error) { console.warn('[desktop-shell] failed to close tab:', error) }
@@ -1481,6 +1517,7 @@ async function performDeleteWorkspace(workspace) {
     const response = await configAPI.deleteWorkspace(workspace.hash)
     if (!response.success) throw new Error(response.message || '删除项目失败')
     await closeWorkspaceTabs(workspace.hash)
+    removeOptimisticSessions((session) => session.workspaceHash === workspace.hash)
     workspaces.value = workspaces.value.filter((item) => item.hash !== workspace.hash)
     if (activeWorkspaceHash.value === workspace.hash) {
       activeWorkspaceHash.value = ''
@@ -1514,6 +1551,8 @@ async function performDeleteWorkspaces(workspaceList) {
     }
   }
   if (deleted.length) {
+    const deletedHashes = new Set(deleted.map((workspace) => workspace.hash))
+    removeOptimisticSessions((session) => deletedHashes.has(session.workspaceHash))
     await Promise.all(deleted.map((workspace) => closeWorkspaceTabs(workspace.hash)))
     const removed = new Set(deleted.map((workspace) => workspace.hash))
     workspaces.value = workspaces.value.filter((workspace) => !removed.has(workspace.hash))
@@ -1587,6 +1626,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown)
   window.removeEventListener('resize', onSidebarViewportResize)
   stopTitleListener?.()
+  stopSessionStatusListener?.()
+  stopSessionUpdatedListener?.()
   stopWorkspaceListener?.()
   stopOpenHomeListener?.()
   stopOpenSettingsListener?.()
@@ -1706,9 +1747,6 @@ onBeforeUnmount(() => {
 .desktop-sidebar-header-button { position: relative; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--desktop-muted, #969692); cursor: pointer; transition: background-color .15s ease, color .15s ease; -webkit-app-region: no-drag; }
 .desktop-sidebar-header-button:hover, .desktop-sidebar-header-button[aria-expanded="true"] { background: var(--desktop-hover, #e7e7e5); color: var(--desktop-ink, #343432); }
 .desktop-sidebar-header-button svg { width: 18px; height: 18px; }
-.desktop-notification-button.has-update { color: #c2413b; }
-.desktop-notification-button.has-update:hover { color: #b42318; }
-.desktop-update-dot { position: absolute; top: 6px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: #ef4444; }
 .icon-button, .desktop-tab, .desktop-tab-add { border: 0; background: transparent; color: var(--fg-3, #71717a); }
 .icon-button { width: 32px; height: 32px; padding: 6px; border-radius: 8px; transition: background-color var(--t), color var(--t); }
 .icon-button svg, .desktop-tab svg, .desktop-tab-add svg { width: 18px; height: 18px; }
@@ -1735,8 +1773,6 @@ onBeforeUnmount(() => {
 .desktop-tab-monogram-default svg { width: 12px; height: 12px; }
 
 .desktop-tab-add { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 8px; flex: 0 0 auto; cursor: pointer; transition: background-color var(--t), color var(--t); }
-.update-spinner { animation: update-spin 0.9s linear infinite; }
-@keyframes update-spin { to { transform: rotate(360deg); } }
 .close-mark { width: 14px; height: 14px; position: relative; }
 .close-mark::before, .close-mark::after { content: ''; position: absolute; top: 6px; left: 0; width: 14px; border-top: 1.5px solid currentColor; transform: rotate(45deg); }
 .close-mark::after { transform: rotate(-45deg); }

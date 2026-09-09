@@ -212,6 +212,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openModelChannels: () => ipcRenderer.send('desktop-chat-tab-open-model-channels'),
     sendCommand: (tabId, command) => ipcRenderer.invoke('desktop-chat-tab-send-command', tabId, command),
     reportTitle: (payload) => ipcRenderer.send('desktop-chat-tab-report-title', payload),
+    reportSessionUpdated: (payload) => ipcRenderer.send('desktop-chat-tab-session-updated', toPlainIpcValue(payload)),
+    reportSessionStatus: (payload) => ipcRenderer.send('desktop-chat-tab-session-status', toPlainIpcValue(payload)),
     reportWorkspace: (payload) => ipcRenderer.send('desktop-chat-tab-report-workspace', payload)
   },
 

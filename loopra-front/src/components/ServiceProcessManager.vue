@@ -229,11 +229,29 @@ onBeforeUnmount(close)
 
 .tb-service-btn.with-label {
   width: 100%;
+  min-height: 34px;
+  height: 34px;
   justify-content: flex-start;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 9px;
+  padding: 0 9px;
   font: inherit;
   font-size: 13px;
+}
+
+.tb-service-btn.with-label > :deep(.anticon) {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tb-service-btn.with-label > :deep(.anticon > svg) {
+  width: 16px;
+  height: 16px;
 }
 
 .service-trigger-label {

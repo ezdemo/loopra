@@ -112,6 +112,32 @@ describe('ModelChannels validation model', () => {
     wrapper.unmount()
   })
 
+  it('copies the active channel into a new channel with cloned models', async () => {
+    const wrapper = shallowMount(ModelChannels)
+    await flushPromises()
+
+    await wrapper.find('.model-channels-copy').trigger('click')
+
+    expect(wrapper.findAll('.model-channel-toggle')).toHaveLength(3)
+    expect(wrapper.findAll('.model-channel-toggle')[1].text()).toContain('Main - 副本')
+    expect(wrapper.find('.model-channel-fields input').element.value).toBe('Main - 副本')
+
+    await wrapper.find('.model-channels-save').trigger('click')
+    await flushPromises()
+
+    const payload = configAPI.updateConfig.mock.calls.at(-1)[0]
+    expect(payload.modelChannels).toHaveLength(3)
+    expect(payload.modelChannels[1]).toMatchObject({
+      name: 'Main - 副本',
+      baseUrl: 'https://main.test/v1',
+      apiKey: '',
+      copyFromId: 'main',
+      models: [{name: 'main-large', maxTokens: 65536, imageInput: true}]
+    })
+    expect(payload.modelChannels[1].id).not.toBe('main')
+    wrapper.unmount()
+  })
+
   it('loads and saves a separately selected image understanding model', async () => {
     const wrapper = shallowMount(ModelChannels)
     await flushPromises()

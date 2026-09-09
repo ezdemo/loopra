@@ -3,11 +3,15 @@
 import {flushPromises, shallowMount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import DesktopHome from './DesktopHome.vue'
-import {sessionsAPI} from './services/api'
+import ServiceProcessManager from './components/ServiceProcessManager.vue'
+import {agentAPI, sessionsAPI} from './services/api'
 
 const initialElectronAPI = window.electronAPI
 
 vi.mock('./services/api', () => ({
+  agentAPI: {
+    getSessionStatus: vi.fn().mockResolvedValue({success: true, data: {running: false}})
+  },
   sessionsAPI: {
     list: vi.fn().mockResolvedValue({success: true, data: []}),
     renameSession: vi.fn().mockResolvedValue({success: true, data: '新名称'})
@@ -75,13 +79,14 @@ describe('DesktopHome 项目拖拽排序', () => {
     await flushPromises()
     const scrollRegion = wrapper.find('.desktop-sidebar-scroll')
     const menuButtons = wrapper.findAll('.desktop-project-footer-menu > button')
-    expect(menuButtons.map((button) => button.text().trim())).toEqual(['需求池', '技能', '插件'])
+    expect(menuButtons.map((button) => button.text().trim())).toEqual(['技能'])
     expect(scrollRegion.find('.desktop-project-list').exists()).toBe(true)
     expect(scrollRegion.find('.desktop-more-button').text()).toContain('探索')
     expect(scrollRegion.find('.desktop-home-nav').exists()).toBe(false)
     expect(scrollRegion.find('.desktop-project-footer-settings').exists()).toBe(false)
     expect(wrapper.find('.desktop-sidebar-settings').text()).toContain('设置')
     expect(wrapper.find('.desktop-home-nav').text()).toContain('新对话')
+    expect(wrapper.find('.desktop-nav-plus').exists()).toBe(false)
     expect(wrapper.find('.desktop-footer-more-menu').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('子代理')
   })
@@ -136,17 +141,19 @@ describe('DesktopHome 项目拖拽排序', () => {
     sidebarWrapper.unmount()
   })
 
-  it('打开探索菜单后可访问站点、自定义和低频工具，选择工具后自动收起', async () => {
+  it('打开探索菜单后只保留子代理、工具和服务进程，选择工具后自动收起', async () => {
     await flushPromises()
     await wrapper.find('.desktop-more-button').trigger('click')
 
     const moreMenu = wrapper.find('.desktop-footer-more-menu')
     expect(moreMenu.exists()).toBe(true)
-    expect(moreMenu.text()).toContain('站点')
-    expect(moreMenu.text()).toContain('自定义')
     expect(moreMenu.text()).toContain('子代理')
     expect(moreMenu.text()).toContain('工具')
-    expect(moreMenu.text()).toContain('深色模式')
+    expect(moreMenu.findAll('.desktop-explore-item')).toHaveLength(2)
+    expect(moreMenu.findComponent(ServiceProcessManager).exists()).toBe(true)
+    expect(moreMenu.text()).not.toContain('站点')
+    expect(moreMenu.text()).not.toContain('自定义')
+    expect(moreMenu.text()).not.toContain('深色模式')
 
     const toolsButton = moreMenu.findAll('.desktop-footer-more-item').find((button) => button.text().trim() === '工具')
     await toolsButton.trigger('click')
@@ -160,7 +167,7 @@ describe('DesktopHome 项目拖拽排序', () => {
     expect(wrapper.find('.desktop-footer-more-menu').exists()).toBe(true)
 
     await wrapper.findAll('.desktop-project-footer-menu > button')[0].trigger('click')
-    expect(wrapper.emitted('open-requirement-board')).toBeTruthy()
+    expect(wrapper.emitted('open-skills')).toBeTruthy()
     expect(wrapper.find('.desktop-footer-more-menu').exists()).toBe(false)
   })
 
@@ -906,7 +913,102 @@ describe('DesktopHome 项目与会话层级', () => {
   })
 })
 
+describe('DesktopHome 会话状态图标', () => {
+  let wrapper
+  const recentMtime = Date.now()
+  const sessions = [
+    {name: 'running', title: '你好', messageCount: 2, mtime: recentMtime},
+    {name: 'completed', title: '回应问候', messageCount: 2, mtime: recentMtime - 1000},
+    {name: 'empty', title: '新会话', messageCount: 0, mtime: recentMtime - 2000},
+    {name: 'old-completed', title: '旧会话', messageCount: 2, mtime: recentMtime - 2 * 24 * 60 * 60 * 1000}
+  ]
+
+  beforeEach(() => {
+    window.localStorage.removeItem('loopra.desktop.session-read-state')
+    sessionsAPI.list.mockImplementation(async (hash) => ({
+      success: true,
+      data: hash === 'h1' ? sessions : []
+    }))
+    agentAPI.getSessionStatus.mockImplementation(async (_workspaceHash, sessionName) => ({
+      success: true,
+      data: {running: sessionName === 'running'}
+    }))
+    wrapper = mountHome({sidebarOnly: true})
+  })
+
+  afterEach(() => {
+    wrapper.unmount()
+    window.localStorage.removeItem('loopra.desktop.session-read-state')
+  })
+
+  it('运行中的会话显示动态图标，已完成会话显示彩色小点，空会话不显示状态', async () => {
+    await flushPromises()
+    const rows = wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')
+
+    expect(rows[0].find('.desktop-session-status-running').exists()).toBe(true)
+    expect(rows[0].find('.desktop-session-status-completed').exists()).toBe(false)
+    expect(rows[1].find('.desktop-session-status-completed').exists()).toBe(true)
+    expect(rows[1].find('.desktop-session-status-completed').attributes('aria-label')).toBe('已完成')
+    expect(rows[2].find('.desktop-session-status').exists()).toBe(false)
+    expect(rows[3].find('.desktop-session-status').exists()).toBe(false)
+
+    await rows[1].trigger('click')
+    expect(rows[1].find('.desktop-session-status-completed').exists()).toBe(false)
+    expect(JSON.parse(window.localStorage.getItem('loopra.desktop.session-read-state'))).toEqual({
+      'h1:completed': {mtime: sessions[1].mtime, messageCount: 2}
+    })
+  })
+
+  it('输入框同步上报的运行状态优先于侧栏轮询结果', async () => {
+    wrapper.unmount()
+    agentAPI.getSessionStatus.mockResolvedValue({success: true, data: {running: false}})
+    wrapper = mountHome({
+      sidebarOnly: true,
+      liveSessionStatuses: {'h1:running': true}
+    })
+    await flushPromises()
+    const rows = wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')
+
+    expect(rows[0].find('.desktop-session-status-running').exists()).toBe(true)
+    expect(rows[0].find('.desktop-session-status-completed').exists()).toBe(false)
+  })
+
+  it('当前打开的已完成会话不显示彩色小点', async () => {
+    wrapper.unmount()
+    wrapper = mountHome({
+      sidebarOnly: true,
+      activeWorkspaceHash: 'h1',
+      activeSessionName: 'completed'
+    })
+    await flushPromises()
+    const rows = wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')
+
+    expect(rows[1].find('.desktop-session-status-completed').exists()).toBe(false)
+  })
+})
+
 describe('DesktopHome 左侧会话顺序', () => {
+  it('首条消息到达时先显示尚未落盘的乐观会话', async () => {
+    sessionsAPI.list.mockResolvedValue({success: true, data: []})
+    const wrapper = mountHome({
+      sidebarOnly: true,
+      optimisticSessions: [{
+        workspaceHash: 'h1',
+        name: 'loopra-new-session',
+        title: '你好啊',
+        messageCount: 1,
+        mtime: Date.now()
+      }]
+    })
+    await flushPromises()
+
+    const rows = wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].find('.desktop-session-name').text()).toBe('你好啊')
+
+    wrapper.unmount()
+  })
+
   it('激活会话后仍保留在原列表位置，只更新当前高亮', async () => {
     sessionsAPI.list.mockImplementation(async () => ({success: true, data: [
       {name: 's1', title: '会话一', mtime: 300},
@@ -929,6 +1031,53 @@ describe('DesktopHome 左侧会话顺序', () => {
     expect(sessionNames()).toEqual(['会话一', '会话二', '会话三'])
     expect(wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')[1].classes()).toContain('active')
     wrapper.unmount()
+  })
+})
+
+describe('DesktopHome 会话拖拽排序', () => {
+  let wrapper
+  const storageKey = 'loopra.desktop.session-order'
+  const sessions = [
+    {name: 's1', title: '会话一', mtime: 300},
+    {name: 's2', title: '会话二', mtime: 200},
+    {name: 's3', title: '会话三', mtime: 100}
+  ]
+
+  beforeEach(() => {
+    window.localStorage.removeItem(storageKey)
+    sessionsAPI.list.mockImplementation(async (hash) => ({
+      success: true,
+      data: hash === 'h1' ? sessions : []
+    }))
+    wrapper = mountHome({sidebarOnly: true})
+  })
+
+  afterEach(() => {
+    wrapper.unmount()
+    window.localStorage.removeItem(storageKey)
+  })
+
+  it('拖拽会话时保持列表位置，松手后按上下插入并记住顺序', async () => {
+    await flushPromises()
+    const group = wrapper.findAll('.desktop-project-group')[0]
+    const sessionRows = () => group.findAll('.desktop-session')
+
+    expect(sessionRows().map((row) => row.find('.desktop-session-name').text())).toEqual(['会话一', '会话二', '会话三'])
+
+    await sessionRows()[0].trigger('dragstart')
+    expect(sessionRows()[0].classes()).toContain('dragging')
+
+    const target = sessionRows()[2]
+    mockRect(target.element, {top: 0, height: 32})
+    dispatchDragEvent(target.element, 'dragover', 40)
+    await flushPromises()
+
+    expect(sessionRows().map((row) => row.find('.desktop-session-name').text())).toEqual(['会话一', '会话二', '会话三'])
+    expect(target.classes()).toContain('drag-over-after')
+
+    await target.trigger('drop')
+    expect(sessionRows().map((row) => row.find('.desktop-session-name').text())).toEqual(['会话二', '会话三', '会话一'])
+    expect(JSON.parse(window.localStorage.getItem(storageKey))).toEqual({h1: ['s2', 's3', 's1']})
   })
 })
 

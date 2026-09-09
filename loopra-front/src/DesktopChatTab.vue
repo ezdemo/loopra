@@ -192,8 +192,8 @@
           :environment-switch-target="environmentSwitchTarget"
           :workspaces="workspaces"
           @switch-workspace="switchWorkspace"
-          @session-updated="refreshTabTitle"
-          @session-active-change="sessionActive = $event"
+          @session-updated="onSessionUpdated"
+          @session-active-change="onSessionActiveChange"
           @initial-load-complete="initialLoading = false"
           @welcome-change="onWelcomeChange"
           @environment-mode-change="setWelcomeEnvironmentMode"
@@ -732,6 +732,32 @@ async function refreshTabTitle() {
   }
 }
 
+async function onSessionUpdated(updatedSessionName = sessionName, optimistic = false) {
+  if (updatedSessionName && updatedSessionName !== sessionName) return
+  window.electronAPI?.desktopChatTabs?.reportSessionUpdated?.({
+    tabId,
+    sessionName,
+    workspaceHash: workspaceHash.value,
+    optimistic: optimistic === true
+  })
+  await refreshTabTitle()
+}
+
+function reportSessionStatus(running) {
+  window.electronAPI?.desktopChatTabs?.reportSessionStatus?.({
+    tabId,
+    sessionName,
+    workspaceHash: workspaceHash.value,
+    running
+  })
+}
+
+function onSessionActiveChange(active) {
+  const running = Boolean(active)
+  sessionActive.value = running
+  reportSessionStatus(running)
+}
+
 async function loadSessions() {
   if (!workspaceHash.value) { sessions.value = []; return }
   try {
@@ -1002,6 +1028,7 @@ function requestModelSettings() {
 }
 
 onBeforeUnmount(() => {
+  reportSessionStatus(null)
   stopRightPanelListener?.()
   stopFilePanelListener?.()
   stopTerminalListener?.()

@@ -1161,6 +1161,8 @@ public class LoopraConfig implements AgentConfig {
             String name = trim(Objects.toString(input.get("name"), ""));
             String baseUrl = trim(Objects.toString(input.get("baseUrl"), ""));
             String apiKey = trim(Objects.toString(input.get("apiKey"), ""));
+            String copyFromId = trim(Objects.toString(input.get("copyFromId"), ""));
+            ModelChannel copySource = existing.get(copyFromId);
             String rawApiProtocol = input.containsKey("apiProtocol")
                     ? Objects.toString(input.get("apiProtocol"), "")
                     : previous != null ? previous.apiProtocol() : "chat_completions";
@@ -1168,7 +1170,10 @@ public class LoopraConfig implements AgentConfig {
             String specialCompatibility = input.containsKey("specialCompatibility")
                     ? normalizeSpecialCompatibility(Objects.toString(input.get("specialCompatibility"), ""))
                     : previous != null ? previous.specialCompatibility() : "";
-            if ((apiKey.isEmpty() || apiKey.contains("****")) && previous != null) apiKey = previous.apiKey();
+            if (apiKey.isEmpty() || apiKey.contains("****")) {
+                if (previous != null) apiKey = previous.apiKey();
+                else if (copySource != null) apiKey = copySource.apiKey();
+            }
             List<ModelEntry> models = modelEntries(input.get("models"));
             Map<String, Object> channel = new LinkedHashMap<>();
             channel.put("id", id);

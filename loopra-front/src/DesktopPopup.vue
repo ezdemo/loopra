@@ -15,15 +15,6 @@
       @mousedown.stop
       @contextmenu.prevent
     >
-      <button class="desktop-popup-menu-item" type="button" role="menuitem" @click="send('open-skills')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
-        <span>站点</span>
-      </button>
-      <button class="desktop-popup-menu-item" type="button" role="menuitem" @click="send('open-settings')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg, #fff)"/><circle cx="15" cy="17" r="2" fill="var(--bg, #fff)"/></svg>
-        <span>自定义</span>
-      </button>
-      <div class="desktop-popup-divider"></div>
       <button class="desktop-popup-menu-item" type="button" role="menuitem" @click="send('open-sub-agents')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2A4 4 0 0 1 21 18v1"/></svg>
         <span>子代理</span>
@@ -33,11 +24,6 @@
         <span>工具</span>
       </button>
       <ServiceProcessManager placement="bottom" :show-label="true" />
-      <button class="desktop-popup-menu-item" type="button" role="menuitem" @click="send('toggle-theme')">
-        <svg v-if="theme === 'dark'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.2 14.1A8.5 8.5 0 1 1 9.9 3.8 8.5 8.5 0 0 0 20.2 14.1Z"/></svg>
-        <span>{{ theme === 'dark' ? '浅色模式' : '深色模式' }}</span>
-      </button>
     </section>
 
     <section

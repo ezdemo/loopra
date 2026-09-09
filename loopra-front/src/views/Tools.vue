@@ -39,72 +39,27 @@
       </div>
     </div>
     
-    <!-- 统计卡片 -->
-    <div class="stats-grid">
+    <!-- 概览 -->
+    <div class="stats-grid" aria-label="工具概览">
       <div class="stat-card">
-        <div class="stat-icon total">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/>
-            <line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ tools.length }}</div>
-          <div class="stat-label">总工具数</div>
-        </div>
+        <span class="stat-label">工具总数</span>
+        <strong class="stat-value">{{ tools.length }}</strong>
       </div>
-      
       <div class="stat-card">
-        <div class="stat-icon readonly">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ readonlyToolsCount }}</div>
-          <div class="stat-label">只读工具</div>
-        </div>
+        <span class="stat-label">只读</span>
+        <strong class="stat-value">{{ readonlyToolsCount }}</strong>
       </div>
-      
       <div class="stat-card">
-        <div class="stat-icon write">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ writeToolsCount }}</div>
-          <div class="stat-label">写入工具</div>
-        </div>
+        <span class="stat-label">写入</span>
+        <strong class="stat-value">{{ writeToolsCount }}</strong>
       </div>
-      
       <div class="stat-card">
-        <div class="stat-icon exempt">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ stormExemptCount }}</div>
-          <div class="stat-label">风暴豁免</div>
-        </div>
+        <span class="stat-label">风暴豁免</span>
+        <strong class="stat-value">{{ stormExemptCount }}</strong>
       </div>
-      
-      <div class="stat-card disabled-stat">
-        <div class="stat-icon disabled">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="15" y1="9" x2="9" y2="15"/>
-            <line x1="9" y1="9" x2="15" y2="15"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <div class="stat-value">{{ disabledToolsCount }}</div>
-          <div class="stat-label">已禁用</div>
-        </div>
+      <div class="stat-card">
+        <span class="stat-label">已停用</span>
+        <strong class="stat-value">{{ disabledToolsCount }}</strong>
       </div>
     </div>
     
@@ -117,7 +72,6 @@
         :class="{ active: activeFilter === filter.value }"
         @click="activeFilter = filter.value"
       >
-        <span class="filter-icon">{{ filter.icon }}</span>
         <span class="filter-label">{{ filter.label }}</span>
         <span class="filter-count">{{ getFilterCount(filter.value) }}</span>
       </button>
@@ -174,10 +128,9 @@
                 </svg>
               </div>
               <div class="tool-details">
-                <div class="tool-name">
-                  {{ tool.name }}
+                <div class="tool-name-line">
+                  <span class="tool-name">{{ tool.name }}</span>
                   <span v-if="!tool.enabled" class="badge disabled">已禁用</span>
-                  <span v-if="tool.autoApproved" class="badge auto-approved">自动放行</span>
                 </div>
                 <div class="tool-badges">
                   <span v-if="tool.readonly" class="badge readonly">只读</span>
@@ -188,44 +141,46 @@
               </div>
             </div>
             <div class="tool-actions" @click.stop>
-              <button 
-                class="toggle-btn"
+              <button
+                type="button"
+                class="tool-control"
                 :class="{ enabled: tool.enabled }"
+                :aria-pressed="tool.enabled"
                 :disabled="togglingTool === tool.name"
                 @click="toggleTool(tool)"
-                :title="tool.enabled ? '禁用此工具' : '启用此工具'"
+                :title="tool.enabled ? '停用此工具' : '启用此工具'"
               >
-                <div class="toggle-track">
-                  <div class="toggle-thumb"></div>
-                </div>
+                <span class="tool-control-label">启用工具</span>
+                <span class="tool-control-state">{{ tool.enabled ? '已启用' : '已停用' }}</span>
               </button>
-              <button 
-                class="toggle-btn auto-toggle"
+              <button
+                type="button"
+                class="tool-control auto-control"
                 :class="{ enabled: tool.autoApproved }"
+                :aria-pressed="tool.autoApproved"
                 :disabled="togglingTool === tool.name"
                 @click="toggleAutoTool(tool)"
-                title="自动放行"
+                :title="tool.autoApproved ? '关闭自动放行，恢复审批' : '开启自动放行，无需审批'"
               >
-                <div class="toggle-track auto-track">
-                  <div class="toggle-thumb"></div>
-                </div>
+                <span class="tool-control-label">自动放行</span>
+                <span class="tool-control-state">{{ tool.autoApproved ? '已开启' : '需确认' }}</span>
               </button>
-              <svg 
-                width="16" 
-                height="16" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                stroke-width="2"
-                class="expand-icon"
+              <button
+                class="tool-expand"
+                type="button"
                 :class="{ expanded: expandedTools.includes(tool.name) }"
+                :aria-expanded="expandedTools.includes(tool.name)"
+                :aria-label="expandedTools.includes(tool.name) ? `收起 ${tool.name} 详情` : `展开 ${tool.name} 详情`"
+                @click.stop="toggleDetails(tool.name)"
               >
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
             </div>
           </div>
           
-          <div class="tool-description">{{ tool.description }}</div>
+          <div class="tool-description" :title="tool.description">{{ tool.description }}</div>
           
           <div v-if="expandedTools.includes(tool.name)" class="tool-expanded">
             <div class="tool-section classification-setting">
@@ -317,12 +272,12 @@ const togglingTool = ref('')
 
 // 筛选器配置
 const filters = [
-  { label: '全部', value: 'all', icon: '🔧' },
-  { label: '只读', value: 'readonly', icon: '👁' },
-  { label: '写入', value: 'write', icon: '✏️' },
-  { label: '豁免', value: 'exempt', icon: '🛡' },
-  { label: '已禁用', value: 'disabled', icon: '🚫' },
-  { label: '自动放行', value: 'autoApproved', icon: '⚡' },
+  { label: '全部', value: 'all' },
+  { label: '只读', value: 'readonly' },
+  { label: '写入', value: 'write' },
+  { label: '豁免', value: 'exempt' },
+  { label: '已停用', value: 'disabled' },
+  { label: '自动放行', value: 'autoApproved' },
 ]
 
 // 计算属性
@@ -559,8 +514,11 @@ onMounted(() => {
 
 <style scoped>
 .tools-view {
-  padding: var(--space-6);
-  max-width: 1200px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 18px 22px 24px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -569,15 +527,17 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-6);
-  padding-bottom: var(--space-4);
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: 12px;
+  min-width: 0;
 }
 
 .header-title {
@@ -588,26 +548,31 @@ onMounted(() => {
 }
 
 .header-title svg {
+  width: 22px;
+  height: 22px;
   color: var(--brand-primary);
 }
 
 .header-title h2 {
-  font-size: var(--text-2xl);
+  margin: 0;
+  font-size: var(--text-xl);
   font-weight: var(--font-bold);
 }
 
 .tool-count {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   color: var(--fg-muted);
   background: var(--bg-tertiary);
-  padding: 0.25rem 0.75rem;
+  padding: 0.25rem 0.6rem;
   border-radius: var(--radius-full);
+  white-space: nowrap;
 }
 
 .header-actions {
   display: flex;
-  gap: var(--space-3);
+  gap: 8px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 /* 刷新按钮 */
@@ -615,8 +580,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -661,7 +626,7 @@ onMounted(() => {
 }
 
 .search-input {
-  width: 280px;
+  width: 240px;
   padding: var(--space-2) var(--space-3) var(--space-2) var(--space-8);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -681,109 +646,89 @@ onMounted(() => {
 /* 统计卡片 */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-6);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  height: 52px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  margin-bottom: 14px;
 }
 
 .stat-card {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  transition: all var(--transition-fast);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.stat-card:last-child {
+  border-right: 0;
 }
 
 .stat-card:hover {
-  border-color: var(--border-focus);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-}
-
-.stat-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.stat-icon.total {
-  background: var(--accent-soft);
-  color: var(--brand-primary);
-}
-
-.stat-icon.readonly {
-  background: var(--success-bg);
-  color: var(--success);
-}
-
-.stat-icon.write {
-  background: var(--warning-bg);
-  color: var(--warning);
-}
-
-.stat-icon.exempt {
-  background: var(--info-bg);
-  color: var(--info);
-}
-
-.stat-content {
-  flex: 1;
+  background: var(--bg-secondary);
 }
 
 .stat-value {
-  font-size: var(--text-xl);
+  font-size: 16px;
   font-weight: var(--font-bold);
   color: var(--fg);
   line-height: 1.2;
 }
 
 .stat-label {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   color: var(--fg-muted);
-  margin-top: 0.25rem;
+  white-space: nowrap;
 }
 
 /* 筛选器 */
 .filters {
-  display: flex;
-  gap: var(--space-2);
-  margin-bottom: var(--space-6);
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(6, 96px);
+  gap: 2px;
+  padding: 3px;
+  height: 42px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  margin-bottom: 14px;
 }
 
 .filter-btn {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
+  justify-content: space-between;
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: var(--text-xs);
   color: var(--fg-secondary);
   transition: all var(--transition-fast);
 }
 
 .filter-btn:hover {
   background: var(--surface-hover);
-  border-color: var(--fg-muted);
 }
 
 .filter-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--brand-primary);
-  color: var(--brand-primary);
-}
-
-.filter-icon {
-  font-size: 14px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
 }
 
 .filter-label {
@@ -793,19 +738,16 @@ onMounted(() => {
 .filter-count {
   font-size: var(--text-xs);
   color: var(--fg-muted);
-  background: var(--bg-tertiary);
-  padding: 0.125rem 0.375rem;
-  border-radius: var(--radius-full);
+  padding: 0;
 }
 
 .filter-btn.active .filter-count {
-  background: rgba(99, 102, 241, 0.2);
-  color: var(--brand-primary);
+  color: var(--fg-2);
 }
 
 /* 工具容器 */
 .tools-container {
-  margin-bottom: var(--space-6);
+  margin-bottom: 0;
 }
 
 /* 加载状态 */
@@ -881,14 +823,17 @@ onMounted(() => {
 .tools-grid {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: 8px;
 }
 
 /* 工具卡片 */
 .tool-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: 8px;
   overflow: hidden;
   transition: all var(--transition-fast);
 }
@@ -899,8 +844,12 @@ onMounted(() => {
 }
 
 .tool-card.expanded {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--fg-muted);
+  box-shadow: none;
+}
+
+.tool-card:not(.expanded) {
+  height: 112px;
 }
 
 /* 工具头部 */
@@ -908,7 +857,10 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-4);
+  height: 56px;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 10px 12px;
   cursor: pointer;
   transition: background var(--transition-fast);
 }
@@ -920,12 +872,14 @@ onMounted(() => {
 .tool-info {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
 .tool-icon {
-  width: 40px;
-  height: 40px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius);
   display: flex;
   align-items: center;
@@ -934,33 +888,45 @@ onMounted(() => {
 }
 
 .tool-icon.readonly {
-  background: var(--success-bg);
-  color: var(--success);
+  background: var(--bg-tertiary);
+  color: var(--fg-2);
 }
 
 .tool-icon.write {
-  background: var(--warning-bg);
-  color: var(--warning);
+  background: var(--bg-tertiary);
+  color: var(--fg-2);
 }
 
 .tool-icon.exempt {
-  background: var(--info-bg);
-  color: var(--info);
+  background: var(--bg-tertiary);
+  color: var(--fg-2);
 }
 
 .tool-icon.default {
-  background: var(--accent-soft);
-  color: var(--brand-primary);
+  background: var(--bg-tertiary);
+  color: var(--fg-2);
 }
 
 .tool-details {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 3px;
+  min-width: 0;
+}
+
+.tool-name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .tool-name {
-  font-size: var(--text-base);
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
   font-weight: var(--font-semibold);
   font-family: var(--font-mono);
   color: var(--fg);
@@ -969,23 +935,24 @@ onMounted(() => {
 .tool-badges {
   display: flex;
   gap: var(--space-1);
+  flex-wrap: wrap;
 }
 
 .badge {
-  font-size: var(--text-xs);
+  font-size: 10px;
   font-weight: var(--font-medium);
   padding: 0.125rem 0.375rem;
   border-radius: var(--radius-full);
 }
 
 .badge.readonly {
-  background: var(--success-bg);
-  color: var(--success);
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
 }
 
 .badge.write {
-  background: var(--warning-bg);
-  color: var(--warning);
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
 }
 
 .badge.override {
@@ -994,36 +961,60 @@ onMounted(() => {
 }
 
 .badge.exempt {
-  background: var(--info-bg);
-  color: var(--info);
+  background: var(--bg-tertiary);
+  color: var(--fg-secondary);
 }
 
-.expand-icon {
+.tool-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--fg-muted);
+  cursor: pointer;
   transition: transform var(--transition-fast);
 }
 
-.expand-icon.expanded {
+.tool-expand:hover {
+  background: var(--bg-tertiary);
+  color: var(--fg);
+}
+
+.tool-expand.expanded svg {
   transform: rotate(180deg);
 }
 
 /* 工具描述 */
 .tool-description {
-  padding: 0 var(--space-4) var(--space-4);
-  font-size: var(--text-sm);
+  display: -webkit-box;
+  height: 54px;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 0 14px 12px 52px;
   color: var(--fg-secondary);
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* 展开内容 */
 .tool-expanded {
-  padding: var(--space-4);
+  padding: 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-secondary);
 }
 
 .tool-section {
-  margin-bottom: var(--space-4);
+  margin-bottom: 12px;
 }
 
 .tool-section:last-child {
@@ -1034,10 +1025,10 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-sm);
+  font-size: 12px;
   font-weight: var(--font-semibold);
   color: var(--fg);
-  margin-bottom: var(--space-3);
+  margin-bottom: 8px;
 }
 
 .section-title svg {
@@ -1049,14 +1040,14 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: 10px;
   color: var(--fg-secondary);
-  font-size: var(--text-sm);
+  font-size: 12px;
 }
 
 .segmented-control {
   display: inline-grid;
-  grid-template-columns: repeat(3, 64px);
+  grid-template-columns: repeat(3, 56px);
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1064,7 +1055,7 @@ onMounted(() => {
 }
 
 .segmented-control button {
-  height: 28px;
+  height: 26px;
   padding: 0 10px;
   border: 0;
   border-radius: 4px;
@@ -1093,11 +1084,11 @@ onMounted(() => {
 .params-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
 .param-item {
-  padding: var(--space-3);
+  padding: 9px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1134,7 +1125,7 @@ onMounted(() => {
 }
 
 .param-description {
-  font-size: var(--text-sm);
+  font-size: 12px;
   color: var(--fg-secondary);
   line-height: 1.5;
 }
@@ -1149,14 +1140,14 @@ onMounted(() => {
 
 .code-block pre {
   margin: 0;
-  padding: var(--space-3);
+  padding: 9px;
   background: none;
   border: none;
 }
 
 .code-block code {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: 12px;
   color: var(--fg);
   background: none;
   padding: 0;
@@ -1169,15 +1160,15 @@ onMounted(() => {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
 .notes-list li {
-  padding: var(--space-3);
+  padding: 9px 9px 9px 26px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: var(--text-sm);
+  font-size: 12px;
   color: var(--fg-secondary);
   line-height: 1.5;
   position: relative;
@@ -1199,9 +1190,20 @@ onMounted(() => {
 }
 
 /* 响应式设计 */
+@media (max-width: 900px) {
+  .filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: auto;
+  }
+
+  .tool-actions {
+    gap: 6px;
+  }
+}
+
 @media (max-width: 768px) {
   .tools-view {
-    padding: var(--space-4);
+    padding: 14px;
   }
   
   .tools-header {
@@ -1216,30 +1218,65 @@ onMounted(() => {
   
   .search-input {
     width: 100%;
+    min-width: 0;
+  }
+
+  .search-box {
+    flex: 1;
+    min-width: 0;
   }
   
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
+    height: auto;
+    grid-auto-rows: 52px;
   }
   
   .filters {
-    flex-wrap: wrap;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
   }
   
   .filter-btn {
-    flex: 1;
-    min-width: calc(50% - var(--space-2));
-    justify-content: center;
+    flex: none;
+    min-width: 0;
+    justify-content: space-between;
   }
   
   .tool-header {
-    flex-direction: column;
-    gap: var(--space-3);
-    align-items: flex-start;
+    gap: 10px;
+    height: 92px;
+    min-height: 92px;
+    flex-wrap: wrap;
+    align-content: center;
+    align-items: center;
+    row-gap: 4px;
   }
-  
-  .expand-icon {
-    align-self: flex-end;
+
+  .tool-card:not(.expanded) {
+    height: 148px;
+  }
+
+  .tool-info {
+    flex: 1 1 100%;
+  }
+
+  .tool-actions {
+    width: 100%;
+  }
+
+  .tool-control {
+    width: 112px;
+    min-width: 112px;
+  }
+
+  .tool-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .tool-description {
+    padding-left: 14px;
   }
   
   .param-header {
@@ -1273,15 +1310,9 @@ onMounted(() => {
 
 /* ========== 禁用工具相关样式 ========== */
 
-/* 已禁用统计卡片 */
-.stat-icon.disabled {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
-
 /* 已禁用工具卡片 */
 .tool-card.disabled {
-  opacity: 0.6;
+  opacity: 0.72;
   border-color: var(--border-muted);
 }
 
@@ -1291,7 +1322,6 @@ onMounted(() => {
 }
 
 .tool-card.disabled .tool-name {
-  text-decoration: line-through;
   opacity: 0.7;
 }
 
@@ -1309,92 +1339,66 @@ onMounted(() => {
 .tool-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: flex-end;
+  width: 292px;
+  box-sizing: border-box;
+  gap: 8px;
   flex-shrink: 0;
 }
 
-/* 切换开关 */
-.toggle-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 2px;
-  display: flex;
+/* 带文案的工具状态控制 */
+.tool-control {
+  display: inline-flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 124px;
+  min-width: 124px;
+  height: 30px;
+  min-height: 30px;
+  box-sizing: border-box;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.toggle-btn:disabled {
-  opacity: 0.5;
+.tool-control:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--fg-muted);
+}
+
+.tool-control.enabled {
+  background: var(--bg-secondary);
+}
+
+.tool-control:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-.toggle-track {
-  width: 36px;
-  height: 20px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  position: relative;
-  transition: all var(--transition-fast);
+.tool-control:focus-visible,
+.tool-expand:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
 }
 
-.toggle-btn.enabled .toggle-track {
-  background: var(--success);
-  border-color: var(--success);
+.tool-control-label {
+  color: var(--fg-2);
 }
 
-.toggle-thumb {
-  width: 16px;
-  height: 16px;
-  background: white;
-  border-radius: 50%;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: all var(--transition-fast);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+.tool-control-state {
+  color: var(--fg-4);
 }
 
-.toggle-btn.enabled .toggle-thumb {
-  left: 18px;
+.tool-control.enabled .tool-control-state {
+  color: var(--fg-2);
 }
 
-.toggle-btn:hover .toggle-thumb {
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-}
-
-/* 自动放行开关样式 */
-.toggle-btn.auto-toggle .toggle-track.auto-track {
-  width: 30px;
-  height: 17px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-}
-
-.toggle-btn.auto-toggle.enabled .toggle-track.auto-track {
-  background: var(--brand-primary);
-  border-color: var(--brand-primary);
-}
-
-.toggle-btn.auto-toggle .toggle-thumb {
-  width: 13px;
-  height: 13px;
-  top: 2px;
-  left: 2px;
-}
-
-.toggle-btn.auto-toggle.enabled .toggle-thumb {
-  left: 15px;
-}
-
-/* 自动放行徽标 */
-.badge.auto-approved {
-  background: var(--accent-soft, #e8f4fd);
-  color: var(--brand-primary, #3b82f6);
-  font-size: 0.7rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: var(--radius-sm);
-  margin-left: 0.4rem;
-}
 </style>

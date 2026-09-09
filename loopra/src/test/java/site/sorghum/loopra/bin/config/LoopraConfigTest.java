@@ -441,6 +441,37 @@ class LoopraConfigTest {
     }
 
     @Test
+    void copiesApiKeyWhenSavingANewChannelFromAnExistingChannel() throws Exception {
+        Path configDir = tempDir.resolve(".loopra");
+        Files.createDirectories(configDir);
+        Files.writeString(configDir.resolve("config.json"), """
+                {"model":"main","modelChannelId":"main","modelChannels":[{
+                  "id":"main","name":"Main","baseUrl":"https://example.test","apiKey":"secret-key",
+                  "models":[{"name":"main"}]
+                }]}
+                """);
+
+        String originalUserHome = System.getProperty("user.home");
+        System.setProperty("user.home", tempDir.toString());
+        try {
+            LoopraConfig config = LoopraConfig.load();
+            config.updateAndSave(Map.of(
+                    "modelChannels", List.of(
+                            Map.of("id", "main", "name", "Main", "baseUrl", "https://example.test",
+                                    "apiKey", "****", "models", List.of(Map.of("name", "main"))),
+                            Map.of("id", "main-copy", "name", "Main - 副本", "baseUrl", "https://example.test",
+                                    "copyFromId", "main", "apiKey", "", "models", List.of(Map.of("name", "main")))
+                    )
+            ));
+
+            LoopraConfig saved = LoopraConfig.load();
+            assertEquals("secret-key", saved.modelChannel("main-copy").apiKey());
+        } finally {
+            System.setProperty("user.home", originalUserHome);
+        }
+    }
+
+    @Test
     void keepsLegacyRootPriceWhenChannelEntryHasNoPrice() throws Exception {
         LoopraConfig config = config("""
                 {"model":"configured-model","modelChannelId":"main","price":{"configured-model":{"input":1.25}},

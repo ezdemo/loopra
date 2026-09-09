@@ -115,6 +115,37 @@ describe('DesktopShell 设置布局', () => {
   })
 })
 
+describe('DesktopShell 模型设置入口', () => {
+  it('从聊天输入框的管理模型入口跳到设置里的模型渠道页', async () => {
+    const listeners = {}
+    const desktopChatTabs = {
+      create: vi.fn().mockResolvedValue({success: true}),
+      show: vi.fn().mockResolvedValue({success: true}),
+      hide: vi.fn().mockResolvedValue({success: true}),
+      close: vi.fn().mockResolvedValue({success: true})
+    }
+    window.electronAPI = {
+      desktopChatTabs,
+      events: {
+        listen: vi.fn((channel, callback) => {
+          listeners[channel] = callback
+          return vi.fn()
+        })
+      }
+    }
+
+    const {wrapper} = await mountShell()
+    listeners['desktop-shell-open-model-channels']()
+    await flushPromises()
+
+    expect(wrapper.vm.showSettings).toBe(true)
+    expect(wrapper.vm.settingsTab).toBe('model-channels')
+    expect(wrapper.vm.showModelChannels).toBe(false)
+
+    wrapper.unmount()
+  })
+})
+
 beforeEach(() => {
   configAPI.getConfig.mockResolvedValue({success: true, data: {modelChannelsConfigured: true}})
   configAPI.listWorkspaces.mockResolvedValue({success: true, data: [{hash: 'h1', name: 'A', path: '/p/a'}]})
@@ -134,17 +165,17 @@ afterEach(() => {
   else window.electronAPI = initialElectronAPI
 })
 
-describe('DesktopShell 更新按钮', () => {
-  it('始终保留通知入口，仅在检测到新版本时标记提醒', async () => {
+describe('DesktopShell 更新入口', () => {
+  it('不在侧边栏显示通知入口，但仍执行版本检查', async () => {
     systemAPI.checkLatestVersion.mockResolvedValueOnce({success: true, data: {hasNewVersion: false, latestVersion: '26.8.121'}})
     const {wrapper} = await mountShell()
-    expect(wrapper.find('.desktop-notification-button').exists()).toBe(true)
-    expect(wrapper.find('.desktop-notification-button').classes()).not.toContain('has-update')
+    expect(wrapper.find('.desktop-notification-button').exists()).toBe(false)
+    expect(systemAPI.checkLatestVersion).toHaveBeenCalled()
     wrapper.unmount()
 
     systemAPI.checkLatestVersion.mockResolvedValueOnce({success: true, data: {hasNewVersion: true, latestVersion: '26.8.122'}})
     const updated = await mountShell()
-    expect(updated.wrapper.find('.desktop-notification-button').classes()).toContain('has-update')
+    expect(updated.wrapper.find('.desktop-notification-button').exists()).toBe(false)
     updated.wrapper.unmount()
   })
 })
@@ -211,6 +242,72 @@ describe('DesktopShell 启动页', () => {
       newSession: true
     }))
     expect(desktopChatTabs.show).toHaveBeenCalledWith('h1:startup-session', expect.any(Object))
+
+    wrapper.unmount()
+  })
+})
+
+describe('DesktopShell 首条消息会话同步', () => {
+  it('收到聊天页的首条消息事件后立即把会话加入侧栏数据', async () => {
+    const listeners = {}
+    const desktopChatTabs = {
+      create: vi.fn().mockResolvedValue({success: true}),
+      show: vi.fn().mockResolvedValue({success: true}),
+      hide: vi.fn().mockResolvedValue({success: true}),
+      close: vi.fn().mockResolvedValue({success: true})
+    }
+    sessionsAPI.createNew.mockResolvedValue({
+      success: true,
+      data: {sessionName: 'new-session', workspaceHash: 'h1'}
+    })
+    window.electronAPI = {
+      desktopChatTabs,
+      events: {
+        listen: vi.fn((channel, callback) => {
+          listeners[channel] = callback
+          return vi.fn()
+        })
+      }
+    }
+
+    const {wrapper} = await mountShell()
+    await vi.waitFor(() => expect(wrapper.vm.activeTabId).toBe('h1:new-session'))
+    const previousRefreshKey = wrapper.vm.homeRefreshKey
+
+    listeners['desktop-chat-tab-session-updated']({
+      tabId: 'h1:new-session',
+      sessionName: 'new-session',
+      workspaceHash: 'h1',
+      optimistic: true
+    })
+    await nextTick()
+
+    expect(wrapper.vm.optimisticSessions).toEqual([
+      expect.objectContaining({
+        name: 'new-session',
+        workspaceHash: 'h1',
+        messageCount: 1
+      })
+    ])
+    expect(wrapper.vm.homeRefreshKey).toBe(previousRefreshKey + 1)
+
+    listeners['desktop-chat-tab-session-status']({
+      tabId: 'h1:new-session',
+      sessionName: 'new-session',
+      workspaceHash: 'h1',
+      running: true
+    })
+    await nextTick()
+    expect(wrapper.vm.liveSessionStatuses).toEqual({'h1:new-session': true})
+
+    listeners['desktop-chat-tab-session-status']({
+      tabId: 'h1:new-session',
+      sessionName: 'new-session',
+      workspaceHash: 'h1',
+      running: null
+    })
+    await nextTick()
+    expect(wrapper.vm.liveSessionStatuses).toEqual({})
 
     wrapper.unmount()
   })
