@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Solon-4.0.6-important?logo=java" alt="Solon 4.0.6"/>
   <img src="https://img.shields.io/badge/Vue-3.4-4FC08D?logo=vue.js" alt="Vue 3"/>
   <img src="https://img.shields.io/badge/Electron-42.4-47848F?logo=electron" alt="Electron"/>
-  <img src="https://img.shields.io/badge/version-26.8.243-lightgrey" alt="Version 26.8.243"/>
+  <img src="https://img.shields.io/badge/version-26.9.91-lightgrey" alt="Version 26.9.91"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"/>
 </p>
 
@@ -26,7 +26,7 @@
   <a href="#从源码开发">从源码开发</a>
 </p>
 
-> 当前版本：`26.8.243`。完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+> 当前版本：`26.9.91`。完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 技术交流群
 
@@ -170,6 +170,8 @@ loopra web 0
 
 `models` 兼容旧版字符串数组。每个模型条目还可配置 `contextTokens`、`maxTokens`、`imageInput` 和 `price`；其中 `maxTokens` 是该模型单次请求的最大输出 token 数，包含推理 token，Chat Completions 映射为 `max_tokens`，Responses 映射为 `max_output_tokens`。未配置时使用默认值 32768。若当前模型的 `imageInput` 为 `false`，可在模型渠道页选择 `imageUnderstandingModel` 与 `imageUnderstandingModelChannelId`，由该模型先把 `read_image` 的图片转换为文字，再交给当前模型继续处理。`read_image` 的 `prompt` 参数用于描述本次识别任务，例如要求提取 OCR、定位报错或读取表格数值。
 
+除全局默认模型外，每个会话可单独选择模型、渠道与推理强度（聊天页会话栏的模型选择器），选择持久化在服务端会话元数据中，重开或切换会话时自动恢复；未选择过时使用全局默认值。
+
 ## 核心能力
 
 | 能力 | 说明 |
@@ -178,6 +180,7 @@ loopra web 0
 | 上下文管理 | JSONL 会话持久化、自动摘要折叠、消息自愈和 token 用量统计。 |
 | 多模型渠道 | 支持多渠道、Chat Completions API、OpenCode 兼容网关、OpenAI Responses API、Anthropic Messages API、推理强度和模型能力配置。 |
 | 可扩展工具系统 | 内核基于 cutin 插件化框架，插件支持热插拔、可在设置页管理运行时，并通过 `/plugin add` 一行命令从 jar 直链或本地路径安装外置插件；工具经 Solon `@ToolMapping` 声明式注册，支持内置工具、MCP、OpenAPI、技能和 REST API。 |
+| 拓展包体系 | 基于 Solon H-SPI 的拓展包（ExtPack）机制：安装 jar 即扩展 Agent 工具与拦截能力，设置页可粘贴 jar 地址/本地路径安装，并支持启用/停用与卸载（`~/.loopra/extpacks`）；附 `loopra-extra-demo` 示例工程。 |
 | 代码库操作 | 在项目边界内读取、搜索、编辑文件，运行一次性或交互式命令。 |
 | 子代理协作 | 内置 `explore`、`implement`、`test`、`review`、`plan` 五种角色，支持隔离上下文、权限约束和超时控制；配置可在桌面端编辑并持久化，支持选择渠道模型。 |
 | 计划模式 | 输入框一键进入只读探索，探索完成后提交计划供用户审查，批准后按计划执行。 |
@@ -185,7 +188,7 @@ loopra web 0
 | 需求池 | 以看板管理需求，支持 AI 自动执行、评论与执行日志、立即/定时执行，以及按需求配置模型和审批模式。 |
 | 持久协作状态 | Checklist、会话级 Goal、项目记忆和共享上下文支持长任务及父子代理协作。 |
 | 审批与边界 | 三态 HITL、工具白名单、路径边界保护，以及可选的独立校验模型。 |
-| 桌面工作台 | Electron Desktop 提供多聊天标签、文件资源管理器（实时监听磁盘变化）、Monaco 文件编辑器（含 Git 脏文件差异对比）、终端面板（node-pty，支持垂直/水平模式）、环境信息与 Git 操作面板、活动栏、元素检查、服务进程管理、AI 浏览器、需求池窗口和右键上下文操作。 |
+| 桌面工作台 | Electron Desktop 提供多聊天标签、文件资源管理器（实时监听磁盘变化）、Monaco 文件编辑器（含 Git 脏文件差异对比）、终端面板（node-pty，支持垂直/水平模式）、环境信息与 Git 操作面板、活动栏、元素检查、服务进程管理、AI 浏览器、需求池窗口、子代理会话面板（回放与续聊）与全局聊天搜索；会话/首页浮层菜单与原生标题栏、左侧边栏可拖拽调整宽度。 |
 
 ### 工具与扩展
 

@@ -5,7 +5,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$VERSION = "v26.8.243"
+$VERSION = "v26.9.91"
 # 下载地址：优先使用用户指定的镜像（LOOPRA_MIRROR），未指定时默认 gh-proxy.org
 $MIRROR = $env:LOOPRA_MIRROR
 if (-not $MIRROR) { $MIRROR = "https://gh-proxy.org/" }

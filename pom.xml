@@ -19,7 +19,7 @@
 
     <properties>
         <cutin.version>1.0-SNAPSHOT</cutin.version>
-        <loopra.version>26.8.243</loopra.version>
+        <loopra.version>26.9.91</loopra.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-VERSION="v26.8.243"
+VERSION="v26.9.91"
 # 下载地址：优先使用用户指定的镜像（LOOPRA_MIRROR），未指定时默认 gh-proxy.org
 if [ -n "$LOOPRA_MIRROR" ]; then
     MIRROR="$LOOPRA_MIRROR"
