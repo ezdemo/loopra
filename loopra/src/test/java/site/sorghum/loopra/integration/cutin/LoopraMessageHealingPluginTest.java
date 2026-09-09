@@ -16,6 +16,7 @@ import site.sorghum.cutin.core.model.ModelProvider;
 import site.sorghum.cutin.core.model.ModelResponse;
 import site.sorghum.cutin.core.model.StreamChunk;
 import site.sorghum.cutin.core.plugin.PluginBeanManager;
+import site.sorghum.cutin.core.tool.ToolCall;
 import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraMessageHealingPlugin;
 
 import java.util.List;
@@ -57,6 +58,68 @@ class LoopraMessageHealingPluginTest {
         Message healed = captured.get().messages().get(1);
         assertEquals("", healed.content());
         assertEquals("thinking", healed.metadata("reasoning_content"));
+    }
+
+    @Test
+    void deduplicatesAssistantCallIdsAndKeepsToolResultsPaired() {
+        AtomicReference<ModelCallRequest> captured = new AtomicReference<>();
+        DefaultLoopEngine engine = new DefaultLoopEngine();
+        engine.addModelProvider(new CapturingProvider(captured));
+        PluginBeanManager plugins = new PluginBeanManager(engine.registrar());
+        plugins.registerPlugin(new LoopraMessageHealingPlugin());
+        plugins.startAll();
+
+        ToolCall first = new ToolCall("call-1", "bash", Map.of(), "call-1");
+        ToolCall duplicate = new ToolCall("call-1", "bash", Map.of(), "call-1");
+        List<Message> dirty = List.of(
+            new Message("user", "start"),
+            new Message("assistant", null, null, List.of(first)),
+            new Message("tool", "timeout-1", "call-1", List.of()),
+            new Message("assistant", null, null, List.of(duplicate)),
+            // 复现旧清洗器留下的状态：tool 结果已有后缀，但 assistant call 仍重复。
+            new Message("tool", "timeout-2", "call-1_dedup_0", List.of())
+        );
+        LoopProgram program = LoopProgram.builder("message-healing-duplicates")
+            .node("model", NodeType.MODEL, Steps.modelFromContext("capture"))
+            .node("out", NodeType.OUTPUT, ignored -> StepResult.Exit.INSTANCE)
+            .next("model", "out")
+            .start("model")
+            .build();
+
+        engine.run(program, engine.newContext(
+            "ctx-duplicates",
+            dirty,
+            Map.of(),
+            Budget.unlimited(),
+            null
+        )).result().join();
+
+        List<Message> healed = captured.get().messages();
+        assertEquals(List.of("call-1", "call-1_dedup_0"), assistantCallIds(healed));
+        assertEquals(List.of("call-1", "call-1_dedup_0"), toolResultIds(healed));
+        assertEquals(List.of("timeout-1", "timeout-2"), toolResultContents(healed));
+    }
+
+    private static List<String> assistantCallIds(List<Message> messages) {
+        return messages.stream()
+            .filter(Message::hasToolCalls)
+            .flatMap(message -> message.toolCalls().stream())
+            .map(ToolCall::id)
+            .toList();
+    }
+
+    private static List<String> toolResultIds(List<Message> messages) {
+        return messages.stream()
+            .filter(message -> "tool".equals(message.role()))
+            .map(Message::toolCallId)
+            .toList();
+    }
+
+    private static List<String> toolResultContents(List<Message> messages) {
+        return messages.stream()
+            .filter(message -> "tool".equals(message.role()))
+            .map(Message::content)
+            .toList();
     }
 
     private record CapturingProvider(AtomicReference<ModelCallRequest> captured) implements ModelProvider {

@@ -1184,6 +1184,10 @@ public class AgentLoop implements
         if (toolCalls == null || !toolCalls.isArray() || toolCalls.getArray().isEmpty()) {
             return null;
         }
+        // HITL 暂存的响应稍后会在独立的 tool 节点重放；先按当前历史归一化，
+        // 避免审批期间把模型重放的旧 call_id 原样带入 provider。
+        toolCalls = MessageHealer.normalizeIncomingToolCallIds(
+                toolCalls, messagesForToolCallNormalization());
         String content = response.message().content();
         String reasoning = metadataString(response.message(), "reasoning_content");
         if (!hitlManager.isHitlMode() || !hitlManager.requiresHITL(toolCalls)) {
@@ -1234,6 +1238,11 @@ public class AgentLoop implements
     private static String metadataString(site.sorghum.cutin.core.context.Message message, String key) {
         Object value = message.metadata(key);
         return value == null ? null : String.valueOf(value);
+    }
+
+    /** 获取用于新模型工具调用 ID 分配的当前历史；兼容无上下文的轻量测试入口。 */
+    private List<ChatMessage> messagesForToolCallNormalization() {
+        return ctx == null ? List.of() : ctx.buildMessages();
     }
 
     private String buildToolInstructions() {
@@ -1499,7 +1508,9 @@ public class AgentLoop implements
         suspendedCutinState = null;
         discardFinishRequest();
         if (sandboxState != null) {
-            List<ToolCallEntry> tcList = parseToolCallsFromONode(sandboxState.toolCalls());
+            ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
+                    sandboxState.toolCalls(), messagesForToolCallNormalization());
+            List<ToolCallEntry> tcList = parseToolCallsFromONode(normalizedToolCalls);
             ctx.addAssistant(sandboxState.content(), tcList, sandboxState.reasoningContent());
         }
         String denyMsg = "沙箱越界已被用户拒绝。";
@@ -1583,6 +1594,8 @@ public class AgentLoop implements
         context.addUsage(snapshot.usage());
 
         ONode toolCalls = scavengeToolCalls(snapshot.toolCalls(), snapshot.reasoningContent(), snapshot.content());
+        toolCalls = MessageHealer.normalizeIncomingToolCallIds(
+                toolCalls, messagesForToolCallNormalization());
         boolean hasToolCalls = toolCalls != null && toolCalls.isArray() && !toolCalls.getArray().isEmpty();
         if (!hasToolCalls) {
             ChatMessage noTool = ChatMessage.assistant(snapshot.content(), null, snapshot.reasoningContent());
@@ -1641,6 +1654,11 @@ public class AgentLoop implements
         if (snapshot == null) {
             return new StepResult.Fail("missing loopra model snapshot");
         }
+        // 防御 HITL re-entry / 重试等非标准入口：工具执行和 assistant 历史必须使用同一批
+        // 归一化后的 ID，否则 provider 会把两个 assistant function_call 视为同一个调用。
+        snapshot = snapshot.withToolCalls(
+                MessageHealer.normalizeIncomingToolCallIds(
+                        snapshot.toolCalls(), messagesForToolCallNormalization()));
         ToolExecutionResult ter = executeToolCalls(snapshot.toolCalls(), context);
         InterceptionResult afterBatch = cutinEngine.intercept(
                 InterceptPoint.AFTER_TOOL_BATCH,
@@ -1689,13 +1707,15 @@ public class AgentLoop implements
 
     private StepResult replaySandboxToolStep(DefaultLoopContext context,
                                              HitlManager.PendingSandboxState sandboxState) {
-        List<ToolCallEntry> tcList = parseToolCallsFromONode(sandboxState.toolCalls());
+        ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
+                sandboxState.toolCalls(), messagesForToolCallNormalization());
+        List<ToolCallEntry> tcList = parseToolCallsFromONode(normalizedToolCalls);
         ctx.addAssistant(sandboxState.content(), tcList, sandboxState.reasoningContent());
         reasonBreaker.reset();
         stormBreaker.reset();
         resetUserAbort();
 
-        ToolExecutionResult ter = executeToolCalls(sandboxState.toolCalls(), context);
+        ToolExecutionResult ter = executeToolCalls(normalizedToolCalls, context);
         InterceptionResult afterBatch = cutinEngine.intercept(
                 InterceptPoint.AFTER_TOOL_BATCH,
                 "tool",

@@ -14,56 +14,6 @@
       <span class="desktop-chat-global-loading-spinner" aria-hidden="true"></span>
       <span>正在加载会话…</span>
     </div>
-    <aside
-      class="desktop-files-left"
-      :class="{ collapsed: !leftPanelOpen }"
-      :style="leftPanelOpen ? { width: `${leftPanelWidth}px`, transition: leftPanelDragging ? 'none' : undefined } : null"
-      :aria-label="leftPanelView === 'environment' ? '环境信息' : leftPanelView === 'sub-agents' ? '子代理' : leftPanelView === 'project-capabilities' ? '项目能力' : '项目文件'"
-    >
-      <FileExplorer
-        v-if="filePanelMounted"
-        v-show="leftPanelView === 'files'"
-        ref="fileExplorerRef"
-        :root-path="activeWorkspacePath"
-        :workspace-hash="workspaceHash"
-        @add-to-session="addFileToSession"
-        @open-file="openFileTab"
-        @file-deleted="onFileDeleted"
-        @file-renamed="onFileRenamed"
-      />
-      <EnvironmentPanel
-        v-if="environmentPanelMounted"
-        v-show="leftPanelView === 'environment'"
-        ref="environmentPanelRef"
-        :workspace-hash="workspaceHash || ''"
-        :session-name="sessionName"
-        @mode-change="welcomeWorktreeMode = $event"
-        @close="leftPanelOpen = false"
-      />
-      <SubAgentPanel
-        v-if="subAgentPanelMounted"
-        v-show="leftPanelView === 'sub-agents'"
-        ref="subAgentPanelRef"
-        :workspace-hash="workspaceHash"
-        :session-name="sessionName"
-        @open="openSubAgentTab"
-        @removed="onSubAgentRemoved"
-      />
-      <ProjectCapabilitiesPanel
-        v-if="projectCapabilitiesPanelMounted"
-        v-show="leftPanelView === 'project-capabilities'"
-        ref="projectCapabilitiesPanelRef"
-        :workspace-hash="workspaceHash"
-        :workspace-name="activeWorkspaceName"
-      />
-      <div
-        class="desktop-files-resize-handle"
-        :class="{ dragging: leftPanelDragging }"
-        title="拖动调整左侧面板宽度"
-        aria-hidden="true"
-        @mousedown.prevent="startLeftPanelResize"
-      />
-    </aside>
     <div class="desktop-chat-area">
       <header class="desktop-chat-header">
         <div class="desktop-chat-header-leading">
@@ -87,15 +37,6 @@
           <button
             type="button"
             class="desktop-chat-header-action"
-            title="审查"
-            aria-label="审查"
-            @click="openElementInspector"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 21h8M12 16.5V21M8 10l2.5 2.5L8 15M13 15h3.5"/></svg>
-          </button>
-          <button
-            type="button"
-            class="desktop-chat-header-action"
             :class="{ active: showTerminal }"
             title="终端"
             aria-label="终端"
@@ -106,71 +47,12 @@
           <button
             type="button"
             class="desktop-chat-header-action"
-            title="浏览器"
-            aria-label="浏览器"
-            @click="openAiBrowser"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
-          </button>
-          <button
-            type="button"
-            class="desktop-chat-header-action"
-            :class="{ active: leftPanelOpen && leftPanelView === 'files' }"
-            title="文件"
-            aria-label="文件"
-            @click="toggleFilePanel"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4.2l1.9 2h5.4A2.5 2.5 0 0 1 20 9.5v7A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"/></svg>
-          </button>
-          <button
-            type="button"
-            class="desktop-chat-header-action"
-            :class="{ active: leftPanelOpen && leftPanelView === 'environment', 'environment-attention': environmentAttention }"
-            title="环境信息"
-            aria-label="环境信息"
-            @click="toggleEnvironmentPanel"
-            @animationend="environmentAttention = false"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="7" r="2.5"/><circle cx="7.5" cy="17" r="2.5"/><circle cx="17.5" cy="17" r="2.5"/><path d="M7.5 9.5v5M10 7h4a3.5 3.5 0 0 1 3.5 3.5V14.5"/></svg>
-          </button>
-          <button
-            type="button"
-            class="desktop-chat-header-action"
-            :class="{ active: leftPanelOpen && leftPanelView === 'sub-agents' }"
-            title="子代理"
-            aria-label="子代理"
-            @click="toggleSubAgentPanel"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="6" r="2"/><circle cx="18.5" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M5.5 8v3.5A2.5 2.5 0 0 0 8 14h8a2.5 2.5 0 0 0 2.5-2.5V8"/></svg>
-          </button>
-          <button
-            type="button"
-            class="desktop-chat-header-action"
-            :class="{ active: leftPanelOpen && leftPanelView === 'project-capabilities' }"
-            title="项目能力"
-            aria-label="项目能力"
-            @click="toggleProjectCapabilitiesFromHeader"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="11" cy="18" r="1.5"/></svg>
-          </button>
-          <button
-            type="button"
-            class="desktop-chat-header-action"
             :class="{ active: rightPanelOpen }"
             title="侧边栏"
             aria-label="侧边栏"
             @click="toggleRightPanelFromHeader"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18M7 8h4M7 12h4M7 16h4"/></svg>
-          </button>
-          <button
-            type="button"
-            class="desktop-chat-header-action"
-            title="引导"
-            aria-label="引导"
-            @click="openOnboarding"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4V2M15 10V8M11.5 5.5H9.5M20.5 5.5H18.5M17.99 8.5 19.5 10M12.01 8.5 10.5 10"/><path d="m3 21 8-8"/></svg>
           </button>
         </div>
       </header>
@@ -228,18 +110,28 @@
       <!-- 终端：聊天区底部面板，保留高度拖拽 -->
       <TerminalView v-if="terminalMounted" :open="showTerminal" :cwd="activeWorkspacePath" :theme="theme" @close="showTerminal = false" />
     </div>
-    <RightPanel
+    <DesktopToolPanel
       v-if="rightPanelMounted"
       :open="rightPanelOpen"
-      resizable
       v-model="rightPanelTab"
-      :show-files-tab="false"
-      :show-git-tab="false"
+      ref="toolPanelRef"
       :workspace-hash="workspaceHash"
+      :workspace-path="activeWorkspacePath"
+      :workspace-name="activeWorkspaceName"
       :session-name="sessionName"
       :sessions="sessions"
+      :theme="theme"
+      :environment-attention="environmentAttention"
       @close="rightPanelOpen = false"
       @add-to-session="addFileToSession"
+      @open-file="openFileTab"
+      @file-deleted="onFileDeleted"
+      @file-renamed="onFileRenamed"
+      @environment-mode-change="welcomeWorktreeMode = $event"
+      @open-sub-agent="openSubAgentTab"
+      @sub-agent-removed="onSubAgentRemoved"
+      @open-onboarding="openOnboarding"
+      @environment-attention-end="environmentAttention = false"
     />
     <ActionConfirmDialog
       :model-value="closeConfirm.visible"
@@ -262,7 +154,6 @@ import ChatView from './views/Chat.vue'
 import EditorTabs from './components/EditorTabs.vue'
 import FileEditor from './components/FileEditor.vue'
 import ActionConfirmDialog from './components/ActionConfirmDialog.vue'
-import ProjectCapabilitiesPanel from './components/ProjectCapabilitiesPanel.vue'
 import {fileIconFor} from './utils/fileIcons'
 import {applyHighlightTheme} from './utils/highlight'
 import {
@@ -271,11 +162,8 @@ import {
   normalizeFontSize
 } from './utils/fonts'
 
-const EnvironmentPanel = defineAsyncComponent(() => import('./components/EnvironmentPanel.vue'))
-const RightPanel = defineAsyncComponent(() => import('./components/RightPanel.vue'))
+const DesktopToolPanel = defineAsyncComponent(() => import('./components/DesktopToolPanel.vue'))
 const TerminalView = defineAsyncComponent(() => import('./components/TerminalView.vue'))
-const FileExplorer = defineAsyncComponent(() => import('./components/FileExplorer.vue'))
-const SubAgentPanel = defineAsyncComponent(() => import('./components/SubAgentPanel.vue'))
 
 const params = new URLSearchParams(window.location.search)
 const sessionName = params.get('sessionName') || ''
@@ -305,27 +193,10 @@ const chatHeaderMenuOpen = ref(false)
 const chatHeaderTitle = computed(() => sessionTitle.value || '新对话')
 const rightPanelOpen = ref(false)
 const rightPanelMounted = ref(false)
-const leftPanelOpen = ref(false)
-const leftPanelView = ref('files')
-const LEFT_PANEL_SIZE_KEY = 'loopra-left-panel-width'
-const LEFT_PANEL_DEFAULT_WIDTH = 300
-const LEFT_PANEL_MIN_WIDTH = 240
-const LEFT_PANEL_MAX_WIDTH_RATIO = 0.34
-const savedLeftPanelWidth = Number(localStorage.getItem(LEFT_PANEL_SIZE_KEY))
-const leftPanelWidth = ref(Number.isFinite(savedLeftPanelWidth) && savedLeftPanelWidth >= LEFT_PANEL_MIN_WIDTH
-  ? savedLeftPanelWidth
-  : LEFT_PANEL_DEFAULT_WIDTH)
-const leftPanelDragging = ref(false)
-const filePanelMounted = ref(false)
-const environmentPanelMounted = ref(false)
-const subAgentPanelMounted = ref(false)
-const subAgentPanelRef = ref(null)
-const projectCapabilitiesPanelMounted = ref(false)
-const projectCapabilitiesPanelRef = ref(null)
+const toolPanelRef = ref(null)
 // 子代理回放标签：与文件标签共用编辑器标签栏（id 带 sub: 前缀避免与文件 id 冲突）
 const subAgentTabs = ref([]) // [{ id, subSessionId, taskName, status, blocks, loading }]
 const activeSubAgentTab = computed(() => subAgentTabs.value.find((tab) => tab.id === activeTabId.value) || null)
-const environmentPanelRef = ref(null)
 const welcomeWorktreeMode = ref(false)
 const environmentSwitching = ref(false)
 const environmentSwitchTarget = ref('')
@@ -339,10 +210,9 @@ const sessionActive = ref(false)
 const initialLoading = ref(Boolean(sessionName))
 const hostSwitchLoading = ref(false)
 const globalLoading = computed(() => initialLoading.value || hostSwitchLoading.value)
-const rightPanelTab = ref('schedule')
+const rightPanelTab = ref('launcher')
 // 编辑器标签：Chat 固定第一且不可关闭，文件标签可关闭
 const CHAT_TAB_ID = 'chat'
-const fileExplorerRef = ref(null)
 const fileEditorRef = ref(null)
 const fileTabs = ref([]) // [{ id, path, name, dirty }]
 const activeTabId = ref(CHAT_TAB_ID)
@@ -376,7 +246,6 @@ let stopGlobalLoadingListener = null
 let stopSidebarResizeStartListener = null
 let stopSidebarResizeEndListener = null
 let stopSidebarResizeRelay = null
-let stopLeftPanelResize = null
 
 function finishSidebarResizeRelay(notifyMain = true) {
   const stop = stopSidebarResizeRelay
@@ -516,51 +385,46 @@ async function loadWorkspaces() {
   }
 }
 
-// 活动栏「文件」：在左侧切换文件面板（左右面板可并存，不干扰右侧栏）
+function openToolPanel(tab) {
+  rightPanelMounted.value = true
+  rightPanelTab.value = tab
+  rightPanelOpen.value = true
+  if (sessions.value.length === 0) void loadSessions()
+}
+
+// 兼容主窗口快捷键与旧菜单入口：所有工具统一在右侧栏中打开。
 function toggleFilePanel() {
-  if (leftPanelOpen.value && leftPanelView.value === 'files') {
-    leftPanelOpen.value = false
+  if (rightPanelOpen.value && rightPanelTab.value === 'files') {
+    rightPanelOpen.value = false
     return
   }
-  leftPanelView.value = 'files'
-  filePanelMounted.value = true
-  leftPanelOpen.value = true
+  openToolPanel('files')
 }
 
-// 活动栏「环境信息」：显示当前本地项目或会话隔离分支
 function toggleEnvironmentPanel() {
-  if (leftPanelOpen.value && leftPanelView.value === 'environment') {
-    leftPanelOpen.value = false
+  if (rightPanelOpen.value && rightPanelTab.value === 'environment') {
+    rightPanelOpen.value = false
     return
   }
-  leftPanelView.value = 'environment'
-  environmentPanelMounted.value = true
-  leftPanelOpen.value = true
+  openToolPanel('environment')
 }
 
-// 活动栏「子代理」：多标签子代理会话查看窗口（只读回放）
 function toggleSubAgentPanel() {
-  if (leftPanelOpen.value && leftPanelView.value === 'sub-agents') {
-    leftPanelOpen.value = false
+  if (rightPanelOpen.value && rightPanelTab.value === 'sub-agents') {
+    rightPanelOpen.value = false
     return
   }
-  leftPanelView.value = 'sub-agents'
-  subAgentPanelMounted.value = true
-  leftPanelOpen.value = true
-  // 面板已挂载时静默刷新，运行中的子代理会话立即可见
-  subAgentPanelRef.value?.refresh?.()
+  openToolPanel('sub-agents')
+  toolPanelRef.value?.refreshSubAgents?.()
 }
 
-// 活动栏「项目能力」：展示当前项目独有的 Skill/MCP
 function toggleProjectCapabilitiesPanel() {
-  if (leftPanelOpen.value && leftPanelView.value === 'project-capabilities') {
-    leftPanelOpen.value = false
+  if (rightPanelOpen.value && rightPanelTab.value === 'project-capabilities') {
+    rightPanelOpen.value = false
     return
   }
-  leftPanelView.value = 'project-capabilities'
-  projectCapabilitiesPanelMounted.value = true
-  leftPanelOpen.value = true
-  projectCapabilitiesPanelRef.value?.load?.()
+  openToolPanel('project-capabilities')
+  toolPanelRef.value?.refreshCapabilities?.()
 }
 
 async function refreshWelcomeEnvironmentMode() {
@@ -574,12 +438,11 @@ async function refreshWelcomeEnvironmentMode() {
 }
 
 async function refreshEnvironmentPanel() {
-  await nextTick()
-  await environmentPanelRef.value?.refresh?.()
+  await toolPanelRef.value?.refreshEnvironment?.()
 }
 
 function signalEnvironmentAttention() {
-  if (leftPanelOpen.value && leftPanelView.value === 'environment') return
+  if (rightPanelOpen.value && rightPanelTab.value === 'environment') return
   environmentAttention.value = false
   requestAnimationFrame(() => {
     environmentAttention.value = true
@@ -924,9 +787,9 @@ function handleSubAgentEvent(evt) {
     tab = subAgentTabs.value.find((t) => t.subSessionId === evt.subSessionId) || tab
   }
   applySubAgentEvent(tab, evt)
-  // 开始/结束都刷新左侧列表：运行中的子代理会话立即可见（status=running）
+  // 开始/结束都刷新右侧列表：运行中的子代理会话立即可见（status=running）
   if (evt.type === 'sub_start' || evt.type === 'sub_end' || evt.type === 'sub_complete') {
-    subAgentPanelRef.value?.refresh?.()
+    toolPanelRef.value?.refreshSubAgents?.()
   }
 }
 
@@ -974,43 +837,12 @@ function onFileDirtyChange(path, dirty) {
 
 function onFileSaved() {
   // 保存后刷新文件树 Git 装饰
-  fileExplorerRef.value?.refresh?.()
+  toolPanelRef.value?.refreshFiles?.()
 }
 
-function startLeftPanelResize(event) {
-  stopLeftPanelResize?.()
-  const startX = event.clientX
-  const startWidth = leftPanelWidth.value
-  leftPanelDragging.value = true
-
-  const onMove = (moveEvent) => {
-    const maxWidth = Math.floor(window.innerWidth * LEFT_PANEL_MAX_WIDTH_RATIO)
-    leftPanelWidth.value = Math.min(
-      Math.max(startWidth + moveEvent.clientX - startX, LEFT_PANEL_MIN_WIDTH),
-      Math.max(maxWidth, LEFT_PANEL_MIN_WIDTH)
-    )
-  }
-
-  const onUp = () => {
-    leftPanelDragging.value = false
-    window.removeEventListener('mousemove', onMove)
-    window.removeEventListener('mouseup', onUp)
-    stopLeftPanelResize = null
-    try {
-      localStorage.setItem(LEFT_PANEL_SIZE_KEY, String(leftPanelWidth.value))
-    } catch (error) {
-      // 存储不可用时忽略
-    }
-  }
-
-  stopLeftPanelResize = onUp
-  window.addEventListener('mousemove', onMove)
-  window.addEventListener('mouseup', onUp)
-}
-
-// 欢迎页不展示左侧文件栏；进入会话保持当前状态（默认折叠，不覆盖用户手动开关）
+// 欢迎页保持沉浸式输入；进入会话后仍保留用户手动选择的工具页。
 function onWelcomeChange(active) {
-  if (active) leftPanelOpen.value = false
+  if (active) rightPanelOpen.value = false
 }
 
 async function addElementInspectionToSession(payload) {
@@ -1043,8 +875,6 @@ onBeforeUnmount(() => {
   stopSidebarResizeEndListener?.()
   finishSidebarResizeRelay(false)
   window.removeEventListener('loopra:bash-start', onBashStart)
-  stopLeftPanelResize?.()
-  leftPanelDragging.value = false
 })
 
 // 项目变化时自动上报，确保标签栏图标实时更新；同时清空已打开的文件/子代理标签
@@ -1055,22 +885,6 @@ watch(workspaceHash, (hash) => {
   fileTabs.value = []
   activeTabId.value = CHAT_TAB_ID
 }, { immediate: true })
-
-async function openElementInspector() {
-  try {
-    await window.electronAPI?.elementInspectorWindow?.open?.()
-  } catch (error) {
-    message.error('打开审查失败：' + (error.message || '未知错误'))
-  }
-}
-
-async function openAiBrowser() {
-  try {
-    await window.electronAPI?.aiBrowserWindow?.open?.()
-  } catch (error) {
-    message.error('打开浏览器失败：' + (error.message || '未知错误'))
-  }
-}
 
 async function openOnboarding() {
   try {

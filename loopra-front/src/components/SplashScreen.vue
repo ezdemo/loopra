@@ -124,7 +124,7 @@
             <div class="sw-section-title">安装 / 更新核心服务</div>
 
             <div class="sw-bundle-note" v-if="bundledCore">
-              安装包已内置核心运行时，仅从本地安装/更新（无需下载）
+              安装包已内置核心运行时<template v-if="bundledVersion">（版本 {{ bundledVersion }}）</template>，仅从本地安装/更新（无需下载）
             </div>
             <div class="sw-bundle-missing" v-else>
               当前安装包未内置核心运行时，无法在此安装/更新
@@ -304,6 +304,7 @@ const installed = ref(false)
 const running = ref(false)
 const port = ref(0)
 const bundledCore = ref(false)
+const bundledVersion = ref('')
 const installDir = ref('')
 const runtimeVersion = ref('')
 const desktopVersion = ref('')
@@ -426,17 +427,36 @@ onMounted(async () => {
     await Promise.all([refreshCore(), refreshJava()])
     return
   }
-  // 打开即进入启动等待：转圈立刻出现，启动与状态检测并行进行
-  const startPromise = startService({ overlay: true })
+  // 打开即进入启动等待：先检测核心/Java 状态，据此决定是否需要先自动更新再启动
+  autoStarting.value = true
+  startCancelled = false
+  startingMsg.value = '正在检查核心服务...'
   await Promise.all([refreshCore(), refreshJava()])
+  if (startCancelled) {
+    autoStarting.value = false
+    return
+  }
 
-  // 无 Java 环境：中止无意义的启动等待，切到依赖管理页并高亮安装 JRE 按钮
-  if (!java.value.usable) {
-    startCancelled = true
+  // 无 Java 且核心服务未在运行：中止启动等待，切到依赖管理页并高亮安装 JRE 按钮
+  // （服务已在运行（如 CLI 启动）时不打断，继续走自动更新/启动流程）
+  if (!java.value.usable && !running.value) {
+    autoStarting.value = false
     menu.value = 'deps'
     jrePulse.value = true
+    return
   }
-  await startPromise
+
+  // 包内核心较新（或核心尚未安装且包内有核心）：自动静默更新。
+  // 更新失败时不继续启动（可能残留半成品 jar），停留在管理页展示错误供手动重试
+  const autoUpdateResult = await runAutoUpdateIfNeeded()
+  if (autoUpdateResult === 'failed') return
+  // 自动更新期间用户点了「取消」：更新已完成但不再自动启动，停留在管理页（可手动启动新版本）
+  if (startCancelled) {
+    autoStarting.value = false
+    return
+  }
+  // 启动核心服务：未更新时启动原版本，更新成功后这里统一拉起新版本
+  await startService({ overlay: true })
 })
 
 onUnmounted(() => {
@@ -469,6 +489,7 @@ async function refreshCore() {
     if (status) {
       installed.value = !!status.installed
       bundledCore.value = !!status.bundled_core
+      bundledVersion.value = status.bundled_version || ''
       installDir.value = status.install_dir || ''
       runtimeVersion.value = status.runtime_version || ''
       desktopVersion.value = status.desktop_version || ''
@@ -589,11 +610,36 @@ async function downloadJre() {
 }
 
 // ---------- 安装 / 更新 ----------
+// 手动按钮入口：点击「安装核心服务 / 更新核心服务」
 async function installOrUpdate() {
-  if (installing.value) return
+  await performCoreUpdate({ auto: false })
+}
+
+// 自动更新判定：安装包内置核心比已安装核心新（或核心尚未安装且包内有核心）→ true。
+// 以包内核心版本文件为权威，与桌面端版本号（app.getVersion()）解耦——两者可能不同步
+function shouldAutoUpdateCore() {
+  if (!bundledCore.value || !bundledVersion.value) return false
+  if (runtimeVersion.value && compareVersions(runtimeVersion.value, bundledVersion.value) >= 0) return false
+  return true
+}
+
+// 启动流程静默更新入口：返回 'updated'（已成功更新）/ 'skipped'（无需更新）/ 'failed'（更新失败）
+async function runAutoUpdateIfNeeded() {
+  if (!shouldAutoUpdateCore()) return 'skipped'
+  const ok = await performCoreUpdate({ auto: true })
+  return ok ? 'updated' : 'failed'
+}
+
+// 安装/更新核心服务：
+// - auto=false（手动按钮）：更新完成后自动重启服务，加载新版本
+// - auto=true（启动流程静默触发）：仅安装，重启交由调用方统一 startService；
+//   失败时停止自动流程并停留在管理页（errorMessage + 日志），避免启动可能被写坏的 jar
+async function performCoreUpdate({ auto = false } = {}) {
+  if (installing.value) return false
   installing.value = true
   errorMessage.value = ''
   installLogs.value = []
+  const versionDesc = runtimeVersion.value && bundledVersion.value ? `（${runtimeVersion.value} → ${bundledVersion.value}）` : ''
 
   try {
     unlistenInstallOutput = await platform.implementation.events.listen('install-output', (payload) => {
@@ -610,6 +656,11 @@ async function installOrUpdate() {
   }
 
   try {
+    if (auto) {
+      installLogs.value.push(`>> 检测到安装包内置核心更新${versionDesc}，正在自动更新（无需操作）...`)
+      startingMsg.value = `正在自动更新核心服务${versionDesc} ...`
+    }
+
     // 更新前先停止运行中的旧服务：释放 Windows 下 loopra-web.jar 文件占用，
     // 避免 install.ps1 覆盖 jar 失败；更新完成后自动重启以加载新版本
     const wasRunning = running.value
@@ -618,7 +669,7 @@ async function installOrUpdate() {
       await stopService()
       if (errorMessage.value) {
         installLogs.value.push(`>> ❌ 停止旧服务失败: ${errorMessage.value}，已中止更新`)
-        return
+        return false
       }
       installLogs.value.push('>> 旧服务已停止')
     }
@@ -636,23 +687,34 @@ async function installOrUpdate() {
     if (running.value) {
       // 停止后端口仍有服务在运行（如 CLI 启动的 4567，不属于本次更新对象）：不打断，仅提示
       installLogs.value.push('>> 检测到端口已有其他进程运行服务（可能由 CLI 启动），已跳过自动重启；新版本将在下次启动服务时生效')
-    } else {
-      installLogs.value.push('✅ 更新完成，正在自动重启服务...')
-      await startService({ overlay: true })
-      if (errorMessage.value) {
-        installLogs.value.push(`>> ⚠️ 服务自动重启失败: ${errorMessage.value}，可点击「启动服务」手动启动`)
-      } else {
-        installLogs.value.push('✅ 服务已重启，当前使用新版本')
-      }
+      return true
     }
+    if (auto) {
+      // 自动模式不在此重启：由启动流程统一 startService
+      installLogs.value.push('✅ 自动更新完成，正在启动核心服务...')
+      return true
+    }
+    installLogs.value.push('✅ 更新完成，正在自动重启服务...')
+    await startService({ overlay: true })
+    if (errorMessage.value) {
+      installLogs.value.push(`>> ⚠️ 服务自动重启失败: ${errorMessage.value}，可点击「启动服务」手动启动`)
+      return false
+    }
+    installLogs.value.push('✅ 服务已重启，当前使用新版本')
+    return true
   } catch (e) {
     errorMessage.value = `安装失败: ${e.message || e}`
+    if (auto) {
+      installLogs.value.push(`>> ❌ 自动更新失败: ${e.message || e}。可点击「更新核心服务」手动重试`)
+    }
+    return false
   } finally {
     if (unlistenInstallOutput) {
       unlistenInstallOutput()
       unlistenInstallOutput = null
     }
     installing.value = false
+    if (auto) autoStarting.value = false
   }
 }
 

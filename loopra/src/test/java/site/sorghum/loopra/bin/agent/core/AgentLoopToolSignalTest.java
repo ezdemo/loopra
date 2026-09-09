@@ -8,6 +8,7 @@ import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.hitl.HitlManager;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.HitlState;
+import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.agent.model.ToolExecutionResult;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.agent.prompt.PromptPrefix;
@@ -134,6 +135,41 @@ class AgentLoopToolSignalTest {
 
         assertEquals("done", second);
         assertEquals(2, calls.get());
+    }
+
+    @Test
+    void repeatedModelToolCallIdsAreNormalizedBeforeExecutionAndHistoryWrite() throws Exception {
+        AtomicInteger streams = new AtomicInteger();
+        ToolRegistry registry = registryWith(tool("status", args -> "ok"));
+        TestLoopraProvider provider = TestLoopraProvider.builder()
+            .stream(request -> {
+                if (streams.getAndIncrement() < 2) {
+                    return TestLoopraProvider.toolCallsStream(toolCalls("status", "{}"));
+                }
+                return TestLoopraProvider.contentStream("done");
+            })
+            .build();
+        ConversationContext context = new ConversationContext(
+            new PromptPrefix("system", new ONode().asArray()));
+        AgentLoop loop = new AgentLoop(provider, registry, context, null);
+        loop.freezePromptPrefix();
+        loop.setOutput(AgentOutput.NOOP);
+
+        assertEquals("done", loop.run(UserMessage.of("run")));
+
+        List<String> assistantIds = context.getHistory().stream()
+            .filter(ChatMessage::isAssistant)
+            .filter(ChatMessage::hasToolCalls)
+            .flatMap(message -> message.getToolCalls().stream())
+            .map(ToolCallEntry::id)
+            .toList();
+        List<String> toolIds = context.getHistory().stream()
+            .filter(ChatMessage::isTool)
+            .map(ChatMessage::getToolCallId)
+            .toList();
+
+        assertEquals(List.of("call-1", "call-1_dedup_0"), assistantIds);
+        assertEquals(List.of("call-1", "call-1_dedup_0"), toolIds);
     }
 
     @Test

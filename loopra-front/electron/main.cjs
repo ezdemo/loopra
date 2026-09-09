@@ -354,6 +354,15 @@ function readLoopraGuiVersion() {
   }
 }
 
+// 安装包内置核心运行时版本（resources/loopra-core/bin/version.txt；未嵌入时返回空）
+function readBundledCoreVersion() {
+  try {
+    return fs.readFileSync(path.join(getLoopraCoreDir(), 'bin', 'version.txt'), 'utf8').trim().replace(/^v/i, '')
+  } catch {
+    return ''
+  }
+}
+
 function isLoopraGuiInstalled() {
   const { binPath, jarPath } = getLoopraPaths()
   // Java 由 launcher 解析：优先系统 java，回退已有捆绑 jre25（不再自动下载）
@@ -1308,6 +1317,7 @@ ipcMain.handle('get_loopra_web_status', async () => {
     install_dir: runtimeDir,
     config_dir: path.join(app.getPath('home'), '.loopra'),
     bundled_core: isLoopraCoreBundled(),
+    bundled_version: readBundledCoreVersion(),
     runtime_version: readLoopraGuiVersion(),
     desktop_version: app.getVersion().replace(/^v/i, '')
   }
@@ -1729,6 +1739,39 @@ ipcMain.handle('desktop-chat-header-menu', (event, rawTheme) => {
       { label: '项目能力', click: () => finish('project-capabilities') },
       { label: '终端', click: () => finish('terminal') },
       { label: '侧边栏', click: () => finish('sidebar') }
+    ])
+    menu.popup({
+      window: mainWindow,
+      callback: () => finish(null)
+    })
+  })
+})
+
+// 右侧工具标签选择使用原生菜单，保证它显示在原生 WebContentsView 浏览器之上。
+ipcMain.handle('desktop-tool-menu', (event, rawTheme) => {
+  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized desktop tool menu request')
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  applyNativeMenuTheme(rawTheme)
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (action) => {
+      if (settled) return
+      settled = true
+      resolve(action)
+    }
+    const menu = Menu.buildFromTemplate([
+      {label: '审查', accelerator: 'CommandOrControl+Shift+G', click: () => finish('review')},
+      {label: '终端', click: () => finish('terminal')},
+      {label: '浏览器', accelerator: 'CommandOrControl+T', click: () => finish('browser')},
+      {label: '文件', accelerator: 'CommandOrControl+P', click: () => finish('files')},
+      {label: '环境信息', click: () => finish('environment')},
+      {label: '子代理', click: () => finish('sub-agents')},
+      {label: '项目能力', click: () => finish('project-capabilities')},
+      {label: '定时任务', click: () => finish('schedule')},
+      {label: '后台进程', click: () => finish('bash')},
+      {type: 'separator'},
+      {label: '引导', click: () => finish('onboarding')}
     ])
     menu.popup({
       window: mainWindow,
@@ -2590,6 +2633,7 @@ ipcMain.handle('desktop-chat-tab-show', async (event, tabId, rawBounds) => {
   tab.view.setVisible(true)
   tab.view.webContents.focus()
   sendDesktopChatTabEvent(tab, 'desktop-chat-tab-focus-composer')
+  sendDesktopChatTabEvent(tab, 'desktop-chat-tab-visibility', true)
   tab.visible = true
   hideDesktopChatViews(tab.id)
   desktopChatActiveTabId = tab.id
@@ -2832,6 +2876,7 @@ function waitForDesktopChatLoadingPaint(tab, requestId, timeoutMs = 2_000) {
 
 function destroyDesktopChatTab(tab) {
   if (!tab) return
+  hideAiBrowserViews(tab.view?.webContents)
   for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
   for (const resolve of tab.loadingWaiters.values()) resolve(false)
   tab.loadingWaiters.clear()
@@ -2848,6 +2893,8 @@ function destroyDesktopChatTab(tab) {
 function hideDesktopChatViews(exceptTabId = null) {
   const targets = [...desktopChatTabs.values()].filter((tab) => tab.id !== exceptTabId && tab.visible)
   for (const tab of targets) {
+    sendDesktopChatTabEvent(tab, 'desktop-chat-tab-visibility', false)
+    hideAiBrowserViews(tab.view.webContents)
     tab.view.setVisible(false)
     tab.visible = false
   }
@@ -3058,27 +3105,62 @@ function aiBrowserTabSummary(tab) {
 }
 
 function sendAiBrowserState() {
-  if (!aiBrowserWindow || aiBrowserWindow.isDestroyed()) return
-  aiBrowserWindow.webContents.send('ai-browser-state', {
+  const payload = {
     activeTabId: aiBrowserActiveTabId,
     tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary)
-  })
+  }
+  if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('ai-browser-state', payload)
+  for (const desktopTab of desktopChatTabs.values()) {
+    if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
+      desktopTab.view.webContents.send('ai-browser-state', payload)
+    }
+  }
 }
 
 function sendAiBrowserActivity(state, message, details = {}) {
   aiBrowserActivity = { state, message, timestamp: Date.now(), ...details }
-  if (!aiBrowserWindow || aiBrowserWindow.isDestroyed()) return
-  aiBrowserWindow.webContents.send('ai-browser-activity', aiBrowserActivity)
+  if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('ai-browser-activity', aiBrowserActivity)
+  for (const desktopTab of desktopChatTabs.values()) {
+    if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
+      desktopTab.view.webContents.send('ai-browser-activity', aiBrowserActivity)
+    }
+  }
 }
 
-function hideAiBrowserViews() {
-  for (const tab of aiBrowserTabs.values()) tab.view.setVisible(false)
+function hideAiBrowserViews(controller = null) {
+  for (const tab of aiBrowserTabs.values()) {
+    if (!controller || tab.controller === controller) tab.view.setVisible(false)
+  }
+}
+
+function detachAiBrowserView(tab) {
+  if (!tab?.hostWindow || tab.hostWindow.isDestroyed()) {
+    if (tab) tab.hostWindow = null
+    return
+  }
+  try { tab.hostWindow.contentView.removeChildView(tab.view) } catch { /* window may be closing */ }
+  tab.hostWindow = null
+}
+
+function resolveAiBrowserHost(sender) {
+  if (sender === aiBrowserWindow?.webContents && aiBrowserWindow && !aiBrowserWindow.isDestroyed()) {
+    return {window: aiBrowserWindow, offset: {x: 0, y: 0}, desktopTab: null}
+  }
+  const desktopTab = [...desktopChatTabs.values()].find((item) => item.view.webContents === sender)
+  if (!desktopTab || !mainWindow || mainWindow.isDestroyed()) return null
+  const bounds = desktopTab.view.getBounds()
+  return {window: mainWindow, offset: {x: bounds.x, y: bounds.y}, desktopTab}
+}
+
+function isAiBrowserUiSender(sender) {
+  return Boolean(resolveAiBrowserHost(sender))
 }
 
 function closeAiBrowserTab(tabId) {
   const tab = aiBrowserTabs.get(tabId)
   if (!tab) return false
   tab.view.setVisible(false)
+  detachAiBrowserView(tab)
   if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
   aiBrowserTabs.delete(tabId)
   if (aiBrowserActiveTabId === tabId) aiBrowserActiveTabId = aiBrowserTabs.keys().next().value || null
@@ -3110,7 +3192,7 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
       sandbox: true
     }
   })
-  const tab = { id, url, title: '新标签页', favicon: null, loading: false, lastLoadError: null, snapshotVersion: 0, snapshotId: null, view, attached: false }
+  const tab = { id, url, title: '新标签页', favicon: null, loading: false, lastLoadError: null, snapshotVersion: 0, snapshotId: null, view, attached: false, hostWindow: null, controller: null }
   aiBrowserTabs.set(id, tab)
   view.setVisible(false)
   view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
@@ -3240,7 +3322,6 @@ function openAiBrowserWindow() {
 }
 
 async function aiBrowserNewTab(rawUrl) {
-  if (!aiBrowserWindow || aiBrowserWindow.isDestroyed()) openAiBrowserWindow()
   const tab = await createAiBrowserTab(rawUrl || 'about:blank')
   const tabCount = aiBrowserTabs.size
   const cleanupRecommended = tabCount > AI_BROWSER_TAB_CLEANUP_THRESHOLD
@@ -3274,13 +3355,13 @@ function aiBrowserHistory(tabId, action) {
   return aiBrowserTabSummary(tab)
 }
 
-function normalizeAiBrowserBounds(rawBounds) {
-  if (!aiBrowserWindow || !rawBounds || typeof rawBounds !== 'object') throw new Error('Invalid native view bounds')
-  const contentBounds = aiBrowserWindow.getContentBounds()
+function normalizeAiBrowserBounds(rawBounds, host) {
+  if (!host?.window || !rawBounds || typeof rawBounds !== 'object') throw new Error('Invalid native view bounds')
+  const contentBounds = host.window.getContentBounds()
   const values = ['x', 'y', 'width', 'height'].map((key) => Math.round(Number(rawBounds[key])))
   if (!values.every(Number.isFinite) || values[2] < 1 || values[3] < 1) throw new Error('Invalid native view bounds')
-  const x = Math.max(0, Math.min(values[0], contentBounds.width - 1))
-  const y = Math.max(0, Math.min(values[1], contentBounds.height - 1))
+  const x = Math.max(0, Math.min(values[0] + host.offset.x, contentBounds.width - 1))
+  const y = Math.max(0, Math.min(values[1] + host.offset.y, contentBounds.height - 1))
   return { x, y, width: Math.max(1, Math.min(values[2], contentBounds.width - x)), height: Math.max(1, Math.min(values[3], contentBounds.height - y)) }
 }
 
@@ -3837,53 +3918,56 @@ ipcMain.handle('get-ai-browser-bridge-address', async (event) => {
 })
 
 ipcMain.handle('ai-browser-new-tab', async (event, rawUrl) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return aiBrowserNewTab(rawUrl)
 })
 
 ipcMain.handle('ai-browser-navigate', async (event, tabId, rawUrl) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return aiBrowserNavigate(tabId, rawUrl)
 })
 
 ipcMain.handle('ai-browser-history', (event, tabId, action) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return aiBrowserHistory(tabId, action)
 })
 
 ipcMain.handle('ai-browser-activate-tab', (event, tabId) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return activateAiBrowserTab(tabId)
 })
 
 ipcMain.handle('ai-browser-close-tab', (event, tabId) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   const closed = closeAiBrowserTab(tabId)
   sendAiBrowserState()
   return { closed, activeTabId: aiBrowserActiveTabId }
 })
 
 ipcMain.handle('ai-browser-get-state', (event) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return { activeTabId: aiBrowserActiveTabId, tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary) }
 })
 
 ipcMain.handle('ai-browser-view-show', (event, tabId, rawBounds) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  const host = resolveAiBrowserHost(event.sender)
+  if (!host) throw new Error('Unauthorized browser request')
   const tab = getAiBrowserTab(tabId)
-  if (!tab.attached) {
-    aiBrowserWindow.contentView.addChildView(tab.view)
-    tab.attached = true
+  if (tab.hostWindow !== host.window) {
+    detachAiBrowserView(tab)
+    host.window.contentView.addChildView(tab.view)
+    tab.hostWindow = host.window
   }
   hideAiBrowserViews()
-  tab.view.setBounds(normalizeAiBrowserBounds(rawBounds))
+  tab.controller = event.sender
+  tab.view.setBounds(normalizeAiBrowserBounds(rawBounds, host))
   tab.view.setVisible(true)
   return { success: true }
 })
 
 ipcMain.handle('ai-browser-view-hide', (event) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
-  hideAiBrowserViews()
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
+  hideAiBrowserViews(event.sender)
   return { success: true }
 })
 
@@ -3992,7 +4076,7 @@ ipcMain.on('element-inspector-ready', (event) => {
 
 ipcMain.on('element-inspector-send', (event, payload) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
   if ((!isElementWindow && !isAiBrowserSender) || !payload || typeof payload !== 'object') return
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (mainWindow?.isMinimized()) mainWindow.restore()
@@ -4083,7 +4167,14 @@ ipcMain.on('element-inspected', (event, payload) => {
     return
   }
   const isAiBrowserTab = [...aiBrowserTabs.values()].some((tab) => tab.view.webContents === event.sender)
-  if (isAiBrowserTab) aiBrowserWindow?.webContents.send('element-inspected', payload)
+  if (isAiBrowserTab) {
+    if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('element-inspected', payload)
+    for (const desktopTab of desktopChatTabs.values()) {
+      if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
+        desktopTab.view.webContents.send('element-inspected', payload)
+      }
+    }
+  }
 })
 
 /** 在主窗口的 child frame 中寻找 ElementPanel 的 iframe */
@@ -4109,7 +4200,7 @@ function findIframeFrame(frame) {
  */
 ipcMain.handle('inspector-inject', async (event) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
   if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
   let inspectorTarget = null
   if (isAiBrowserSender) {
@@ -4322,7 +4413,7 @@ ipcMain.handle('inspector-inject', async (event) => {
 /** 移除 iframe 中的检测脚本 */
 ipcMain.handle('inspector-remove', async (event) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
   if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
   let inspectorTarget = null
   if (isAiBrowserSender) {
