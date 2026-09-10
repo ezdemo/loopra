@@ -985,6 +985,34 @@ describe('DesktopHome 会话状态图标', () => {
 
     expect(rows[1].find('.desktop-session-status-completed').exists()).toBe(false)
   })
+
+  it('当前会话运行结束后切换会话，原会话不重新显示未读完成点', async () => {
+    wrapper.unmount()
+    wrapper = mountHome({
+      sidebarOnly: true,
+      activeWorkspaceHash: 'h1',
+      activeSessionName: 'running',
+      liveSessionStatuses: {'h1:running': true}
+    })
+    await flushPromises()
+
+    let rows = wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')
+    expect(rows[0].find('.desktop-session-status-running').exists()).toBe(true)
+
+    await wrapper.setProps({liveSessionStatuses: {'h1:running': false}})
+    await flushPromises()
+    rows = wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')
+    expect(rows[0].find('.desktop-session-status-completed').exists()).toBe(false)
+
+    await wrapper.setProps({activeSessionName: 'completed'})
+    await flushPromises()
+    rows = wrapper.findAll('.desktop-project-group')[0].findAll('.desktop-session')
+    expect(rows[0].find('.desktop-session-status-completed').exists()).toBe(false)
+    expect(JSON.parse(window.localStorage.getItem('loopra.desktop.session-read-state'))).toEqual({
+      'h1:running': {mtime: sessions[0].mtime, messageCount: 2},
+      'h1:completed': {mtime: sessions[1].mtime, messageCount: 2}
+    })
+  })
 })
 
 describe('DesktopHome 左侧会话顺序', () => {

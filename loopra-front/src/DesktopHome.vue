@@ -805,6 +805,29 @@ function markSessionRead(session) {
   persistSessionReadStates()
 }
 
+// 当前正在查看的会话完成时，用户已经看到了这次完成结果，应立即记为已读。
+// 否则 active 条件解除后，hasUnreadCompletion 会把同一次完成重新当成后台未读提醒。
+function markActiveSessionRead() {
+  if (!props.activeSessionName || !props.activeWorkspaceHash) return
+  const activeSession = displayedSessions.value.find((session) =>
+    session.name === props.activeSessionName && session.workspaceHash === props.activeWorkspaceHash
+  )
+  if (activeSession) markSessionRead(activeSession)
+}
+
+// 监听实时状态、轮询状态及会话元数据。这样既覆盖实时结束事件，也覆盖切换/刷新后才拿到的完成状态。
+watch(
+  [
+    () => props.activeWorkspaceHash,
+    () => props.activeSessionName,
+    displayedSessions,
+    () => props.liveSessionStatuses,
+    () => sessionStatuses
+  ],
+  markActiveSessionRead,
+  {immediate: true, deep: true}
+)
+
 function handleSessionClick(session) {
   markSessionRead(session)
   openSession(session)

@@ -7,6 +7,8 @@ import org.noear.snack4.ONode;
 import org.noear.snack4.Options;
 import org.noear.snack4.json.JsonWriter;
 import org.noear.solon.ai.chat.tool.FunctionTool;
+import org.noear.solon.ai.chat.content.ImageBlock;
+import org.noear.solon.ai.chat.tool.ToolResult;
 import org.noear.solon.ai.mcp.server.McpServerEndpointProvider;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
@@ -14,6 +16,7 @@ import org.noear.solon.core.event.AppLoadEndEvent;
 import org.noear.solon.core.event.EventListener;
 import site.sorghum.loopra.bin.config.ConfigChangedEvent;
 import site.sorghum.loopra.bin.config.ConfigService;
+import site.sorghum.loopra.bin.agent.model.ImageToolResult;
 import site.sorghum.loopra.bin.tool.ToolMetadata;
 import site.sorghum.loopra.bin.tool.ToolRegistry;
 import site.sorghum.loopra.bin.tool.ToolScanUtil;
@@ -26,6 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -506,7 +510,17 @@ public class McpServerExportService implements EventListener<AppLoadEndEvent> {
 
         @Override
         public Object handle(Map<String, Object> args) throws Throwable {
-            return delegate.handle(owner.withRuntimeContext(args));
+            Object result = delegate.handle(owner.withRuntimeContext(args));
+            if (!name().startsWith("browser_") || !(result instanceof String text)) return result;
+
+            ImageToolResult.ImageResult image = ImageToolResult.parseResult(text);
+            if (image != null) return toMcpImageResult(image);
+            if (isBrowserFailure(text)) {
+                // MCP responder 只有在工具抛异常时才会设置 isError=true；浏览器工具的
+                // 结构化失败结果在 Loopra 内部仍保留为文本，因此在 MCP 边界转换一次。
+                throw new IllegalStateException(browserFailureMessage(text));
+            }
+            return result;
         }
 
         @Override
@@ -542,6 +556,54 @@ public class McpServerExportService implements EventListener<AppLoadEndEvent> {
             if (word.length() > 1) title.append(word.substring(1));
         }
         return title.length() == 0 ? "Loopra Tool" : title.toString();
+    }
+
+    /**
+     * 将 Loopra 内部的图片文本协议转换成 Solon MCP 可识别的多模态 ToolResult。
+     * 内部 Agent 仍继续使用 ImageToolResult，不改变现有回放协议。
+     */
+    static ToolResult toMcpImageResult(ImageToolResult.ImageResult image) {
+        String dataUri = image == null ? "" : image.dataUri();
+        int comma = dataUri.indexOf(',');
+        if (!dataUri.startsWith("data:image/") || comma < 0) {
+            throw new IllegalArgumentException("browser screenshot image data is invalid");
+        }
+        String metadata = dataUri.substring("data:".length(), comma);
+        String mimeType = metadata.split(";", 2)[0];
+        if (!metadata.toLowerCase(java.util.Locale.ROOT).contains(";base64")) {
+            throw new IllegalArgumentException("browser screenshot must use base64 image data");
+        }
+        String encoded = dataUri.substring(comma + 1);
+        // 校验一次，避免把损坏的图片作为成功的 MCP content 发出去。
+        Base64.getDecoder().decode(encoded);
+        return ToolResult.success(image.summary())
+                .addBlock(ImageBlock.ofBase64(encoded, mimeType));
+    }
+
+    static boolean isBrowserFailure(String result) {
+        if (result == null) return false;
+        if (result.startsWith("BROWSER_UNAVAILABLE:") || result.startsWith("BROWSER_ERROR:")) return true;
+        try {
+            ONode success = ONode.ofJson(result).get("success");
+            return success != null && !success.isNull() && success.isValue() && !success.getBoolean();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    static String browserFailureMessage(String result) {
+        try {
+            ONode error = ONode.ofJson(result).get("error");
+            if (error != null && !error.isNull()) {
+                String code = error.get("code").getString();
+                String message = error.get("message").getString();
+                if (code != null && message != null) return code + ": " + message;
+                if (message != null) return message;
+            }
+        } catch (Exception ignored) {
+            // 兼容旧版本浏览器工具返回的纯文本错误。
+        }
+        return result == null || result.isBlank() ? "Browser operation failed" : result;
     }
 
     private Map<String, Object> withRuntimeContext(Map<String, Object> args) {
