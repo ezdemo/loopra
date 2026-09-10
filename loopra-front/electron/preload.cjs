@@ -31,12 +31,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     installOnline: (source) => ipcRenderer.invoke('install_loopra_web_online', { source })
   },
 
+  // Electron 会话代理：与 Java 后端共用设置页中的代理地址
+  proxy: {
+    get: () => ipcRenderer.invoke('proxy-get'),
+    set: (address) => ipcRenderer.invoke('proxy-set', address)
+  },
+
   // 启动窗口：检测/安装/启动完成后通知主进程创建主窗口
   splash: {
     ready: () => ipcRenderer.invoke('splash_ready')
   },
 
-  // 下载镜像测速（主进程 node https，避免浏览器 CORS 限制）
+  // 下载镜像测速（主进程 Electron net，避免浏览器 CORS 限制并遵循会话代理）
   mirror: {
     measureLatencies: (options) => ipcRenderer.invoke('measure_mirror_latencies', options)
   },

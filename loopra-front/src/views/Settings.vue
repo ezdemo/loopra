@@ -485,6 +485,35 @@
           </div>
         </section>
 
+        <!-- 代理设置 -->
+        <section v-if="activeTab === 'proxy'" class="settings-section">
+          <div class="section-card">
+            <div class="card-header">
+              <h3>代理设置</h3>
+              <p>配置后端 Java 与桌面端 Electron 的出站网络代理</p>
+            </div>
+            <div class="card-body">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label class="setting-label">代理地址</label>
+                  <p class="setting-hint">支持 HTTP 或 SOCKS5；留空可关闭代理</p>
+                </div>
+                <div class="setting-control">
+                  <input
+                      v-model="settings.proxy"
+                      class="form-input"
+                      placeholder="http://127.0.0.1:7890"
+                      type="text"
+                      autocomplete="off"
+                      spellcheck="false"
+                  />
+                  <p class="setting-hint" style="margin-top:8px;">示例：127.0.0.1:7890 或 socks5://127.0.0.1:1080</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- AI 设置 -->
         <section v-if="activeTab === 'ai'" class="settings-section">
           <div class="section-card">
@@ -2328,6 +2357,7 @@ const settings = reactive({
     store.settings.codeFontSize = v
   },
   server: {apiBaseUrl: '', autoConnect: true},
+  proxy: '',
   ai: {
     baseUrl: '', apiKey: '', model: '', reasoningEffort: 'max',
     availableModelsText: '', prices: {}
@@ -2372,8 +2402,9 @@ const checkingConnection = ref(false)
 const connectionOk = ref(false)
 const connectionChecked = ref(false)
 const hasChanges = ref(false)
-// 保存原始值，用于检测 baseUrl/apiKey 是否变更（变更需弹警告并重建 Agent）
+// 保存原始值，用于检测 baseUrl/apiKey/代理是否变更（网络配置变更需重建 Agent）
 const originalBaseUrl = ref('')
+const originalProxy = ref('')
 // apiKey 从服务端返回的是脱敏值，通过 localStorage 持久化最近一次保存的 apiKey 用于对比
 const getLastSavedApiKey = () => localStorage.getItem('loopra-last-apikey') || ''
 const setLastSavedApiKey = (key) => localStorage.setItem('loopra-last-apikey', key)
@@ -2895,6 +2926,14 @@ const tabs = computed(() => [
     </svg>`
   },
   {
+    id: 'proxy',
+    label: '代理',
+    description: '配置 Java 与 Electron 的出站网络代理',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M19.07 4.93l-2.12 2.12M7.05 16.95l-2.12 2.12"/>
+    </svg>`
+  },
+  {
     id: 'model-channels',
     label: '模型渠道',
     description: '管理 API 地址、密钥和模型配置',
@@ -2986,7 +3025,7 @@ const tabs = computed(() => [
 
 const settingsNavGroups = computed(() => {
   const groupDefinitions = [
-    {id: 'general', label: '常规', tabIds: ['general', 'workspace', 'server']},
+    {id: 'general', label: '常规', tabIds: ['general', 'workspace', 'server', 'proxy']},
     {id: 'ai', label: 'AI', tabIds: ['model-channels', 'tools', 'sub-agents', 'dashboard']},
     {id: 'integrations', label: '集成', tabIds: ['plugins', 'extpacks', 'openapi', 'mcp', 'lsp']},
     {id: 'other', label: '其他', tabIds: ['pet', 'prompt', 'about']}
@@ -3117,6 +3156,8 @@ const loadSettings = async () => {
       const config = configResponse.data
       // 优先读 localStorage 中实际连接的地址
       settings.server.apiBaseUrl = localStorage.getItem('loopra-api-base') || config.serverApiBaseUrl || ''
+      settings.proxy = config.proxy || ''
+      originalProxy.value = settings.proxy
       settings.ai.baseUrl = config.baseUrl || ''
       // 记录原始值，用于检测 baseUrl/apiKey 是否变更
       originalBaseUrl.value = settings.ai.baseUrl
@@ -3172,6 +3213,8 @@ const loadSettings = async () => {
     settings.ai.reasoningEffort = 'max'
     settings.workspace.dir = '.'
     settings.workspace.mode = 'free'
+    settings.proxy = ''
+    originalProxy.value = ''
     availableModels.value = [
       {name: 'deepseek-v4-flash', active: true},
       {name: 'gpt-4', active: false},
@@ -3200,10 +3243,27 @@ const saveSettings = async () => {
       security: {...settings.security},
       disabledTools: settings.security.disabledToolsText.split('\n').map(s => s.trim()).filter(s => s)
     }
+    const proxyAddress = settings.proxy.trim()
+    const proxyChanged = proxyAddress !== originalProxy.value
+    if (proxyChanged) configToUpdate.proxy = proxyAddress
 
     const response = await configAPI.updateConfig(configToUpdate)
 
     if (response.success) {
+      if (proxyChanged) {
+        settings.proxy = proxyAddress
+        originalProxy.value = proxyAddress
+        if (platform.isElectron && typeof window.electronAPI?.proxy?.set === 'function') {
+          try {
+            const proxyResult = await window.electronAPI.proxy.set(proxyAddress)
+            if (proxyResult?.success === false) {
+              message.warning('代理已保存，但 Electron 网络会话应用失败：' + (proxyResult.error || '请重启桌面端'))
+            }
+          } catch (proxyError) {
+            message.warning('代理已保存，但 Electron 网络会话应用失败：' + (proxyError.message || proxyError))
+          }
+        }
+      }
       // 切换工作目录
       if (settings.workspace.dir && settings.workspace.dir.trim()) {
         try {

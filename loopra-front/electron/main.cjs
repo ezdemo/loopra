@@ -1,6 +1,5 @@
-const { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Notification } = require('electron')
+const { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Notification, session, net: electronNet } = require('electron')
 const http = require('http')
-const https = require('https')
 const path = require('path')
 const { spawn, execFile, execSync } = require('child_process')
 const { promisify } = require('util')
@@ -69,6 +68,7 @@ let updateWindow = null
 let onboardingWindow = null
 let loopraWebProcess = null
 let currentPort = 0
+let currentElectronProxyAddress = ''
 const loopraWebWindows = new Map()
 let elementWebView = null
 let elementInspectorWindow = null
@@ -337,6 +337,78 @@ function getLoopraPaths() {
   }
 }
 
+// ==================== 网络代理 ====================
+// Electron 的 BrowserWindow/WebContentsView 和主进程下载请求统一使用 defaultSession，
+// 这样设置页保存代理后，桌面端所有 Chromium 网络请求都会即时切换代理。
+function normalizeProxyAddress(rawAddress) {
+  if (rawAddress == null || String(rawAddress).trim() === '') return ''
+
+  let address = String(rawAddress).trim()
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(address)) address = `http://${address}`
+
+  let parsed
+  try {
+    parsed = new URL(address)
+  } catch {
+    throw new Error('代理地址格式无效')
+  }
+
+  const protocol = parsed.protocol.toLowerCase()
+  const isSocks = ['socks:', 'socks4:', 'socks5:', 'socks5h:'].includes(protocol)
+  if (protocol !== 'http:' && !isSocks) throw new Error('代理协议仅支持 http 或 socks5')
+  if (parsed.username || parsed.password || parsed.search || parsed.hash
+    || (parsed.pathname && parsed.pathname !== '/')) {
+    throw new Error('代理地址不应包含用户名、密码、路径或查询参数')
+  }
+
+  const host = parsed.hostname.replace(/^\[|\]$/g, '')
+  if (!host) throw new Error('代理地址缺少主机名')
+  const port = parsed.port ? Number(parsed.port) : (isSocks ? 1080 : 80)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('代理端口必须在 1-65535 之间')
+  }
+
+  const scheme = isSocks ? 'socks5' : 'http'
+  const formattedHost = host.includes(':') ? `[${host}]` : host
+  return `${scheme}://${formattedHost}:${port}`
+}
+
+function electronProxyRules(address) {
+  const parsed = new URL(address)
+  const host = parsed.hostname.replace(/^\[|\]$/g, '')
+  const formattedHost = host.includes(':') ? `[${host}]` : host
+  const port = parsed.port || (parsed.protocol === 'socks5:' ? '1080' : '80')
+  const authority = `${formattedHost}:${port}`
+  return parsed.protocol === 'socks5:' ? `socks5=${authority}` : `http=${authority};https=${authority}`
+}
+
+function readConfiguredProxyAddress() {
+  try {
+    const configPath = path.join(getLoopraPaths().configDir, 'config.json')
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    return config && (config.proxy ?? config.proxyAddress) || ''
+  } catch {
+    return ''
+  }
+}
+
+async function applyElectronProxy(rawAddress) {
+  const address = normalizeProxyAddress(rawAddress)
+  const proxyConfig = address
+    ? {
+        mode: 'fixed_servers',
+        proxyRules: electronProxyRules(address),
+        proxyBypassRules: '<local>;127.0.0.1;localhost;[::1]'
+      }
+    : { mode: 'direct' }
+  await session.defaultSession.setProxy(proxyConfig)
+  if (typeof session.defaultSession.closeAllConnections === 'function') {
+    await session.defaultSession.closeAllConnections()
+  }
+  currentElectronProxyAddress = address
+  return { success: true, proxy: address }
+}
+
 function getLoopraBinPath() {
   const { binDir, binPath } = getLoopraPaths()
   return { binDir, binPath }
@@ -484,25 +556,57 @@ function getJre25Platform() {
   return { os, arch }
 }
 
-function httpGetJson(url) {
+function electronGet(url, headers = {}, timeoutMs = 0) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Loopra/Desktop' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume()
-        return httpGetJson(res.headers.location).then(resolve, reject)
-      }
-      if (res.statusCode !== 200) {
-        res.resume()
-        return reject(new Error(`请求失败，HTTP ${res.statusCode}`))
-      }
-      let data = ''
-      res.setEncoding('utf8')
-      res.on('data', (c) => { data += c })
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)) } catch (e) { reject(new Error('解析 Adoptium API 响应失败')) }
-      })
-      res.on('error', reject)
-    }).on('error', reject)
+    let settled = false
+    let timeout
+    const fail = (error) => {
+      if (settled) return
+      settled = true
+      if (timeout) clearTimeout(timeout)
+      reject(error)
+    }
+    const request = electronNet.request({
+      url,
+      method: 'GET',
+      headers,
+      session: session.defaultSession
+    })
+    request.once('response', (response) => {
+      if (settled) return
+      settled = true
+      if (timeout) clearTimeout(timeout)
+      resolve({ request, response })
+    })
+    request.once('error', fail)
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        request.abort()
+        fail(new Error('请求超时'))
+      }, timeoutMs)
+    }
+    request.end()
+  })
+}
+
+async function httpGetJson(url) {
+  const { request, response } = await electronGet(url, { 'User-Agent': 'Loopra/Desktop' }, 30000)
+  response.on('error', () => {})
+  if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+    request.abort()
+    return httpGetJson(response.headers.location)
+  }
+  if (response.statusCode !== 200) {
+    request.abort()
+    throw new Error(`请求失败，HTTP ${response.statusCode}`)
+  }
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    response.on('data', (chunk) => { chunks.push(Buffer.from(chunk)) })
+    response.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch { reject(new Error('解析 Adoptium API 响应失败')) }
+    })
+    response.on('error', reject)
   })
 }
 
@@ -524,32 +628,50 @@ async function resolveJre25GitHubAsset(os, arch) {
 function downloadFile(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath)
+    let settled = false
     const cleanup = () => {
-      file.close()
+      if (!file.destroyed) file.destroy()
       fs.unlink(destPath, () => {})
     }
-    const req = https.get(url, { headers: { 'User-Agent': 'Loopra/Desktop' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume()
+    const fail = (error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+    electronGet(url, { 'User-Agent': 'Loopra/Desktop' }).then(({ request, response }) => {
+      request.on('error', fail)
+      response.on('error', fail)
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        request.abort()
+        settled = true
         cleanup()
-        return downloadFile(res.headers.location, destPath, onProgress).then(resolve, reject)
+        return downloadFile(response.headers.location, destPath, onProgress).then(resolve, reject)
       }
-      if (res.statusCode !== 200) {
-        res.resume()
-        cleanup()
-        return reject(new Error(`下载失败，HTTP ${res.statusCode}`))
+      if (response.statusCode !== 200) {
+        request.abort()
+        return fail(new Error(`下载失败，HTTP ${response.statusCode}`))
       }
-      const total = parseInt(res.headers['content-length'] || '0', 10)
+      const total = parseInt(response.headers['content-length'] || '0', 10)
       let received = 0
-      res.on('data', (chunk) => {
+      response.on('data', (chunk) => {
         received += chunk.length
         if (onProgress) onProgress(received, total)
+        if (!file.write(chunk) && typeof response.pause === 'function') response.pause()
       })
-      res.pipe(file)
-      file.on('finish', () => file.close(() => resolve()))
-      file.on('error', reject)
-    })
-    req.on('error', (err) => { cleanup(); reject(err) })
+      if (typeof response.pause === 'function' && typeof response.resume === 'function') {
+        file.on('drain', () => response.resume())
+      }
+      response.on('end', () => file.end())
+      file.on('finish', () => {
+        if (settled) return
+        file.close(() => {
+          settled = true
+          resolve()
+        })
+      })
+      file.on('error', fail)
+    }).catch(fail)
   })
 }
 
@@ -641,7 +763,7 @@ async function downloadAndInstallJre25(source) {
 
 // ==================== 镜像测速 ====================
 // 与 JRE / 更新脚本共用同一份测速目标（release 压缩包，Range 取前 1KB），并发测各镜像延迟。
-// 放在主进程执行：镜像代理大多不支持浏览器跨域，node https 无 CORS 限制。
+// 放在主进程执行：镜像代理大多不支持浏览器跨域，Electron net 无 CORS 限制且遵循会话代理。
 
 const MIRROR_TEST_ASSET = 'https://github.com/ezdemo/loopra/releases/download/v26.8.211/loopra-dist.tar.gz'
 
@@ -652,20 +774,16 @@ function measureMirrorLatency(mirrorBase, timeoutMs = 8000) {
     const start = Date.now()
     let settled = false
     const done = (value) => { if (!settled) { settled = true; resolve(value) } }
-    const req = https.get(url, {
-      headers: { 'User-Agent': 'Loopra/Desktop', Range: 'bytes=0-1023' },
-      timeout: timeoutMs
-    }, (res) => {
-      const status = res.statusCode || 0
+    electronGet(url, { 'User-Agent': 'Loopra/Desktop', Range: 'bytes=0-1023' }, timeoutMs).then(({ request, response }) => {
+      request.on('error', () => done(null))
+      response.on('error', () => done(null))
+      const status = response.statusCode || 0
       if (status !== 200 && status !== 206) {
-        res.resume()
+        request.abort()
         return done(null)
       }
-      res.once('data', () => { res.destroy(); done(Date.now() - start) })
-      res.on('error', () => done(null))
-    })
-    req.on('timeout', () => { req.destroy(); done(null) })
-    req.on('error', () => done(null))
+      response.once('data', () => { request.abort(); done(Date.now() - start) })
+    }).catch(() => done(null))
   })
 }
 
@@ -1106,7 +1224,14 @@ function openDesktopPetWindow() {
   return desktopPetWindow
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await applyElectronProxy(readConfiguredProxyAddress())
+  } catch (error) {
+    // 配置文件可能来自旧版本或被手工修改；桌面端先回退直连，避免阻塞启动。
+    console.warn('[proxy] apply configured proxy failed:', error.message)
+    try { await applyElectronProxy('') } catch { /* ignore */ }
+  }
   // The renderer provides its own toolbar; do not expose Electron's default menu bar.
   Menu.setApplicationMenu(null)
   startAiBrowserBridge().catch((error) => console.error('[ai-browser] failed to start bridge:', error.message))
@@ -1148,6 +1273,20 @@ const isUiSettingsSender = (event) => {
     return false
   }
 }
+
+ipcMain.handle('proxy-get', (event) => {
+  if (!isUiSettingsSender(event)) return { success: false, error: '未授权的代理请求' }
+  return { success: true, proxy: currentElectronProxyAddress }
+})
+
+ipcMain.handle('proxy-set', async (event, rawAddress) => {
+  if (!isUiSettingsSender(event)) return { success: false, error: '未授权的代理请求' }
+  try {
+    return await applyElectronProxy(rawAddress)
+  } catch (error) {
+    return { success: false, error: error.message || String(error) }
+  }
+})
 
 ipcMain.handle('ui-settings-get', (event) => {
   if (!isUiSettingsSender(event)) return null
