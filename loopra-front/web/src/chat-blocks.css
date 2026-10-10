@@ -1,0 +1,228 @@
+/* Ported from Loopra WEB ChatMessage.vue / BlockRenderer.vue (40325b7c).
+   Scope message tokens so the existing application shell retains its appearance. */
+.loopra-conversation {
+  --chat-fg: #27272a;
+  --chat-fg-2: #52525b;
+  --chat-fg-3: #71717a;
+  --chat-fg-4: #a1a1aa;
+  --chat-border: #e8e8eb;
+  --chat-border-soft: #eeeef0;
+  --chat-bg: #fff;
+  --chat-subtle: #fafafa;
+  --chat-muted: #f4f4f5;
+  --chat-hover: #f6f6f7;
+  --chat-user: #eff4ff;
+  --chat-green: #2e7d32;
+  --chat-green-bg: #e8f5e9;
+  --chat-red: #c62828;
+  --chat-red-bg: #ffebee;
+  --chat-yellow: #a96d0c;
+  --chat-yellow-bg: #fff8e1;
+  --chat-font: 0.875rem;
+  --chat-mono: Consolas, 'Cascadia Code', 'Microsoft YaHei', monospace;
+  color: var(--chat-fg);
+  font-size: var(--chat-font);
+  line-height: 1.7;
+  padding: 1rem 0 0.5rem;
+}
+.dark .loopra-conversation {
+  --chat-fg: #f1f1f3;
+  --chat-fg-2: #c3c6cc;
+  --chat-fg-3: #9499a3;
+  --chat-fg-4: #686d78;
+  --chat-border: #36373d;
+  --chat-border-soft: #303137;
+  --chat-bg: #202124;
+  --chat-subtle: #242529;
+  --chat-muted: #2a2b2f;
+  --chat-hover: #2e3035;
+  --chat-user: #222d40;
+  --chat-green: #81c784;
+  --chat-green-bg: #213629;
+  --chat-red: #ef9a9a;
+  --chat-red-bg: #42282b;
+  --chat-yellow: #e4bd70;
+  --chat-yellow-bg: #3b3423;
+}
+.loopra-conversation .message-list { padding: 0; }
+.loopra-conversation .msg { margin-bottom: 0.5rem; }
+.loopra-conversation .msg.user + .msg.assistant,
+.loopra-conversation .msg.assistant + .msg.user { margin-top: 1.25rem; margin-bottom: 1.25rem; }
+.loopra-conversation .msg.user { display: flex; justify-content: flex-end; }
+.loopra-conversation .msg-body { min-width: 0; user-select: text; }
+.loopra-conversation .user-body { width: min(30rem, 85%); padding: 0.5625rem 0.8125rem; border: 1px solid var(--chat-border); border-radius: 0.875rem 0.4375rem 0.875rem 0.875rem; background: var(--chat-user); }
+.loopra-conversation .assistant-body { width: 100%; background: transparent; border: 0; padding: 0; }
+.loopra-conversation .msg-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.loopra-conversation .msg-footer { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.25rem; min-height: 1.5rem; color: var(--chat-fg-4); }
+.loopra-conversation .msg-time { font-size: 0.75rem; color: var(--chat-fg-4); font-variant-numeric: tabular-nums; }
+.loopra-conversation .msg-time-group { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.loopra-conversation .msg-file-stat { font-size: 0.75rem; color: var(--chat-fg-3); }
+.loopra-conversation .msg-file-stat:hover { color: var(--blue); }
+.loopra-conversation .msg-actions { display: inline-flex; align-items: center; gap: 0.125rem; margin-left: auto; }
+.loopra-conversation .msg-actions .icon-button,
+.loopra-conversation .msg-action-button { min-width: 1.5rem !important; width: 1.5rem; height: 1.5rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 0.375rem; color: var(--chat-fg-4); }
+.loopra-conversation .msg-action-button:disabled { opacity: .4; }
+.loopra-conversation .msg-actions .icon-button:hover,
+.loopra-conversation .msg-action-button:hover:not(:disabled) { color: var(--chat-fg-2); background: var(--chat-hover); }
+.loopra-conversation .user-expand-btn { font-size: 0.75rem; text-decoration: underline; text-underline-offset: 0.125rem; color: var(--chat-fg-3); margin-top: 0.125rem; }
+.loopra-conversation .user-auto-message { border: 1px solid var(--chat-border); border-radius: 0.5rem; background: var(--chat-bg); margin: 0 0 0.375rem; overflow: hidden; }
+.loopra-conversation .user-auto-message > .disclosure-heading { padding: 0.4375rem 0.625rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--chat-fg-3); cursor: pointer; }
+.loopra-conversation .user-auto-message pre { margin: 0; padding: 0.625rem; border-top: 1px solid var(--chat-border); font: 0.75rem/1.5 var(--chat-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.loopra-conversation summary { list-style: none; }
+.loopra-conversation summary::-webkit-details-marker { display: none; }
+.loopra-conversation .compacted-summary { border: 1px dashed var(--chat-border); border-radius: 0.5rem; background: var(--chat-subtle); overflow: hidden; }
+.loopra-conversation .compacted-summary > .disclosure-heading { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.625rem; cursor: pointer; color: var(--chat-fg-3); }
+.loopra-conversation .compacted-summary > .disclosure-heading strong { flex: 1; color: var(--chat-fg-2); font-size: 0.8125rem; }
+.loopra-conversation .compacted-summary > .disclosure-heading span { font-size: 0.75rem; }
+.loopra-conversation .compacted-summary pre { max-height: 21.25rem; overflow: auto; padding: 0.625rem; margin: 0 0.5rem 0.5rem; background: var(--chat-bg); white-space: pre-wrap; }
+.loopra-conversation .assistant-process-summary { margin-bottom: 0.5rem; border-bottom: 1px solid var(--chat-border); }
+.loopra-conversation .assistant-process-toggle { display: flex; align-items: center; gap: 0.3125rem; width: 100%; min-height: 2rem; padding: 0.25rem 0.125rem 0.5rem; color: var(--chat-fg-3); text-align: left; font-size: var(--chat-font); }
+.loopra-conversation .assistant-process-toggle:hover { color: var(--chat-fg-2); }
+.loopra-conversation .assistant-process-toggle > svg { color: var(--chat-fg-4); }
+.loopra-conversation .assistant-process-detail { padding-bottom: 0.25rem; }
+.loopra-conversation .streaming-label { margin-left: auto; display: inline-flex; align-items: center; gap: 0.3125rem; color: var(--chat-fg-4); font-size: 0.75rem; }
+.loopra-conversation .streaming-label i { width: 0.3125rem; height: 0.3125rem; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite; }
+.loopra-conversation .msg-blocks { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.loopra-conversation .block-reasoning,
+.loopra-conversation .block-tool { border: 1px solid var(--chat-border); border-radius: 0.5625rem; background: var(--chat-subtle); overflow: hidden; margin-bottom: 0.375rem; }
+.loopra-conversation .reasoning-head,
+.loopra-conversation .tool-head { display: flex; align-items: center; gap: 0.375rem; width: 100%; min-height: 2.25rem; padding: 0.5rem 0.75rem; text-align: left; cursor: pointer; color: var(--chat-fg-2); line-height: 1.25rem; }
+.loopra-conversation .reasoning-head { font-size: var(--chat-font); font-weight: 500; }
+.loopra-conversation .tool-head:hover,
+.loopra-conversation .reasoning-head:hover { background: var(--chat-hover); }
+.loopra-conversation .tool-head > svg:last-child,
+.loopra-conversation .reasoning-head > svg:last-child { margin-left: auto; color: var(--chat-fg-4); }
+.loopra-conversation .rotated,
+.loopra-conversation [data-open="true"] > .tool-head > svg:last-child,
+.loopra-conversation [data-open="true"] > .reasoning-head > svg:last-child { transform: rotate(180deg); }
+.loopra-conversation .rotated-right,
+.loopra-conversation .user-auto-message[data-open="true"] > .disclosure-heading > svg,
+.loopra-conversation .compacted-summary[data-open="true"] > .disclosure-heading > svg:last-child { transform: rotate(90deg); }
+.loopra-conversation .reasoning-text { padding: 0.5rem 0.75rem 0.625rem; border-top: 1px solid var(--chat-border-soft); color: var(--chat-fg-3); }
+.loopra-conversation .reasoning-text .block-content { color: inherit; }
+.loopra-conversation .tool-icon { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; flex-shrink: 0; }
+.loopra-conversation .tool-icon.success { color: var(--chat-green); }
+.loopra-conversation .tool-icon.failed { color: var(--chat-red); }
+.loopra-conversation .tool-icon.running { color: var(--chat-yellow); }
+.loopra-conversation code.tool-name { font: 600 0.75rem/1.25rem var(--chat-mono); color: var(--chat-fg-2); padding: 0; background: transparent; white-space: nowrap; }
+.loopra-conversation .tool-status { padding: 0 0.25rem; border-radius: 0.25rem; font: 500 0.625rem/1.125rem var(--chat-mono); flex-shrink: 0; }
+.loopra-conversation .tool-status.success { color: var(--chat-green); background: var(--chat-green-bg); }
+.loopra-conversation .tool-status.failed { color: var(--chat-red); background: var(--chat-red-bg); }
+.loopra-conversation .tool-status.running { color: var(--chat-yellow); background: var(--chat-yellow-bg); }
+.loopra-conversation .tool-param { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; color: var(--chat-fg-3); }
+.loopra-conversation .tool-duration { margin-left: auto; white-space: nowrap; font: 0.625rem var(--chat-mono); color: var(--chat-fg-4); }
+.loopra-conversation .tool-detail { padding: 0.625rem 0.625rem 0.5rem; border-top: 1px solid var(--chat-border); }
+.loopra-conversation .tool-detail-label { font-size: 0.6875rem; color: var(--chat-fg-4); }
+.loopra-conversation .tool-detail pre { padding: 0.5rem; margin: 0.25rem 0 0.5rem; background: var(--chat-bg); border: 1px solid var(--chat-border); border-radius: 0.3125rem; max-height: 11.25rem; overflow: auto; font: 0.75rem/1.5 var(--chat-mono); }
+.loopra-conversation .tool-detail pre code { background: transparent; padding: 0; font: inherit; }
+.loopra-conversation .tool-group-detail { padding: 0.375rem 0.5rem; border-top: 1px solid var(--chat-border-soft); }
+.loopra-conversation .tool-group-detail .block-tool:last-child { margin-bottom: 0; }
+.loopra-conversation .block-finish { border-color: var(--chat-green-bg); }
+.loopra-conversation .finish-head { cursor: default; font-size: 0.75rem; }
+.loopra-conversation .finish-head:hover { background: transparent; }
+.loopra-conversation .finish-head .tool-name { font-weight: 500; }
+.loopra-conversation .finish-content { padding: 0.625rem 0.75rem 0.75rem; border-top: 1px solid var(--chat-border-soft); }
+.loopra-conversation .block-content { color: var(--chat-fg); line-height: 1.7; overflow-wrap: anywhere; min-width: 0; }
+.loopra-conversation .block-content p { margin: .6em 0; }
+.loopra-conversation .block-content > :first-child { margin-top: 0; }
+.loopra-conversation .block-content > :last-child { margin-bottom: 0; }
+.loopra-conversation .block-content strong { font-weight: 600; }
+.loopra-conversation .block-content h1 { font-size: 1.65em; }
+.loopra-conversation .block-content h2 { font-size: 1.4em; }
+.loopra-conversation .block-content h3 { font-size: 1.2em; }
+.loopra-conversation .block-content h4 { font-size: 1.1em; }
+.loopra-conversation .block-content :is(h1,h2,h3,h4,h5,h6) { font-weight: 600; margin: 1em 0 .5em; line-height: 1.45; }
+.loopra-conversation .block-content a { color: var(--blue); text-decoration: underline; text-underline-offset: 0.125rem; }
+.loopra-conversation .block-content ul { list-style: disc; padding-left: 1.6em; margin: .6em 0; }
+.loopra-conversation .block-content ol { list-style: decimal; padding-left: 1.6em; margin: .6em 0; }
+.loopra-conversation .block-content li { margin: .25em 0; }
+.loopra-conversation .block-content .task-list-item { list-style: none; }
+.loopra-conversation .block-content input[type="checkbox"] { accent-color: var(--chat-green); margin-right: 0.4375rem; }
+.loopra-conversation .block-content blockquote { border-left: 0.1875rem solid var(--chat-border); background: var(--chat-muted); border-radius: 0 0.3125rem 0.3125rem 0; color: var(--chat-fg-3); margin: .8em 0; padding: 0.5rem 0.75rem; }
+.loopra-conversation .block-content blockquote > p { margin: 0; }
+.loopra-conversation .block-content code { font-family: var(--chat-mono); font-size: .9em; background: var(--chat-muted); color: var(--chat-fg-2); padding: 0.125rem 0.3125rem; border-radius: 0.25rem; }
+.loopra-conversation .markdown-table-scroll { overflow-x: auto; margin: 0.625rem 0; border: 1px solid var(--chat-border); border-radius: 0.4375rem; }
+.loopra-conversation .block-content table { border-collapse: collapse; width: 100%; font-size: .95em; }
+.loopra-conversation .block-content :is(th,td) { border-right: 1px solid var(--chat-border); border-bottom: 1px solid var(--chat-border); padding: 0.5rem 0.75rem; text-align: left; }
+.loopra-conversation .block-content tr:last-child td { border-bottom: 0; }
+.loopra-conversation .block-content :is(th,td):last-child { border-right: 0; }
+.loopra-conversation .block-content th { font-weight: 600; background: var(--chat-muted); }
+.loopra-conversation .block-content tr:nth-child(2n) td { background: var(--chat-subtle); }
+.loopra-conversation .block-content img { max-width: 100%; border-radius: 0.375rem; }
+.loopra-conversation .block-content hr { border: 0; border-top: 1px solid var(--chat-border); margin: 1rem 0; }
+.loopra-conversation .code-block-wrap { margin: 0.625rem 0; border: 1px solid var(--chat-border); border-radius: 0.5rem; overflow: hidden; background: var(--chat-bg); }
+.loopra-conversation .code-block-top { display: flex; align-items: center; gap: 0.5rem; background: var(--chat-muted); border-bottom: 1px solid var(--chat-border); min-height: 2.1875rem; padding: 0 0.4375rem 0 0.6875rem; color: var(--chat-fg-3); }
+.loopra-conversation .code-block-toggle { display: flex; align-items: center; gap: 0.4375rem; flex: 1; min-width: 0; font: 0.75rem/2.125rem var(--chat-mono); text-align: left; }
+.loopra-conversation .code-block-meta { margin-left: auto; color: var(--chat-fg-4); font-size: 0.6875rem; }
+.loopra-conversation .code-block-top .icon-button { width: 1.5625rem; height: 1.5625rem; min-width: 1.5625rem !important; color: var(--chat-fg-3); }
+.loopra-conversation .code-block-wrap pre { margin: 0; padding: 0.75rem 0.875rem; overflow-x: auto; line-height: 1.65; tab-size: 2; }
+.loopra-conversation .code-block-wrap pre code { font: 0.75rem/1.65 var(--chat-mono); color: var(--chat-fg); padding: 0; background: transparent; white-space: pre; }
+.loopra-conversation .code-block-wrap.collapsed .code-preview { mask-image: linear-gradient(#000 70%,transparent); }
+.loopra-conversation .code-expand { display: flex; align-items: center; justify-content: center; gap: 0.375rem; width: 100%; padding: 0.375rem; border-top: 1px solid var(--chat-border-soft); color: var(--chat-fg-3); font-size: 0.6875rem; }
+.loopra-conversation .code-expand:hover { background: var(--chat-hover); }
+.loopra-conversation :is(.hljs-keyword,.hljs-selector-tag,.hljs-literal) { color: #cf222e; }
+.loopra-conversation :is(.hljs-string,.hljs-regexp) { color: #0a3069; }
+.loopra-conversation :is(.hljs-number,.hljs-built_in,.hljs-attr) { color: #0550ae; }
+.loopra-conversation :is(.hljs-title,.hljs-section) { color: #8250df; }
+.loopra-conversation :is(.hljs-comment,.hljs-meta) { color: #6e7781; }
+.dark .loopra-conversation :is(.hljs-keyword,.hljs-selector-tag,.hljs-literal) { color: #ff7b72; }
+.dark .loopra-conversation :is(.hljs-string,.hljs-regexp) { color: #a5d6ff; }
+.dark .loopra-conversation :is(.hljs-number,.hljs-built_in,.hljs-attr) { color: #79c0ff; }
+.dark .loopra-conversation :is(.hljs-title,.hljs-section) { color: #d2a8ff; }
+.dark .loopra-conversation :is(.hljs-comment,.hljs-meta) { color: #8b949e; }
+.loopra-conversation .block-file-changes { margin: 0.625rem 0 0.25rem; overflow: hidden; border: 1px solid var(--chat-border); border-radius: 0.5625rem; background: var(--chat-subtle); }
+.loopra-conversation .file-changes-head { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; min-height: 4.75rem; background: var(--chat-muted); }
+.loopra-conversation .file-changes-main { display: flex; align-items: center; flex: 1; min-width: 0; gap: 0.75rem; text-align: left; }
+.loopra-conversation .file-changes-main:hover:not(:disabled) strong { color: var(--blue); }
+.loopra-conversation .file-changes-icon { display: grid; place-items: center; width: 2.625rem; height: 2.625rem; flex-shrink: 0; border-radius: 0.5rem; background: var(--chat-bg); color: var(--chat-fg-2); }
+.loopra-conversation .file-changes-summary { display: flex; flex-direction: column; gap: 0.1875rem; min-width: 0; }
+.loopra-conversation .file-changes-summary strong { font-size: 0.9375rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loopra-conversation .file-changes-total,
+.loopra-conversation .file-change-stats { display: inline-flex; gap: 0.4375rem; font: 600 0.75rem/1.125rem var(--chat-mono); }
+.loopra-conversation .file-changes-total > span { color: var(--chat-fg-4); font-weight: 400; }
+.loopra-conversation .file-change-add { color: var(--chat-green); }
+.loopra-conversation .file-change-del { color: var(--chat-red); }
+.loopra-conversation .file-changes-undo { height: 1.75rem; min-width: 0; padding: 0.25rem 0.5rem; color: var(--chat-fg-2); font-size: 0.8125rem; border-radius: 0.3125rem; }
+.loopra-conversation .file-change-row { display: flex; align-items: center; gap: 0.625rem; width: 100%; padding: 0.6875rem 1rem; border-top: 1px solid var(--chat-border-soft); color: var(--chat-fg-2); text-align: left; }
+.loopra-conversation .file-change-row > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 0.75rem var(--chat-mono); }
+.loopra-conversation .file-change-row:hover { background: var(--chat-hover); }
+.loopra-conversation .file-changes-expand { width: 100%; display: flex; align-items: center; gap: 0.375rem; padding: 0.625rem 1rem; background: var(--chat-muted); color: var(--chat-fg-2); font-size: 0.8125rem; }
+.loopra-conversation .undone .file-changes-icon { opacity: .5; }
+.loopra-conversation .checklist-detail { padding: 0.625rem 0.75rem; border-top: 1px solid var(--chat-border-soft); }
+.loopra-conversation .checklist-track { height: 0.1875rem; background: var(--chat-muted); border-radius: 6.1875rem; margin-bottom: 0.75rem; overflow: hidden; }
+.loopra-conversation .checklist-track > span { display: block; height: 100%; background: var(--chat-green); }
+.loopra-conversation .checklist-row { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.3125rem 0; font-size: 0.75rem; color: var(--chat-fg-2); }
+.loopra-conversation .checklist-row > svg { margin-top: 0.1875rem; color: var(--chat-fg-4); }
+.loopra-conversation .checklist-row.done > svg { color: var(--chat-green); }
+.loopra-conversation .checklist-row.active > svg { color: var(--chat-yellow); }
+.loopra-conversation .checklist-row small { display: block; color: var(--chat-fg-4); font-size: 0.6875rem; }
+.loopra-conversation .block-choice { border: 1px solid var(--chat-border); border-radius: 0.5625rem; background: var(--chat-subtle); padding: 0.75rem; margin: 0.375rem 0; }
+.loopra-conversation .choice-question { display: flex; align-items: center; gap: 0.4375rem; color: var(--chat-fg-2); }
+.loopra-conversation .choice-question strong { font-weight: 500; }
+.loopra-conversation .choice-desc { margin: 0.375rem 0 0.625rem; font-size: 0.75rem; color: var(--chat-fg-3); }
+.loopra-conversation .choice-buttons { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.625rem; }
+.loopra-conversation .choice-btn { display: flex; align-items: center; gap: 0.625rem; width: 100%; padding: 0.5625rem 0.75rem; background: var(--chat-bg); border: 1px solid var(--chat-border); border-radius: 0.4375rem; text-align: left; }
+.loopra-conversation .choice-btn:hover { border-color: var(--blue); background: var(--chat-hover); }
+.loopra-conversation .choice-index { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid var(--chat-border); border-radius: 0.25rem; font: 0.6875rem var(--chat-mono); color: var(--chat-fg-3); }
+.loopra-conversation .choice-btn strong { display: block; font-size: 0.8125rem; font-weight: 500; }
+.loopra-conversation .choice-btn small { display: block; font-size: 0.75rem; color: var(--chat-fg-3); }
+.loopra-conversation .choice-resolved { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4375rem; margin-top: 0.5rem; color: var(--chat-green); font-size: 0.75rem; }
+.loopra-conversation .choice-resolved button { margin-left: auto; color: var(--chat-fg-3); text-decoration: underline; }
+.loopra-conversation .thinking { margin: 0.25rem 0 0.625rem; }
+.loopra-conversation .spin { animation: chat-spin 1s linear infinite; }
+@keyframes chat-spin { to { transform: rotate(360deg); } }
+@media (max-width: 760px) {
+  .loopra-conversation { padding-top: 0.75rem; }
+  .loopra-conversation .user-body { width: min(30rem, 90%); }
+  .loopra-conversation .tool-head { padding: 0.4375rem 0.5625rem; gap: 0.3125rem; }
+  .loopra-conversation .tool-duration { display: none; }
+  .loopra-conversation .file-changes-head { padding: 0.625rem; gap: 0.3125rem; }
+  .loopra-conversation .file-changes-main { gap: 0.5rem; }
+  .loopra-conversation .file-changes-icon { width: 2rem; height: 2rem; }
+  .loopra-conversation .file-changes-summary strong { font-size: 0.8125rem; }
+  .loopra-conversation .file-changes-total > span { display: none; }
+  .loopra-conversation .finish-content { padding: 0.5rem 0.625rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loopra-conversation *, .loopra-conversation *::before { animation: none !important; transition: none !important; }
+}

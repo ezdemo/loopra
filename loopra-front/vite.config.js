@@ -1,5 +1,6 @@
 import {defineConfig} from 'vite'
 import vue from '@vitejs/plugin-vue'
+import react from '@vitejs/plugin-react'
 import Components from 'unplugin-vue-components/vite'
 import {AntDesignVueResolver} from 'unplugin-vue-components/resolvers'
 import {resolve} from 'path'
@@ -24,6 +25,7 @@ export default defineConfig({
   base: './',
   plugins: [
     stripUrlQuery,
+    react({ include: /web\/src\/.*\.[jt]sx?$/ }),
     vue({
       script: {
         defineModel: true,
@@ -54,7 +56,7 @@ export default defineConfig({
   
   server: {
     port: 3000,
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     open: false,
       cors: true,
       // 开发环境下将 /api 请求代理到后端，避免跨域
@@ -72,6 +74,10 @@ export default defineConfig({
     sourcemap: false,
     minify: 'esbuild',
     rollupOptions: {
+      input: {
+        index: resolve(__dirname, 'index.html'),
+        legacy: resolve(__dirname, 'legacy.html')
+      },
       output: {
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',
@@ -110,6 +116,11 @@ export default defineConfig({
   },
   
   envPrefix: 'VUE_APP_',
+
+  // Web protocol tests use node:test; keep Vitest on the existing Vue suites.
+  test: {
+    include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}']
+  },
   
   logLevel: 'info',
   
