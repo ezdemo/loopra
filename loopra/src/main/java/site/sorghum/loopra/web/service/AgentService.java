@@ -2,7 +2,6 @@ package site.sorghum.loopra.web.service;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.noear.solon.ai.talents.mount.SkillDir;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Destroy;
 import org.noear.solon.annotation.Init;
@@ -16,7 +15,6 @@ import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.command.ChatCommandRegistry;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.config.LoopraConfig;
-import site.sorghum.loopra.bin.mcp.McpProjectConfig;
 import site.sorghum.loopra.bin.model.LoopraModelProvider;
 import site.sorghum.loopra.bin.model.ModelPriceProvider;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
@@ -28,10 +26,8 @@ import site.sorghum.loopra.bin.session.SubAgentSessionStore;
 import site.sorghum.loopra.bin.tool.ToolRegistry;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
 import site.sorghum.loopra.tool.AgentOutput;
-import site.sorghum.loopra.tool.solon.common.LoopraSkillProvider;
 import site.sorghum.loopra.tool.solon.common.SessionTerminalTalent;
 import site.sorghum.loopra.tool.solon.common.SessionTerminalTalent.BashSessionInfo;
-import site.sorghum.loopra.tool.solon.mcp.ProjectMcpSkill;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.common.UsageCostCalculator;
 import site.sorghum.loopra.web.model.AgentStatusDTO;
@@ -40,8 +36,6 @@ import site.sorghum.loopra.web.model.BashSessionLogDTO;
 import site.sorghum.loopra.web.model.CommandMetaDTO;
 import site.sorghum.loopra.web.model.ProjectCapabilitiesDTO;
 import site.sorghum.loopra.web.model.ProjectInfoDTO;
-import site.sorghum.loopra.web.model.ProjectMcpServerDTO;
-import site.sorghum.loopra.web.model.ProjectSkillMetaDTO;
 import site.sorghum.loopra.web.model.SessionInfoDTO;
 import site.sorghum.loopra.web.model.SessionSettingsDTO;
 import site.sorghum.loopra.web.model.SessionStatusDTO;
@@ -54,9 +48,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -87,6 +79,7 @@ public class AgentService implements ProjectRuntimeAccess {
      * 最大缓存 Agent 数量
      */
     private static final int MAX_CACHE_SIZE = 50;
+    private final Object runtimeMonitor = new Object();
     /**
      * 当前线程正在处理的会话名称（用于工具执行时获取 sessionId）
      */
@@ -114,11 +107,15 @@ public class AgentService implements ProjectRuntimeAccess {
     private volatile ToolRegistry sharedToolRegistry;
 
     /**
-     * 按项目缓存的工具系统初始化结果（绝对路径 -> Result）。
+     * 按规范化的项目根、执行根和状态根缓存共享工具系统。
      * <p>同一项目的所有会话 Agent 复用其 ToolRegistry 与 PromptPrefix，
      * 避免每个 Agent 重复扫描工具/构建提示词；配置重建（{@link #reinitialize()}）时清空。</p>
      */
-    private final ConcurrentHashMap<String, ToolSystemInitializer.ToolSystem> sharedToolSystems = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<SessionEnvironment, ToolSystemInitializer.ToolSystem> sharedToolSystems =
+            new ConcurrentHashMap<>();
+
+    private final ProjectCapabilitiesService projectCapabilitiesService = new ProjectCapabilitiesService(
+            runtimeMonitor, sessionCache, this::invalidateProjectToolSystems);
 
     /**
      * 加载默认系统提示词。
@@ -188,7 +185,13 @@ public class AgentService implements ProjectRuntimeAccess {
      * 下次聊天请求时 {@link #getOrCreateAgent} 会按全新配置重建 Agent。
      * </p>
      */
-    public synchronized void reinitialize() {
+    public void reinitialize() {
+        synchronized (runtimeMonitor) {
+            reinitializeRuntime();
+        }
+    }
+
+    private void reinitializeRuntime() {
         log.info("[config] 开始重新初始化 AgentService...");
 
         // 释放缓存 Agent 及其监听、会话存储和插件资源。
@@ -241,14 +244,14 @@ public class AgentService implements ProjectRuntimeAccess {
         SessionEnvironment environment = SessionEnvironment.of(config.workspaceDir(), null);
         ToolSystemInitializer.ToolSystem initResult = ToolSystemInitializer.initialize(
                 environment, config.disabledTools(), loadDefaultSystemPrompt());
-        sharedToolSystems.put(workspaceKey(config.workspaceDir()), initResult);
+        sharedToolSystems.put(environmentKey(environment), initResult);
         this.sharedToolRegistry = initResult.toolRegistry();
 
         return true;
     }
 
     private ToolSystemInitializer.ToolSystem getOrCreateSharedToolSystem(SessionEnvironment environment) {
-        String key = environment == null ? "" : environmentKey(environment);
+        SessionEnvironment key = environmentKey(environment);
         return sharedToolSystems.computeIfAbsent(key,
                 k -> ToolSystemInitializer.initialize(
                         environment,
@@ -256,15 +259,14 @@ public class AgentService implements ProjectRuntimeAccess {
                         loadDefaultSystemPrompt()));
     }
 
-    private static String environmentKey(SessionEnvironment environment) {
-        return workspaceKey(environment.projectRoot())
-                + "#" + workspaceKey(environment.executionRoot())
-                + "#" + workspaceKey(environment.stateRoot());
+    private static SessionEnvironment environmentKey(SessionEnvironment environment) {
+        if (environment == null) return SessionEnvironment.local(null);
+        return new SessionEnvironment(normalizeWorkspace(environment.projectRoot()),
+                normalizeWorkspace(environment.executionRoot()), normalizeWorkspace(environment.stateRoot()));
     }
 
-    private static String workspaceKey(Path workspace) {
-        // 未配置项目时返回空键（initialize 本身容忍 null 项目）
-        return workspace == null ? "" : workspace.toAbsolutePath().normalize().toString();
+    private static Path normalizeWorkspace(Path workspace) {
+        return workspace == null ? null : workspace.toAbsolutePath().normalize();
     }
 
     /**
@@ -291,239 +293,58 @@ public class AgentService implements ProjectRuntimeAccess {
         return workspacePath + "::" + sessionName;
     }
 
-    /**
-     * 由 {@code mcprefresh} 工具登记、等待当前项目所有会话空闲后执行的 MCP 刷新。
-     * 键为规范化后的项目根目录字符串。
-     */
-    private final Set<String> pendingProjectMcpRefreshes = ConcurrentHashMap.newKeySet();
-
-    /**
-     * 登记一个会话级后台任务。
-     *
-     * @param workspacePath 项目路径
-     * @param sessionName   会话名称
-     * @param requestId     请求/任务唯一 ID
-     */
+    /** 登记先于入队，并与项目刷新共享协调锁。 */
     public void registerSessionTask(String workspacePath, String sessionName, String requestId) {
         if (requestId == null || requestId.isBlank()) return;
-        String sessionKey = generateSessionKey(workspacePath, sessionName);
-        sessionCache.registerTask(sessionKey, requestId);
+        synchronized (runtimeMonitor) {
+            sessionCache.registerTask(generateSessionKey(workspacePath, sessionName), requestId);
+        }
     }
 
     /** 移除指定会话任务登记；不会误删同一会话随后登记的任务。 */
     public void unregisterSessionTask(String workspacePath, String sessionName, String requestId) {
         if (requestId == null || requestId.isBlank()) return;
-        String sessionKey = generateSessionKey(workspacePath, sessionName);
-        sessionCache.unregisterTask(sessionKey, requestId);
+        sessionCache.unregisterTask(generateSessionKey(workspacePath, sessionName), requestId);
         applyPendingProjectMcpRefresh(workspacePath);
     }
 
-    /**
-     * 获取指定项目/会话的运行状态。
-     * <p>状态只来自活动任务登记或缓存 Agent 的实际运行标志，不根据历史消息变化推断。</p>
-     */
+    /** 状态来自活动请求和 Agent 运行标志，不根据历史消息推断。 */
     public SessionStatusDTO getSessionStatus(String workspacePath, String sessionName) {
-        String sessionKey = generateSessionKey(workspacePath, sessionName);
-        return sessionCache.status(sessionKey);
+        return sessionCache.status(generateSessionKey(workspacePath, sessionName));
     }
 
-    /**
-     * 获取当前项目会话可见的项目 Skill 与项目级 MCP 摘要。
-     *
-     * <p>该接口复用项目工具提供者，因此面板展示的 MCP 与实际会话加载的 MCP
-     * 来自同一份项目级运行时；Skill 仅返回项目目录下的项目 Skill，响应只包含名称、状态和工具名，
-     * 不返回连接密钥等配置。</p>
-     */
     public ProjectCapabilitiesDTO getProjectCapabilities(String workspacePath) {
-        if (workspacePath == null || workspacePath.isBlank()) {
-            return new ProjectCapabilitiesDTO(null, null, false, null, false,
-                    List.of(), List.of());
-        }
-
-        Path projectRoot = Paths.get(workspacePath).toAbsolutePath().normalize();
-        LoopraSkillProvider provider = LoopraSkillProvider.getOrCreate(projectRoot.toString());
-        provider.getPoolManager().refresh();
-
-        Path projectSkillsPath = projectRoot.resolve(".loopra").resolve("skills");
-        List<ProjectSkillMetaDTO> skills = provider.getPoolManager().getSkills().stream()
-                .filter(Objects::nonNull)
-                .filter(skill -> "@project-skills".equals(skill.getMountAlias()))
-                .sorted(Comparator.comparing(SkillDir::getName,
-                        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
-                .map(skill -> new ProjectSkillMetaDTO(
-                        skill.getName(),
-                        skill.getDescription(),
-                        "project",
-                        skill.getMountAlias(),
-                        skill.getRealPath() == null ? null : skill.getRealPath().toString()))
-                .toList();
-
-        ProjectMcpSkill projectMcpSkill = provider.getProjectMcpSkill();
-        List<ProjectMcpServerDTO> mcpServers = projectMcpSkill == null
-                ? List.of()
-                : projectMcpSkill.serverInfos().stream()
-                .map(server -> new ProjectMcpServerDTO(
-                        server.name(),
-                        server.type(),
-                        server.enabled(),
-                        server.loaded(),
-                        server.toolCount(),
-                        server.toolNames(),
-                        server.error() == null ? null : "加载失败"))
-                .toList();
-
-        Path mcpConfigPath = McpProjectConfig.path(projectRoot);
-        return new ProjectCapabilitiesDTO(
-                projectRoot.toString(),
-                mcpConfigPath == null ? null : mcpConfigPath.toString(),
-                mcpConfigPath != null && Files.isRegularFile(mcpConfigPath),
-                projectSkillsPath.toString(),
-                Files.isDirectory(projectSkillsPath),
-                skills,
-                mcpServers);
+        return projectCapabilitiesService.get(workspacePath);
     }
 
-    /**
-     * 由 Agent 内的 {@code mcprefresh} 调用：登记当前项目的 MCP 刷新。
-     *
-     * <p>工具调用本身运行在 Agent 循环中，不能在此刻关闭它正持有的 MCP 客户端；
-     * 因此刷新会在该项目全部会话空闲后自动完成，并在下一条消息生效。</p>
-     */
+    /** 工具只登记刷新，等待项目全部会话结束后才关闭旧 MCP 连接。 */
+    @Override
     public String requestProjectMcpRefresh(String workspacePath) {
-        Path projectRoot = normalizeProjectRoot(workspacePath);
-        if (projectRoot == null) {
-            return "WORKSPACE_MISSING: 无法确定当前项目，不能刷新 MCP";
-        }
-        pendingProjectMcpRefreshes.add(projectRoot.toString());
-        return "项目 MCP 刷新已登记。本轮对话完成后会重新读取 .loopra/mcp-servers.json 并重建连接；下一条消息即可使用最新 MCP。";
+        return projectCapabilitiesService.requestRefresh(workspacePath);
     }
 
-    /**
-     * 重新加载指定项目的项目级 Skill/MCP。
-     *
-     * <p>项目 MCP 会被绑定到工具扫描提供者和会话 Agent 的共享工具系统中，
-     * 因此仅重新读取面板摘要不足以让新增或删除的服务器进入下一轮对话。
-     * 这里回收该项目的空闲 Agent、共享工具系统和项目 MCP provider，下一次聊天
-     * 请求会按磁盘上的最新配置重新创建它们。正在运行的会话不在这里被强制中断。</p>
-     */
-    public synchronized ProjectCapabilitiesDTO refreshProjectCapabilities(String workspacePath) {
-        if (workspacePath == null || workspacePath.isBlank()) {
-            throw new ServiceException("项目路径不能为空");
-        }
+    public ProjectCapabilitiesDTO refreshProjectCapabilities(String workspacePath) {
+        return projectCapabilitiesService.refresh(workspacePath);
+    }
 
-        Path projectRoot = normalizeProjectRoot(workspacePath);
-        if (projectRoot == null) {
-            throw new ServiceException("项目路径无效");
-        }
-        Set<String> projectProviderRoots = new LinkedHashSet<>();
-        projectProviderRoots.add(projectRoot.toString());
-
-        // 先做完整检查；如果有活动任务，不要只回收其中一部分 Agent。
-        List<String> busySessions = new ArrayList<>(sessionCache.activeSessionKeys(key -> belongsToProject(key, projectRoot)));
-        for (String sessionKey : sessionCache.keySet()) {
-            if (!belongsToProject(sessionKey, projectRoot)) continue;
-            LoopraAgent agent = sessionCache.peek(sessionKey);
-            if (agent != null && agent.isRunning()) {
-                busySessions.add(sessionKey);
-            }
-        }
-        if (!busySessions.isEmpty()) {
-            throw new ServiceException("当前项目有会话正在运行，请先停止后再刷新 MCP");
-        }
-
-        // 释放空闲 Agent 使用的 cutin 工具注册和会话资源，避免继续引用旧的 MCP 工具。
-        for (String sessionKey : new ArrayList<>(sessionCache.keySet())) {
-            if (!belongsToProject(sessionKey, projectRoot)) continue;
-            LoopraAgent agent = sessionCache.remove(sessionKey);
-            if (agent == null) continue;
-            if (agent.getEnvironment() != null) {
-                Path executionRoot = agent.getEnvironment().executionRoot();
-                if (executionRoot != null) {
-                    projectProviderRoots.add(executionRoot.toAbsolutePath().normalize().toString());
-                }
-            }
-            try {
-                agent.dispose();
-            } catch (Exception e) {
-                log.warn("[mcp-project] 刷新项目能力时释放 Agent 失败: {} - {}", sessionKey, e.getMessage());
-            }
-        }
-
-        // 默认工具管理接口复用这份 registry；清空后下一次 refresh 会重新扫描。
+    private Set<Path> invalidateProjectToolSystems(Path projectRoot) {
         LoopraConfig config = ConfigService.getConfig();
         Path defaultProject = config == null ? null : config.workspaceDir();
-        if (defaultProject != null
-                && projectRoot.equals(defaultProject.toAbsolutePath().normalize())
+        if (defaultProject != null && projectRoot.equals(defaultProject.toAbsolutePath().normalize())
                 && sharedToolRegistry != null) {
             sharedToolRegistry.clearTools();
         }
-
-        String projectKey = projectRoot.toString();
-        sharedToolSystems.keySet().removeIf(key -> key.equals(projectKey) || key.startsWith(projectKey + "#"));
-        for (String providerRoot : projectProviderRoots) {
-            LoopraSkillProvider.removeFor(providerRoot);
-        }
-
-        log.info("[mcp-project] 已刷新项目能力: {}，下次聊天将使用最新配置", projectRoot);
-        ProjectCapabilitiesDTO capabilities = getProjectCapabilities(projectRoot.toString());
-        pendingProjectMcpRefreshes.remove(projectKey);
-        return capabilities;
+        Set<Path> providerRoots = new HashSet<>();
+        sharedToolSystems.keySet().removeIf(environment -> {
+            if (!projectRoot.equals(environment.projectRoot())) return false;
+            if (environment.executionRoot() != null) providerRoots.add(environment.executionRoot());
+            return true;
+        });
+        return providerRoots;
     }
 
-    /** 在会话任务结束后尝试执行工具登记的项目 MCP 刷新；仍有并发会话时保留登记等待下次触发。 */
     private void applyPendingProjectMcpRefresh(String workspacePath) {
-        Path projectRoot = normalizeProjectRoot(workspacePath);
-        if (projectRoot == null || !pendingProjectMcpRefreshes.contains(projectRoot.toString())) {
-            return;
-        }
-        try {
-            refreshProjectCapabilities(projectRoot.toString());
-        } catch (ServiceException e) {
-            // 当前项目还有别的会话在运行；最后一个结束的会话会再次触发本方法。
-            if (hasRunningProjectSession(projectRoot)) {
-                log.debug("[mcp-project] 等待项目会话结束后刷新 MCP: {}", projectRoot);
-                return;
-            }
-            pendingProjectMcpRefreshes.remove(projectRoot.toString());
-            log.warn("[mcp-project] 自动刷新项目 MCP 失败: {} - {}", projectRoot, e.getMessage());
-        } catch (Exception e) {
-            pendingProjectMcpRefreshes.remove(projectRoot.toString());
-            log.warn("[mcp-project] 自动刷新项目 MCP 失败: {} - {}", projectRoot, e.getMessage());
-        }
-    }
-
-    private boolean hasRunningProjectSession(Path projectRoot) {
-        if (!sessionCache.activeSessionKeys(key -> belongsToProject(key, projectRoot)).isEmpty()) return true;
-        for (String sessionKey : sessionCache.keySet()) {
-            if (!belongsToProject(sessionKey, projectRoot)) continue;
-            LoopraAgent agent = sessionCache.peek(sessionKey);
-            if (agent != null && agent.isRunning()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static Path normalizeProjectRoot(String workspacePath) {
-        if (workspacePath == null || workspacePath.isBlank()) return null;
-        try {
-            return Paths.get(workspacePath).toAbsolutePath().normalize();
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-    }
-
-    private static boolean belongsToProject(String sessionKey, Path projectRoot) {
-        if (sessionKey == null || projectRoot == null) return false;
-        int separator = sessionKey.indexOf("::");
-        if (separator <= 0) return false;
-        try {
-            Path sessionRoot = Paths.get(sessionKey.substring(0, separator))
-                    .toAbsolutePath().normalize();
-            return projectRoot.equals(sessionRoot);
-        } catch (RuntimeException ignored) {
-            return false;
-        }
+        projectCapabilitiesService.applyPending(workspacePath != null ? workspacePath : getCurrentProject());
     }
 
     /**
@@ -621,7 +442,7 @@ public class AgentService implements ProjectRuntimeAccess {
         }
 
         // 创建新 Agent
-        synchronized (this) {
+        synchronized (runtimeMonitor) {
             // 双重检查
             agent = sessionCache.get(sessionKey);
             if (agent != null) {
@@ -682,7 +503,7 @@ public class AgentService implements ProjectRuntimeAccess {
                                                    String systemPrompt) {
         LoopraAgent agent = sessionCache.get(sessionKey);
         if (agent != null) return getOrCreateAgent(sessionKey, settings);
-        synchronized (this) {
+        synchronized (runtimeMonitor) {
             agent = sessionCache.get(sessionKey);
             if (agent != null) return getOrCreateAgent(sessionKey, settings);
             sessionCache.evictIfNeeded();

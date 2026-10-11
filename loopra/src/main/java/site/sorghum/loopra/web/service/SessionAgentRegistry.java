@@ -3,7 +3,9 @@ package site.sorghum.loopra.web.service;
 import lombok.extern.slf4j.Slf4j;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
 import site.sorghum.loopra.web.model.SessionStatusDTO;
+import site.sorghum.loopra.web.common.ServiceException;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -14,7 +16,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
-import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /** 会话运行时登记：缓存 Agent、跟踪请求，统一拥有缓存释放和会话互斥锁。 */
 @Slf4j
@@ -45,6 +47,8 @@ final class SessionAgentRegistry {
     }
 
     synchronized void put(String key, LoopraAgent agent) {
+        // Even agents first opened by history queries must participate in project refresh exclusion.
+        getLock(key);
         agents.put(key, agent);
     }
 
@@ -130,8 +134,71 @@ final class SessionAgentRegistry {
                 active.stream().findFirst().orElse(null));
     }
 
-    List<String> activeSessionKeys(Predicate<String> belongsToProject) {
-        return requests.keySet().stream().filter(belongsToProject).toList();
+    boolean hasBusyProject(Path projectRoot) {
+        if (requests.keySet().stream().anyMatch(key -> belongsToProject(key, projectRoot))) return true;
+        synchronized (this) {
+            if (agents.entrySet().stream().anyMatch(entry -> belongsToProject(entry.getKey(), projectRoot)
+                    && entry.getValue().isRunning())) return true;
+        }
+        return locks.entrySet().stream().anyMatch(entry -> belongsToProject(entry.getKey(), projectRoot)
+                && entry.getValue().isLocked());
+    }
+
+    /** 调用方持有项目运行时协调锁；检查完整项目后才允许回收任何资源。 */
+    <T> T withIdleProject(Path projectRoot, Supplier<T> operation) {
+        List<ReentrantLock> acquired = new ArrayList<>();
+        try {
+            synchronized (this) {
+                if (requests.keySet().stream().anyMatch(key -> belongsToProject(key, projectRoot))
+                        || agents.entrySet().stream().anyMatch(entry -> belongsToProject(entry.getKey(), projectRoot)
+                        && entry.getValue().isRunning())) {
+                    throw projectBusy();
+                }
+                for (Map.Entry<String, ReentrantLock> entry : locks.entrySet()) {
+                    if (!belongsToProject(entry.getKey(), projectRoot)) continue;
+                    ReentrantLock lock = entry.getValue();
+                    if (lock.isHeldByCurrentThread() || !lock.tryLock()) throw projectBusy();
+                    acquired.add(lock);
+                }
+            }
+            return operation.get();
+        } finally {
+            for (int index = acquired.size() - 1; index >= 0; index--) acquired.get(index).unlock();
+        }
+    }
+
+    /** 仅在 withIdleProject 保护下调用；返回需要关闭 MCP provider 的执行根。 */
+    Set<Path> disposeProject(Path projectRoot) {
+        Set<Path> providerRoots = new HashSet<>();
+        providerRoots.add(projectRoot);
+        Map<String, LoopraAgent> removed = new LinkedHashMap<>();
+        synchronized (this) {
+            for (String key : new ArrayList<>(agents.keySet())) {
+                if (belongsToProject(key, projectRoot)) removed.put(key, agents.remove(key));
+            }
+        }
+        removed.forEach((key, agent) -> {
+            if (agent.getEnvironment() != null && agent.getEnvironment().executionRoot() != null) {
+                providerRoots.add(agent.getEnvironment().executionRoot().toAbsolutePath().normalize());
+            }
+            dispose(key, agent);
+        });
+        return providerRoots;
+    }
+
+    private static ServiceException projectBusy() {
+        return new ServiceException("当前项目有会话正在运行，请先停止后再刷新 MCP");
+    }
+
+    private static boolean belongsToProject(String sessionKey, Path projectRoot) {
+        if (sessionKey == null || projectRoot == null) return false;
+        int separator = sessionKey.indexOf("::");
+        if (separator <= 0) return false;
+        try {
+            return projectRoot.equals(Path.of(sessionKey.substring(0, separator)).toAbsolutePath().normalize());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     ReentrantLock getLock(String key) {
