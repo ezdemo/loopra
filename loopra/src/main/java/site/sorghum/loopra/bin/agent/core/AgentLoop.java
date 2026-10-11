@@ -26,16 +26,9 @@ import site.sorghum.cutin.core.model.ModelResponse;
 import site.sorghum.cutin.core.model.StreamChunk;
 import site.sorghum.cutin.core.plugin.PluginBeanManager;
 import site.sorghum.cutin.core.state.LoopSnapshot;
-import site.sorghum.loopra.bin.agent.context.CompactionRangeSelector;
-import site.sorghum.loopra.bin.agent.context.ContextCompactionPolicy;
-import site.sorghum.loopra.bin.agent.context.ContextFolding;
-import site.sorghum.loopra.bin.agent.context.ContextPressure;
-import site.sorghum.loopra.bin.agent.context.ContextPressureMeter;
 import site.sorghum.loopra.bin.agent.context.ContextTokenEstimate;
-import site.sorghum.loopra.bin.agent.context.ContextTokenEstimator;
 import site.sorghum.loopra.bin.agent.context.ConversationContext;
 import site.sorghum.loopra.bin.agent.context.MessageHealer;
-import site.sorghum.loopra.bin.agent.context.ToolResultPruner;
 import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.hitl.HitlManager;
 import site.sorghum.loopra.bin.agent.listener.AgentLoopListener;
@@ -64,7 +57,6 @@ import site.sorghum.loopra.bin.tool.ToolRegistry;
 import site.sorghum.loopra.integration.cutin.CutinFunctionToolBridge;
 import site.sorghum.loopra.integration.cutin.CutinMessageBridge;
 import site.sorghum.loopra.integration.cutin.plugin.LoopraPluginRuntime;
-import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionHost;
 import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitHost;
 import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitPlugin;
@@ -83,11 +75,9 @@ import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraUserMessageP
 import site.sorghum.loopra.integration.cutin.plugin.prompt.LoopraPromptHost;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.LoopraPromptPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.PromptRegistry;
-import site.sorghum.loopra.integration.cutin.plugin.prompt.ToolContract;
 import site.sorghum.loopra.integration.cutin.plugin.rawlog.LoopraRawLogPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.reasoning.LoopraReasoningStartedHost;
 import site.sorghum.loopra.integration.cutin.plugin.reasoning.LoopraReasoningStartedPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecoveryHost;
 import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecoveryPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryHost;
 import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryPolicyPlugin;
@@ -148,10 +138,8 @@ import java.util.stream.Stream;
 public class AgentLoop implements
         AgentLoopController,
         LoopraPolicyHost,
-        LoopraCompactionHost,
         LoopraSessionAffinityHost,
         LoopraExitHost,
-        LoopraErrorRecoveryHost,
         LoopraRetryHost,
         LoopraSessionHost,
         LoopraToolBatchHost,
@@ -162,20 +150,12 @@ public class AgentLoop implements
 
     // ==================== 配置读取（带 null-safe 默认值） ====================
 
-    /** 默认最大上下文字符数（200k 约 256k tokens 的保守估计，覆盖主流模型上下文窗口） */
-    private static final int DEFAULT_MAX_CONTEXT_CHARS = 200_000;
-    /** 折叠后保留尾部字符数（80k 确保折叠后仍有足够上下文供后续推理） */
-    private static final int DEFAULT_KEEP_TAIL_CHARS = 80_000;
     /** 工具执行超时秒数（1080s=18min，覆盖长时间工具调用如大型构建/测试） */
     private static final int DEFAULT_TOOL_TIMEOUT_SEC = 1080;
     /** 子代理完整执行超时秒数（默认 1 小时） */
     private static final int DEFAULT_SUB_AGENT_TIMEOUT_SEC = 3600;
     /** Storm 断路器自愈最大尝试次数 */
     private static final int DEFAULT_MAX_SELF_CORRECTION = 5;
-    /** 流式响应等待超时秒数（防止 HTTP 流永不结束导致线程挂起） */
-    private static final int DEFAULT_STREAM_LATCH_TIMEOUT_SEC = 300;
-    /** 服务端确认上下文超限时最多执行两次折叠恢复。 */
-    private static final int MAX_CONTEXT_RECOVERIES = 2;
     /** 工具任务必须由可中断的 Future 承载，CompletableFuture.cancel(true) 不会中断运行线程。 */
     private static final AtomicInteger TOOL_THREAD_COUNTER = new AtomicInteger();
     private static final ExecutorService TOOL_EXECUTOR = Executors.newCachedThreadPool(r -> {
@@ -183,14 +163,6 @@ public class AgentLoop implements
         thread.setDaemon(true);
         return thread;
     });
-
-    private int maxTotalChars() {
-        return config != null ? config.maxContextChars() : DEFAULT_MAX_CONTEXT_CHARS;
-    }
-
-    private int keepTailChars() {
-        return config != null ? config.keepTailChars() : DEFAULT_KEEP_TAIL_CHARS;
-    }
 
     private int toolTimeoutSec() {
         return config != null ? config.toolTimeoutSec() : DEFAULT_TOOL_TIMEOUT_SEC;
@@ -222,13 +194,12 @@ public class AgentLoop implements
     /** Goal 生命周期只由拥有会话的主代理约束，子代理共享 sessionId 但不拥有 Goal。 */
     @Setter
     private volatile boolean goalGuardEnabled = true;
-    /** 子代理可冻结这两部分，确保其整个生命周期内模型请求前缀完全一致。 */
-    private volatile ONode frozenTools;
-    private volatile String frozenToolInstructions;
     /** 计划模式与待审查计划，委托给 {@link PlanModeController}。 */
     private final PlanModeController planModeController = new PlanModeController(this);
     /** cutin 用量上报与 token 速率推送，委托给 {@link UsageReporter}。 */
     private final UsageReporter usageReporter = new UsageReporter(this);
+    /** 上下文压力与折叠，委托给 {@link ContextCompactor}。 */
+    private final ContextCompactor contextCompactor = new ContextCompactor(this);
     @Getter
     private final HitlManager hitlManager;
 
@@ -285,12 +256,6 @@ public class AgentLoop implements
         this.sessionId = sessionId;
         modelProvider.setSessionAffinity(sessionId);
     }
-
-    /** 上次触发 tool-gateway 重启时的禁用集合快照；用于跳过每轮无效重启。 */
-    private volatile Set<String> lastGatewayDisabled = Collections.emptySet();
-
-    /** gateway 是否已按最新禁用列表重启过；首次调用 refreshTools 时会重启一次。 */
-    private volatile boolean gatewayEverStarted = false;
 
     /** Prompt 插件化：切片注册表（供外部插件热插拔） */
     @Getter
@@ -358,6 +323,22 @@ public class AgentLoop implements
 
     void lastPromptTokens(int value) {
         this.lastPromptTokens = value;
+    }
+
+    void lastContextEstimate(ContextTokenEstimate estimate) {
+        this.lastContextEstimate = estimate;
+    }
+
+    ConversationContext ctx() {
+        return ctx;
+    }
+
+    PluginBeanManager cutinPlugins() {
+        return cutinPlugins;
+    }
+
+    PlanModeController planModeController() {
+        return planModeController;
     }
 
     // ==================== 构造器 ====================
@@ -445,13 +426,13 @@ public class AgentLoop implements
         plugins.registerPlugin(new LoopraUsagePlugin(usageReporter));
         plugins.registerPlugin(new LoopraTokenSpeedPlugin(usageReporter));
         plugins.registerPlugin(new LoopraSessionAffinityPlugin(this));
-        plugins.registerPlugin(new LoopraCompactionPlugin(this));
+        plugins.registerPlugin(new LoopraCompactionPlugin(contextCompactor));
         plugins.registerPlugin(new LoopraReasoningStartedPlugin(this));
         plugins.registerPlugin(new LoopraModelPolicyPlugin(this));
         plugins.registerPlugin(new LoopraMessageHealingPlugin());
         plugins.registerPlugin(new LoopraToolPolicyPlugin(this));
         plugins.registerPlugin(new LoopraExitPlugin(this));
-        plugins.registerPlugin(new LoopraErrorRecoveryPlugin(this));
+        plugins.registerPlugin(new LoopraErrorRecoveryPlugin(contextCompactor));
         plugins.registerPlugin(new LoopraRetryPolicyPlugin(this));
         plugins.registerPlugin(new LoopraSessionPlugin(this));
         plugins.registerPlugin(new LoopraPlanPlugin(planModeController));
@@ -567,16 +548,9 @@ public class AgentLoop implements
         this.terminateOnNoToolCall = enabled;
     }
 
-    /** 手动触发上下文折叠（/compact 命令） */
+    /** 手动触发上下文折叠（/compact 命令）；实际折叠逻辑在 {@link ContextCompactor}。 */
     public void compactNow() throws IOException {
-        ContextCompactionPolicy policy = ContextCompactionPolicy.from(config);
-        int contextWindow = modelProvider.getMaxContextTokens();
-        int retainTokens = Math.max(1, (int) Math.floor(contextWindow * policy.retainRatio()));
-        if (foldOldestRange(ctx.buildMessages(), retainTokens, "compact")) {
-            output.onLog(LogLevel.INFO, "[compact] 已折叠较早历史（保留最近 ~" + retainTokens + " tokens）");
-        } else {
-            output.onLog(LogLevel.INFO, "[compact] 无需折叠（历史不足以形成可折叠范围）");
-        }
+        contextCompactor.compactNow();
     }
 
     /**
@@ -801,53 +775,12 @@ public class AgentLoop implements
     }
 
     public ONode refreshTools() {
-        ONode fixed = frozenTools;
-        if (fixed != null) {
-            return fixed;
-        }
-        boolean gatewayActive = cutinPlugins != null && cutinPlugins.pluginStates().stream()
-                .anyMatch(s -> "loopra-tool-gateway".equals(s.id()) && s.active());
-        if (!gatewayActive) {
-            // 网关禁用 = 下线全部工具：清空 legacy 与 cutin 视图，模型请求的 tools 为空数组。
-            // 视图区分 loopra 同步区与外部注册区（拓展包桥接、插件工具），
-            // 外部注册工具不随 syncCutinRegistry 清除，需 clearTools 整体清空兜底。
-            registry.clearTools();
-            ONode empty = registry.toOpenAiTools();
-            return planModeController.isPlanMode() ? planModeController.filterReadOnlyTools(empty) : empty;
-        }
-        registry.refresh();
-        // 同步 cutin 工具网关：仅当禁用列表变化（或首次）时重启以按最新禁用列表重新注册 cutin Tool，
-        // 避免每轮模型调用都 stop/start 网关 + 全量扫描；禁用列表不变时 registry.refresh 已同步视图。
-        try {
-            if (cutinPlugins != null) {
-                Set<String> disabled = registry.currentDisabledTools();
-                boolean disabledChanged = !disabled.equals(lastGatewayDisabled);
-                if (!gatewayEverStarted || disabledChanged) {
-                    cutinPlugins.stopPlugin("loopra-tool-gateway");
-                    cutinPlugins.startPlugin("loopra-tool-gateway");
-                    lastGatewayDisabled = disabled;
-                    gatewayEverStarted = true;
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[tool-gateway] refresh restart failed: {}", e.getMessage());
-        }
-        ONode tools = registry.toOpenAiTools();
-        return planModeController.isPlanMode() ? planModeController.filterReadOnlyTools(tools) : tools;
+        return contextCompactor.refreshTools();
     }
 
     /** 固定后续请求的 system 附加指令和工具定义；必须在首轮模型调用前执行。 */
     public void freezePromptPrefix() {
-        frozenToolInstructions = buildToolInstructions();
-        ONode tools = registry.toOpenAiTools();
-        frozenTools = ONode.ofJson((planModeController.isPlanMode()
-                ? planModeController.filterReadOnlyTools(tools) : tools).toJson());
-    }
-
-    private String currentToolInstructions() {
-        String fixed = frozenToolInstructions;
-        String base = fixed != null ? fixed : buildToolInstructions();
-        return planModeController.isPlanMode() ? base + "\n\n" + PlanModeController.PLAN_MODE_INSTRUCTIONS : base;
+        contextCompactor.freezePromptPrefix();
     }
 
     // ==================== 计划模式（委托 PlanModeController） ====================
@@ -901,11 +834,7 @@ public class AgentLoop implements
      * <p>供历史会话在未执行新一轮模型请求时按持久化消息生成预估。</p>
      */
     public ContextTokenEstimate estimateCurrentContext() {
-        ONode tools = refreshTools();
-        ContextTokenEstimate estimate = ContextTokenEstimator.estimate(
-                ctx.buildMessages(), tools, currentToolInstructions());
-        lastContextEstimate = estimate;
-        return estimate;
+        return contextCompactor.estimateCurrentContext();
     }
 
     public StormBreaker stormBreaker() {
@@ -994,16 +923,6 @@ public class AgentLoop implements
             log.warn("[goal] 读取当前 Goal 失败: {}", exception.getMessage());
             return null;
         }
-    }
-
-    @Override
-    public int maxContextRecoveries() {
-        return MAX_CONTEXT_RECOVERIES;
-    }
-
-    @Override
-    public boolean compactAfterContextOverflow(int recoveryAttempt) {
-        return tryCompactAfterContextOverflow(recoveryAttempt);
     }
 
     @Override
@@ -1112,26 +1031,11 @@ public class AgentLoop implements
     }
 
     /**
-     * cutin 扩展点使用的上下文折叠入口：复用 Loopra 原有折叠策略，
-     * 折叠结果回写 cutin context，由 BEFORE_MODEL 拦截器交给模型网关。
+     * cutin 扩展点使用的上下文折叠入口，实际逻辑在 {@link ContextCompactor}。
      */
+    @Override
     public PreparedMessages prepareCutinMessages(DefaultLoopContext context, int step) {
-        try {
-            ONode tools = refreshTools();
-            PreparedMessages prepared = prepareMessages(step, tools);
-            context.replaceMessages(CutinMessageBridge.toCutin(prepared.messages()));
-            return prepared;
-        } catch (IOException exception) {
-            log.warn("[cutin] BEFORE_MODEL 折叠失败，按当前上下文继续: {}", exception.getMessage());
-            List<ChatMessage> fallback = ctx.buildMessages();
-            try {
-                ONode tools = refreshTools();
-                lastContextEstimate = ContextTokenEstimator.estimate(fallback, tools, currentToolInstructions());
-            } catch (Exception ignored) {
-                // token 估算失败时沿用上一次估值
-            }
-            return new PreparedMessages(fallback, false);
-        }
+        return contextCompactor.prepareCutinMessages(context, step);
     }
 
     public site.sorghum.cutin.core.tool.ToolResult rejectCutinTool(
@@ -1199,12 +1103,7 @@ public class AgentLoop implements
         return ctx == null ? List.of() : ctx.buildMessages();
     }
 
-    private String buildToolInstructions() {
-        // 静态文案与 LoopraPromptPlugin 的 tool-contract 切片共用 ToolContract 单一来源
-        return ToolContract.build(terminateOnNoToolCall(), currentGoalInstruction());
-    }
-
-    private String currentGoalInstruction() {
+    String currentGoalInstruction() {
         if (!goalGuardEnabled || goalGuard == null) return "";
         try {
             return goalGuard.instruction(loadOpenGoal());
@@ -1693,128 +1592,8 @@ public class AgentLoop implements
         private IOException ioError;
     }
 
-    /**
-     * 服务端确认上下文超限时执行一次兜底折叠，避免估算误差导致请求持续失败。
-     * 不依赖压力阈值，直接按有效用量的 1/4、1/8 收缩保留预算。
-     */
-    private boolean tryCompactAfterContextOverflow(int recoveryAttempt) {
-        try {
-            ContextCompactionPolicy policy = ContextCompactionPolicy.from(config);
-            ContextPressure pressure = ContextPressureMeter.measure(
-                    ctx.buildMessages(), null, null, lastPromptTokens,
-                    modelProvider.getMaxContextTokens(), policy);
-            int retainTokens = Math.max(1,
-                    pressure.effectivePromptTokens() / (4 * recoveryAttempt));
-            if (!foldOldestRange(ctx.buildMessages(), retainTokens, "context")) {
-                safeOutput("contextOverflow", () -> output.onLog(LogLevel.WARN,
-                        "[context] 服务端确认上下文超限，但当前历史无法进一步折叠"));
-                return false;
-            }
-            safeOutput("contextOverflow", () -> output.onLog(LogLevel.WARN,
-                    "[context] 服务端确认上下文超限，已折叠历史并重试本轮请求（保留最近 ~"
-                            + retainTokens + " tokens）"));
-            return true;
-        } catch (IOException e) {
-            log.warn("[context] 上下文超限后的兜底折叠失败: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * 折叠最旧的可折叠范围。选择器和摘要器共享自动、手动、溢出三条路径。
-     *
-     * @return true 表示历史已实际缩小并替换
-     */
-    private boolean foldOldestRange(List<ChatMessage> messages, int retainTokens, String logTag)
-            throws IOException {
-        List<ChatMessage> history = ctx.getHistory();
-        CompactionRangeSelector.Selection selection =
-                CompactionRangeSelector.select(history, retainTokens);
-        if (selection == null) {
-            log.debug("[{}] 无可折叠范围（retainTokens={}）", logTag, retainTokens);
-            return false;
-        }
-        List<ChatMessage> folded = ContextFolding.foldRange(messages, selection, modelProvider, workspace);
-        if (folded.size() >= ctx.size()) {
-            log.warn("[{}] 折叠未缩小历史，跳过本次折叠", logTag);
-            return false;
-        }
-        ctx.compact(folded);
-        lastPromptTokens = 0;
-        lastContextEstimate = null;
-        return true;
-    }
-
-    // ==================== 步骤 1: 消息准备 ====================
-
     static int effectivePromptTokens(int offlineEstimate, int lastPromptTokens) {
         return Math.max(offlineEstimate, lastPromptTokens);
-    }
-
-    private PreparedMessages prepareMessages(int step, ONode tools) throws IOException {
-        List<ChatMessage> messages = ctx.buildMessages();
-        MessageHealer.HealResult healResult = MessageHealer.heal(messages);
-        messages = healResult.messages();
-
-        String instr = currentToolInstructions();
-
-        boolean foldedThisStep = false;
-        ContextCompactionPolicy compactionPolicy = ContextCompactionPolicy.from(config);
-        ContextPressure pressure = ContextPressureMeter.measure(
-                messages, tools, instr, lastPromptTokens,
-                modelProvider.getMaxContextTokens(), compactionPolicy);
-        if (pressure.shouldCompact()) {
-            ToolResultPruner.Config prunerConfig = ToolResultPruner.Config.from(config);
-            ToolResultPruner.PruneResult pruned = ToolResultPruner.prune(ctx.getHistory(), prunerConfig);
-            if (pruned.changed()) {
-                ctx.compact(pruned.messages());
-                foldedThisStep = true;
-                lastPromptTokens = 0;
-                messages = ctx.buildMessages();
-                pressure = ContextPressureMeter.measure(
-                        messages, tools, instr, lastPromptTokens,
-                        modelProvider.getMaxContextTokens(), compactionPolicy);
-                try {
-                    output.onLog(LogLevel.INFO, "[prune] 裁剪 " + pruned.prunedCount()
-                            + " 条 tool result，释放约 " + pruned.charsRemoved() + " 字符");
-                } catch (Exception e) {
-                    log.warn("[prune] output.onLog异常: {}", e.getMessage());
-                }
-            }
-        }
-        int compactionAttempts = 0;
-        int maxCompactionAttempts = 1 + compactionPolicy.compactionRetries();
-        while (pressure.shouldCompact() && compactionAttempts < maxCompactionAttempts) {
-            compactionAttempts++;
-            try {
-                output.onLog(LogLevel.INFO, "[fold] 触发折叠(" + compactionAttempts + "/"
-                        + maxCompactionAttempts + "): estimatedTokens="
-                        + pressure.effectivePromptTokens()
-                        + " threshold=" + pressure.thresholdTokens()
-                        + " maxCtx=" + pressure.contextWindow());
-            } catch (Exception e) {
-                log.warn("[fold] output.onLog异常: {}", e.getMessage());
-            }
-            if (!foldOldestRange(messages, pressure.retainTokens(), "fold")) break;
-            foldedThisStep = true;
-            messages = ctx.buildMessages();
-            pressure = ContextPressureMeter.measure(
-                    messages, tools, instr, lastPromptTokens,
-                    modelProvider.getMaxContextTokens(), compactionPolicy);
-        }
-
-        try {
-            output.onLog(LogLevel.DEBUG, "step=" + step + " messages.size=" + messages.size()
-                    + " lastPromptTokens=" + lastPromptTokens + " threshold=" + pressure.thresholdTokens());
-        } catch (Exception e) {
-            log.warn("[prepare] output.onLog异常: {}", e.getMessage());
-        }
-
-        // 工具协作约定已由 LoopraPromptPlugin 的 tool-contract(600) 切片注入，此处不再重复拼接；
-        // 保留 instr 仅用于 token 估算的压缩阈值判断（与原语义一致）
-        lastContextEstimate = ContextTokenEstimator.estimate(messages, tools, null);
-
-        return new PreparedMessages(messages, foldedThisStep);
     }
 
     // ==================== 步骤 6: 工具执行 ====================
