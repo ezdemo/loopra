@@ -99,9 +99,7 @@ import site.sorghum.loopra.integration.cutin.plugin.tool.LoopraToolGatewayPlugin
 import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchEvent;
 import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchHost;
 import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraTokenSpeedHost;
 import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraTokenSpeedPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraUsageHost;
 import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraUsagePlugin;
 import site.sorghum.loopra.integration.extpack.LoopraExtPackRuntime;
 import site.sorghum.loopra.tool.AgentLoopController;
@@ -151,8 +149,6 @@ public class AgentLoop implements
         AgentLoopController,
         LoopraPolicyHost,
         LoopraCompactionHost,
-        LoopraUsageHost,
-        LoopraTokenSpeedHost,
         LoopraSessionAffinityHost,
         LoopraExitHost,
         LoopraErrorRecoveryHost,
@@ -231,6 +227,8 @@ public class AgentLoop implements
     private volatile String frozenToolInstructions;
     /** 计划模式与待审查计划，委托给 {@link PlanModeController}。 */
     private final PlanModeController planModeController = new PlanModeController(this);
+    /** cutin 用量上报与 token 速率推送，委托给 {@link UsageReporter}。 */
+    private final UsageReporter usageReporter = new UsageReporter(this);
     @Getter
     private final HitlManager hitlManager;
 
@@ -358,6 +356,10 @@ public class AgentLoop implements
         return listener;
     }
 
+    void lastPromptTokens(int value) {
+        this.lastPromptTokens = value;
+    }
+
     // ==================== 构造器 ====================
 
     public AgentLoop(LoopraModelProvider modelProvider, ToolRegistry registry, ConversationContext ctx,
@@ -440,8 +442,8 @@ public class AgentLoop implements
         plugins.registerPlugin(new LoopraMessageSanitizerPlugin(this));
         plugins.registerPlugin(new LoopraHitlPlugin(this));
         plugins.registerPlugin(new LoopraUserMessagePlugin(this));
-        plugins.registerPlugin(new LoopraUsagePlugin(this));
-        plugins.registerPlugin(new LoopraTokenSpeedPlugin(this));
+        plugins.registerPlugin(new LoopraUsagePlugin(usageReporter));
+        plugins.registerPlugin(new LoopraTokenSpeedPlugin(usageReporter));
         plugins.registerPlugin(new LoopraSessionAffinityPlugin(this));
         plugins.registerPlugin(new LoopraCompactionPlugin(this));
         plugins.registerPlugin(new LoopraReasoningStartedPlugin(this));
@@ -930,9 +932,11 @@ public class AgentLoop implements
         cutinSuppression.set(false);
     }
 
-    @Override
+    /**
+     * cutin 路径下的用量上报入口，实际处理在 {@link UsageReporter}。
+     */
     public void reportCutinUsage(Usage usage) {
-        propagateUsage(usage);
+        usageReporter.reportCutinUsage(usage);
     }
 
     @Override
@@ -940,21 +944,6 @@ public class AgentLoop implements
         return sessionId;
     }
 
-    @Override
-    public void emitTokenSpeed(long completionTokens, double tokensPerSecond, double avgTokensPerSecond, boolean done) {
-        safeOutputDebug("tokenSpeed", () -> {
-            if (output instanceof site.sorghum.loopra.web.service.SseAgentOutput sse) {
-                sse.onTokenSpeed(completionTokens, tokensPerSecond, avgTokensPerSecond, done);
-            } else {
-                output.sendEvent("token_speed", "{\"completionTokens\":" + completionTokens + ",\"tokensPerSecond\":" + tokensPerSecond + ",\"avgTokensPerSecond\":" + avgTokensPerSecond + ",\"done\":" + done + "}");
-            }
-        });
-    }
-
-    @Override
-    public void emitTokenSpeed(long completionTokens, double tokensPerSecond, boolean done) {
-        emitTokenSpeed(completionTokens, tokensPerSecond, tokensPerSecond, done);
-    }
 
     @Override
     public void injectReasonBreakReminder() {
@@ -1695,26 +1684,6 @@ public class AgentLoop implements
         return new StepResult.Goto("model");
     }
 
-    /**
-     * cutin 路径下的用量上报：统一从这里出口，
-     * 否则会话的 lastPromptTokens / 上下文长度展示和用量统计不会更新。
-     */
-    private void propagateUsage(site.sorghum.cutin.core.context.Usage usage) {
-        int promptTokens = Math.toIntExact(usage.promptTokens());
-        int completionTokens = Math.toIntExact(usage.completionTokens());
-        int totalTokens = promptTokens + completionTokens;
-        int cacheHit = Math.toIntExact(usage.cacheReadTokens());
-        int cacheMiss = Math.toIntExact(usage.cacheMissTokens());
-        lastPromptTokens = promptTokens;
-        if (sessionUsageSink != null) {
-            sessionUsageSink.updateLastPromptTokens(promptTokens);
-        }
-        String currentModel = modelProvider.getModel();
-        safeListener("usage", () -> listener.onUsage(
-                currentModel, promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss));
-        safeOutputDebug("usage", () -> output.onUsage(
-                currentModel, promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss));
-    }
 
     private static final class LoopState {
         private int step;
