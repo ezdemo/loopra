@@ -112,6 +112,7 @@ public class OpenApiManageService implements EventListener<AppLoadEndEvent> {
         try {
             openApiSkill.removeApi(docUrl);
         } catch (Exception ignored) {
+            // 旧源不存在或移除失败时忽略，直接重建
         }
         return addSource(docUrl, headers, authType, authConfig);
     }

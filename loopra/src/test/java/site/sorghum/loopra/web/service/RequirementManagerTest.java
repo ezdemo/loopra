@@ -223,6 +223,8 @@ class RequirementManagerTest {
     @Test
     void runStartsExecutionAndFlipsStatusToDoingThenDone() throws Exception {
         Requirement created = manager.create(draft("优化性能", "p1", "agent4j", "high"));
+        // 保持执行中，确保断言时任务不会抢先异步完成
+        agentService.blockExecution = true;
 
         assertEquals("started", manager.run(created.getId()));
 
@@ -233,10 +235,13 @@ class RequirementManagerTest {
         assertEquals(List.of(true), agentService.executedWebHidden);
         assertEquals(List.of("null|null|null|null"), agentService.executedConfigs);
 
-        // AI 未显式调用 finish_requirement → 兜底完成 + 写 AI 结束评论
+        // 放行执行 → AI 未显式调用 finish_requirement → 兜底完成 + 写 AI 结束评论
+        agentService.blockExecute.countDown();
         awaitStatus(created.getId(), "done");
         assertTrue(find(created.getId()).getSummary().contains("未显式调用 finish_requirement"));
-        assertTrue(agentService.injectedComments.stream().anyMatch(c -> c.contains("✅ 已完成")));
+        // 状态翻转早于结束评论落盘，需等待评论而非直接断言
+        awaitCount(() -> agentService.injectedComments.stream().anyMatch(c -> c.contains("✅ 已完成")),
+                "AI 完成评论未写入");
     }
 
     @Test
@@ -279,8 +284,10 @@ class RequirementManagerTest {
         awaitStatus(created.getId(), "done");
 
         assertEquals("完成重构，测试全过", find(created.getId()).getSummary());
-        // 结束评论：✅ 前缀 + 总结
-        assertTrue(agentService.injectedComments.stream().anyMatch(c -> c.equals("[AI] ✅ 已完成：完成重构，测试全过")));
+        // 结束评论：✅ 前缀 + 总结；finish() 先翻转状态再写评论，需等待评论落盘而非直接断言
+        awaitCount(() -> agentService.injectedComments.stream()
+                        .anyMatch(c -> c.equals("[AI] ✅ 已完成：完成重构，测试全过")),
+                "AI 结束评论未写入");
     }
 
     @Test
@@ -304,8 +311,9 @@ class RequirementManagerTest {
         assertEquals("started", manager.run(created.getId()));
         awaitStatus(created.getId(), "failed");
         assertTrue(find(created.getId()).getSummary().contains("模拟执行异常"));
-        // 异常兜底同样写 AI 结束评论（❌）
-        assertTrue(agentService.injectedComments.stream().anyMatch(c -> c.contains("❌ 已失败")));
+        // 异常兜底同样写 AI 结束评论（❌）；状态翻转早于评论落盘，需等待评论而非直接断言
+        awaitCount(() -> agentService.injectedComments.stream().anyMatch(c -> c.contains("❌ 已失败")),
+                "AI 失败评论未写入");
 
         // 手动重试：failed → doing → 成功（本次不抛异常）
         agentService.throwOnExecute = false;

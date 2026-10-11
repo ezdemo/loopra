@@ -175,7 +175,9 @@ public final class LoopraModelPolicyPlugin implements LoopPlugin {
         try {
             var def = host.getCutinTools() != null ? host.getCutinTools().find(toolId).orElse(null) : null;
             if (def != null) return def.definition().metadata().readOnly();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // cutin 元数据查询失败时回退到 legacy 判断
+        }
         FunctionTool tool = host.getToolRegistry().get(toolId);
         return tool != null && ToolMetadata.isReadOnly(tool);
     }

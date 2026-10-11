@@ -103,6 +103,7 @@ public class WorktreeService {
                 }
             }
         } catch (Exception ignored) {
+            // 目录遍历失败不影响 worktree 移除结果
         }
     }
 
@@ -521,6 +522,7 @@ public class WorktreeService {
                         java.nio.file.StandardOpenOption.APPEND);
             }
         } catch (Exception ignored) {
+            // exclude 标记写入失败不阻断索引清理
         }
         for (File index : indexes) {
             Path link = wt.resolve(index.getName());

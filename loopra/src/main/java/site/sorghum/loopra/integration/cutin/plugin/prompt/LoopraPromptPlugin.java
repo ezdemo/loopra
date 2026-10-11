@@ -49,6 +49,7 @@ public final class LoopraPromptPlugin implements LoopPlugin {
             try {
                 host = context.getBean(LoopraPromptHost.class);
             } catch (Exception ignored) {
+                // Host Bean 未注册时保持 null，后续按默认行为处理
             }
         }
         if (registry == null) {
@@ -114,6 +115,7 @@ public final class LoopraPromptPlugin implements LoopPlugin {
                     terminate = al.terminateOnNoToolCall();
                 }
             } catch (Exception ignored) {
+                // 方法不可用时按 false 处理
             }
             String dynamic = host != null ? host.dynamicToolContractTail() : "";
             return PromptSlice.of("tool-contract", ToolContract.build(terminate, dynamic), 600);

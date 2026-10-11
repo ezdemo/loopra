@@ -838,6 +838,7 @@ public class LoopraConfig implements AgentConfig {
                 try {
                     rates.put(field, Double.parseDouble(value.getString()));
                 } catch (NumberFormatException ignored) {
+                    // 非数值配置项跳过
                 }
             }
         }
@@ -1297,6 +1298,7 @@ public class LoopraConfig implements AgentConfig {
             try {
                 result.put(field, raw instanceof Number number ? number.doubleValue() : Double.parseDouble(raw.toString()));
             } catch (NumberFormatException ignored) {
+                // 非数值字段跳过
             }
         }
         return result;

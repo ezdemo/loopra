@@ -52,7 +52,9 @@ public final class LoopraToolPolicyPlugin implements LoopPlugin {
                     hasMeta = true;
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // 元数据查询失败时回退到 legacy 工具判断
+        }
         FunctionTool tool = host.getToolRegistry().get(call.toolId());
         if (!hasMeta) {
             if (tool != null) {

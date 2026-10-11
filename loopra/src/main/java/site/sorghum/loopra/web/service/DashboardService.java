@@ -96,6 +96,7 @@ public class DashboardService {
 
                 totalRequests++;
             } catch (Exception ignored) {
+                // 单条用量记录解析失败不阻断统计
             }
         }
 
