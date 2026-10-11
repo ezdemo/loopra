@@ -23,7 +23,6 @@ import site.sorghum.loopra.web.model.WorkingFileContentDTO;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -35,10 +34,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Git 操作服务 —— 封装所有 Git 命令执行逻辑、项目解析和数据处理。
@@ -75,16 +70,6 @@ public class GitService {
     private static final int RECENT_COMMIT_LOG_COUNT = 3;
     /** Git 命令超时秒数 */
     private static final int GIT_COMMAND_TIMEOUT_SEC = 10;
-    /** 单个 Git 输出流在内存中保留的最大字符数 */
-    private static final int MAX_GIT_OUTPUT_CHARS = 10 * 1024 * 1024;
-    /** 命令结束后等待输出流消费完成的最大秒数 */
-    private static final int GIT_OUTPUT_DRAIN_TIMEOUT_SEC = 1;
-    /** Git 子进程的标准输出与错误输出必须并发消费，避免管道缓冲区写满。 */
-    private static final ExecutorService GIT_IO_EXECUTOR = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "loopra-git-io");
-        thread.setDaemon(true);
-        return thread;
-    });
     /** 默认 Git 提交作者名 */
     private static final String DEFAULT_AUTHOR_NAME = "Loopra";
     /** 默认 Git 提交作者邮箱 */
@@ -1091,61 +1076,10 @@ public class GitService {
      * （worktree add / merge）使用更长超时，同时禁用终端交互提示。
      */
     public ProcessResult runGit(File workDir, long timeoutSec, String... command) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.directory(workDir);
-        pb.redirectErrorStream(false);
-        pb.environment().put("GIT_TERMINAL_PROMPT", "0");
-
-        Process proc = pb.start();
-        Future<String> stdout = GIT_IO_EXECUTOR.submit(() -> readStream(proc.getInputStream()));
-        Future<String> stderr = GIT_IO_EXECUTOR.submit(() -> readStream(proc.getErrorStream()));
-        try {
-            boolean finished = proc.waitFor(timeoutSec, TimeUnit.SECONDS);
-            if (!finished) {
-                proc.destroyForcibly();
-                proc.waitFor();
-                return processResult(-1, "", "Command timed out after " + timeoutSec + " seconds");
-            }
-
-            return processResult(proc.exitValue(), awaitOutput(stdout), awaitOutput(stderr));
-        } finally {
-            if (proc.isAlive()) {
-                proc.destroyForcibly();
-            }
-            stdout.cancel(true);
-            stderr.cancel(true);
-        }
+        return GitCommandRunner.run(workDir, timeoutSec, command);
     }
 
-    private ProcessResult processResult(int exitCode, String stdout, String stderr) {
-        ProcessResult result = new ProcessResult();
-        result.exitCode = exitCode;
-        result.stdout = stdout;
-        result.stderr = stderr;
-        return result;
-    }
 
-    private String awaitOutput(Future<String> output) throws Exception {
-        return output.get(GIT_OUTPUT_DRAIN_TIMEOUT_SEC, TimeUnit.SECONDS);
-    }
 
-    private String readStream(InputStream input) throws IOException {
-        StringBuilder output = new StringBuilder();
-        try (input) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                String chunk = new String(buffer, 0, read, StandardCharsets.UTF_8);
-                int remaining = MAX_GIT_OUTPUT_CHARS - output.length();
-                if (remaining > 0) {
-                    output.append(chunk, 0, Math.min(remaining, chunk.length()));
-                }
-            }
-        }
-        if (output.length() >= MAX_GIT_OUTPUT_CHARS) {
-            output.append("\n... (Git output truncated)");
-        }
-        return output.toString();
-    }
 
 }

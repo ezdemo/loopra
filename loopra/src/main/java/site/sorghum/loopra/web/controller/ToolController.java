@@ -1,8 +1,5 @@
 package site.sorghum.loopra.web.controller;
 
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiParam;
 import org.noear.dami2.Dami;
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.annotation.Body;
@@ -29,6 +26,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
+import io.swagger.annotations.ApiParam;
 
 /** 工具管理接口：查询、启用/禁用、审批与只读覆盖。 */
 @Api(tags = "工具管理")
@@ -70,13 +71,7 @@ public class ToolController {
     @Post
     @Mapping("/{name}/toggle")
     public ApiResponse<String> toggle(@ApiParam(value = "工具名称") @Path("name") String name) {
-        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
-        ToolRegistry registry = agentService.getSharedToolRegistry();
-        registry.refresh();
-        Map<String, FunctionTool> allTools = registry.allScanned();
-        if (allTools == null || !allTools.containsKey(name)) {
-            throw new ServiceException("工具不存在: " + name);
-        }
+        ToolRegistry registry = requireToolRegistry(name);
         boolean currentlyEnabled = registry.isEnabled(name);
         Set<String> newDisabled = new HashSet<>(ConfigService.getDisabledTools());
         if (currentlyEnabled) {
@@ -97,13 +92,7 @@ public class ToolController {
     @Post
     @Mapping("/{name}/auto-toggle")
     public ApiResponse<String> autoToggle(@ApiParam(value = "工具名称") @Path("name") String name) {
-        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
-        ToolRegistry registry = agentService.getSharedToolRegistry();
-        registry.refresh();
-        Map<String, FunctionTool> allTools = registry.allScanned();
-        if (allTools == null || !allTools.containsKey(name)) {
-            throw new ServiceException("工具不存在: " + name);
-        }
+        requireToolRegistry(name);
         List<String> autoWhitelist = ConfigService.getAutoWhitelist();
         boolean currentlyAutoApproved = autoWhitelist.contains(name);
         if (currentlyAutoApproved) {
@@ -120,13 +109,7 @@ public class ToolController {
     public ApiResponse<String> setReadOnly(
             @ApiParam(value = "工具名称") @Path("name") String name,
             @Body ToolReadOnlyRequest request) {
-        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
-        ToolRegistry registry = agentService.getSharedToolRegistry();
-        registry.refresh();
-        Map<String, FunctionTool> allTools = registry.allScanned();
-        if (allTools == null || !allTools.containsKey(name)) {
-            throw new ServiceException("工具不存在: " + name);
-        }
+        ToolRegistry registry = requireToolRegistry(name);
         Boolean readOnly = request != null ? request.readOnly : null;
         ConfigService.setToolReadOnlyOverride(name, readOnly);
         registry.refresh();
@@ -147,6 +130,18 @@ public class ToolController {
         boolean autoApproved = ConfigService.getAutoWhitelist().contains(name);
         return ApiResponse.ok(toToolInfoDTO(tool, enabled, autoApproved));
     }
+
+    private ToolRegistry requireToolRegistry(String name) {
+        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        ToolRegistry registry = agentService.getSharedToolRegistry();
+        registry.refresh();
+        Map<String, FunctionTool> allTools = registry.allScanned();
+        if (allTools == null || !allTools.containsKey(name)) {
+            throw new ServiceException("工具不存在: " + name);
+        }
+        return registry;
+    }
+
     public static class ToolReadOnlyRequest {
         public Boolean readOnly;
     }

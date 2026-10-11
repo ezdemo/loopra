@@ -4,11 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import site.sorghum.loopra.web.common.ServiceException;
+import site.sorghum.loopra.web.common.entity.ProcessResult;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -16,10 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 快照检查点服务 —— 基于 Git 底层命令实现项目快照与撤回。
@@ -55,20 +49,6 @@ public class SnapshotService {
 
     /** Git 命令超时秒数 */
     private static final int GIT_COMMAND_TIMEOUT_SEC = 15;
-    /** 单个 Git 输出流在内存中保留的最大字符数 */
-    private static final int MAX_GIT_OUTPUT_CHARS = 10 * 1024 * 1024;
-    /** 命令结束后等待输出流消费完成的最大秒数 */
-    private static final int GIT_OUTPUT_DRAIN_TIMEOUT_SEC = 1;
-    /**
-     * Git 子进程的标准输出与错误输出必须并发消费，避免管道缓冲区写满造成死锁。
-     * <p>此前先读 stdout 再读 stderr：git add -A 在修改文件多时向 stderr 输出大量
-     * CRLF 警告，写满管道后进程阻塞、stdout 永不 EOF，读流线程永久卡死。</p>
-     */
-    private static final ExecutorService SNAPSHOT_IO_EXECUTOR = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "loopra-snapshot-git-io");
-        thread.setDaemon(true);
-        return thread;
-    });
     /** 快照引用前缀 */
     private static final String SNAPSHOT_REF_PREFIX = "refs/snapshots/msg/";
     /** 默认快照提交作者 */
@@ -445,60 +425,7 @@ public class SnapshotService {
      * </p>
      */
     private ProcessResult runGit(File workDir, String... command) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.directory(workDir);
-        pb.redirectErrorStream(false);
-        pb.environment().put("GIT_TERMINAL_PROMPT", "0");
-
-        Process proc = pb.start();
-        Future<String> stdout = SNAPSHOT_IO_EXECUTOR.submit(() -> readStream(proc.getInputStream()));
-        Future<String> stderr = SNAPSHOT_IO_EXECUTOR.submit(() -> readStream(proc.getErrorStream()));
-        try {
-            boolean finished = proc.waitFor(GIT_COMMAND_TIMEOUT_SEC, TimeUnit.SECONDS);
-            if (!finished) {
-                proc.destroyForcibly();
-                proc.waitFor();
-                return processResult(-1, "", "Command timed out after " + GIT_COMMAND_TIMEOUT_SEC + " seconds");
-            }
-            return processResult(proc.exitValue(), awaitOutput(stdout), awaitOutput(stderr));
-        } finally {
-            if (proc.isAlive()) {
-                proc.destroyForcibly();
-            }
-            stdout.cancel(true);
-            stderr.cancel(true);
-        }
-    }
-
-    private ProcessResult processResult(int exitCode, String stdout, String stderr) {
-        ProcessResult result = new ProcessResult();
-        result.exitCode = exitCode;
-        result.stdout = stdout;
-        result.stderr = stderr;
-        return result;
-    }
-
-    private String awaitOutput(Future<String> output) throws Exception {
-        return output.get(GIT_OUTPUT_DRAIN_TIMEOUT_SEC, TimeUnit.SECONDS);
-    }
-
-    private String readStream(InputStream is) throws IOException {
-        StringBuilder output = new StringBuilder();
-        try (is) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = is.read(buffer)) != -1) {
-                String chunk = new String(buffer, 0, read, StandardCharsets.UTF_8);
-                int remaining = MAX_GIT_OUTPUT_CHARS - output.length();
-                if (remaining > 0) {
-                    output.append(chunk, 0, Math.min(remaining, chunk.length()));
-                }
-            }
-        }
-        if (output.length() >= MAX_GIT_OUTPUT_CHARS) {
-            output.append("\n... (Git output truncated)");
-        }
-        return output.toString();
+        return GitCommandRunner.run(workDir, GIT_COMMAND_TIMEOUT_SEC, command);
     }
 
     // ==================== 内部数据结构 ====================
@@ -567,12 +494,4 @@ public class SnapshotService {
             this.rollbackUserText = rollbackUserText; }
     }
 
-    /**
-     * 进程执行结果。
-     */
-    private static class ProcessResult {
-        int exitCode;
-        String stdout;
-        String stderr;
-    }
 }

@@ -11,7 +11,6 @@ import site.sorghum.cutin.core.context.Message;
 import site.sorghum.cutin.core.context.Usage;
 import site.sorghum.cutin.core.model.ModelResponse;
 import site.sorghum.cutin.core.model.StreamChunk;
-import site.sorghum.loopra.bin.agent.context.MessageHealer;
 import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.agent.resilient.Scavenger;
 
@@ -130,19 +129,7 @@ final class CutinStreamSupport {
      * 从 ONode 解析工具调用列表（不含暂存副作用）。
      */
     static List<ToolCallEntry> parseToolCallsFromONode(ONode toolCalls) {
-        List<ToolCallEntry> tcList = new ArrayList<>();
-        if (toolCalls == null || !toolCalls.isArray()) return tcList;
-        for (ONode tc : toolCalls.getArray()) {
-            String tcId = tc.get("id").getString();
-            ONode func = tc.get("function");
-            String tcName = func.get("name").getString();
-            if (tcName == null || tcName.isEmpty()) continue;
-            String tcArgs = func.get("arguments").getString();
-            if (tcArgs == null) tcArgs = "{}";
-            String responseReasoning = tc.get("response_reasoning").getString();
-            tcList.add(new ToolCallEntry(tcId, tcName, tcArgs, responseReasoning));
-        }
-        return tcList;
+        return ToolCallEntry.fromToolCalls(toolCalls);
     }
 
     /**

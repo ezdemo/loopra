@@ -185,6 +185,60 @@ class AgentServiceTurnTest {
         assertFalse(sessions.getLock("invalid\0workspace::session").isLocked());
     }
 
+    @Test
+    void planExecutionConsumesThePlanAndKeepsMessageMetadata() throws Exception {
+        AgentLoop loop = (AgentLoop) field(LoopraAgent.class, "loop").get(agent);
+        agent.setPlanMode(true);
+        loop.submitPlan("inspect then implement");
+        UserMessage message = UserMessage.of("approved");
+        message.setRollbackId("rollback-1");
+        message.setSnapshotId("snapshot-1");
+        ContextEmpty context = new ContextEmpty();
+        SseEmitter emitter = new SseEmitter(context);
+
+        service.chatStream(message, null, null, emitter,
+                null, null, null, null, "execute_plan", "linked project context");
+
+        assertNull(agent.getPendingPlan());
+        assertFalse(agent.isPlanMode());
+        ChatMessage instruction = agent.getCtx().getHistory().stream()
+                .filter(item -> "rollback-1".equals(item.getRollbackId())).findFirst().orElseThrow();
+        assertTrue(instruction.isWebHidden());
+        assertEquals("snapshot-1", instruction.getSnapshotId());
+        assertTrue(instruction.getContent().contains("inspect then implement"));
+        assertTrue(body(context).contains("event: complete"));
+        assertTurnReleased();
+    }
+
+    @Test
+    void planFailureBeforeExecutionRestoresThePlanAndRemovesInjectedContext() throws Exception {
+        AgentLoop loop = (AgentLoop) field(LoopraAgent.class, "loop").get(agent);
+        agent.setPlanMode(true);
+        loop.submitPlan("keep this plan");
+        agent.getCtx().injectHistory(ChatMessage.ofUser("existing history"));
+        int before = agent.historySize();
+        // Fail before the loop can add any execution output.
+        Object engine = field(AgentLoop.class, "cutinEngine").get(loop);
+        field(AgentLoop.class, "cutinEngine").set(loop, null);
+        ContextEmpty context = new ContextEmpty();
+        SseEmitter emitter = new SseEmitter(context);
+
+        try {
+            service.chatStream(UserMessage.of("approved"), null, null, emitter,
+                    null, null, null, null, "execute_plan", "temporary linked context");
+        } finally {
+            field(AgentLoop.class, "cutinEngine").set(loop, engine);
+        }
+
+        assertEquals("keep this plan", agent.getPendingPlan());
+        assertTrue(agent.isPlanMode());
+        assertEquals(before, agent.historySize());
+        assertEquals("existing history", agent.getCtx().getHistory().get(before - 1).getContent());
+        assertTrue(body(context).contains("event: error"));
+        assertTrue(emitter.isCompleted());
+        assertTurnReleased();
+    }
+
     private void onModelCall() {
         // Cutin runs model calls on a worker; the caller owns the session lock.
         assertTrue(sessions.getLock(key()).isLocked());

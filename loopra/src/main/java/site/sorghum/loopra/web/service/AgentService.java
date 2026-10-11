@@ -22,8 +22,8 @@ import site.sorghum.loopra.bin.session.SubAgentSessionStore;
 import site.sorghum.loopra.bin.tool.ToolRegistry;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
 import site.sorghum.loopra.tool.AgentOutput;
-import site.sorghum.loopra.tool.solon.common.SessionTerminalTalent;
 import site.sorghum.loopra.tool.solon.common.SessionTerminalTalent.BashSessionInfo;
+import site.sorghum.loopra.tool.solon.common.SessionTerminalTalent;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.model.AgentStatusDTO;
 import site.sorghum.loopra.web.model.BashSessionDTO;
@@ -46,7 +46,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -82,6 +81,8 @@ public class AgentService implements ProjectRuntimeAccess {
      * 会话级 Agent 缓存
      */
     private final SessionAgentRegistry sessionCache = new SessionAgentRegistry(MAX_CACHE_SIZE, this::onAgentEvicted);
+
+    private final ProjectCatalog projectCatalog = new ProjectCatalog(sessionCache::keySet);
 
     /** 会话模型设置的读取、解析与持久化。 */
     private final SessionSettingsService sessionSettingsService =
@@ -857,63 +858,7 @@ public class AgentService implements ProjectRuntimeAccess {
                 agent.setFastMode(requestedFastMode);
             }
 
-            UserMessage effectiveMessage = userMessage;
-            boolean planExecutionPrepared = false;
-            int historySizeBeforeExecution = agent.historySize();
-            if (action != null && !action.isBlank()) {
-                if (!"execute_plan".equals(action)) {
-                    throw new ServiceException("不支持的聊天操作: " + action);
-                }
-                String executionMessage = agent.preparePendingPlanExecution();
-                if (executionMessage == null) {
-                    throw new ServiceException("当前会话没有待审查计划");
-                }
-                planExecutionPrepared = true;
-                effectiveMessage = UserMessage.of(executionMessage);
-                effectiveMessage.setWebHidden(true);
-                if (userMessage != null) {
-                    effectiveMessage.setRollbackId(userMessage.getRollbackId());
-                    effectiveMessage.setSnapshotId(userMessage.getSnapshotId());
-                }
-            }
-
-            String reply;
-            try {
-                if (linkedProjectContext != null && !linkedProjectContext.isBlank()) {
-                    UserMessage contextMessage = UserMessage.of(linkedProjectContext);
-                    contextMessage.setWebHidden(true);
-                    agent.getCtx().addUser(contextMessage);
-                }
-                turn.beforeChat();
-                reply = agent.chat(effectiveMessage);
-            } catch (Exception executionError) {
-                if (planExecutionPrepared) {
-                    if (!hasPlanExecutionStarted(agent)) {
-                        agent.getCtx().truncate(historySizeBeforeExecution);
-                        agent.restorePendingPlanExecution();
-                    } else {
-                        agent.clearPendingPlan();
-                    }
-                }
-                throw executionError;
-            }
-            if (planExecutionPrepared) {
-                if (agent.isAbortRequested()) {
-                    if (!hasPlanExecutionStarted(agent)) {
-                        agent.getCtx().truncate(historySizeBeforeExecution);
-                        agent.restorePendingPlanExecution();
-                    } else {
-                        agent.clearPendingPlan();
-                    }
-                    throw new ServiceException("计划执行已停止");
-                }
-                if (!hasPlanExecutionStarted(agent)) {
-                    agent.getCtx().truncate(historySizeBeforeExecution);
-                    agent.restorePendingPlanExecution();
-                    throw new ServiceException("计划执行未能启动，请重试");
-                }
-                agent.clearPendingPlan();
-            }
+            String reply = turn.chat(userMessage, action, linkedProjectContext);
 
             // 发送最终完整回复（使用 complete 事件，与增量 content 事件区分）
             // HITL 待审批时跳过：interceptForHITL/interceptForSandboxHITL 已通过
@@ -961,27 +906,6 @@ public class AgentService implements ProjectRuntimeAccess {
         if (e instanceof ServiceException) {
             String msg = e.getMessage();
             return msg != null && (msg.contains("已停止") || msg.contains("未能启动"));
-        }
-        return false;
-    }
-
-    private boolean hasPlanExecutionStarted(LoopraAgent agent) {
-        List<ChatMessage> history = agent.getCtx().getHistory();
-        int hiddenInstruction = -1;
-        for (int i = history.size() - 1; i >= 0; i--) {
-            if (history.get(i).isWebHidden()) {
-                hiddenInstruction = i;
-                break;
-            }
-        }
-        if (hiddenInstruction < 0) return false;
-        for (int i = hiddenInstruction + 1; i < history.size(); i++) {
-            ChatMessage message = history.get(i);
-            if (message.isTool()) return true;
-            if (!message.isAssistant()) continue;
-            if (message.getContent() != null && !message.getContent().isBlank()) return true;
-            if (message.getReasoningContent() != null && !message.getReasoningContent().isBlank()) return true;
-            if (message.hasToolCalls()) return true;
         }
         return false;
     }
@@ -1590,43 +1514,7 @@ public class AgentService implements ProjectRuntimeAccess {
      * 通过项目 hash（或路径本身）反查项目路径。
      */
     public String resolveProjectPath(String hash) {
-        if (hash == null || hash.isEmpty()) {
-            return null;
-        }
-        // 1. 优先使用 ProjectRegistry 的磁盘索引（可靠，不依赖 sessionCache）
-        try {
-            ProjectRegistry projects = new ProjectRegistry();
-            List<ProjectRegistry.ProjectInfo> projectList = projects.listProjects();
-            for (ProjectRegistry.ProjectInfo ws : projectList) {
-                if (hash.equals(ws.hash())) {
-                    return ws.path();
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[web] 读取项目列表失败: {}", e.getMessage());
-        }
-
-        // 2. 检查默认项目
-        String defaultPath = getCurrentProject();
-        if (defaultPath != null && hash.equals(ProjectRegistry.computeProjectHash(defaultPath))) {
-            return defaultPath;
-        }
-
-        // 3. 遍历缓存的 Agent key（兼容旧版）
-        for (String key : sessionCache.keySet()) {
-            String projectPath = key.split("::", 2)[0];
-            if (hash.equals(ProjectRegistry.computeProjectHash(projectPath))) {
-                return projectPath;
-            }
-        }
-
-        // 4. 兼容：hash 可能就是路径本身（旧前端直接传路径）
-        if (hash.contains("/") || hash.contains("\\")) {
-            return hash;
-        }
-
-        // 5. 无法解析
-        return null;
+        return projectCatalog.resolveProjectPath(hash);
     }
 
     public String resolveProjectHashOrThrow(String projectHash) {
@@ -1645,48 +1533,15 @@ public class AgentService implements ProjectRuntimeAccess {
      * 文件工具仍按原有项目边界和 HITL 策略处理跨项目访问。
      */
     public String buildLinkedProjectContext(List<String> hashes, String primaryHash) {
-        if (hashes == null || hashes.isEmpty()) return null;
-        LinkedHashSet<String> requested = hashes.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(hash -> !hash.isEmpty() && !hash.equals(primaryHash))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (requested.isEmpty()) return null;
-        if (requested.size() > 8) {
-            throw new ServiceException("单次最多关联 8 个项目");
-        }
-
-        Map<String, ProjectInfoDTO> registered = listProjects().stream()
-                .collect(Collectors.toMap(ProjectInfoDTO::hash, project -> project, (left, right) -> left));
-        List<ProjectInfoDTO> linked = new ArrayList<>(requested.size());
-        for (String hash : requested) {
-            ProjectInfoDTO project = registered.get(hash);
-            if (project == null) {
-                throw new ServiceException("关联项目不存在或未注册: " + hash);
-            }
-            linked.add(project);
-        }
-        return formatLinkedProjectContext(linked);
+        return projectCatalog.buildLinkedProjectContext(hashes, primaryHash);
     }
 
     static String formatLinkedProjectContext(List<ProjectInfoDTO> projects) {
-        StringBuilder context = new StringBuilder("[系统注入：本轮关联项目]\n")
-                .append("以下项目由用户显式选择用于本轮联动。它们不是当前主项目；读取或修改时必须遵守现有工具权限与审批边界。\n");
-        for (ProjectInfoDTO project : projects) {
-            String name = project.name() == null || project.name().isBlank() ? project.hash() : project.name();
-            context.append("- 名称: ").append(name)
-                    .append("\n  hash: ").append(project.hash())
-                    .append("\n  根目录: ").append(project.path()).append('\n');
-        }
-        return context.toString().trim();
+        return ProjectCatalog.formatLinkedProjectContext(projects);
     }
 
     public String getCurrentProject() {
-        LoopraConfig cfg = ConfigService.getConfig();
-        if (cfg != null && cfg.workspaceDir() != null) {
-            return cfg.workspaceDir().toAbsolutePath().toString();
-        }
-        return null;
+        return projectCatalog.getCurrentProject();
     }
     public boolean switchProject(String path) {
         if (path == null || path.isEmpty()) {
@@ -1723,45 +1578,7 @@ public class AgentService implements ProjectRuntimeAccess {
     }
 
     public List<ProjectInfoDTO> listProjects() {
-        List<ProjectInfoDTO> result = new ArrayList<>();
-
-        try {
-            ProjectRegistry projectRegistry = new ProjectRegistry();
-            // 不要在这里调用 switchProject，否则 list 会产生自动创建副作用。
-            List<ProjectRegistry.ProjectInfo> projects = projectRegistry.listProjects();
-
-            for (ProjectRegistry.ProjectInfo info : projects) {
-                result.add(new ProjectInfoDTO(
-                        info.hash(), info.name(), info.path(),
-                        info.createdAt(), info.lastAccessedAt(),
-                        info.sessionCount()
-                ));
-            }
-        } catch (IOException e) {
-            log.warn("[web] 获取项目列表失败: {}", e.getMessage());
-            // 回退到旧逻辑：从缓存中收集
-            Set<String> projectPaths = new HashSet<>();
-            for (String key : sessionCache.keySet()) {
-                String[] parts = key.split("::", 2);
-                if (parts.length > 0) {
-                    projectPaths.add(parts[0]);
-                }
-            }
-
-            LoopraConfig cfg = ConfigService.getConfig();
-            if (cfg != null && cfg.workspaceDir() != null) {
-                projectPaths.add(cfg.workspaceDir().toAbsolutePath().toString());
-            }
-
-            for (String path : projectPaths) {
-                result.add(new ProjectInfoDTO(
-                        ProjectRegistry.computeProjectHash(path), null, path,
-                        0, 0, 0
-                ));
-            }
-        }
-
-        return applyProjectOrder(result, ConfigService.getWorkspaceOrder());
+        return projectCatalog.listProjects();
     }
 
     /**
@@ -1770,27 +1587,7 @@ public class AgentService implements ProjectRuntimeAccess {
      * order 中已不存在（被删除）的 hash 自动忽略。
      */
     public static List<ProjectInfoDTO> applyProjectOrder(List<ProjectInfoDTO> projects, List<String> order) {
-        if (projects == null || projects.isEmpty() || order == null || order.isEmpty()) {
-            return projects;
-        }
-        Map<String, ProjectInfoDTO> byHash = new LinkedHashMap<>();
-        for (ProjectInfoDTO project : projects) {
-            byHash.put(project.hash(), project);
-        }
-        List<ProjectInfoDTO> result = new ArrayList<>(projects.size());
-        Set<String> placed = new HashSet<>();
-        for (String hash : order) {
-            ProjectInfoDTO project = byHash.get(hash);
-            if (project != null && placed.add(hash)) {
-                result.add(project);
-            }
-        }
-        for (ProjectInfoDTO project : projects) {
-            if (placed.add(project.hash())) {
-                result.add(project);
-            }
-        }
-        return result;
+        return ProjectCatalog.applyProjectOrder(projects, order);
     }
 
     public boolean deleteProject(String hash) {

@@ -79,7 +79,6 @@ import site.sorghum.loopra.tool.AgentLoopController;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.LogLevel;
 import site.sorghum.loopra.tool.ToolResult;
-import site.sorghum.loopra.tool.interact.FinishTool;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -768,7 +767,6 @@ public class AgentLoop implements
         ctx.addUser("[ReasonBreaker] 检测到思考循环，已提前终止本轮推理。请停止当前思路，尝试不同的方法。");
     }
 
-
     /**
      * cutin 扩展点使用的上下文折叠入口，实际逻辑在 {@link ContextCompactor}。
      */
@@ -887,7 +885,6 @@ public class AgentLoop implements
             runningCutinState = null;
         }
     }
-
 
     private StepResult modelStep(DefaultLoopContext context, LoopState state) {
         try {
@@ -1049,19 +1046,7 @@ public class AgentLoop implements
                 }
             }
         }
-        for (ChatMessage tr : ter.toolResults()) {
-            ctx.addToolResult(tr);
-        }
-
-        if (turnExitController.pendingFinishContent() != null) {
-            context.putVariable("loopraExitReason", "finish");
-            return StepResult.Exit.INSTANCE;
-        }
-        if ("self_correction".equals(String.valueOf(
-                context.variables().get("loopraExitReason")))) {
-            return StepResult.Exit.INSTANCE;
-        }
-        return new StepResult.Goto("model");
+        return completeToolStep(context, ter);
     }
 
     private StepResult replaySandboxToolStep(DefaultLoopContext context,
@@ -1087,6 +1072,10 @@ public class AgentLoop implements
                             : afterBatch.decision().reason());
         }
         ctx.setLatestAssistantFileChanges(ter.fileChanges());
+        return completeToolStep(context, ter);
+    }
+
+    private StepResult completeToolStep(DefaultLoopContext context, ToolExecutionResult ter) {
         for (ChatMessage tr : ter.toolResults()) {
             ctx.addToolResult(tr);
         }
@@ -1100,7 +1089,6 @@ public class AgentLoop implements
         }
         return new StepResult.Goto("model");
     }
-
 
     static final class LoopState {
         int step;

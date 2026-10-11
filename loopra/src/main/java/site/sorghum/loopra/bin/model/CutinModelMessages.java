@@ -10,6 +10,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static site.sorghum.loopra.bin.agent.model.ToolCallEntry.parseArguments;
+
 /** Loopra 消息与 Cutin Message 之间的双向转换工具。 */
 final class CutinModelMessages {
 
@@ -90,31 +92,4 @@ final class CutinModelMessages {
         return calls;
     }
 
-    private static Map<String, Object> parseArguments(Object arguments) {
-        if (arguments == null) {
-            return Map.of();
-        }
-        if (arguments instanceof Map<?, ?> map) {
-            Map<String, Object> result = new HashMap<>();
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                result.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-            return result;
-        }
-        if (arguments instanceof String json && !json.isBlank()) {
-            try {
-                Object bean = org.noear.snack4.ONode.ofJson(json).toBean(Map.class);
-                if (bean instanceof Map<?, ?> map) {
-                    Map<String, Object> result = new HashMap<>();
-                    for (Map.Entry<?, ?> entry : map.entrySet()) {
-                        result.put(String.valueOf(entry.getKey()), entry.getValue());
-                    }
-                    return result;
-                }
-            } catch (RuntimeException ignored) {
-                 // 格式错误的参数按空处理
-            }
-        }
-        return Map.of();
-    }
 }

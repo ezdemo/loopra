@@ -3,10 +3,11 @@ package site.sorghum.loopra.web.service;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import org.junit.jupiter.api.io.TempDir;
+import site.sorghum.cutin.core.plugin.PluginBeanManager;
 import site.sorghum.loopra.bin.agent.core.AgentLoop;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
+import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.session.SessionStore.SessionModelSettings;
@@ -14,16 +15,15 @@ import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.model.SessionSettingsDTO;
-import site.sorghum.cutin.core.plugin.PluginBeanManager;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -331,9 +331,7 @@ class AgentServiceSharedToolSystemTest {
     }
 
     private static boolean hasPlanExecutionStarted(AgentService service, LoopraAgent agent) throws Exception {
-        Method method = AgentService.class.getDeclaredMethod("hasPlanExecutionStarted", LoopraAgent.class);
-        method.setAccessible(true);
-        return (boolean) method.invoke(service, agent);
+        return SessionTurn.hasPlanExecutionStarted(agent);
     }
 
     private static ToolSystemInitializer.ToolSystem getOrCreate(AgentService service, Path workspace) throws Exception {

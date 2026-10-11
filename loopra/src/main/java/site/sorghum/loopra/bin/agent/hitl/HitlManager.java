@@ -9,7 +9,6 @@ import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.ChoiceOption;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -473,19 +472,7 @@ public class HitlManager {
      * 解析 ONode 工具调用为 ToolCallEntry 列表。
      */
     private static List<ToolCallEntry> parseToolCalls(ONode toolCalls) {
-        List<ToolCallEntry> tcList = new ArrayList<>();
-        if (toolCalls == null || !toolCalls.isArray()) return tcList;
-        for (ONode tc : toolCalls.getArray()) {
-            String tcId = tc.get("id").getString();
-            ONode func = tc.get("function");
-            String tcName = func.get("name").getString();
-            if (tcName == null || tcName.isEmpty()) continue;
-            String tcArgs = func.get("arguments").getString();
-            if (tcArgs == null) tcArgs = "{}";
-            String responseReasoning = tc.get("response_reasoning").getString();
-            tcList.add(new ToolCallEntry(tcId, tcName, tcArgs, responseReasoning));
-        }
-        return tcList;
+        return ToolCallEntry.fromToolCalls(toolCalls);
     }
 
     // ==================== 内部数据类 ====================

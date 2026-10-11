@@ -6,8 +6,8 @@ import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Param;
-import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.bin.agent.model.ImageToolResult;
+import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.bin.model.LoopraModelProvider;
 import site.sorghum.loopra.bin.model.ModalitySupport;
 import site.sorghum.loopra.bin.model.ModelModalityProvider;
@@ -15,7 +15,6 @@ import site.sorghum.loopra.tool.AgentLoopController;
 import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.ToolContext;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -27,6 +26,9 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Locale;
 import java.util.Map;
+
+import static site.sorghum.loopra.bin.util.ImageBytes.detectMimeType;
+import static site.sorghum.loopra.bin.util.ImageBytes.readLimited;
 
 /** 读取本地、base64 编码或远程图片；必要时交给独立图片理解模型转换为文字。 */
 @Component
@@ -271,20 +273,6 @@ public class ImageReadTool extends AbsToolProvider implements SolonToTools {
         return new ImageData(bytes, mimeType, uri.toString());
     }
 
-    private static byte[] readLimited(InputStream input) throws IOException {
-        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                if (output.size() + read > MAX_IMAGE_BYTES) {
-                    throw new IOException("图片大小超过 5 MiB 限制");
-                }
-                output.write(buffer, 0, read);
-            }
-            return output.toByteArray();
-        }
-    }
-
     private static int countPresent(String... values) {
         int count = 0;
         for (String value : values) {
@@ -316,26 +304,6 @@ public class ImageReadTool extends AbsToolProvider implements SolonToTools {
         if (value == null) return null;
         String mimeType = value.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
         return MIME_TYPES.containsValue(mimeType) ? mimeType : null;
-    }
-
-    private static String detectMimeType(byte[] bytes) {
-        if (bytes.length >= 8 && bytes[0] == (byte) 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G'
-                && bytes[4] == '\r' && bytes[5] == '\n' && bytes[6] == 0x1a && bytes[7] == '\n') {
-            return "image/png";
-        }
-        if (bytes.length >= 3 && bytes[0] == (byte) 0xff && bytes[1] == (byte) 0xd8 && bytes[2] == (byte) 0xff) {
-            return "image/jpeg";
-        }
-        if (bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F'
-                && ((bytes[3] == '8' && bytes[4] == '7' && bytes[5] == 'a')
-                || (bytes[3] == '8' && bytes[4] == '9' && bytes[5] == 'a'))) {
-            return "image/gif";
-        }
-        if (bytes.length >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
-                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
-            return "image/webp";
-        }
-        return null;
     }
 
     private static String normalizeDetail(String detail) {
