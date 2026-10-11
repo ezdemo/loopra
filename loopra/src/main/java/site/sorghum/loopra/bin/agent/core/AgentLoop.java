@@ -68,9 +68,7 @@ import site.sorghum.loopra.integration.cutin.plugin.reasoning.LoopraReasoningSta
 import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecoveryPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryHost;
 import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryPolicyPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionAffinityHost;
 import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionAffinityPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionHost;
 import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.tool.LoopraToolGatewayPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchPlugin;
@@ -110,9 +108,7 @@ import java.util.stream.Stream;
 public class AgentLoop implements
         AgentLoopController,
         LoopraPolicyHost,
-        LoopraSessionAffinityHost,
         LoopraRetryHost,
-        LoopraSessionHost,
         LoopraReasoningStartedHost,
         LoopraPromptHost,
         LoopraToolGatewayPlugin.LoopraToolHost {
@@ -141,6 +137,8 @@ public class AgentLoop implements
     private final HitlController hitlController = new HitlController(this);
     /** 工具分发、取消与自纠错，委托给 {@link ToolDispatcher}。 */
     private final ToolDispatcher toolDispatcher = new ToolDispatcher(this);
+    /** 会话生命周期与回合回调，委托给 {@link SessionLifecycle}。 */
+    private final SessionLifecycle sessionLifecycle = new SessionLifecycle(this);
     /** 回合退出决策与 Goal 守卫，委托给 {@link TurnExitController}。 */
     private final TurnExitController turnExitController = new TurnExitController(this);
     @Getter
@@ -271,6 +269,10 @@ public class AgentLoop implements
         return runningCutinState;
     }
 
+    ToolDispatcher toolDispatcher() {
+        return toolDispatcher;
+    }
+
     TurnExitController turnExitController() {
         return turnExitController;
     }
@@ -363,7 +365,7 @@ public class AgentLoop implements
         plugins.registerPlugin(new LoopraUserMessagePlugin(hitlController));
         plugins.registerPlugin(new LoopraUsagePlugin(usageReporter));
         plugins.registerPlugin(new LoopraTokenSpeedPlugin(usageReporter));
-        plugins.registerPlugin(new LoopraSessionAffinityPlugin(this));
+        plugins.registerPlugin(new LoopraSessionAffinityPlugin(sessionLifecycle));
         plugins.registerPlugin(new LoopraCompactionPlugin(contextCompactor));
         plugins.registerPlugin(new LoopraReasoningStartedPlugin(this));
         plugins.registerPlugin(new LoopraModelPolicyPlugin(this));
@@ -372,7 +374,7 @@ public class AgentLoop implements
         plugins.registerPlugin(new LoopraExitPlugin(turnExitController));
         plugins.registerPlugin(new LoopraErrorRecoveryPlugin(contextCompactor));
         plugins.registerPlugin(new LoopraRetryPolicyPlugin(this));
-        plugins.registerPlugin(new LoopraSessionPlugin(this));
+        plugins.registerPlugin(new LoopraSessionPlugin(sessionLifecycle));
         plugins.registerPlugin(new LoopraPlanPlugin(planModeController));
         plugins.registerPlugin(new LoopraToolBatchPlugin(toolDispatcher));
         // 外置插件：startAll 前按清单加载，与内置插件同场竞技
@@ -746,18 +748,6 @@ public class AgentLoop implements
         toolDispatcher.markCutinStormSuppressed();
     }
 
-    @Override
-    public void beginCutinLoop() {
-        stormBreaker.reset();
-        reasonBreaker.reset();
-        resetUserAbort();
-    }
-
-    @Override
-    public void endCutinLoop() {
-        toolDispatcher.resetCutinSuppression();
-    }
-
     /**
      * cutin 路径下的用量上报入口，实际处理在 {@link UsageReporter}。
      */
@@ -766,43 +756,10 @@ public class AgentLoop implements
     }
 
     @Override
-    public String sessionAffinity() {
-        return sessionId;
-    }
-
-
-    @Override
     public void injectReasonBreakReminder() {
         ctx.addUser("[ReasonBreaker] 检测到思考循环，已提前终止本轮推理。请停止当前思路，尝试不同的方法。");
     }
 
-
-    @Override
-    public void afterTurn() {
-        SessionUsageSink sink = sessionUsageSink;
-        if (sink != null) {
-            try {
-                sink.afterTurn();
-            } catch (Exception exception) {
-                log.warn("[session] 回合提交回调失败: {}", exception.getMessage());
-            }
-        }
-    }
-
-    @Override
-    public void beforeTurn(String userMessage) {
-        if (userMessage.isBlank() || sessionUsageSink == null) {
-            return;
-        }
-        try {
-            String sessionId = sessionUsageSink.beforeTurn(userMessage);
-            if (sessionId != null && !sessionId.isBlank()) {
-                setSessionId(sessionId);
-            }
-        } catch (Exception exception) {
-            log.warn("[session] 回合开始回调失败: {}", exception.getMessage());
-        }
-    }
 
     /**
      * cutin 扩展点使用的上下文折叠入口，实际逻辑在 {@link ContextCompactor}。
