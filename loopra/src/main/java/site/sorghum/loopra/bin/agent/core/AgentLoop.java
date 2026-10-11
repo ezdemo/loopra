@@ -58,7 +58,6 @@ import site.sorghum.loopra.integration.cutin.CutinFunctionToolBridge;
 import site.sorghum.loopra.integration.cutin.CutinMessageBridge;
 import site.sorghum.loopra.integration.cutin.plugin.LoopraPluginRuntime;
 import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitHost;
 import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.external.ExternalPluginStore;
 import site.sorghum.loopra.integration.cutin.plugin.httplog.LoopraHttpLogPlugin;
@@ -139,7 +138,6 @@ public class AgentLoop implements
         AgentLoopController,
         LoopraPolicyHost,
         LoopraSessionAffinityHost,
-        LoopraExitHost,
         LoopraRetryHost,
         LoopraSessionHost,
         LoopraToolBatchHost,
@@ -189,17 +187,14 @@ public class AgentLoop implements
     private final AtomicBoolean cutinSuppression = new AtomicBoolean(false);
     private ToolCallValidator toolCallValidator;
     /** Goal 守卫（由上层注入）；null 时等价于无开放 Goal，守卫全部放行。 */
-    @Setter
-    private volatile GoalGuard goalGuard;
-    /** Goal 生命周期只由拥有会话的主代理约束，子代理共享 sessionId 但不拥有 Goal。 */
-    @Setter
-    private volatile boolean goalGuardEnabled = true;
     /** 计划模式与待审查计划，委托给 {@link PlanModeController}。 */
     private final PlanModeController planModeController = new PlanModeController(this);
     /** cutin 用量上报与 token 速率推送，委托给 {@link UsageReporter}。 */
     private final UsageReporter usageReporter = new UsageReporter(this);
     /** 上下文压力与折叠，委托给 {@link ContextCompactor}。 */
     private final ContextCompactor contextCompactor = new ContextCompactor(this);
+    /** 回合退出决策与 Goal 守卫，委托给 {@link TurnExitController}。 */
+    private final TurnExitController turnExitController = new TurnExitController(this);
     @Getter
     private final HitlManager hitlManager;
 
@@ -244,9 +239,6 @@ public class AgentLoop implements
 
     /** 已脱离单次工具 Future、但仍需随用户停止而终止的资源。 */
     private final ConcurrentHashMap<String, Runnable> abortResources = new ConcurrentHashMap<>();
-
-    /** 任务完成标志 —— finish 工具设置，非空时主循环将退出并返回该内容 */
-    private volatile String finishContent = null;
 
     @Getter
     private volatile String sessionId;
@@ -431,7 +423,7 @@ public class AgentLoop implements
         plugins.registerPlugin(new LoopraModelPolicyPlugin(this));
         plugins.registerPlugin(new LoopraMessageHealingPlugin());
         plugins.registerPlugin(new LoopraToolPolicyPlugin(this));
-        plugins.registerPlugin(new LoopraExitPlugin(this));
+        plugins.registerPlugin(new LoopraExitPlugin(turnExitController));
         plugins.registerPlugin(new LoopraErrorRecoveryPlugin(contextCompactor));
         plugins.registerPlugin(new LoopraRetryPolicyPlugin(this));
         plugins.registerPlugin(new LoopraSessionPlugin(this));
@@ -638,20 +630,17 @@ public class AgentLoop implements
 
     @Override
     public void finish(String content) {
-        if (content == null || content.isBlank()) {
-            // 尝试从上下文获取最后一条 assistant 回复作为回退
-            String lastAssistant = ctx.getLastAssistantContent();
-            if (lastAssistant != null && !lastAssistant.isBlank()) {
-                content = lastAssistant;
-                log.info("[loop] finish content 为空，使用最后一条 assistant 回复作为回退");
-            } else {
-                content = "(completed)";
-                log.info("[loop] finish content 为空且无 assistant 回复可回退，使用默认值");
-            }
-        }
-        this.finishContent = content;
-        modelProvider.abortStream();
-        log.info("[loop] 工具请求完成任务，即将退出循环");
+        turnExitController.finish(content);
+    }
+
+    /** 设置 Goal 守卫实例；实际状态由 {@link TurnExitController} 持有。 */
+    public void setGoalGuard(GoalGuard goalGuard) {
+        turnExitController.setGoalGuard(goalGuard);
+    }
+
+    /** 开关 Goal 守卫（子代理关闭）；实际状态由 {@link TurnExitController} 持有。 */
+    public void setGoalGuardEnabled(boolean enabled) {
+        turnExitController.setGoalGuardEnabled(enabled);
     }
 
     @Override
@@ -879,51 +868,6 @@ public class AgentLoop implements
         ctx.addUser("[ReasonBreaker] 检测到思考循环，已提前终止本轮推理。请停止当前思路，尝试不同的方法。");
     }
 
-    @Override
-    public boolean continueAfterExit(DefaultLoopContext context) {
-        String reason = String.valueOf(context.variables().getOrDefault("loopraExitReason", ""));
-        return switch (reason) {
-            case "finish" -> {
-                String requested = takeFinishContentIfAllowed();
-                if (requested != null) {
-                    context.putVariable("loopraTurnResult", requested);
-                    yield false;
-                }
-                yield true;
-            }
-            case "no_tool" -> decideNoToolExit(context);
-            default -> false;
-        };
-    }
-
-    private boolean decideNoToolExit(DefaultLoopContext context) {
-        String candidate = String.valueOf(
-                context.variables().getOrDefault("loopraNoToolCandidate", ""));
-        Object rawStreak = context.variables().getOrDefault("loopraNoToolStreak", 1);
-        int streak = rawStreak instanceof Number number ? number.intValue() : 1;
-        GoalGuard.GoalView openGoal = loadOpenGoalQuietly();
-        boolean shouldExit = (openGoal != null && !openGoal.requiresAgentWork())
-                || (terminateOnNoToolCall() && openGoal == null)
-                || streak >= 3;
-        if (shouldExit) {
-            String prefix = openGoal != null ? "[Goal 尚未关闭，后续回合可继续]\n" : "";
-            context.putVariable("loopraTurnResult", prefix + candidate);
-            return false;
-        }
-        ctx.addUser(openGoal != null
-                ? "[Goal guard] Goal 尚未关闭。请继续执行当前步骤，记录证据，并调用 goal_complete 后再结束。"
-                : FinishTool.TIPS);
-        return true;
-    }
-
-    private GoalGuard.GoalView loadOpenGoalQuietly() {
-        try {
-            return loadOpenGoal();
-        } catch (Exception exception) {
-            log.warn("[goal] 读取当前 Goal 失败: {}", exception.getMessage());
-            return null;
-        }
-    }
 
     @Override
     public void afterTurn() {
@@ -1104,52 +1048,7 @@ public class AgentLoop implements
     }
 
     String currentGoalInstruction() {
-        if (!goalGuardEnabled || goalGuard == null) return "";
-        try {
-            return goalGuard.instruction(loadOpenGoal());
-        } catch (Exception e) {
-            log.warn("[goal] 读取当前 Goal 失败", e);
-            return "## Goal 状态不可用\n持久化 Goal 暂时无法读取。不要声称目标已完成；可以说明错误并结束当前回合。"
-                    + "若持续无法读取，可提示用户执行 `/goal reset` 清除损坏快照后重试。";
-        }
-    }
-
-    private GoalGuard.GoalView loadOpenGoal() throws IOException {
-        if (goalGuard == null || sessionId == null || sessionId.isBlank()
-                || registry.getEnvironment() == null || registry.getEnvironment().stateRoot() == null) {
-            return null;
-        }
-        Path stateRoot = registry.getEnvironment().stateRoot();
-        return goalGuard.openGoal(stateRoot, sessionId);
-    }
-
-    private String takeFinishContentIfAllowed() {
-        String requested = finishContent;
-        finishContent = null;
-        if (requested == null || !goalGuardEnabled || goalGuard == null) return requested;
-        try {
-            GoalGuard.GoalView goal = loadOpenGoal();
-            if (goal == null || !goal.requiresAgentWork()) return requested;
-            String reminder = "[Goal guard] 当前 Goal 仍在推进：" + goal.title()
-                    + "（" + goal.progressText() + "）。请继续当前步骤并调用 goal_complete；"
-                    + "只有确实需要用户输入或外部状态变化时才调用 goal_block。";
-            injectUserMessage(reminder);
-            safeOutput("goalFinishGuard", () -> output.onLog(LogLevel.WARN, reminder));
-            modelProvider.resetStreamAbort();
-            return null;
-        } catch (Exception e) {
-            String reminder = "[Goal guard] 无法读取持久化 Goal 状态，已拒绝 finish：" + e.getMessage()
-                    + "。若持续无法读取，可提示用户执行 `/goal reset` 清除损坏快照后重试。";
-            injectUserMessage(reminder);
-            safeOutput("goalFinishGuard", () -> output.onLog(LogLevel.ERROR, reminder));
-            modelProvider.resetStreamAbort();
-            return null;
-        }
-    }
-
-    private void discardFinishRequest() {
-        finishContent = null;
-        modelProvider.resetStreamAbort();
+        return turnExitController.currentGoalInstruction();
     }
 
     // ==================== 主入口：run() ====================
@@ -1315,7 +1214,7 @@ public class AgentLoop implements
         suspendedCutinHandle = null;
         suspendedCutinContext = null;
         suspendedCutinState = null;
-        discardFinishRequest();
+        turnExitController.discardFinishRequest();
         String denyMsg = "工具调用已被用户拒绝。";
         ctx.addAssistant(denyMsg, null, null);
         return denyMsg;
@@ -1359,7 +1258,7 @@ public class AgentLoop implements
         suspendedCutinHandle = null;
         suspendedCutinContext = null;
         suspendedCutinState = null;
-        discardFinishRequest();
+        turnExitController.discardFinishRequest();
         if (sandboxState != null) {
             ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
                     sandboxState.toolCalls(), messagesForToolCallNormalization());
@@ -1459,8 +1358,8 @@ public class AgentLoop implements
                 }
             }
             try {
-                if (goalGuardEnabled && goalGuard != null) {
-                    loadOpenGoal();
+                if (turnExitController.goalGuardActive()) {
+                    turnExitController.loadOpenGoal();
                 }
             } catch (Exception e) {
                 String reminder = "[Goal guard] 无法读取持久化 Goal 状态：" + e.getMessage()
@@ -1535,7 +1434,7 @@ public class AgentLoop implements
             ctx.addToolResult(tr);
         }
 
-        if (finishContent != null) {
+        if (turnExitController.pendingFinishContent() != null) {
             context.putVariable("loopraExitReason", "finish");
             return StepResult.Exit.INSTANCE;
         }
@@ -1572,7 +1471,7 @@ public class AgentLoop implements
         for (ChatMessage tr : ter.toolResults()) {
             ctx.addToolResult(tr);
         }
-        if (finishContent != null) {
+        if (turnExitController.pendingFinishContent() != null) {
             context.putVariable("loopraExitReason", "finish");
             return StepResult.Exit.INSTANCE;
         }
