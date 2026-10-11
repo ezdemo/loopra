@@ -99,7 +99,11 @@ import java.util.stream.Stream;
  * Agent 循环 —— 编排 prompt → LLM → 工具调用 → 反馈结果 → LLM 的循环。
  * <p>
  * 消息历史通过 {@link ConversationContext} 在内存中累积跨回合持久化。
- * HITL（人工审批）逻辑委托给 {@link HitlManager} 管理。
+ * 各职责按内聚拆分为同包协作类：{@link PlanModeController}（计划模式）、
+ * {@link UsageReporter}（用量上报）、{@link ContextCompactor}（上下文折叠）、
+ * {@link HitlController}（人工审批拦截/挂起）、{@link ToolDispatcher}（工具分发）、
+ * {@link SessionLifecycle}（会话生命周期）、{@link TurnExitController}（退出决策）、
+ * {@link CutinStreamSupport}（流快照解析）。本类保留循环编排与各插件宿主的薄门面。
  * </p>
  *
  * @author Sorghum
@@ -112,10 +116,6 @@ public class AgentLoop implements
         LoopraReasoningStartedHost,
         LoopraPromptHost,
         LoopraToolGatewayPlugin.LoopraToolHost {
-
-    // ==================== 配置读取（带 null-safe 默认值） ====================
-
-
 
     // ==================== 核心字段 ====================
 
