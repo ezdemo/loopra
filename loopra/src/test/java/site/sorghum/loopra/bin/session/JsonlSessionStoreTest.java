@@ -99,11 +99,17 @@ class JsonlSessionStoreTest {
         writeLock.lock();
         try {
             Future<List<ChatMessage>> loading = reader.submit(() -> readerStore.load(store.currentName()));
-            Thread.sleep(50);
+            // 固定 sleep 无法保证读线程已经阻塞在文件锁上，轮询确认其进入锁队列
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!writeLock.hasQueuedThreads() && System.nanoTime() < deadline) {
+                Thread.sleep(5);
+            }
+            assertTrue(writeLock.hasQueuedThreads(),
+                    "load must wait for the file lock held by the writing Store");
             assertFalse(loading.isDone(), "load must not read while another Store writes the same session");
 
             writeLock.unlock();
-            assertEquals(1, loading.get(1, TimeUnit.SECONDS).size());
+            assertEquals(1, loading.get(10, TimeUnit.SECONDS).size());
         } finally {
             if (writeLock.isHeldByCurrentThread()) writeLock.unlock();
             reader.shutdownNow();

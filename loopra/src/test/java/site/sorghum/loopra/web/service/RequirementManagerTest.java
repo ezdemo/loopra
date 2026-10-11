@@ -223,6 +223,8 @@ class RequirementManagerTest {
     @Test
     void runStartsExecutionAndFlipsStatusToDoingThenDone() throws Exception {
         Requirement created = manager.create(draft("优化性能", "p1", "agent4j", "high"));
+        // 保持执行中，确保断言时任务不会抢先异步完成
+        agentService.blockExecution = true;
 
         assertEquals("started", manager.run(created.getId()));
 
@@ -233,7 +235,8 @@ class RequirementManagerTest {
         assertEquals(List.of(true), agentService.executedWebHidden);
         assertEquals(List.of("null|null|null|null"), agentService.executedConfigs);
 
-        // AI 未显式调用 finish_requirement → 兜底完成 + 写 AI 结束评论
+        // 放行执行 → AI 未显式调用 finish_requirement → 兜底完成 + 写 AI 结束评论
+        agentService.blockExecute.countDown();
         awaitStatus(created.getId(), "done");
         assertTrue(find(created.getId()).getSummary().contains("未显式调用 finish_requirement"));
         assertTrue(agentService.injectedComments.stream().anyMatch(c -> c.contains("✅ 已完成")));
