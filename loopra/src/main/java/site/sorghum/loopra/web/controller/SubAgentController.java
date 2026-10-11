@@ -3,7 +3,12 @@ package site.sorghum.loopra.web.controller;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.noear.solon.ai.chat.tool.FunctionTool;
-import org.noear.solon.annotation.*;
+import org.noear.solon.annotation.Body;
+import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Inject;
+import org.noear.solon.annotation.Mapping;
+import org.noear.solon.annotation.Put;
 import site.sorghum.loopra.bin.agent.core.SubAgent;
 import site.sorghum.loopra.bin.builtin.SubAgentProfileConfig;
 import site.sorghum.loopra.bin.builtin.SubAgentProfileStore;
@@ -14,7 +19,12 @@ import site.sorghum.loopra.web.model.ApiResponse;
 import site.sorghum.loopra.web.model.SubAgentInfoDTO;
 import site.sorghum.loopra.web.service.AgentService;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /** 子代理配置与运行时信息管理接口。 */
 @Api(tags = "子代理")

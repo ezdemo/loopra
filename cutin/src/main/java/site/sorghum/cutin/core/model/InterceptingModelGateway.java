@@ -5,9 +5,24 @@ import site.sorghum.cutin.core.context.Message;
 import site.sorghum.cutin.core.context.Usage;
 import site.sorghum.cutin.core.event.EventBus;
 import site.sorghum.cutin.core.event.LoopEvent;
-import site.sorghum.cutin.core.loop.*;
+import site.sorghum.cutin.core.loop.InterceptContext;
+import site.sorghum.cutin.core.loop.InterceptDecision;
+import site.sorghum.cutin.core.loop.InterceptPoint;
+import site.sorghum.cutin.core.loop.InterceptionResult;
+import site.sorghum.cutin.core.loop.InterceptorRegistry;
+import site.sorghum.cutin.core.loop.LoopAbortException;
+import site.sorghum.cutin.core.loop.LoopGotoException;
+import site.sorghum.cutin.core.loop.LoopRetryException;
+import site.sorghum.cutin.core.loop.LoopSuspendException;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 

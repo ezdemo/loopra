@@ -2,7 +2,12 @@ package site.sorghum.loopra.web.controller;
 
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
-import org.noear.solon.annotation.*;
+import org.noear.solon.annotation.Body;
+import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Inject;
+import org.noear.solon.annotation.Mapping;
+import org.noear.solon.annotation.Post;
 import site.sorghum.loopra.bin.browser.AiBrowserBridgeService;
 import site.sorghum.loopra.web.model.ApiResponse;
 import site.sorghum.loopra.web.model.BrowserBridgeRequest;

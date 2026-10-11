@@ -11,7 +11,15 @@ import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.model.ModelContextUtils;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.common.entity.ProcessResult;
-import site.sorghum.loopra.web.model.*;
+import site.sorghum.loopra.web.model.GitCommitDTO;
+import site.sorghum.loopra.web.model.GitCommitResultDTO;
+import site.sorghum.loopra.web.model.GitDiffContentDTO;
+import site.sorghum.loopra.web.model.GitDiffDTO;
+import site.sorghum.loopra.web.model.GitFileChangeDTO;
+import site.sorghum.loopra.web.model.GitFileContentDTO;
+import site.sorghum.loopra.web.model.GitGenerateMessageDTO;
+import site.sorghum.loopra.web.model.GitStatusDTO;
+import site.sorghum.loopra.web.model.WorkingFileContentDTO;
 
 import java.io.File;
 import java.io.IOException;
@@ -21,7 +29,12 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -1134,6 +1147,5 @@ public class GitService {
         }
         return output.toString();
     }
-
 
 }

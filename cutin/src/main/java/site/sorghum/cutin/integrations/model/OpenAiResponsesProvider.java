@@ -4,11 +4,22 @@ import org.noear.snack4.ONode;
 import site.sorghum.cutin.core.context.Message;
 import site.sorghum.cutin.core.context.Usage;
 import site.sorghum.cutin.core.json.JsonSupport;
-import site.sorghum.cutin.core.model.*;
+import site.sorghum.cutin.core.model.ModelCallRequest;
+import site.sorghum.cutin.core.model.ModelCapabilities;
+import site.sorghum.cutin.core.model.ModelHttpExchange;
+import site.sorghum.cutin.core.model.ModelProvider;
+import site.sorghum.cutin.core.model.ModelResponse;
+import site.sorghum.cutin.core.model.ModelStreamPhase;
+import site.sorghum.cutin.core.model.StreamChunk;
 import site.sorghum.cutin.core.tool.ToolCall;
 import site.sorghum.cutin.core.tool.ToolDefinition;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -17,71 +28,31 @@ import java.util.stream.Stream;
  * <p>支持同步调用、SSE 流式调用、system 指令提取、推理摘要、
  * 函数调用与用量统计；流式函数调用同样按 output_index 累加参数。</p>
  */
-public final class OpenAiResponsesProvider implements ModelProvider {
-
-    /** Provider 配置。 */
-    private final ModelProviderConfig config;
-    /** HTTP 传输层。 */
-    private final HttpModelTransport transport;
+public final class OpenAiResponsesProvider
+    extends AbstractModelProvider<OpenAiResponsesProvider.Accumulator> {
 
     /** 按配置创建 Provider；请求头在发送前由拦截器生成。 */
     public OpenAiResponsesProvider(ModelProviderConfig config) {
-        this.config = config;
-        this.transport = new HttpModelTransport(
-            config.endpoint("/responses"),
+        super(
+            config,
+            "/responses",
             Map.of("Authorization", "Bearer " + config.apiKey())
         );
     }
 
-    /** {@inheritDoc} */
     @Override
-    public String id() {
-        return config.id();
+    protected Message parseSyncMessage(ONode response) {
+        return parseMessage(JsonSupport.child(response, "output"));
     }
 
     @Override
-    public Map<String, Object> options() {
-        return config.options();
+    protected Usage parseSyncUsage(ONode response) {
+        return parseUsage(JsonSupport.child(response, "usage"));
     }
 
-    /** 同步调用：解析输出条目（消息、推理、函数调用）与用量，并附带原始请求与响应体。 */
     @Override
-    public ModelResponse call(ModelCallRequest request) {
-        ONode body = _buildBody(request, false);
-        Map<String, String> headers = requestHeaders(request);
-        String raw = transport.postRaw(body, headers);
-        ONode response = JsonSupport.read(raw);
-        return new ModelResponse(
-            parseMessage(JsonSupport.child(response, "output")),
-            parseUsage(JsonSupport.child(response, "usage")),
-            true,
-            raw,
-            transport.exchangeFor(body, headers)
-        );
-    }
-
-    /** 流式调用：按 Responses SSE 事件转换为 StreamChunk，并在流尾聚合工具调用。 */
-    @Override
-    public Stream<StreamChunk> stream(ModelCallRequest request) {
-        ONode body = _buildBody(request, true);
-        Map<String, String> headers = requestHeaders(request);
-        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body, headers);
-        Accumulator accumulator = new Accumulator(exchange);
-        Stream<StreamChunk> chunks = transport.postSse(body, headers)
-            .map(chunk -> {
-                String raw = chunk.toJson();
-                accumulator.raw.append(raw).append('\n');
-                return chunk;
-            })
-            .flatMap(chunk -> parseChunk(chunk, accumulator));
-        return Stream.concat(chunks, Stream.of(accumulator).flatMap(Accumulator::finalStream))
-            .onClose(chunks::close);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public ModelCapabilities capabilities() {
-        return new ModelCapabilities(Set.of(config.model()), true, true);
+    protected Accumulator newAccumulator(ModelHttpExchange exchange) {
+        return new Accumulator(exchange);
     }
 
     /** {@inheritDoc} 构建 Responses 请求体：模型、指令、输入条目、工具与推理选项。 */
@@ -289,7 +260,8 @@ public final class OpenAiResponsesProvider implements ModelProvider {
     }
 
     /** 把单个 SSE 事件转换为 StreamChunk，并按事件类型累加状态。 */
-    private Stream<StreamChunk> parseChunk(ONode chunk, Accumulator state) {
+    @Override
+    protected Stream<StreamChunk> parseChunk(ONode chunk, Accumulator state) {
         Stream.Builder<StreamChunk> builder = Stream.builder();
         String type = JsonSupport.text(chunk, "", "type");
         switch (type) {
@@ -356,88 +328,24 @@ public final class OpenAiResponsesProvider implements ModelProvider {
         return builder.build();
     }
 
-    /** 取请求模型 id，为空时回退到配置中的默认模型。 */
-    private String model(ModelCallRequest request) {
-        return request.modelId() == null || request.modelId().isBlank()
-            ? config.model()
-            : request.modelId();
-    }
-    /** 生成本次请求的最终请求头，保证会话级插件看到最新请求选项。 */
-    @Override
-    public Map<String, String> requestHeaders(ModelCallRequest request) {
-        return ProviderInterceptor.runHeaders(
-            this,
-            model(request),
-            request,
-            Map.of("Authorization", "Bearer " + config.apiKey())
-        );
-    }
-
-    /** 取请求级推理力度，未设置时回退到配置。 */
-    private String reasoningEffort(ModelCallRequest request) {
-        String value = option(request, "reasoningEffort");
-        return value == null ? config.reasoningEffort() : value;
-    }
-
-    /** 读取请求选项中的字符串值。 */
-    private String option(ModelCallRequest request, String key) {
-        Object value = request.options().get(key);
-        return value == null ? null : String.valueOf(value);
-    }
-
-    /** 解析 JSON 参数串；解析失败时返回空 Map。 */
-    private Map<String, Object> parseArguments(String json) {
-        try {
-            return JsonSupport.parseObject(json);
-        } catch (RuntimeException exception) {
-            return Map.of();
-        }
-    }
-
-    /** 序列化参数为 JSON 字符串；失败时返回空对象串。 */
-    private String writeArguments(Map<String, Object> arguments) {
-        try {
-            return JsonSupport.write(arguments);
-        } catch (RuntimeException exception) {
-            return "{}";
-        }
-    }
-
     /**
      * 流式累加器：按 output_index 记录函数调用，并在流尾生成完整调用。
      */
-    private final class Accumulator {
+    final class Accumulator extends StreamAccumulator {
 
-        /** 流中出现的错误原文。 */
-        private String error;
-        /** 已累计的用量。 */
-        private Usage usage = Usage.ZERO;
         /** 响应是否已完成。 */
         private boolean completed;
         /** 用量是否已通过增量块交付过。 */
         private boolean usageDelivered;
-        /** 是否已发出本次响应的推理开始阶段。 */
-        private boolean reasoningStarted;
         /** 是否已流式交付过推理文本增量（决定 terminal 块是否还需携带全文兜底）。 */
         private boolean reasoningTextDelivered;
-        /** 全部原始 SSE 数据行。 */
-        private final StringBuilder raw = new StringBuilder();
-        private final site.sorghum.cutin.core.model.ModelHttpExchange exchange;
         private final Map<Integer, ONode> reasoningItems = new LinkedHashMap<>();
         private ONode latestReasoning;
         /** 函数调用 output_index 到构建器的映射。 */
         private final Map<Integer, ToolCallBuilder> toolCalls = new LinkedHashMap<>();
 
-        private Accumulator(site.sorghum.cutin.core.model.ModelHttpExchange exchange) {
-            this.exchange = exchange;
-        }
-
-        private boolean markReasoningStarted() {
-            if (reasoningStarted) {
-                return false;
-            }
-            reasoningStarted = true;
-            return true;
+        Accumulator(ModelHttpExchange exchange) {
+            super(exchange);
         }
 
         private void captureReasoning(ONode item) {
@@ -513,7 +421,8 @@ public final class OpenAiResponsesProvider implements ModelProvider {
         }
 
         /** 流结束时输出聚合出的函数调用与未交付的用量。 */
-        private Stream<StreamChunk> finalStream() {
+        @Override
+        protected Stream<StreamChunk> finalStream() {
             if (error != null) {
                 return Stream.empty();
             }
@@ -557,29 +466,6 @@ public final class OpenAiResponsesProvider implements ModelProvider {
                 metadata,
                 true
             ));
-        }
-
-        /** 构造携带错误原文的终止块。 */
-        private StreamChunk errorChunk() {
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("error", error);
-            return new StreamChunk("", null, List.of(), List.of(), usage, metadata, true);
-        }
-
-        /** 单个函数调用的增量构建器。 */
-        private final class ToolCallBuilder {
-
-            /** 调用 id。 */
-            private String id = "";
-            /** 函数名称。 */
-            private String name = "";
-            /** 参数 JSON 增量片段。 */
-            private StringBuilder arguments = new StringBuilder();
-
-            /** 把累计片段解析为完整 ToolCall。 */
-            private ToolCall toToolCall() {
-                return new ToolCall(id, name, parseArguments(arguments.toString()), id);
-            }
         }
     }
 }

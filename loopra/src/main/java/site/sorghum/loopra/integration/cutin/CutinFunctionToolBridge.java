@@ -2,14 +2,24 @@ package site.sorghum.loopra.integration.cutin;
 
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import site.sorghum.cutin.core.context.LoopContext;
-import site.sorghum.cutin.core.tool.*;
+import site.sorghum.cutin.core.tool.Tool;
+import site.sorghum.cutin.core.tool.ToolCall;
+import site.sorghum.cutin.core.tool.ToolDefinition;
+import site.sorghum.cutin.core.tool.ToolMetadata;
+import site.sorghum.cutin.core.tool.ToolResult;
 import site.sorghum.loopra.bin.tool.ToolSchemaSanitizer;
 import site.sorghum.loopra.tool.HitlRequiredException;
 import site.sorghum.loopra.tool.ToolContext;
 import site.sorghum.loopra.tool.solon.mcp.McpFunctionTool;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
   * 把 Loopra/Solon 的 {@link FunctionTool} 桥接为 cutin 的 {@link Tool} 契约。
