@@ -15,12 +15,10 @@ import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.command.ChatCommandRegistry;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.config.LoopraConfig;
-import site.sorghum.loopra.bin.model.LoopraModelProvider;
 import site.sorghum.loopra.bin.model.ModelPriceProvider;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
 import site.sorghum.loopra.bin.project.ProjectRuntimeAccess;
 import site.sorghum.loopra.bin.session.JsonlSessionStore;
-import site.sorghum.loopra.bin.session.SessionFileChangeTracker;
 import site.sorghum.loopra.bin.session.SessionStore;
 import site.sorghum.loopra.bin.session.SubAgentSessionStore;
 import site.sorghum.loopra.bin.tool.ToolRegistry;
@@ -80,11 +78,6 @@ public class AgentService implements ProjectRuntimeAccess {
      */
     private static final int MAX_CACHE_SIZE = 50;
     private final Object runtimeMonitor = new Object();
-    /**
-     * 当前线程正在处理的会话名称（用于工具执行时获取 sessionId）
-     */
-    private static final ThreadLocal<String> CURRENT_SESSION_NAME = new ThreadLocal<>();
-
     @Inject
     ChatCommandRegistry commandRegistry;
 
@@ -835,41 +828,17 @@ public class AgentService implements ProjectRuntimeAccess {
      */
     public String chat(UserMessage userMessage, String workspacePath, String sessionName) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        ReentrantLock lock = sessionCache.getLock(sessionKey);
-        lock.lock();
-        long turnStartedAt = System.currentTimeMillis();
-        int historySizeBeforeChat = -1;
-
-        // 设置当前会话名称到 ThreadLocal，供工具执行时获取
-        String effectiveSessionName = sessionName != null ? sessionName : "default";
-        SessionFileChangeTracker.beginTurn(Paths.get(workspacePath), effectiveSessionName);
-        CURRENT_SESSION_NAME.set(effectiveSessionName);
-        LoopraModelProvider.CURRENT_LOG_SESSION.set(effectiveSessionName);
-
-        try {
+        try (SessionTurn turn = openTurn(sessionKey)) {
             LoopraAgent agent = getOrCreateAgent(sessionKey);
-
-            agent.setOutput(AgentOutput.NOOP);
-            // 设置会话ID到 AgentLoop
-            String sessionId = sessionName != null ? sessionName : "default";
-            agent.setSessionId(sessionId);
-            historySizeBeforeChat = agent.historySize();
+            turn.bind(agent, AgentOutput.NOOP);
+            turn.beforeChat();
             return agent.chat(userMessage);
-        } finally {
-            // 清理 ThreadLocal
-            CURRENT_SESSION_NAME.remove();
-            LoopraModelProvider.CURRENT_LOG_SESSION.remove();
-            // 刷入会话数据
-            LoopraAgent agent = sessionCache.get(sessionKey);
-            if (agent != null) {
-                persistTurnTiming(agent, historySizeBeforeChat, turnStartedAt, System.currentTimeMillis());
-                agent.flushSession();
-                agent.saveUsage();
-            }
-            lock.unlock();
-            // 同步调用没有 Web 任务登记；在会话锁释放后处理 mcprefresh 的延迟重载。
-            applyPendingProjectMcpRefresh(workspacePath);
         }
+    }
+
+    private SessionTurn openTurn(String sessionKey) {
+        String projectPath = sessionKey.split("::", 2)[0];
+        return new SessionTurn(sessionCache, sessionKey, () -> applyPendingProjectMcpRefresh(projectPath));
     }
 
     /**
@@ -879,27 +848,15 @@ public class AgentService implements ProjectRuntimeAccess {
                            String requestedModel, String requestedChannelId, String requestedReasoningEffort,
                            Boolean requestedFastMode, String action, String linkedProjectContext) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        ReentrantLock lock = sessionCache.getLock(sessionKey);
-        lock.lock();
-        long turnStartedAt = System.currentTimeMillis();
-        int historySizeBeforeChat = -1;
-
-        // 设置当前会话名称到 ThreadLocal，供工具执行时获取
         String effectiveSessionName = sessionName != null ? sessionName : "default";
-        SessionFileChangeTracker.beginTurn(Paths.get(workspacePath), effectiveSessionName);
-        CURRENT_SESSION_NAME.set(effectiveSessionName);
-        LoopraModelProvider.CURRENT_LOG_SESSION.set(effectiveSessionName);
-
-        try {
+        try (SessionTurn turn = openTurn(sessionKey)) {
             SessionStore.SessionModelSettings sessionSettings = resolveSessionModelSettings(
-                    workspacePath, effectiveSessionName, requestedModel, requestedChannelId, requestedReasoningEffort);
+                    workspacePath, turn.sessionName(), requestedModel, requestedChannelId, requestedReasoningEffort);
             LoopraAgent agent = getOrCreateAgent(sessionKey, sessionSettings);
+            turn.bind(agent, new SseAgentOutput(emitter));
             if (requestedFastMode != null) {
                 agent.setFastMode(requestedFastMode);
             }
-
-            // 设置 AgentOutput：将所有事件桥接到 SSE
-            agent.setOutput(new SseAgentOutput(emitter));
 
             UserMessage effectiveMessage = userMessage;
             boolean planExecutionPrepared = false;
@@ -928,7 +885,7 @@ public class AgentService implements ProjectRuntimeAccess {
                     contextMessage.setWebHidden(true);
                     agent.getCtx().addUser(contextMessage);
                 }
-                historySizeBeforeChat = agent.historySize();
+                turn.beforeChat();
                 reply = agent.chat(effectiveMessage);
             } catch (Exception executionError) {
                 if (planExecutionPrepared) {
@@ -982,58 +939,12 @@ public class AgentService implements ProjectRuntimeAccess {
                 log.warn("[web] 发送错误信息失败（可能SSE连接已断开）: {}", ex.getMessage());
             }
         } finally {
-            // 清理 ThreadLocal
-            CURRENT_SESSION_NAME.remove();
-            LoopraModelProvider.CURRENT_LOG_SESSION.remove();
-            // 恢复 Agent 输出
-            LoopraAgent agent = sessionCache.get(sessionKey);
-            if (agent != null) {
-                agent.setOutput(AgentOutput.NOOP);
-                persistTurnTiming(agent, historySizeBeforeChat, turnStartedAt, System.currentTimeMillis());
-                agent.flushSession();
-                agent.saveUsage();
-            }
-
             try {
                 emitter.complete();
             } catch (Exception ex) {
                 // SSE连接可能已断开，忽略异常
                 log.warn("[web] 完成SSE流失败（可能SSE连接已断开）: {}", ex.getMessage());
             }
-
-            lock.unlock();
-        }
-    }
-
-    /**
-     * 为本轮生成的 assistant 消息写入整轮耗时。
-     *
-     * <p>消息在 AgentLoop 中是逐条 append 的，回合结束后才知道完整耗时，
-     * 因此这里更新内存对象并重写当前会话文件；事件审计日志仍保持 append-only。</p>
-     */
-    private void persistTurnTiming(LoopraAgent agent, int historyStart,
-                                   long startedAt, long finishedAt) {
-        if (agent == null || historyStart < 0 || finishedAt < startedAt) return;
-        ConversationContext ctx = agent.getCtx();
-        if (ctx == null) return;
-        List<ChatMessage> history = ctx.getHistory();
-        if (historyStart >= history.size()) return;
-
-        long elapsedMs = Math.max(0L, finishedAt - startedAt);
-        boolean updated = false;
-        for (int i = historyStart; i < history.size(); i++) {
-            ChatMessage message = history.get(i);
-            if (!message.isAssistant()) continue;
-            message.setTurnStartedAt(startedAt);
-            message.setTurnFinishedAt(finishedAt);
-            message.setElapsedMs(elapsedMs);
-            updated = true;
-        }
-        if (!updated || ctx.getSessionStore() == null) return;
-        try {
-            ctx.getSessionStore().rewrite(history);
-        } catch (IOException e) {
-            log.warn("[session] 写入助手回合耗时失败: {}", e.getMessage());
         }
     }
 
@@ -2034,41 +1945,19 @@ public class AgentService implements ProjectRuntimeAccess {
         return directoryDeleted;
     }
 
-    // ==================== 命令与 Skill 查询 ====================
+    // ==================== 定时任务与需求执行 ====================
 
-    /**
-     * 获取所有命令的元数据列表（供前端命令选择弹窗使用）。
-     *
-     * @return 命令元数据列表
-     */
+    /** 在指定会话执行定时任务，失败说明作为任务结果返回。 */
     public String executeScheduledTask(String workspacePath, String sessionName, String message) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        ReentrantLock lock = sessionCache.getLock(sessionKey);
-        lock.lock();
-
-        String effectiveSessionName = sessionName != null ? sessionName : "default";
-        CURRENT_SESSION_NAME.set(effectiveSessionName);
-        LoopraModelProvider.CURRENT_LOG_SESSION.set(effectiveSessionName);
-
-        try {
+        try (SessionTurn turn = openTurn(sessionKey)) {
             LoopraAgent agent = getOrCreateAgent(sessionKey);
-
-            agent.setOutput(AgentOutput.NOOP);
-            String sessionId = sessionName != null ? sessionName : "default";
-            agent.setSessionId(sessionId);
+            turn.bind(agent, AgentOutput.NOOP);
+            turn.beforeChat();
             return agent.chat(UserMessage.of(message));
         } catch (Exception e) {
-            log.warn("[schedule] 定时任务执行异常: {}", e.getMessage());
+            log.warn("[schedule] 定时任务执行异常: session={}", sessionName, e);
             return "错误：" + e.getMessage();
-        } finally {
-            CURRENT_SESSION_NAME.remove();
-            LoopraAgent agent = sessionCache.get(sessionKey);
-            if (agent != null) {
-                agent.setOutput(AgentOutput.NOOP);
-                agent.flushSession();
-                agent.saveUsage();
-            }
-            lock.unlock();
         }
     }
 
@@ -2104,35 +1993,18 @@ public class AgentService implements ProjectRuntimeAccess {
                                      boolean webHidden, String requestedModel, String requestedChannelId,
                                      String requestedReasoningEffort, String requestedHitl) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        ReentrantLock lock = sessionCache.getLock(sessionKey);
-        lock.lock();
-
-        String effectiveSessionName = sessionName != null ? sessionName : "default";
-        CURRENT_SESSION_NAME.set(effectiveSessionName);
-        LoopraModelProvider.CURRENT_LOG_SESSION.set(effectiveSessionName);
-
-        try {
+        try (SessionTurn turn = openTurn(sessionKey)) {
             SessionStore.SessionModelSettings sessionSettings = resolveSessionModelSettings(
-                    workspacePath, effectiveSessionName, requestedModel, requestedChannelId, requestedReasoningEffort);
+                    workspacePath, turn.sessionName(), requestedModel, requestedChannelId, requestedReasoningEffort);
             LoopraAgent agent = getOrCreateAgentWithPrompt(sessionKey, sessionSettings, systemPrompt);
+            turn.bind(agent, AgentOutput.NOOP);
             if (requestedHitl != null && !requestedHitl.isBlank()) {
                 agent.setHitlMode(requestedHitl.trim());
             }
-            agent.setOutput(AgentOutput.NOOP);
-            agent.setSessionId(effectiveSessionName);
             UserMessage userMessage = UserMessage.of(message);
             userMessage.setWebHidden(webHidden);
+            turn.beforeChat();
             return agent.chat(userMessage);
-        } finally {
-            CURRENT_SESSION_NAME.remove();
-            LoopraModelProvider.CURRENT_LOG_SESSION.remove();
-            LoopraAgent agent = sessionCache.get(sessionKey);
-            if (agent != null) {
-                agent.setOutput(AgentOutput.NOOP);
-                agent.flushSession();
-                agent.saveUsage();
-            }
-            lock.unlock();
         }
     }
 
@@ -2156,35 +2028,19 @@ public class AgentService implements ProjectRuntimeAccess {
      */
     public String resolveRequirementApproval(String workspacePath, String sessionName, boolean approved) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        ReentrantLock lock = sessionCache.getLock(sessionKey);
-        lock.lock();
-
-        String effectiveSessionName = sessionName != null ? sessionName : "default";
-        CURRENT_SESSION_NAME.set(effectiveSessionName);
-        LoopraModelProvider.CURRENT_LOG_SESSION.set(effectiveSessionName);
-        try {
+        try (SessionTurn turn = openTurn(sessionKey)) {
             LoopraAgent agent = sessionCache.get(sessionKey);
             if (agent == null || agent.noPendingHITL()) {
                 throw new ServiceException("当前需求没有待审批的工具调用");
             }
+            turn.bind(agent, AgentOutput.NOOP);
             if (approved) {
                 agent.approveHITL();
             } else {
                 agent.denyHITL();
             }
-            agent.setOutput(AgentOutput.NOOP);
-            agent.setSessionId(effectiveSessionName);
+            turn.beforeChat();
             return agent.chat(null);
-        } finally {
-            CURRENT_SESSION_NAME.remove();
-            LoopraModelProvider.CURRENT_LOG_SESSION.remove();
-            LoopraAgent agent = sessionCache.get(sessionKey);
-            if (agent != null) {
-                agent.setOutput(AgentOutput.NOOP);
-                agent.flushSession();
-                agent.saveUsage();
-            }
-            lock.unlock();
         }
     }
 

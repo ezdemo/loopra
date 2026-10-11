@@ -215,10 +215,11 @@ public class SseEmitter {
         send("snapshot", node.toJson());
     }
 
-    public void complete() {
-        if (completed.compareAndSet(false, true)) {
-            // send 方法内部已处理所有异常，无需额外捕获
+    public synchronized void complete() {
+        if (!completed.get()) {
+            // 与 send 共用同一把锁，先发送结束事件，再阻止后续写入。
             send("done", "{}");
+            completed.set(true);
             try {
                 out.flush();
                 out.close();

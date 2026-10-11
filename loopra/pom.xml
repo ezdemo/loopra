@@ -223,6 +223,12 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- Native DLLs stay loaded until the fork exits; keep them outside per-test homes. -->
+                        <DJL_CACHE_DIR>${project.build.directory}/test-native-cache</DJL_CACHE_DIR>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
