@@ -10,7 +10,6 @@ import org.noear.solon.ai.chat.tool.ToolCall;
 import site.sorghum.cutin.core.context.Budget;
 import site.sorghum.cutin.core.context.DefaultLoopContext;
 import site.sorghum.cutin.core.context.Usage;
-import site.sorghum.cutin.core.event.LoopEvent;
 import site.sorghum.cutin.core.loop.CancelReason;
 import site.sorghum.cutin.core.loop.DefaultLoopEngine;
 import site.sorghum.cutin.core.loop.InterceptPoint;
@@ -71,7 +70,6 @@ import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitHost;
 import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.external.ExternalPluginStore;
 import site.sorghum.loopra.integration.cutin.plugin.httplog.LoopraHttpLogPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.plan.LoopraPlanHost;
 import site.sorghum.loopra.integration.cutin.plugin.plan.LoopraPlanPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraMessageHealingPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraModelPolicyPlugin;
@@ -160,7 +158,6 @@ public class AgentLoop implements
         LoopraErrorRecoveryHost,
         LoopraRetryHost,
         LoopraSessionHost,
-        LoopraPlanHost,
         LoopraToolBatchHost,
         LoopraReasoningStartedHost,
         LoopraPreflightHost,
@@ -232,16 +229,8 @@ public class AgentLoop implements
     /** 子代理可冻结这两部分，确保其整个生命周期内模型请求前缀完全一致。 */
     private volatile ONode frozenTools;
     private volatile String frozenToolInstructions;
-    /**
-     * 计划模式 —— 会话级状态：仅允许只读工具（工具列表过滤 + 执行拒绝 + 指令感知）。
-     * 由 /plan、/execute 命令切换；不修改共享的 ToolRegistry，因此不影响同项目的其他会话。
-     */
-    private volatile boolean planMode = false;
-    /**
-     * 计划模式下经 submit_plan 提交、待用户审查的执行计划。
-     * /execute 批准时取出并注入为执行依据（取出即清空）。
-     */
-    private volatile String pendingPlan = null;
+    /** 计划模式与待审查计划，委托给 {@link PlanModeController}。 */
+    private final PlanModeController planModeController = new PlanModeController(this);
     @Getter
     private final HitlManager hitlManager;
 
@@ -343,12 +332,30 @@ public class AgentLoop implements
         return running.get();
     }
 
-    private Path workingDirectory() {
+    Path workingDirectory() {
         Path environmentRoot = registry.getEnvironment() == null
             ? null
             : registry.getEnvironment().executionRoot();
         Path root = environmentRoot != null ? environmentRoot : workspace;
         return root == null ? null : root.toAbsolutePath().normalize();
+    }
+
+    // ==================== 协作类访问口（包级私有，仅供同包协作者使用） ====================
+
+    DefaultLoopEngine cutinEngine() {
+        return cutinEngine;
+    }
+
+    LoopHandle activeCutinHandle() {
+        return activeCutinHandle;
+    }
+
+    void activeCutinHandle(LoopHandle handle) {
+        this.activeCutinHandle = handle;
+    }
+
+    AgentLoopListener listener() {
+        return listener;
     }
 
     // ==================== 构造器 ====================
@@ -409,11 +416,11 @@ public class AgentLoop implements
         if (!goal.isBlank()) {
             tail.append(goal);
         }
-        if (planMode) {
+        if (planModeController.isPlanMode()) {
             if (!tail.isEmpty()) {
                 tail.append("\n\n");
             }
-            tail.append(PLAN_MODE_INSTRUCTIONS);
+            tail.append(PlanModeController.PLAN_MODE_INSTRUCTIONS);
         }
         return tail.toString();
     }
@@ -445,7 +452,7 @@ public class AgentLoop implements
         plugins.registerPlugin(new LoopraErrorRecoveryPlugin(this));
         plugins.registerPlugin(new LoopraRetryPolicyPlugin(this));
         plugins.registerPlugin(new LoopraSessionPlugin(this));
-        plugins.registerPlugin(new LoopraPlanPlugin(this));
+        plugins.registerPlugin(new LoopraPlanPlugin(planModeController));
         plugins.registerPlugin(new LoopraToolBatchPlugin(this));
         // 外置插件：startAll 前按清单加载，与内置插件同场竞技
         new ExternalPluginStore().loadInto(plugins);
@@ -752,7 +759,7 @@ public class AgentLoop implements
     // ==================== 内部辅助方法 ====================
 
     /** 安全调用 output 方法，异常记录 warn 日志（用于 onLog/onError/onToolCall/onToolResult 等） */
-    private void safeOutput(String tag, Runnable action) {
+    void safeOutput(String tag, Runnable action) {
         try {
             action.run();
         } catch (Exception e) {
@@ -761,7 +768,7 @@ public class AgentLoop implements
     }
 
     /** 安全调用 output 方法，异常记录 debug 日志（用于 SSE delta 回调，断开是预期行为） */
-    private void safeOutputDebug(String tag, Runnable action) {
+    void safeOutputDebug(String tag, Runnable action) {
         try {
             action.run();
         } catch (Exception e) {
@@ -770,7 +777,7 @@ public class AgentLoop implements
     }
 
     /** 安全调用 listener 方法，异常记录 warn 日志 */
-    private void safeListener(String tag, Runnable action) {
+    void safeListener(String tag, Runnable action) {
         try {
             action.run();
         } catch (Exception e) {
@@ -804,7 +811,7 @@ public class AgentLoop implements
             // 外部注册工具不随 syncCutinRegistry 清除，需 clearTools 整体清空兜底。
             registry.clearTools();
             ONode empty = registry.toOpenAiTools();
-            return planMode ? filterReadOnlyTools(empty) : empty;
+            return planModeController.isPlanMode() ? planModeController.filterReadOnlyTools(empty) : empty;
         }
         registry.refresh();
         // 同步 cutin 工具网关：仅当禁用列表变化（或首次）时重启以按最新禁用列表重新注册 cutin Tool，
@@ -824,133 +831,64 @@ public class AgentLoop implements
             log.debug("[tool-gateway] refresh restart failed: {}", e.getMessage());
         }
         ONode tools = registry.toOpenAiTools();
-        return planMode ? filterReadOnlyTools(tools) : tools;
+        return planModeController.isPlanMode() ? planModeController.filterReadOnlyTools(tools) : tools;
     }
 
     /** 固定后续请求的 system 附加指令和工具定义；必须在首轮模型调用前执行。 */
     public void freezePromptPrefix() {
         frozenToolInstructions = buildToolInstructions();
         ONode tools = registry.toOpenAiTools();
-        frozenTools = ONode.ofJson((planMode ? filterReadOnlyTools(tools) : tools).toJson());
+        frozenTools = ONode.ofJson((planModeController.isPlanMode()
+                ? planModeController.filterReadOnlyTools(tools) : tools).toJson());
     }
 
     private String currentToolInstructions() {
         String fixed = frozenToolInstructions;
         String base = fixed != null ? fixed : buildToolInstructions();
-        return planMode ? base + "\n\n" + PLAN_MODE_INSTRUCTIONS : base;
+        return planModeController.isPlanMode() ? base + "\n\n" + PlanModeController.PLAN_MODE_INSTRUCTIONS : base;
     }
 
-    // ==================== 计划模式 ====================
-
-    /**
-     * 计划模式动态指令 —— 激活时追加到工具协作约定末尾。
-     * 放在动态尾部而非 system prompt 固定前缀，避免模式切换破坏前缀缓存稳定性。
-     */
-    private static final String PLAN_MODE_INSTRUCTIONS = """
-            ## Plan Mode（当前处于计划模式）
-
-            - 仅只读工具可用：写入/修改/执行类工具已从工具列表移除，任何此类调用都会被直接拒绝
-            - 不要尝试修改文件、执行命令等任何改变操作，也不要尝试绕过此限制
-            - 先用只读工具充分探索，理解现状、明确目标、影响面与风险
-            - 探索完成后用 `submit_plan` 工具提交完整执行计划供用户审查，然后向用户简要总结计划要点并结束本轮
-            - 用户批准计划后系统会退出计划模式并按计划执行
-            """;
+    // ==================== 计划模式（委托 PlanModeController） ====================
 
     @Override
     public boolean isPlanMode() {
-        return planMode;
+        return planModeController.isPlanMode();
     }
 
-    /**
-     * 切换计划模式（会话级状态，仅影响本循环）。
-     * <p>切换在下一步立即生效：工具列表过滤为只读集合、非只读调用被拒绝、
-     * 计划模式指令注入工具约定。持久化与事件通知由上层（LoopraAgent）负责。</p>
-     */
+    /** 切换计划模式（会话级状态，仅影响本循环）。 */
     public void setPlanMode(boolean enabled) {
-        this.planMode = enabled;
+        planModeController.setPlanMode(enabled);
     }
 
-    /**
-     * 保存 submit_plan 提交的任务计划，并通过 plan_submitted 事件通知前端。
-     */
+    /** 保存 submit_plan 提交的任务计划，并通过 plan_submitted 事件通知前端。 */
     @Override
     public void submitPlan(String planMarkdown) {
-        this.pendingPlan = planMarkdown;
-        emitPlanPersistence(planMarkdown);
-        ONode data = ONode.ofJson("{}").asObject();
-        data.set("plan", planMarkdown != null ? planMarkdown : "");
-        safeOutput("planSubmitted", () -> output.sendEvent("plan_submitted", data.toJson()));
+        planModeController.submitPlan(planMarkdown);
     }
 
     /** 获取待审查计划（不移除）。 */
     public String getPendingPlan() {
-        return pendingPlan;
+        return planModeController.getPendingPlan();
     }
 
     /** 静默恢复持久化的待审查计划，不触发事件或重复写盘。 */
     public void restorePendingPlan(String planMarkdown) {
-        this.pendingPlan = planMarkdown;
+        planModeController.restorePendingPlan(planMarkdown);
     }
 
     /** 清除待审查计划并同步持久化。 */
     public void clearPendingPlan() {
-        this.pendingPlan = null;
-        emitPlanPersistence(null);
+        planModeController.clearPendingPlan();
     }
 
     /** 取出并清空待审查计划（/execute 批准时调用）。 */
     public String consumePendingPlan() {
-        String plan = pendingPlan;
-        clearPendingPlan();
-        return plan;
+        return planModeController.consumePendingPlan();
     }
 
-    private void emitPlanPersistence(String planMarkdown) {
-        if (cutinEngine != null) {
-            String eventType = planMarkdown == null
-                    ? LoopraPlanHost.PLAN_CLEARED
-                    : LoopraPlanHost.PLAN_SUBMITTED;
-            String loopId = activeCutinHandle != null
-                    ? activeCutinHandle.id()
-                    : "plan";
-            cutinEngine.events().emit(new LoopEvent(
-                    eventType,
-                    loopId,
-                    null,
-                    Map.of("plan", planMarkdown == null ? "" : planMarkdown)
-            ));
-            return;
-        }
-        persistPendingPlan(planMarkdown);
-    }
-
-    @Override
-    public void persistPendingPlan(String planMarkdown) {
-        SessionUsageSink sink = sessionUsageSink;
-        if (sink == null) return;
-        try {
-            sink.persistPendingPlan(planMarkdown);
-        } catch (Exception e) {
-            log.warn("[plan] 持久化待审查计划失败: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * 将工具列表过滤为只读集合（不修改注册表及其缓存，返回新节点）。
-     * 注册表中找不到对应 FunctionTool 的条目一律剔除（保守策略）。
-     */
+    /** 过滤为只读工具集合；实际过滤逻辑在 {@link PlanModeController}。 */
     private ONode filterReadOnlyTools(ONode tools) {
-        if (tools == null || !tools.isArray()) {
-            return tools;
-        }
-        Map<String, FunctionTool> available = registry.all();
-        ONode filtered = ONode.ofJson(tools.toJson()).asArray();
-        filtered.getArray().removeIf(item -> {
-            String name = item.get("function").get("name").getString();
-            FunctionTool tool = name != null ? available.get(name) : null;
-            return tool == null || !ToolMetadata.isReadOnly(tool);
-        });
-        return filtered;
+        return planModeController.filterReadOnlyTools(tools);
     }
 
     /**
@@ -2102,7 +2040,7 @@ public class AgentLoop implements
                     // 计划模式硬约束：非只读工具直接拒绝。
                     // 正常情况下写工具已从工具列表移除，此处兼容模型凭记忆幻觉调用的兑底；
                     // 仅存在于 cutin 视图的外部工具（fc == null）不受 legacy 策略约束，由 cutin 拦截链负责。
-                    if (fc != null && cutinContext == null && planMode && !ToolMetadata.isReadOnly(fc)) {
+                    if (fc != null && cutinContext == null && planModeController.isPlanMode() && !ToolMetadata.isReadOnly(fc)) {
                         String result = rejectedToolResult(
                                 "当前处于计划模式，仅允许只读工具；本次调用已被拒绝。请继续使用只读工具探索，完成后用 submit_plan 提交计划。",
                                 "plan_mode");
