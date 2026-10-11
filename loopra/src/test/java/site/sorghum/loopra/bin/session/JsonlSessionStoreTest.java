@@ -10,7 +10,6 @@ import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -86,11 +85,15 @@ class JsonlSessionStoreTest {
 
     @Test
     void loadFromAnotherStoreWaitsForOngoingWrite() throws Exception {
-        store.append(ChatMessage.ofUser("complete message"));
-        store.flush();
+        // 用独立临时目录：共享默认目录会让全量测试套件中的其他用例清掉会话文件
+        Path sessionsDir = java.nio.file.Files.createTempDirectory("loopra-lock-wait");
+        JsonlSessionStore writer = new JsonlSessionStore(sessionsDir);
+        String name = "lock-wait-" + System.nanoTime();
+        writer.bindTo(name);
+        writer.append(ChatMessage.ofUser("complete message"));
+        writer.flush();
 
-        Path sessionsDir = Paths.get(System.getProperty("user.home"), ".loopra", "sessions");
-        Path sessionFile = sessionsDir.resolve(store.currentName() + ".jsonl");
+        Path sessionFile = sessionsDir.resolve(name + ".jsonl");
         Method fileLockMethod = JsonlSessionStore.class.getDeclaredMethod("fileLock", Path.class);
         fileLockMethod.setAccessible(true);
         ReentrantLock writeLock = (ReentrantLock) fileLockMethod.invoke(null, sessionFile);
@@ -98,7 +101,7 @@ class JsonlSessionStoreTest {
         ExecutorService reader = Executors.newSingleThreadExecutor();
         writeLock.lock();
         try {
-            Future<List<ChatMessage>> loading = reader.submit(() -> readerStore.load(store.currentName()));
+            Future<List<ChatMessage>> loading = reader.submit(() -> readerStore.load(name));
             // 固定 sleep 无法保证读线程已经阻塞在文件锁上，轮询确认其进入锁队列
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
             while (!writeLock.hasQueuedThreads() && System.nanoTime() < deadline) {
@@ -114,6 +117,7 @@ class JsonlSessionStoreTest {
             if (writeLock.isHeldByCurrentThread()) writeLock.unlock();
             reader.shutdownNow();
             readerStore.shutdown();
+            writer.shutdown();
         }
     }
 
