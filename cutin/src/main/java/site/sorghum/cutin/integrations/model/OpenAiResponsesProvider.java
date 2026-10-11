@@ -374,6 +374,7 @@ public final class OpenAiResponsesProvider
                 }
                 latestReasoning = copy;
             } catch (RuntimeException ignored) {
+                // 损坏的推理条目副本直接丢弃
             }
         }
 

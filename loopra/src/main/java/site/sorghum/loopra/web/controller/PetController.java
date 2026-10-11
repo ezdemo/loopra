@@ -232,7 +232,9 @@ public class PetController {
                     .forEach(p -> {
                         try {
                             Files.deleteIfExists(p);
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                            // 单个文件删除失败不影响其余清理
+                        }
                     });
         }
         // 如果已激活该宠物则清除 activePet
@@ -266,7 +268,9 @@ public class PetController {
                 if (node.get("x") != null) pos.put("x", node.get("x").getInt());
                 if (node.get("y") != null) pos.put("y", node.get("y").getInt());
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // 位置文件缺失或损坏时使用默认值
+        }
         return pos;
     }
 
@@ -276,7 +280,9 @@ public class PetController {
                 ONode node = ONode.ofJson(Files.readString(POSITION_FILE, StandardCharsets.UTF_8));
                 if (node.get("sizeIndex") != null) return node.get("sizeIndex").getInt();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // 尺寸配置缺失或损坏时使用默认值
+        }
         return 1;
     }
 
@@ -289,7 +295,9 @@ public class PetController {
                     if (Double.isFinite(scale) && scale >= MIN_PET_SCALE && scale <= MAX_PET_SCALE) return scale;
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // 缩放配置缺失或损坏时返回 null
+        }
         return null;
     }
 
@@ -311,7 +319,9 @@ public class PetController {
                 if (Double.isFinite(scale) && scale >= MIN_PET_SCALE && scale <= MAX_PET_SCALE) {
                     root.set("scale", scale);
                 }
-            } catch (NumberFormatException ignored) {}
+            } catch (NumberFormatException ignored) {
+                // 非法缩放值直接跳过
+            }
         }
         Files.writeString(POSITION_FILE, root.toJson(), StandardCharsets.UTF_8);
     }

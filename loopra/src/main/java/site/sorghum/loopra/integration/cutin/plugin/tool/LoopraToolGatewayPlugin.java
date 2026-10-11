@@ -51,7 +51,9 @@ public final class LoopraToolGatewayPlugin implements LoopPlugin {
         if (host == null) {
             try {
                 host = context.getBean(LoopraToolHost.class);
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // Host Bean 未注册时保持 null
+            }
         }
     }
 

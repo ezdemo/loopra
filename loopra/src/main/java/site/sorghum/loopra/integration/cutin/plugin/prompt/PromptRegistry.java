@@ -43,6 +43,7 @@ public final class PromptRegistry {
                 if (slice == null || slice.isEmpty()) continue;
                 byId.put(slice.id(), slice);
             } catch (Exception ignored) {
+                // 单个 provider 生成失败不影响其他 provider
             }
         }
         return byId.values().stream()

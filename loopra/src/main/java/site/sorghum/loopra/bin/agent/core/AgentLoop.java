@@ -1206,6 +1206,7 @@ public class AgentLoop implements
                 ONode tools = refreshTools();
                 lastContextEstimate = ContextTokenEstimator.estimate(fallback, tools, currentToolInstructions());
             } catch (Exception ignored) {
+                // token 估算失败时沿用上一次估值
             }
             return new PreparedMessages(fallback, false);
         }
@@ -1839,6 +1840,7 @@ public class AgentLoop implements
                     }
                 }
             } catch (RuntimeException ignored) {
+                // 推理条目解析失败时跳过
             }
         }
         return new CutinStreamSnapshot(

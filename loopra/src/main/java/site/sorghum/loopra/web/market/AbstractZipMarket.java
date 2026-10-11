@@ -137,6 +137,7 @@ public abstract class AbstractZipMarket implements Market {
                     try {
                         Files.delete(p);
                     } catch (Exception ignored) {
+                        // 单个文件删除失败不影响其余清理
                     }
                 });
     }
