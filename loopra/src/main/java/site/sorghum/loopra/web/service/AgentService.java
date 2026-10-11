@@ -6,7 +6,6 @@ import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Destroy;
 import org.noear.solon.annotation.Init;
 import org.noear.solon.annotation.Inject;
-import site.sorghum.loopra.bin.agent.context.ContextTokenEstimate;
 import site.sorghum.loopra.bin.agent.context.ConversationContext;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
 import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
@@ -15,7 +14,6 @@ import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.command.ChatCommandRegistry;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.config.LoopraConfig;
-import site.sorghum.loopra.bin.model.ModelPriceProvider;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
 import site.sorghum.loopra.bin.project.ProjectRuntimeAccess;
 import site.sorghum.loopra.bin.session.JsonlSessionStore;
@@ -27,7 +25,6 @@ import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.solon.common.SessionTerminalTalent;
 import site.sorghum.loopra.tool.solon.common.SessionTerminalTalent.BashSessionInfo;
 import site.sorghum.loopra.web.common.ServiceException;
-import site.sorghum.loopra.web.common.UsageCostCalculator;
 import site.sorghum.loopra.web.model.AgentStatusDTO;
 import site.sorghum.loopra.web.model.BashSessionDTO;
 import site.sorghum.loopra.web.model.BashSessionLogDTO;
@@ -89,6 +86,8 @@ public class AgentService implements ProjectRuntimeAccess {
     /** 会话模型设置的读取、解析与持久化。 */
     private final SessionSettingsService sessionSettingsService =
             new SessionSettingsService(this::sessionStoreFor);
+
+    private final SessionUsageService sessionUsageService = new SessionUsageService();
 
     private final SessionAgentFactory sessionAgentFactory = new SessionAgentFactory(
             () -> commandRegistry, this::resolveSessionEnvironment, this::getOrCreateSharedToolSystem);
@@ -1390,107 +1389,7 @@ public class AgentService implements ProjectRuntimeAccess {
             agent = sessionCache.get(sessionKey);
         }
 
-        long promptTokens = 0;
-        long completionTokens = 0;
-        long cacheHit = 0;
-        long cacheMiss = 0;
-        long lastPromptTokens = 0;
-        int maxContextTokens = 128000;
-
-        if (agent != null) {
-            long[] usage = agent.getSessionUsage();
-            promptTokens = usage[0];
-            completionTokens = usage[1];
-            cacheHit = usage[2];
-            cacheMiss = usage[3];
-            lastPromptTokens = usage.length > 4 ? usage[4] : 0;
-            maxContextTokens = agent.getMaxContextTokens();
-        }
-
-        String currentModel = null;
-        boolean hasPrice = false;
-        double inputCost = 0;
-        double cacheCost = 0;
-        double outputCost = 0;
-        double totalCost = 0;
-        String currency = null;
-
-        // 价格计算：优先按模型分别计费，解决模型中途切换导致计价错乱
-        try {
-            LoopraConfig config = ConfigService.getConfig();
-            currentModel = agent != null && agent.getModel() != null ? agent.getModel() : config.model();
-            Map<String, Map<String, Double>> prices = config.price();
-
-            if (agent == null) {
-                log.warn("[usage] Agent 为 null，无法获取模型用量");
-                return new UsageDTO(0, 0, 0, 0, 0, maxContextTokens, 0, null, false, 0, 0, 0, 0, null, null);
-            }
-            Map<String, long[]> mu = agent.getModelUsage();
-
-            if (mu != null && !mu.isEmpty()) {
-                // 全局价格提供者（与 UsageCostCalculator.calc() 行为对齐：config 优先，provider 兜底）
-                ModelPriceProvider priceProvider = ModelMetaPriceProvider.getInstance();
-
-                // 按模型分别计算费用
-                for (Map.Entry<String, long[]> entry : mu.entrySet()) {
-                    String modelName = entry.getKey();
-                    long[] usage = entry.getValue();
-
-                    // 1) 优先从用户配置中取价
-                    Map<String, Double> modelPrice = prices.get(modelName);
-
-                    // 2) 配置中没有时回退到 ModelPriceProvider（与 DashboardService / UsageCostCalculator 保持一致）
-                    if ((modelPrice == null || modelPrice.isEmpty()) && priceProvider != null) {
-                        modelPrice = priceProvider.getModelPrice(modelName);
-                        if (modelPrice == null || modelPrice.isEmpty()) {
-                            log.debug("[usage] 模型 '{}' 既无 config.price() 配置，也无 ModelPriceProvider 元数据，跳过计价", modelName);
-                        }
-                    }
-
-                    if (modelPrice != null && !modelPrice.isEmpty()) {
-                        hasPrice = true;
-                        double inputRate = modelPrice.getOrDefault("input", 0.0);
-                        double cacheRate = modelPrice.getOrDefault("cache", 0.0);
-                        double outputRate = modelPrice.getOrDefault("output", 0.0);
-
-                        long nonCacheInput = Math.max(0, usage[0] - usage[2]);
-                        inputCost += nonCacheInput / 1_000_000.0 * inputRate;
-                        cacheCost += usage[2] / 1_000_000.0 * cacheRate;
-                        outputCost += usage[1] / 1_000_000.0 * outputRate;
-                    }
-                }
-                totalCost = inputCost + cacheCost + outputCost;
-                currency = hasPrice ? "CNY" : null;
-
-                inputCost = Math.round(inputCost * 10000.0) / 10000.0;
-                cacheCost = Math.round(cacheCost * 10000.0) / 10000.0;
-                outputCost = Math.round(outputCost * 10000.0) / 10000.0;
-                totalCost = Math.round(totalCost * 10000.0) / 10000.0;
-            } else {
-                // 无 per-model 数据（旧格式 .usage 文件），回退到当前模型计费
-                totalCost = UsageCostCalculator.calc(prices, currentModel, promptTokens, completionTokens, cacheHit);
-                hasPrice = totalCost > 0;
-                currency = hasPrice ? "CNY" : null;
-                inputCost = totalCost;
-                totalCost = Math.round(totalCost * 10000.0) / 10000.0;
-                inputCost = Math.round(inputCost * 10000.0) / 10000.0;
-            }
-        } catch (Exception e) {
-            // 价格计算失败不影响主逻辑
-        }
-
-        ContextTokenEstimate contextEstimate = agent != null ? agent.getLastContextEstimate() : null;
-        if (contextEstimate == null && agent != null) {
-            contextEstimate = agent.estimateCurrentContext();
-        }
-        return new UsageDTO(
-                promptTokens, completionTokens, cacheHit, cacheMiss,
-                lastPromptTokens, maxContextTokens,
-                promptTokens + completionTokens,
-                currentModel, hasPrice,
-                inputCost, cacheCost, outputCost, totalCost,
-                currency, contextEstimate
-        );
+        return sessionUsageService.read(agent);
     }
 
     // ==================== 工具方法 ====================
