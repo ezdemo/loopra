@@ -69,7 +69,6 @@ import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraToolPolicyPlugi
 import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraHitlPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraMessageSanitizerPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraPreflight;
-import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraPreflightHost;
 import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraUserMessagePlugin;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.LoopraPromptHost;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.LoopraPromptPlugin;
@@ -142,7 +141,6 @@ public class AgentLoop implements
         LoopraSessionHost,
         LoopraToolBatchHost,
         LoopraReasoningStartedHost,
-        LoopraPreflightHost,
         LoopraPromptHost,
         LoopraToolGatewayPlugin.LoopraToolHost {
 
@@ -185,14 +183,14 @@ public class AgentLoop implements
     private final ReasonBreaker reasonBreaker = new ReasonBreaker();
     private final StormBreaker stormBreaker;
     private final AtomicBoolean cutinSuppression = new AtomicBoolean(false);
-    private ToolCallValidator toolCallValidator;
-    /** Goal 守卫（由上层注入）；null 时等价于无开放 Goal，守卫全部放行。 */
     /** 计划模式与待审查计划，委托给 {@link PlanModeController}。 */
     private final PlanModeController planModeController = new PlanModeController(this);
     /** cutin 用量上报与 token 速率推送，委托给 {@link UsageReporter}。 */
     private final UsageReporter usageReporter = new UsageReporter(this);
     /** 上下文压力与折叠，委托给 {@link ContextCompactor}。 */
     private final ContextCompactor contextCompactor = new ContextCompactor(this);
+    /** HITL 拦截与挂起恢复，委托给 {@link HitlController}。 */
+    private final HitlController hitlController = new HitlController(this);
     /** 回合退出决策与 Goal 守卫，委托给 {@link TurnExitController}。 */
     private final TurnExitController turnExitController = new TurnExitController(this);
     @Getter
@@ -273,9 +271,6 @@ public class AgentLoop implements
     private final DefaultLoopEngine cutinEngine;
     private final PluginBeanManager cutinPlugins;
     private volatile LoopHandle activeCutinHandle;
-    private volatile LoopHandle suspendedCutinHandle;
-    private volatile DefaultLoopContext suspendedCutinContext;
-    private volatile LoopState suspendedCutinState;
     private volatile LoopState runningCutinState;
 
     /**
@@ -333,6 +328,14 @@ public class AgentLoop implements
         return planModeController;
     }
 
+    TurnExitController turnExitController() {
+        return turnExitController;
+    }
+
+    HitlController hitlController() {
+        return hitlController;
+    }
+
     // ==================== 构造器 ====================
 
     public AgentLoop(LoopraModelProvider modelProvider, ToolRegistry registry, ConversationContext ctx,
@@ -348,7 +351,7 @@ public class AgentLoop implements
         Path executionRoot = registry.getEnvironment() == null
                 ? null
                 : registry.getEnvironment().executionRoot();
-        this.toolCallValidator = ToolCallValidator.fromConfig(config, executionRoot);
+        hitlController.toolCallValidator(ToolCallValidator.fromConfig(config, executionRoot));
         this.cutinEngine = new DefaultLoopEngine(registry.cutinRegistry(), new ModelRegistry());
         this.cutinEngine.registrar().addModelProvider(modelProvider);
         this.cutinPlugins = createCutinPlugins();
@@ -412,9 +415,9 @@ public class AgentLoop implements
         plugins.registerPlugin(new LoopraToolGatewayPlugin(this));
         plugins.registerPlugin(new LoopraHttpLogPlugin(modelProvider));
         plugins.registerPlugin(new LoopraRawLogPlugin());
-        plugins.registerPlugin(new LoopraMessageSanitizerPlugin(this));
-        plugins.registerPlugin(new LoopraHitlPlugin(this));
-        plugins.registerPlugin(new LoopraUserMessagePlugin(this));
+        plugins.registerPlugin(new LoopraMessageSanitizerPlugin(hitlController));
+        plugins.registerPlugin(new LoopraHitlPlugin(hitlController));
+        plugins.registerPlugin(new LoopraUserMessagePlugin(hitlController));
         plugins.registerPlugin(new LoopraUsagePlugin(usageReporter));
         plugins.registerPlugin(new LoopraTokenSpeedPlugin(usageReporter));
         plugins.registerPlugin(new LoopraSessionAffinityPlugin(this));
@@ -440,7 +443,7 @@ public class AgentLoop implements
 
     /** 仅测试注入：覆盖由配置生成的工具调用校验器，避免为测试保留专用构造器。 */
     void setToolCallValidator(ToolCallValidator toolCallValidator) {
-        this.toolCallValidator = Objects.requireNonNull(toolCallValidator, "toolCallValidator must not be null");
+        hitlController.toolCallValidator(toolCallValidator);
     }
 
     void disposeCutinPlugins() {
@@ -897,63 +900,8 @@ public class AgentLoop implements
     }
 
     @Override
-    public UserMessage sanitizePreflightMessage(UserMessage message) {
-        return UserMessageSanitizer.sanitize(message, modelProvider, workingDirectory());
-    }
-
-    @Override
-    public void appendPreflightUserMessage(UserMessage message) {
-        ctx.addUser(message);
-    }
-
-    @Override
-    public void clearSuspendedCutinState() {
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-    }
-
-    @Override
-    public HitlState hitlState() {
-        return hitlManager.getState();
-    }
-
-    @Override
-    public boolean hasSuspendedCutin() {
-        return suspendedCutinHandle != null && suspendedCutinContext != null;
-    }
-
-    @Override
-    public boolean hasSandboxPending() {
-        return hitlManager.hasSandboxPending();
-    }
-
-    @Override
-    public String resumeApprovedTurn() throws IOException {
-        return hitlManager.hasSandboxPending()
-            ? resumeCutinSandboxHITL()
-            : resumeCutinHITL();
-    }
-
-    @Override
-    public String rejectTurn() {
-        return hitlManager.hasSandboxPending()
-            ? denyCutinSandboxHITL()
-            : denyCutinHITL();
-    }
-
-    @Override
     public String suspendSandboxHITLIfPending(DefaultLoopContext context) {
-        if (hitlManager.getState() != HitlState.PENDING || !hitlManager.hasSandboxPending()) {
-            return null;
-        }
-        Object resumeState = context.artifacts().get("loopraSandboxResume");
-        if (resumeState instanceof HitlManager.PendingSandboxState sandboxState) {
-            hitlManager.storeSandboxContent(sandboxState.content(), sandboxState.reasoningContent());
-        } else if (context.artifacts().get("loopraModel") instanceof CutinStreamSnapshot snapshot) {
-            hitlManager.storeSandboxContent(snapshot.content(), snapshot.reasoningContent());
-        }
-        return hitlManager.interceptForSandboxHITL(output);
+        return hitlController.suspendSandboxHITLIfPending(context);
     }
 
     @Override
@@ -997,53 +945,11 @@ public class AgentLoop implements
      * 文本即向用户展示的审批提示。
      */
     public String interceptHITLFromCutin(ModelResponse response) {
-        if (response == null || response.message() == null) {
-            return null;
-        }
-        ONode toolCalls = CutinStreamSupport.toolCallsFromCutinMessage(response.message());
-        if (toolCalls == null || !toolCalls.isArray() || toolCalls.getArray().isEmpty()) {
-            return null;
-        }
-        // HITL 暂存的响应稍后会在独立的 tool 节点重放；先按当前历史归一化，
-        // 避免审批期间把模型重放的旧 call_id 原样带入 provider。
-        toolCalls = MessageHealer.normalizeIncomingToolCallIds(
-                toolCalls, messagesForToolCallNormalization());
-        String content = response.message().content();
-        String reasoning = CutinStreamSupport.metadataString(response.message(), "reasoning_content");
-        if (!hitlManager.isHitlMode() || !hitlManager.requiresHITL(toolCalls)) {
-            return null;
-        }
-
-        if (toolCallValidator.enabled()) {
-            ToolCallValidator.Decision decision = validateHITLToolCalls(toolCalls);
-            if (decision.requiresHuman()) {
-                hitlManager.setSandboxPending(toolCalls, decision.reason());
-                hitlManager.storeSandboxContent(content, reasoning);
-                return hitlManager.interceptForSandboxHITL(output);
-            }
-            if (decision.failed()) {
-                safeOutput("toolValidator", () -> output.onLog(LogLevel.WARN,
-                        "[tool-validator] " + decision.reason() + "，回退人工审批"));
-                String hitlPrompt = hitlManager.interceptForHITL(
-                        toolCalls, content, reasoning, output);
-                return hitlPrompt;
-            }
-            if (!decision.allowed()) {
-                String denyMsg = "工具调用未通过 AI 审批: " + decision.reason();
-                safeOutput("toolValidator", () -> output.onLog(LogLevel.WARN,
-                        "[tool-validator] " + denyMsg));
-                ctx.addAssistant(denyMsg, null, null);
-                return denyMsg;
-            }
-            safeOutput("toolValidator", () -> output.onLog(LogLevel.INFO,
-                    "[tool-validator] AI 审批通过，继续执行工具调用"));
-            return null;
-        }
-        return hitlManager.interceptForHITL(toolCalls, content, reasoning, output);
+        return hitlController.interceptHITLFromCutin(response);
     }
 
     /** 获取用于新模型工具调用 ID 分配的当前历史；兼容无上下文的轻量测试入口。 */
-    private List<ChatMessage> messagesForToolCallNormalization() {
+    List<ChatMessage> messagesForToolCallNormalization() {
         return ctx == null ? List.of() : ctx.buildMessages();
     }
 
@@ -1131,144 +1037,13 @@ public class AgentLoop implements
         runningCutinState = state;
         try {
             LoopResult result = handle.result().join();
-            return finishCutinResult(state, cutinContext, handle, result);
+            return hitlController.finishCutinResult(state, cutinContext, handle, result);
         } finally {
             activeCutinHandle = null;
             runningCutinState = null;
         }
     }
 
-    private String finishCutinResult(LoopState state, DefaultLoopContext cutinContext,
-                                     LoopHandle handle, LoopResult result) throws IOException {
-        if (state.ioError != null) {
-            throw state.ioError;
-        }
-        Object turnError = cutinContext.artifacts().get(LoopraPreflight.ERROR_ARTIFACT);
-        if (turnError instanceof IOException exception) {
-            throw exception;
-        }
-        if (state.result != null) {
-            return state.result;
-        }
-        Map<String, Object> finalVariables = result.finalSnapshot() == null
-                ? cutinContext.variables()
-                : result.finalSnapshot().variables();
-        Object turnResult = finalVariables.get(LoopraPreflight.RESULT_VARIABLE);
-        String turnContent = turnResult == null ? "" : String.valueOf(turnResult);
-        if (!turnContent.isBlank()) {
-            return turnContent;
-        }
-        if (result.status() == LoopResult.Status.COMPLETED
-                || result.status() == LoopResult.Status.CANCELLED
-                || result.status() == LoopResult.Status.ABORTED) {
-            String last = ctx.getLastAssistantContent();
-            return last != null && !last.isEmpty() ? last : "⏹️ 已停止生成";
-        }
-        if (result.status() == LoopResult.Status.SUSPENDED) {
-            suspendedCutinHandle = handle;
-            suspendedCutinContext = cutinContext;
-            suspendedCutinState = state;
-            return result.message() != null && !result.message().isBlank()
-                    ? result.message()
-                    : "⏸️ 已暂停，等待外部输入";
-        }
-        throw new IOException("[loop] cutin loop failed: " + result.message());
-    }
-
-    private String resumeCutinHITL() throws IOException {
-        hitlManager.drainPendingHITL();
-        hitlManager.resetState();
-        LoopHandle handle = suspendedCutinHandle;
-        DefaultLoopContext context = suspendedCutinContext;
-        LoopState state = suspendedCutinState;
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        if (handle == null || context == null || state == null) {
-            throw new IOException("[loop] cutin HITL 恢复状态丢失");
-        }
-        Object raw = context.variables().get("loopraPendingModelResponse");
-        if (!(raw instanceof ModelResponse response)) {
-            throw new IOException("[loop] cutin HITL 未找到待审批模型响应");
-        }
-        CutinStreamSnapshot snapshot = CutinStreamSupport.cutinSnapshotFromResponse(response);
-        LoopSnapshot base = handle.snapshot();
-        ReentryRequest request = new ReentryRequest(
-                "tool",
-                base.stateVersion(),
-                Map.of(),
-                Map.of("loopraModel", snapshot),
-                "hitl-approved");
-        activeCutinHandle = handle;
-        try {
-            LoopResult result = handle.reenter(request).join();
-            return finishCutinResult(state, context, handle, result);
-        } finally {
-            activeCutinHandle = null;
-        }
-    }
-
-    private String denyCutinHITL() {
-        hitlManager.drainPendingHITL();
-        hitlManager.resetState();
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        turnExitController.discardFinishRequest();
-        String denyMsg = "工具调用已被用户拒绝。";
-        ctx.addAssistant(denyMsg, null, null);
-        return denyMsg;
-    }
-
-    private String resumeCutinSandboxHITL() throws IOException {
-        HitlManager.PendingSandboxState sandboxState = hitlManager.drainSandboxHITL();
-        hitlManager.resetState();
-        LoopHandle handle = suspendedCutinHandle;
-        DefaultLoopContext context = suspendedCutinContext;
-        LoopState state = suspendedCutinState;
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        if (handle == null || context == null || state == null
-                || sandboxState == null || sandboxState.toolCalls() == null) {
-            throw new IOException("[loop] cutin 沙箱 HITL 恢复状态丢失");
-        }
-        LoopSnapshot base = handle.snapshot();
-        if (base == null) {
-            throw new IOException("[loop] cutin 沙箱 HITL 检查点丢失");
-        }
-        ReentryRequest request = new ReentryRequest(
-                "tool",
-                base.stateVersion(),
-                Map.of("loopraSandboxApproved", Boolean.TRUE),
-                Map.of("loopraSandboxResume", sandboxState),
-                "sandbox-hitl-approved");
-        activeCutinHandle = handle;
-        try {
-            LoopResult result = handle.reenter(request).join();
-            return finishCutinResult(state, context, handle, result);
-        } finally {
-            activeCutinHandle = null;
-        }
-    }
-
-    private String denyCutinSandboxHITL() {
-        HitlManager.PendingSandboxState sandboxState = hitlManager.drainSandboxHITL();
-        hitlManager.resetState();
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        turnExitController.discardFinishRequest();
-        if (sandboxState != null) {
-            ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
-                    sandboxState.toolCalls(), messagesForToolCallNormalization());
-            List<ToolCallEntry> tcList = CutinStreamSupport.parseToolCallsFromONode(normalizedToolCalls);
-            ctx.addAssistant(sandboxState.content(), tcList, sandboxState.reasoningContent());
-        }
-        String denyMsg = "沙箱越界已被用户拒绝。";
-        ctx.addAssistant(denyMsg, null, null);
-        return denyMsg;
-    }
 
     private StepResult modelStep(DefaultLoopContext context, LoopState state) {
         try {
@@ -1483,12 +1258,12 @@ public class AgentLoop implements
     }
 
 
-    private static final class LoopState {
-        private int step;
-        private int noToolCallStreak;
-        private int selfCorrectionAttempts;
-        private String result;
-        private IOException ioError;
+    static final class LoopState {
+        int step;
+        int noToolCallStreak;
+        int selfCorrectionAttempts;
+        String result;
+        IOException ioError;
     }
 
     static int effectivePromptTokens(int offlineEstimate, int lastPromptTokens) {
@@ -1783,29 +1558,7 @@ public class AgentLoop implements
     }
 
     ToolCallValidator.Decision validateHITLToolCalls(ONode toolCalls) {
-        if (toolCalls == null || !toolCalls.isArray()) {
-            return ToolCallValidator.Decision.deny("工具调用格式无效");
-        }
-        for (ONode node : toolCalls.getArray()) {
-            ToolCall toolCall = CutinStreamSupport.getToolCall(node);
-            if (toolCall.getName() == null || toolCall.getName().isBlank()) {
-                return ToolCallValidator.Decision.deny("工具名称为空");
-            }
-            ToolCallValidator.Decision decision = toolCallValidator.validate(
-                    toolCall.getName(), ONode.ofBean(toolCall.getArguments()).toJson());
-            if (decision.requiresHuman()) {
-                return ToolCallValidator.Decision.requireHuman(
-                        toolCall.getName() + ": " + decision.reason());
-            }
-            if (decision.failed()) {
-                return ToolCallValidator.Decision.failed(
-                        toolCall.getName() + ": " + decision.reason());
-            }
-            if (!decision.allowed()) {
-                return ToolCallValidator.Decision.deny(toolCall.getName() + ": " + decision.reason());
-            }
-        }
-        return ToolCallValidator.Decision.allow();
+        return hitlController.validateHITLToolCalls(toolCalls);
     }
 
     private static String rejectedToolResult(String message, String reason) {
