@@ -332,6 +332,8 @@ mvn test
 mvn -pl loopra -am test
 ```
 
+后端依赖方向、聊天任务生命周期与验证约定见 [后端架构说明](docs/backend-architecture.md)。
+
 ### 前端与 Desktop
 
 ```bash

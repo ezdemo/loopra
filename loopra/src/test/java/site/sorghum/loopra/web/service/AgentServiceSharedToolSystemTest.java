@@ -11,6 +11,7 @@ import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
 import site.sorghum.loopra.web.model.SessionSettingsDTO;
+import site.sorghum.cutin.core.plugin.PluginBeanManager;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -155,6 +156,27 @@ class AgentServiceSharedToolSystemTest {
         assertEquals("plan task", rollbackText);
         assertNull(loopOf(agent).getPendingPlan());
         assertNull(agent.getCtx().getSessionStore().getPendingPlan(sessionName));
+    }
+
+    @Test
+    void evictionAndShutdownReleaseAgentPlugins() throws Exception {
+        AgentService service = new AgentService();
+        for (String operation : new String[]{"one", "all", "shutdown"}) {
+            LoopraAgent agent = getOrCreateAgent(service, workspaceA, operation);
+            Field pluginsField = AgentLoop.class.getDeclaredField("cutinPlugins");
+            pluginsField.setAccessible(true);
+            PluginBeanManager plugins = (PluginBeanManager) pluginsField.get(loopOf(agent));
+            assertTrue(plugins.pluginStates().stream().anyMatch(state -> state.active()));
+
+            switch (operation) {
+                case "one" -> service.evictAgent(workspaceA.toString(), operation);
+                case "all" -> service.evictAllAgents();
+                default -> service.close();
+            }
+
+            assertEquals(0, service.getCacheSize());
+            assertTrue(plugins.pluginStates().stream().noneMatch(state -> state.active()), operation);
+        }
     }
 
     private static LoopraAgent getOrCreateAgent(AgentService service, Path workspace, String sessionName) throws Exception {

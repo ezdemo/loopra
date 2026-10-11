@@ -8,7 +8,7 @@ import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Param;
 import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.ToolContext;
-import site.sorghum.loopra.web.service.AgentService;
+import site.sorghum.loopra.bin.project.ProjectRuntimeAccess;
 
 import java.nio.file.Path;
 import java.util.Collection;
@@ -18,7 +18,7 @@ import java.util.Collection;
 public class McpRefreshTool extends AbsToolProvider implements SolonToTools {
 
     @Inject
-    private AgentService agentService;
+    private ProjectRuntimeAccess projectRuntime;
 
     @ToolMapping(name = "mcprefresh", description = """
             重新加载当前项目 .loopra/mcp-servers.json 中的 MCP 配置。
@@ -33,10 +33,10 @@ public class McpRefreshTool extends AbsToolProvider implements SolonToTools {
         if (projectRoot == null) {
             return "WORKSPACE_MISSING: 无法确定当前项目，不能刷新 MCP";
         }
-        if (agentService == null) {
+        if (projectRuntime == null) {
             return "MCP_REFRESH_UNAVAILABLE: Agent 服务尚未初始化";
         }
-        return agentService.requestProjectMcpRefresh(projectRoot.toString());
+        return projectRuntime.requestProjectMcpRefresh(projectRoot.toString());
     }
 
     @Override

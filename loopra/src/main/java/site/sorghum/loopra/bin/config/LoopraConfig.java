@@ -9,6 +9,7 @@ import org.noear.snack4.json.JsonWriter;
 import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,7 +42,7 @@ public class LoopraConfig implements AgentConfig {
     public static final int DEFAULT_MAX_TOKENS = AgentConfig.DEFAULT_MAX_TOKENS;
     private static volatile LoopraConfig INSTANCE;
 
-    private final ONode root;
+    private volatile ONode root;
 
     private LoopraConfig(ONode root) {
         this.root = root;
@@ -1027,7 +1028,13 @@ public class LoopraConfig implements AgentConfig {
      * 合并更新配置（只更新非空字段）。
      * 更新后自动保存到 config.json。
      */
-    public void updateAndSave(Map<String, Object> updates) throws IOException {
+    public synchronized void updateAndSave(Map<String, Object> updates) throws IOException {
+        LoopraConfig staged = new LoopraConfig(ONode.ofJson(root.toJson()));
+        staged.applyUpdatesAndSave(updates);
+        root = staged.root;
+    }
+
+    private void applyUpdatesAndSave(Map<String, Object> updates) throws IOException {
         if (updates == null || updates.isEmpty()) return;
 
         for (Map.Entry<String, Object> entry : updates.entrySet()) {
@@ -1309,17 +1316,19 @@ public class LoopraConfig implements AgentConfig {
      *
      * @param key 要移除的配置键
      */
-    public void removeAndSave(String key) throws IOException {
+    public synchronized void removeAndSave(String key) throws IOException {
         if (key == null || key.isEmpty()) return;
-        root.remove(key);
-        save();
+        LoopraConfig staged = new LoopraConfig(ONode.ofJson(root.toJson()));
+        staged.root.remove(key);
+        staged.save();
+        root = staged.root;
     }
 
     /**
      * 保存配置到文件。
      * 保存前自动补充默认配置中缺失的字段，确保新版本新增的配置项自动出现。
      */
-    public void save() throws IOException {
+    public synchronized void save() throws IOException {
         removeDeprecatedGlobalFields(root);
         // 保存前补充默认配置中缺失的字段
         mergeDefaults(root, defaultConfigNode());
@@ -1327,7 +1336,18 @@ public class LoopraConfig implements AgentConfig {
         migrateRenamedTool(root, "goal_mark_step", "goal_update_step");
         Path configPath = getConfigPath();
         String json = JsonWriter.write(root, Options.of(Feature.Write_PrettyFormat));
-        Files.writeString(configPath, json);
+        Path temporary = Files.createTempFile(configPath.getParent(), "config-", ".tmp");
+        try {
+            Files.writeString(temporary, json);
+            try {
+                Files.move(temporary, configPath, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, configPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     @Override

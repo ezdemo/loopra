@@ -1,5 +1,7 @@
 package site.sorghum.loopra.tool;
 
+import org.noear.snack4.ONode;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +73,11 @@ public interface AgentOutput {
     default void onUsage(String model, int promptTokens, int completionTokens, int totalTokens,
                          int cacheHit, int cacheMiss) {
         onUsage(promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss);
+    }
+
+    /** 生成速率事件；旧输出实现仍可通过自定义事件消费相同 JSON。 */
+    default void onTokenSpeed(TokenSpeed speed) {
+        sendEvent("token_speed", ONode.serialize(speed));
     }
 
     // ==================== 日志 & 消息 ====================

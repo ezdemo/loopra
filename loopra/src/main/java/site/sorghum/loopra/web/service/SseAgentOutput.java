@@ -4,6 +4,7 @@ import org.noear.snack4.ONode;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.ChoiceOption;
 import site.sorghum.loopra.tool.LogLevel;
+import site.sorghum.loopra.tool.TokenSpeed;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -69,6 +70,11 @@ public class SseAgentOutput implements AgentOutput {
     public void onUsage(String model, int promptTokens, int completionTokens, int totalTokens,
                         int cacheHit, int cacheMiss) {
         emitter.sendUsage(promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss);
+    }
+
+    @Override
+    public void onTokenSpeed(TokenSpeed speed) {
+        emitter.sendTokenSpeed(speed.completionTokens(), speed.tokensPerSecond(), speed.avgTokensPerSecond(), speed.done());
     }
 
     public void onTokenSpeed(long completionTokens, double tokensPerSecond, double avgTokensPerSecond, boolean done) {

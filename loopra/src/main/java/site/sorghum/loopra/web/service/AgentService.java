@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.talents.mount.SkillDir;
 import org.noear.solon.annotation.Component;
+import org.noear.solon.annotation.Destroy;
 import org.noear.solon.annotation.Init;
 import org.noear.solon.annotation.Inject;
 import site.sorghum.loopra.bin.agent.context.ContextTokenEstimate;
@@ -19,6 +20,7 @@ import site.sorghum.loopra.bin.mcp.McpProjectConfig;
 import site.sorghum.loopra.bin.model.LoopraModelProvider;
 import site.sorghum.loopra.bin.model.ModelPriceProvider;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
+import site.sorghum.loopra.bin.project.ProjectRuntimeAccess;
 import site.sorghum.loopra.bin.session.JsonlSessionStore;
 import site.sorghum.loopra.bin.session.SessionFileChangeTracker;
 import site.sorghum.loopra.bin.session.SessionStore;
@@ -58,7 +60,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -80,7 +81,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
-public class AgentService {
+public class AgentService implements ProjectRuntimeAccess {
 
     /**
      * 最大缓存 Agent 数量
@@ -91,129 +92,6 @@ public class AgentService {
      */
     private static final ThreadLocal<String> CURRENT_SESSION_NAME = new ThreadLocal<>();
 
-    /**
-     * 会话级 Agent 缓存（LRU 淘汰策略）。
-     * <p>
-     * 封装 agents、order、locks、currentNames 四个内部结构，
-     * 对外提供统一的 get/put/evict/clear/lock 操作。
-     * </p>
-     */
-    private static class SessionAgentCache {
-        private final ConcurrentHashMap<String, LoopraAgent> agents = new ConcurrentHashMap<>();
-        private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();
-        private final ConcurrentHashMap<String, String> currentNames = new ConcurrentHashMap<>();
-        /** LRU 访问顺序跟踪（synchronized 保证 put/get 与 evict 的原子性） */
-        private final List<String> accessOrder = Collections.synchronizedList(new LinkedList<>());
-
-        LoopraAgent get(String key) {
-            // 先查 agents（ConcurrentHashMap 无锁读），再更新 LRU 顺序
-            LoopraAgent agent = agents.get(key);
-            if (agent != null) {
-                synchronized (accessOrder) {
-                    accessOrder.remove(key);
-                    accessOrder.add(0, key);
-                }
-            }
-            return agent;
-        }
-
-        /** 不改变 LRU 顺序地读取缓存中的 Agent。 */
-        LoopraAgent peek(String key) {
-            return agents.get(key);
-        }
-
-        void put(String key, LoopraAgent agent) {
-            agents.put(key, agent);
-            synchronized (accessOrder) {
-                accessOrder.remove(key);
-                accessOrder.add(0, key);
-            }
-        }
-
-        void evictIfNeeded() {
-            while (agents.size() >= MAX_CACHE_SIZE) {
-                String oldest;
-                synchronized (accessOrder) {
-                    if (accessOrder.isEmpty()) break;
-                    // 从最久未访问开始淘汰，跳过仍在运行的 Agent（运行中无法安全中断，
-                    // 一旦淘汰，前端停止请求将永远无法命中它 → 表现为“停止无效”）
-                    oldest = null;
-                    for (int i = accessOrder.size() - 1; i >= 0; i--) {
-                        String candidate = accessOrder.get(i);
-                        LoopraAgent candidateAgent = agents.get(candidate);
-                        if (candidateAgent == null || !candidateAgent.isRunning()) {
-                            oldest = candidate;
-                            accessOrder.remove(i);
-                            break;
-                        }
-                    }
-                    if (oldest == null) break; // 全部正在运行，暂不淘汰（允许短暂超出容量上限）
-                }
-                if (oldest != null) {
-                    LoopraAgent removed = agents.remove(oldest);
-                    if (removed != null) {
-                        try {
-                            removed.dispose();
-                        } catch (Exception e) {
-                            log.info("[web] 淘汰 Agent 失败: {}", e.getMessage());
-                        }
-                        // 隔离分支会话被淘汰：隔离分支保留在磁盘，提醒可通过会话合并按钮回收
-                        try {
-                            String[] keyParts = oldest.split("::", 2);
-                            if (keyParts.length == 2 && readWorktreeModeStatic(keyParts[0], keyParts[1])) {
-                                log.warn("[web] LRU 淘汰了隔离分支会话 {}，未合并改动保留在 ~/.loopra/worktree，可打开该会话合并回主项目", keyParts[1]);
-                            }
-                        } catch (Exception e) {
-                            log.debug("[web] 检查隔离分支状态失败: {}", e.getMessage());
-                        }
-                        log.info("[web] LRU 淘汰 Agent: {}", oldest);
-                    }
-                }
-            }
-        }
-
-        void clear() {
-            agents.clear();
-            accessOrder.clear();
-            locks.clear();
-            currentNames.clear();
-        }
-
-        LoopraAgent remove(String key) {
-            accessOrder.remove(key);
-            locks.remove(key);
-            return agents.remove(key);
-        }
-
-        Set<String> keySet() {
-            return agents.keySet();
-        }
-
-        Set<Map.Entry<String, LoopraAgent>> entrySet() {
-            return agents.entrySet();
-        }
-
-        ReentrantLock getLock(String key) {
-            return locks.computeIfAbsent(key, k -> new ReentrantLock());
-        }
-
-        String getCurrentName(String workspacePath) {
-            return currentNames.get(workspacePath);
-        }
-
-        void setCurrentName(String workspacePath, String sessionName) {
-            currentNames.put(workspacePath, sessionName);
-        }
-
-        Collection<LoopraAgent> values() {
-            return agents.values();
-        }
-
-        int size() {
-            return agents.size();
-        }
-    }
-
     @Inject
     ChatCommandRegistry commandRegistry;
 
@@ -223,7 +101,7 @@ public class AgentService {
     /**
      * 会话级 Agent 缓存
      */
-    private final SessionAgentCache sessionCache = new SessionAgentCache();
+    private final SessionAgentRegistry sessionCache = new SessionAgentRegistry(MAX_CACHE_SIZE, this::onAgentEvicted);
 
     /** 会话模型设置的读取、解析与持久化。 */
     private final SessionSettingsService sessionSettingsService =
@@ -316,16 +194,7 @@ public class AgentService {
     public synchronized void reinitialize() {
         log.info("[config] 开始重新初始化 AgentService...");
 
-        // 1. 先 dispose 所有缓存的 Agent（注销监听 + 刷入数据）
-        for (LoopraAgent agent : sessionCache.values()) {
-            try {
-                agent.dispose();
-            } catch (Exception e) {
-                log.warn("[config] dispose Agent 时异常: {}", e.getMessage());
-            }
-        }
-
-        // 2. 清空所有缓存
+        // 释放缓存 Agent 及其监听、会话存储和插件资源。
         sessionCache.clear();
         sharedToolSystems.clear();
 
@@ -427,15 +296,6 @@ public class AgentService {
     }
 
     /**
-     * 当前正在处理的会话任务登记。
-     * <p>
-     * AgentLoop 的运行标志覆盖已经进入推理循环的任务；这里额外登记 Web 请求，
-     * 覆盖流任务在线程池中等待或尚未创建 Agent 的窗口。
-     * </p>
-     */
-    private final ConcurrentHashMap<String, Set<String>> activeSessionTasks = new ConcurrentHashMap<>();
-
-    /**
      * 由 {@code mcprefresh} 工具登记、等待当前项目所有会话空闲后执行的 MCP 刷新。
      * 键为规范化后的项目根目录字符串。
      */
@@ -451,17 +311,14 @@ public class AgentService {
     public void registerSessionTask(String workspacePath, String sessionName, String requestId) {
         if (requestId == null || requestId.isBlank()) return;
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        activeSessionTasks.computeIfAbsent(sessionKey, key -> ConcurrentHashMap.newKeySet()).add(requestId);
+        sessionCache.registerTask(sessionKey, requestId);
     }
 
     /** 移除指定会话任务登记；不会误删同一会话随后登记的任务。 */
     public void unregisterSessionTask(String workspacePath, String sessionName, String requestId) {
         if (requestId == null || requestId.isBlank()) return;
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        Set<String> tasks = activeSessionTasks.get(sessionKey);
-        if (tasks == null) return;
-        tasks.remove(requestId);
-        if (tasks.isEmpty()) activeSessionTasks.remove(sessionKey, tasks);
+        sessionCache.unregisterTask(sessionKey, requestId);
         applyPendingProjectMcpRefresh(workspacePath);
     }
 
@@ -471,11 +328,7 @@ public class AgentService {
      */
     public SessionStatusDTO getSessionStatus(String workspacePath, String sessionName) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        Set<String> tasks = activeSessionTasks.get(sessionKey);
-        String requestId = tasks == null ? null : tasks.stream().findFirst().orElse(null);
-        LoopraAgent agent = sessionCache.peek(sessionKey);
-        boolean running = (tasks != null && !tasks.isEmpty()) || (agent != null && agent.isRunning());
-        return new SessionStatusDTO(running, requestId);
+        return sessionCache.status(sessionKey);
     }
 
     /**
@@ -570,13 +423,7 @@ public class AgentService {
         projectProviderRoots.add(projectRoot.toString());
 
         // 先做完整检查；如果有活动任务，不要只回收其中一部分 Agent。
-        List<String> busySessions = new ArrayList<>();
-        for (Map.Entry<String, Set<String>> entry : activeSessionTasks.entrySet()) {
-            if (belongsToProject(entry.getKey(), projectRoot)
-                    && entry.getValue() != null && !entry.getValue().isEmpty()) {
-                busySessions.add(entry.getKey());
-            }
-        }
+        List<String> busySessions = new ArrayList<>(sessionCache.activeSessionKeys(key -> belongsToProject(key, projectRoot)));
         for (String sessionKey : sessionCache.keySet()) {
             if (!belongsToProject(sessionKey, projectRoot)) continue;
             LoopraAgent agent = sessionCache.peek(sessionKey);
@@ -650,12 +497,7 @@ public class AgentService {
     }
 
     private boolean hasRunningProjectSession(Path projectRoot) {
-        for (Map.Entry<String, Set<String>> entry : activeSessionTasks.entrySet()) {
-            if (belongsToProject(entry.getKey(), projectRoot)
-                    && entry.getValue() != null && !entry.getValue().isEmpty()) {
-                return true;
-            }
-        }
+        if (!sessionCache.activeSessionKeys(key -> belongsToProject(key, projectRoot)).isEmpty()) return true;
         for (String sessionKey : sessionCache.keySet()) {
             if (!belongsToProject(sessionKey, projectRoot)) continue;
             LoopraAgent agent = sessionCache.peek(sessionKey);
@@ -1979,16 +1821,8 @@ public class AgentService {
      */
     public void evictAgent(String workspacePath, String sessionName) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        LoopraAgent removed = sessionCache.remove(sessionKey);
-        if (removed != null) {
-            try {
-                removed.flushSession();
-                removed.saveUsage();
-            } catch (Exception e) {
-                log.warn("[web] 清除 Agent 失败: {}", e.getMessage());
-            }
-            log.info("[web] 已清除 Agent: " + sessionKey);
-        }
+        sessionCache.dispose(sessionKey);
+        log.info("[web] 已清除 Agent: {}", sessionKey);
     }
 
     /**
@@ -2145,19 +1979,21 @@ public class AgentService {
      * 清除所有 Agent 缓存。
      */
     public void evictAllAgents() {
-        for (Map.Entry<String, LoopraAgent> entry : sessionCache.entrySet()) {
-            LoopraAgent agent = entry.getValue();
-            if (agent != null) {
-                try {
-                    agent.flushSession();
-                    agent.saveUsage();
-                } catch (Exception e) {
-                    log.warn("[web] 清除 Agent 失败: {}", e.getMessage());
-                }
-            }
-        }
         sessionCache.clear();
         log.info("[web] 已清除所有 Agent 缓存");
+    }
+
+    @Destroy
+    public void close() {
+        sessionCache.clear();
+    }
+
+    private void onAgentEvicted(String sessionKey, LoopraAgent agent) {
+        String[] parts = sessionKey.split("::", 2);
+        if (parts.length == 2 && readWorktreeModeStatic(parts[0], parts[1])) {
+            log.warn("[web] LRU 淘汰了隔离分支会话 {}，未合并改动保留在 ~/.loopra/worktree，可打开该会话合并回主项目", parts[1]);
+        }
+        log.info("[web] LRU 淘汰 Agent: {}", sessionKey);
     }
 
     /**

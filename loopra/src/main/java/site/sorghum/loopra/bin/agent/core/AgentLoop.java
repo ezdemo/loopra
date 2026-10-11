@@ -130,7 +130,7 @@ public class AgentLoop implements
     /** 计划模式与待审查计划，委托给 {@link PlanModeController}。 */
     private final PlanModeController planModeController = new PlanModeController(this);
     /** cutin 用量上报与 token 速率推送，委托给 {@link UsageReporter}。 */
-    private final UsageReporter usageReporter = new UsageReporter(this);
+    private final UsageReporter usageReporter;
     /** 上下文压力与折叠，委托给 {@link ContextCompactor}。 */
     private final ContextCompactor contextCompactor = new ContextCompactor(this);
     /** HITL 拦截与挂起恢复，委托给 {@link HitlController}。 */
@@ -138,7 +138,7 @@ public class AgentLoop implements
     /** 工具分发、取消与自纠错，委托给 {@link ToolDispatcher}。 */
     private final ToolDispatcher toolDispatcher = new ToolDispatcher(this);
     /** 会话生命周期与回合回调，委托给 {@link SessionLifecycle}。 */
-    private final SessionLifecycle sessionLifecycle = new SessionLifecycle(this);
+    private final SessionLifecycle sessionLifecycle;
     /** 回合退出决策与 Goal 守卫，委托给 {@link TurnExitController}。 */
     private final TurnExitController turnExitController = new TurnExitController(this);
     @Getter
@@ -293,6 +293,14 @@ public class AgentLoop implements
         this.hitlManager = new HitlManager("free");
         this.hitlManager.setConfig(config);
         this.stormBreaker = StormBreaker.fromConfig(config);
+        this.usageReporter = new UsageReporter(this::lastPromptTokens, this::getSessionUsageSink,
+                modelProvider::getModel, this::listener, this::getOutput);
+        this.sessionLifecycle = new SessionLifecycle(() -> {
+            stormBreaker.reset();
+            reasonBreaker.reset();
+            resetUserAbort();
+        }, toolDispatcher::resetCutinSuppression, this::getSessionUsageSink,
+                this::getSessionId, this::setSessionId);
         Path executionRoot = registry.getEnvironment() == null
                 ? null
                 : registry.getEnvironment().executionRoot();

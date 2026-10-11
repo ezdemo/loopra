@@ -20,6 +20,13 @@ public final class WebErrorMessages {
     /** message 不能为空 */
     public static final String MESSAGE_REQUIRED = "message 不能为空";
 
+    /** 系统异常的公开消息；具体原因只写入服务端日志。 */
+    public static final String INTERNAL_ERROR = "服务暂时无法完成请求，请稍后重试";
+
+    public static String publicMessage(Exception exception) {
+        return exception instanceof ServiceException ? exception.getMessage() : INTERNAL_ERROR;
+    }
+
      /** slug 必填 */
     public static final String SLUG_REQUIRED = "slug is required";
 }

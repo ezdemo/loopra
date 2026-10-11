@@ -40,11 +40,13 @@ public class GlobalExceptionFilter implements Filter {
         try {
             chain.doFilter(ctx);
         } catch (ServiceException e) {
+            ctx.status(e.getCode());
             ctx.outputAsJson(ApiResponse.fail(e.getMessage()).toString());
         } catch (Throwable e) {
             // 未预期的系统异常 → 500（避免泄露内部细节）
             log.error("GlobalExceptionFilter error", e);
-            ctx.outputAsJson(ApiResponse.fail(e.getMessage()).toString());
+            ctx.status(500);
+            ctx.outputAsJson(ApiResponse.fail(WebErrorMessages.INTERNAL_ERROR).toString());
         }
     }
 

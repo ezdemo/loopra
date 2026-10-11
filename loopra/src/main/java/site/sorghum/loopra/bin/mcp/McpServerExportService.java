@@ -21,7 +21,7 @@ import site.sorghum.loopra.bin.tool.ToolMetadata;
 import site.sorghum.loopra.bin.tool.ToolRegistry;
 import site.sorghum.loopra.bin.tool.ToolScanUtil;
 import site.sorghum.loopra.tool.ToolContext;
-import site.sorghum.loopra.web.service.AgentService;
+import site.sorghum.loopra.bin.project.ProjectRuntimeAccess;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -64,7 +64,7 @@ public class McpServerExportService implements EventListener<AppLoadEndEvent> {
     private boolean configListenerRegistered;
 
     @Inject
-    private AgentService agentService;
+    private ProjectRuntimeAccess projectRuntime;
 
     private final org.noear.dami2.bus.EventListener<ConfigChangedEvent> configListener = event -> {
         ConfigChangedEvent changed = event.getPayload();
@@ -259,7 +259,7 @@ public class McpServerExportService implements EventListener<AppLoadEndEvent> {
     private ToolSnapshot discoverTools() {
         Path workspace = currentWorkspace();
         try {
-            ToolRegistry registry = agentService == null ? null : agentService.getSharedToolRegistry();
+            ToolRegistry registry = projectRuntime == null ? null : projectRuntime.getSharedToolRegistry();
             Path registryWorkspace = registry == null || registry.getEnvironment() == null
                     ? null : registry.getEnvironment().executionRoot();
             boolean sameWorkspace = Objects.equals(normalizePath(registryWorkspace), workspace);
@@ -329,7 +329,7 @@ public class McpServerExportService implements EventListener<AppLoadEndEvent> {
     }
 
     private Path currentWorkspace() {
-        String path = agentService == null ? null : agentService.getCurrentProject();
+        String path = projectRuntime == null ? null : projectRuntime.getCurrentProject();
         if (path == null || path.isBlank()) {
             var cfg = ConfigService.getConfig();
             if (cfg != null && cfg.workspaceDir() != null) {
