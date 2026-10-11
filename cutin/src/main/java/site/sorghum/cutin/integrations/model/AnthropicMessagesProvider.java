@@ -4,11 +4,22 @@ import org.noear.snack4.ONode;
 import site.sorghum.cutin.core.context.Message;
 import site.sorghum.cutin.core.context.Usage;
 import site.sorghum.cutin.core.json.JsonSupport;
-import site.sorghum.cutin.core.model.*;
+import site.sorghum.cutin.core.model.ModelCallRequest;
+import site.sorghum.cutin.core.model.ModelCapabilities;
+import site.sorghum.cutin.core.model.ModelHttpExchange;
+import site.sorghum.cutin.core.model.ModelProvider;
+import site.sorghum.cutin.core.model.ModelResponse;
+import site.sorghum.cutin.core.model.ModelStreamPhase;
+import site.sorghum.cutin.core.model.StreamChunk;
 import site.sorghum.cutin.core.tool.ToolCall;
 import site.sorghum.cutin.core.tool.ToolDefinition;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**

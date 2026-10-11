@@ -1,6 +1,12 @@
 package site.sorghum.loopra.tool.solon.common;
 
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.noear.solon.ai.talents.cli.TerminalSessionManager;
 import org.noear.solon.ai.talents.cli.TerminalTalent;
 import org.noear.solon.ai.talents.mount.MountManager;

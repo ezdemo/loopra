@@ -10,7 +10,13 @@ import site.sorghum.loopra.integration.cutin.CutinFunctionToolBridge;
 import site.sorghum.loopra.integration.cutin.CutinToolRegistryView;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * 工具注册表 —— 管理工具定义的注册和查询。
@@ -77,7 +83,6 @@ public class ToolRegistry {
     @Getter
     private SessionEnvironment environment;
 
-
     /**
      * 设置被禁用的工具名称集合（静态快照，用于 CLI 模式 / 测试）。
      */
@@ -135,7 +140,6 @@ public class ToolRegistry {
     private boolean isForceAllowed(String toolName) {
         return forceAllowTools == null || forceAllowTools.contains(toolName);
     }
-
 
     /** 设置工具扫描与执行使用的会话环境。 */
     public void setEnvironment(SessionEnvironment environment) {
@@ -216,8 +220,6 @@ public class ToolRegistry {
         }
         cachedOpenAiTools = null;
     }
-
-
 
     public FunctionTool get(String name) {
         return functionToolMap.getOrDefault(name, null);
