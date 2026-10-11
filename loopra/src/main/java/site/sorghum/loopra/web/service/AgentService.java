@@ -74,7 +74,7 @@ import java.util.stream.Collectors;
  * <p>
  * 实现"一个会话一个 Agent"架构：
  * - 每个会话（workspacePath::sessionName）拥有独立的 LoopraAgent 实例
- * - 共享 LoopraModelProvider、ToolRegistry 减少资源消耗
+ * - 每个 Agent 独立持有模型 Provider，同一执行环境复用 ToolRegistry
  * - 每个 Agent 有自己的 ReentrantLock，支持并发聊天
  * - 使用 LRU 缓存策略管理 Agent 实例数量
  * @author Sorghum
@@ -95,9 +95,6 @@ public class AgentService implements ProjectRuntimeAccess {
     @Inject
     ChatCommandRegistry commandRegistry;
 
-    @Inject
-    private ConfigService configService;
-
     /**
      * 会话级 Agent 缓存
      */
@@ -106,6 +103,9 @@ public class AgentService implements ProjectRuntimeAccess {
     /** 会话模型设置的读取、解析与持久化。 */
     private final SessionSettingsService sessionSettingsService =
             new SessionSettingsService(this::sessionStoreFor);
+
+    private final SessionAgentFactory sessionAgentFactory = new SessionAgentFactory(
+            () -> commandRegistry, this::resolveSessionEnvironment, this::getOrCreateSharedToolSystem);
 
     /**
      * 默认项目的共享 ToolRegistry（供 /api/tools 等接口与就绪检查使用）
@@ -165,9 +165,6 @@ public class AgentService implements ProjectRuntimeAccess {
     }
 
     /**
-     * 计算项目路径的 hash 值（MD5 前 12 位）。
-     */
-    /**
      * 初始化共享组件（Solon 启动后自动调用）
      */
     @Init
@@ -198,7 +195,7 @@ public class AgentService implements ProjectRuntimeAccess {
         sessionCache.clear();
         sharedToolSystems.clear();
 
-        // 3. 重新加载配置并构建共享组件
+        // 重新加载配置并构建共享组件
         try {
             ConfigService.reload();
             if (!buildSharedComponents(ConfigService.getConfig())) {
@@ -212,7 +209,7 @@ public class AgentService implements ProjectRuntimeAccess {
     }
 
     /**
-     * 根据配置构建所有共享组件（LoopraModelProvider、ToolRegistry 等）。
+     * 根据配置构建默认项目的共享工具系统。
      * <p>
      * 抽取自 {@link #init()} 和 {@link #reinitialize()} 中的重复逻辑，
      * 单一职责：加载配置并初始化共享字段，不含缓存清理等上下文操作。
@@ -222,7 +219,6 @@ public class AgentService implements ProjectRuntimeAccess {
      * @return true 表示初始化成功，false 表示缺少必要的 API Key
      */
     private boolean buildSharedComponents(LoopraConfig config) {
-        String apiUrl = config.apiUrl();
         String apiKey = config.apiKey();
 
         if (apiKey == null || apiKey.isEmpty()) {
@@ -593,18 +589,17 @@ public class AgentService implements ProjectRuntimeAccess {
      * 同一会话的调用方已持有会话锁，因此渠道切换不会与流式响应并发发生。
      */
     private LoopraAgent getOrCreateAgent(String sessionKey, SessionStore.SessionModelSettings settings) {
-        ModelTarget target = targetOf(settings);
         // 更新访问顺序并检查缓存
         LoopraAgent agent = sessionCache.get(sessionKey);
         if (agent != null) {
-            ModelTarget currentTarget = new ModelTarget(agent.getModel(), agent.getModelChannelId());
-            if (target.equals(currentTarget)) {
+            if (Objects.equals(agent.getModel(), settings.model())
+                    && Objects.equals(agent.getModelChannelId(), settings.modelChannelId())) {
                 agent.setReasoningEffort(settings.reasoningEffort());
                 return agent;
             }
-            if (currentTarget != null && currentTarget.channelId().equals(target.channelId())) {
-                agent.setModel(target.model());
-                agent.setMaxTokens(ConfigService.getConfig().modelMaxTokens(target.channelId(), target.model()));
+            if (Objects.equals(agent.getModelChannelId(), settings.modelChannelId())) {
+                agent.setModel(settings.model());
+                agent.setMaxTokens(ConfigService.getConfig().modelMaxTokens(settings.modelChannelId(), settings.model()));
                 agent.setReasoningEffort(settings.reasoningEffort());
                 return agent;
             }
@@ -617,10 +612,11 @@ public class AgentService implements ProjectRuntimeAccess {
                 agent.abort();
             }
             agent.flushSession();
+            sessionCache.remove(sessionKey);
             agent.dispose();
             agent = createAgent(sessionKey, settings, null);
             sessionCache.put(sessionKey, agent);
-            log.info("[web] 会话模型渠道已切换: {}, {}/{}", sessionKey, target.channelId(), target.model());
+            log.info("[web] 会话模型渠道已切换: {}, {}/{}", sessionKey, settings.modelChannelId(), settings.model());
             return agent;
         }
 
@@ -646,23 +642,14 @@ public class AgentService implements ProjectRuntimeAccess {
 
     private LoopraAgent createAgent(String sessionKey, SessionStore.SessionModelSettings settings,
                                     String systemPrompt) {
-        ModelTarget target = targetOf(settings);
         String[] parts = sessionKey.split("::", 2);
         String workspacePath = parts[0];
         String sessionName = parts.length > 1 ? parts[1] : "default";
-        LoopraConfig cfg = ConfigService.getConfig();
-        LoopraConfig.ModelChannel channel = cfg.modelChannel(target.channelId());
-        if (channel == null) throw new ServiceException("模型渠道不存在: " + target.channelId());
+        return sessionAgentFactory.create(workspacePath, sessionName, settings, systemPrompt,
+                ConfigService.getConfig());
+    }
 
-        String apiUrl = channel.apiUrl();
-        String apiKey = channel.apiKey();
-        String reasoningEffort = settings.reasoningEffort();
-        String hitl = cfg.hitl();
-        LoopraModelProvider modelProvider = new LoopraModelProvider(apiUrl, apiKey, target.model(), reasoningEffort,
-                target.channelId(), channel.apiProtocol(), channel.specialCompatibility(),
-                cfg.modelMaxTokens(target.channelId(), target.model()));
-        modelProvider.setFastMode(cfg.fastMode());
-
+    private SessionEnvironment resolveSessionEnvironment(String workspacePath, String sessionName) {
         // 会话级隔离分支模式：文件根指向隔离分支，会话身份/Goal/Checklist 仍归属主项目。
         // 懒创建：首个开启该模式的会话在 Agent 创建时创建 worktree；
         // 非 Git 仓库时明确失败，避免静默退化为直接改主项目。
@@ -684,22 +671,7 @@ public class AgentService implements ProjectRuntimeAccess {
             }
         }
 
-        LoopraAgent.Builder builder = LoopraAgent.builder()
-                .config(cfg)
-                .environment(SessionEnvironment.of(fileRoot, stateRoot))
-                .commandRegistry(commandRegistry)
-                .hitl(hitl)
-                // 复用该项目的共享工具系统，跳过 Agent 内部的重复初始化
-                .toolSystem(getOrCreateSharedToolSystem(SessionEnvironment.of(fileRoot, stateRoot)))
-                .modelProvider(modelProvider);
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            builder.systemPrompt(systemPrompt);
-        }
-        LoopraAgent agent = builder.buildLightweight();
-        agent.bindSession(sessionName);
-        agent.setListener(new WebUsageListener(agent));
-        agent.setOutput(AgentOutput.NOOP);
-        return agent;
+        return SessionEnvironment.of(fileRoot, stateRoot);
     }
 
     /**
@@ -719,12 +691,6 @@ public class AgentService implements ProjectRuntimeAccess {
             log.info("[web] 创建新 Agent（自定义提示词）: {}", sessionKey);
             return agent;
         }
-    }
-
-    private ModelTarget defaultModelTarget() {
-        LoopraConfig cfg = ConfigService.getConfig();
-        LoopraConfig.ModelChannel channel = cfg.activeModelChannel();
-        return new ModelTarget(cfg.model(), channel != null ? channel.id() : "default");
     }
 
     /**
@@ -748,7 +714,6 @@ public class AgentService implements ProjectRuntimeAccess {
         String resolvedPath = workspacePath != null ? workspacePath : getCurrentProject();
         String sessionKey = generateSessionKey(resolvedPath, effectiveSessionName);
         LoopraConfig cfg = ConfigService.getConfig();
-        ModelTarget globalTarget = defaultModelTarget();
         LoopraAgent cachedAgent = sessionCache.peek(sessionKey);
         SessionStore.SessionModelSettings cachedSettings = new SessionStore.SessionModelSettings(
                 cachedAgent != null ? cachedAgent.getModel() : null,
@@ -757,14 +722,8 @@ public class AgentService implements ProjectRuntimeAccess {
         return sessionSettingsService.resolve(
                 resolvedPath, effectiveSessionName,
                 new SessionStore.SessionModelSettings(requestedModel, requestedChannelId, requestedReasoningEffort),
-                cachedSettings, globalTarget.model(), globalTarget.channelId(), cfg.reasoningEffort(), cfg);
+                cachedSettings, cfg);
     }
-
-    private static ModelTarget targetOf(SessionStore.SessionModelSettings settings) {
-        return new ModelTarget(settings.model(), settings.modelChannelId());
-    }
-
-    private record ModelTarget(String model, String channelId) {}
 
     /**
      * 共享组件是否已初始化

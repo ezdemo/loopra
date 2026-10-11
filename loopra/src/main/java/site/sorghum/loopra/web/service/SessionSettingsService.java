@@ -33,10 +33,9 @@ final class SessionSettingsService {
             String sessionName,
             SessionStore.SessionModelSettings requested,
             SessionStore.SessionModelSettings cached,
-            String defaultModel,
-            String defaultChannelId,
-            String defaultReasoningEffort,
             LoopraConfig config) {
+        LoopraConfig.ModelChannel activeChannel = config.activeModelChannel();
+        String defaultChannelId = activeChannel != null ? activeChannel.id() : "default";
         SessionStore.SessionModelSettings persisted = read(workspacePath, sessionName);
         SessionStore.SessionModelSettings requestedSettings = requested != null ? requested : EMPTY;
         SessionStore.SessionModelSettings cachedSettings = cached != null ? cached : EMPTY;
@@ -45,7 +44,7 @@ final class SessionSettingsService {
                 requestedSettings.model(),
                 persisted.model(),
                 cachedSettings.model(),
-                defaultModel);
+                config.model());
         String channelId = firstNonBlank(
                 requestedSettings.modelChannelId(),
                 persisted.modelChannelId(),
@@ -64,7 +63,7 @@ final class SessionSettingsService {
                 requestedSettings.reasoningEffort(),
                 persisted.reasoningEffort(),
                 cachedSettings.reasoningEffort(),
-                defaultReasoningEffort,
+                config.reasoningEffort(),
                 "max");
         SessionStore.SessionModelSettings resolved = new SessionStore.SessionModelSettings(
                 model, channelId, reasoningEffort);
