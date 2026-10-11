@@ -9,9 +9,12 @@ import site.sorghum.cutin.core.model.ModelCapabilities;
 import site.sorghum.cutin.core.model.ModelProvider;
 import site.sorghum.cutin.core.model.ModelResponse;
 import site.sorghum.cutin.core.model.StreamChunk;
-import site.sorghum.cutin.integrations.model.*;
-import site.sorghum.loopra.bin.agent.spi.AgentConfig;
+import site.sorghum.cutin.integrations.model.AnthropicMessagesProvider;
+import site.sorghum.cutin.integrations.model.ModelProviderConfig;
+import site.sorghum.cutin.integrations.model.OpenAiChatCompletionsProvider;
+import site.sorghum.cutin.integrations.model.OpenAiResponsesProvider;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
+import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 
 import java.util.HashMap;
 import java.util.List;

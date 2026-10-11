@@ -1,6 +1,11 @@
 package site.sorghum.cutin.core.state;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * 内存状态存储：按循环 id 追加保存快照，适合单进程与测试场景。

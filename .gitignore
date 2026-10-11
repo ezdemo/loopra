@@ -78,3 +78,7 @@ venv/
 /.commandcode/
 /loopra/.loopra/
 /.release/npm/loopra-dist/loopra-dist.tar.gz
+
+# local build/error logs
+compile-errors.txt
+*.log

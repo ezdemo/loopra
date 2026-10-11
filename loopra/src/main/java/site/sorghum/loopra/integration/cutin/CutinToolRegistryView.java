@@ -1,7 +1,12 @@
 package site.sorghum.loopra.integration.cutin;
 
 import site.sorghum.cutin.core.context.LoopContext;
-import site.sorghum.cutin.core.tool.*;
+import site.sorghum.cutin.core.tool.Tool;
+import site.sorghum.cutin.core.tool.ToolCall;
+import site.sorghum.cutin.core.tool.ToolDefinition;
+import site.sorghum.cutin.core.tool.ToolNotFoundException;
+import site.sorghum.cutin.core.tool.ToolRegistry;
+import site.sorghum.cutin.core.tool.ToolResult;
 
 import java.util.ArrayList;
 import java.util.Collection;

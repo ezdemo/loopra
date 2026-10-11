@@ -11,7 +11,11 @@ import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.solon.common.LoopraSkillProvider;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * Solon 工具扫描提供者 —— 统一管理工具扫描逻辑。

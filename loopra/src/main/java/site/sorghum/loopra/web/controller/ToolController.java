@@ -5,7 +5,13 @@ import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import org.noear.dami2.Dami;
 import org.noear.solon.ai.chat.tool.FunctionTool;
-import org.noear.solon.annotation.*;
+import org.noear.solon.annotation.Body;
+import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Inject;
+import org.noear.solon.annotation.Mapping;
+import org.noear.solon.annotation.Path;
+import org.noear.solon.annotation.Post;
 import site.sorghum.loopra.bin.config.ConfigChangedEvent;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.tool.ToolMetadata;
@@ -17,7 +23,12 @@ import site.sorghum.loopra.web.model.ToolInfoDTO;
 import site.sorghum.loopra.web.model.ToolParamInfoDTO;
 import site.sorghum.loopra.web.service.AgentService;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /** 工具管理接口：查询、启用/禁用、审批与只读覆盖。 */
 @Api(tags = "工具管理")
