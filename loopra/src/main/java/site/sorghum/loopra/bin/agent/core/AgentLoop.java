@@ -3,11 +3,7 @@ package site.sorghum.loopra.bin.agent.core;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.noear.snack4.Feature;
 import org.noear.snack4.ONode;
-import org.noear.snack4.Options;
-import org.noear.snack4.json.JsonReader;
-import org.noear.snack4.json.util.FormatUtil;
 import org.noear.solon.ai.chat.interceptor.ToolRequest;
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.ai.chat.tool.ToolCall;
@@ -56,7 +52,6 @@ import site.sorghum.loopra.bin.agent.model.ToolExecutionResult;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.agent.output.ConsoleAgentOutput;
 import site.sorghum.loopra.bin.agent.resilient.ReasonBreaker;
-import site.sorghum.loopra.bin.agent.resilient.Scavenger;
 import site.sorghum.loopra.bin.agent.resilient.StormBreaker;
 import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.bin.agent.spi.GoalGuard;
@@ -1230,7 +1225,7 @@ public class AgentLoop implements
         if (response == null || response.message() == null) {
             return null;
         }
-        ONode toolCalls = toolCallsFromCutinMessage(response.message());
+        ONode toolCalls = CutinStreamSupport.toolCallsFromCutinMessage(response.message());
         if (toolCalls == null || !toolCalls.isArray() || toolCalls.getArray().isEmpty()) {
             return null;
         }
@@ -1239,7 +1234,7 @@ public class AgentLoop implements
         toolCalls = MessageHealer.normalizeIncomingToolCallIds(
                 toolCalls, messagesForToolCallNormalization());
         String content = response.message().content();
-        String reasoning = metadataString(response.message(), "reasoning_content");
+        String reasoning = CutinStreamSupport.metadataString(response.message(), "reasoning_content");
         if (!hitlManager.isHitlMode() || !hitlManager.requiresHITL(toolCalls)) {
             return null;
         }
@@ -1270,24 +1265,6 @@ public class AgentLoop implements
             return null;
         }
         return hitlManager.interceptForHITL(toolCalls, content, reasoning, output);
-    }
-
-    private static ONode toolCallsFromCutinMessage(site.sorghum.cutin.core.context.Message message) {
-        ONode calls = ONode.ofJson("[]").asArray();
-        for (site.sorghum.cutin.core.tool.ToolCall call : message.toolCalls()) {
-            ONode item = calls.addNew().asObject();
-            item.set("id", call.id());
-            item.set("type", "function");
-            ONode function = item.getOrNew("function");
-            function.set("name", call.toolId());
-            function.set("arguments", ONode.ofBean(call.arguments()).toJson());
-        }
-        return calls;
-    }
-
-    private static String metadataString(site.sorghum.cutin.core.context.Message message, String key) {
-        Object value = message.metadata(key);
-        return value == null ? null : String.valueOf(value);
     }
 
     /** 获取用于新模型工具调用 ID 分配的当前历史；兼容无上下文的轻量测试入口。 */
@@ -1489,7 +1466,7 @@ public class AgentLoop implements
         if (!(raw instanceof ModelResponse response)) {
             throw new IOException("[loop] cutin HITL 未找到待审批模型响应");
         }
-        CutinStreamSnapshot snapshot = cutinSnapshotFromResponse(response);
+        CutinStreamSnapshot snapshot = CutinStreamSupport.cutinSnapshotFromResponse(response);
         LoopSnapshot base = handle.snapshot();
         ReentryRequest request = new ReentryRequest(
                 "tool",
@@ -1560,24 +1537,12 @@ public class AgentLoop implements
         if (sandboxState != null) {
             ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
                     sandboxState.toolCalls(), messagesForToolCallNormalization());
-            List<ToolCallEntry> tcList = parseToolCallsFromONode(normalizedToolCalls);
+            List<ToolCallEntry> tcList = CutinStreamSupport.parseToolCallsFromONode(normalizedToolCalls);
             ctx.addAssistant(sandboxState.content(), tcList, sandboxState.reasoningContent());
         }
         String denyMsg = "沙箱越界已被用户拒绝。";
         ctx.addAssistant(denyMsg, null, null);
         return denyMsg;
-    }
-
-    private static CutinStreamSnapshot cutinSnapshotFromResponse(ModelResponse response) {
-        Object thinking = response.message().metadata("thinking_blocks");
-        return new CutinStreamSnapshot(
-                response.message().content(),
-                metadataString(response.message(), "reasoning_content"),
-                response.message().toolCalls(),
-                thinking instanceof List<?> list ? list.stream().map(String::valueOf).toList() : List.of(),
-                response.usage() == null ? Usage.ZERO : response.usage(),
-                null,
-                metadataString(response.message(), "response_reasoning"));
     }
 
     private StepResult modelStep(DefaultLoopContext context, LoopState state) {
@@ -1619,7 +1584,7 @@ public class AgentLoop implements
         );
         CutinStreamSnapshot snapshot;
         try (Stream<StreamChunk> chunks = context.models().stream(request, context)) {
-            snapshot = collectCutinStream(chunks);
+            snapshot = CutinStreamSupport.collect(chunks);
         }
 
         Runnable extSource2 = externalAbortSource;
@@ -1643,7 +1608,7 @@ public class AgentLoop implements
         safeOutputDebug("contentComplete", output::onContentComplete);
         context.addUsage(snapshot.usage());
 
-        ONode toolCalls = scavengeToolCalls(snapshot.toolCalls(), snapshot.reasoningContent(), snapshot.content());
+        ONode toolCalls = CutinStreamSupport.scavengeToolCalls(snapshot.toolCalls(), snapshot.reasoningContent(), snapshot.content());
         toolCalls = MessageHealer.normalizeIncomingToolCallIds(
                 toolCalls, messagesForToolCallNormalization());
         boolean hasToolCalls = toolCalls != null && toolCalls.isArray() && !toolCalls.getArray().isEmpty();
@@ -1759,7 +1724,7 @@ public class AgentLoop implements
                                              HitlManager.PendingSandboxState sandboxState) {
         ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
                 sandboxState.toolCalls(), messagesForToolCallNormalization());
-        List<ToolCallEntry> tcList = parseToolCallsFromONode(normalizedToolCalls);
+        List<ToolCallEntry> tcList = CutinStreamSupport.parseToolCallsFromONode(normalizedToolCalls);
         ctx.addAssistant(sandboxState.content(), tcList, sandboxState.reasoningContent());
         reasonBreaker.reset();
         stormBreaker.reset();
@@ -1792,68 +1757,6 @@ public class AgentLoop implements
         return new StepResult.Goto("model");
     }
 
-    private static CutinStreamSnapshot collectCutinStream(Stream<StreamChunk> chunks) {
-        StringBuilder content = new StringBuilder();
-        StringBuilder reasoning = new StringBuilder();
-        java.util.List<site.sorghum.cutin.core.tool.ToolCall> toolCalls = new ArrayList<>();
-        java.util.List<String> thinkingBlocks = new ArrayList<>();
-        site.sorghum.cutin.core.context.Usage[] usage =
-                {site.sorghum.cutin.core.context.Usage.ZERO};
-        String[] error = {null};
-        String[] responseReasoning = {null};
-        chunks.forEach(chunk -> {
-            if (chunk.content() != null) {
-                content.append(chunk.content());
-            }
-            if (chunk.reasoning() != null) {
-                reasoning.append(chunk.reasoning());
-            }
-            toolCalls.addAll(chunk.toolCalls());
-            thinkingBlocks.addAll(chunk.thinkingBlocks());
-            usage[0] = usage[0].add(chunk.usage());
-            Object terminalError = chunk.metadata().get("error");
-            if (terminalError != null && chunk.terminal()) {
-                error[0] = String.valueOf(terminalError);
-            }
-            Object reasoningMeta = chunk.metadata().get("response_reasoning");
-            if (reasoningMeta != null) {
-                responseReasoning[0] = String.valueOf(reasoningMeta);
-            }
-            Object reasoningContent = chunk.metadata().get("reasoning_content");
-            if (reasoningContent != null && reasoning.length() == 0) {
-                reasoning.append(String.valueOf(reasoningContent));
-            }
-        });
-        String reasoningStr = reasoning.length() == 0 ? null : reasoning.toString();
-        if (responseReasoning[0] != null) {
-            try {
-                org.noear.snack4.ONode item = org.noear.snack4.ONode.ofJson(responseReasoning[0]);
-                org.noear.snack4.ONode summary = item.get("summary");
-                if (summary != null && summary.isArray()) {
-                    StringBuilder sb = new StringBuilder();
-                    for (org.noear.snack4.ONode part : summary.getArray()) {
-                        String text = part.get("text").getString();
-                        if (text != null) sb.append(text);
-                    }
-                    if (sb.length() > 0) {
-                        reasoningStr = sb.toString();
-                    }
-                }
-            } catch (RuntimeException ignored) {
-                // 推理条目解析失败时跳过
-            }
-        }
-        return new CutinStreamSnapshot(
-            content.length() == 0 ? null : content.toString(),
-            reasoningStr,
-            toolCalls,
-            thinkingBlocks,
-            usage[0],
-            error[0],
-            responseReasoning[0]
-        );
-    }
-
     /**
      * cutin 路径下的用量上报：统一从这里出口，
      * 否则会话的 lastPromptTokens / 上下文长度展示和用量统计不会更新。
@@ -1875,96 +1778,12 @@ public class AgentLoop implements
                 currentModel, promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss));
     }
 
-    private record CutinStreamSnapshot(
-        String content,
-        String reasoningContent,
-        java.util.List<site.sorghum.cutin.core.tool.ToolCall> cutinToolCalls,
-        java.util.List<String> thinkingBlocks,
-        site.sorghum.cutin.core.context.Usage usage,
-        String errorMessage,
-        String responseReasoning
-    ) {
-        boolean error() {
-            return errorMessage != null;
-        }
-
-        ONode toolCalls() {
-            ONode calls = ONode.ofJson("[]").asArray();
-            for (site.sorghum.cutin.core.tool.ToolCall call : cutinToolCalls) {
-                ONode item = calls.addNew().asObject();
-                item.set("id", call.id());
-                item.set("type", "function");
-                ONode function = item.getOrNew("function");
-                function.set("name", call.toolId());
-                function.set("arguments", ONode.ofBean(call.arguments()).toJson());
-            }
-            return calls;
-        }
-
-        CutinStreamSnapshot withToolCalls(ONode scavengedToolCalls) {
-            java.util.List<site.sorghum.cutin.core.tool.ToolCall> calls = new ArrayList<>();
-            if (scavengedToolCalls != null && scavengedToolCalls.isArray()) {
-                for (ONode node : scavengedToolCalls.getArray()) {
-                    String id = node.get("id").getString();
-                    ONode function = node.get("function");
-                    String name = function.get("name").getString();
-                    ONode arguments = function.get("arguments");
-                    Map<String, Object> args = new HashMap<>();
-                    if (arguments.isString()) {
-                        try {
-                            Object bean = ONode.ofJson(arguments.getString()).toBean(Map.class);
-                            if (bean instanceof Map<?, ?> map) {
-                                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                                    args.put(String.valueOf(entry.getKey()), entry.getValue());
-                                }
-                            }
-                        } catch (RuntimeException ignored) {
-                             // 格式错误的 JSON 保留空参数
-                        }
-                    } else if (arguments.isObject()) {
-                        Object bean = arguments.toBean(Map.class);
-                        if (bean instanceof Map<?, ?> map) {
-                            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                                args.put(String.valueOf(entry.getKey()), entry.getValue());
-                            }
-                        }
-                    }
-                    calls.add(new site.sorghum.cutin.core.tool.ToolCall(id, name, args, id));
-                }
-            }
-            return new CutinStreamSnapshot(content, reasoningContent, calls, thinkingBlocks, usage, errorMessage, responseReasoning);
-        }
-
-        StreamResult toStreamResult() {
-            return new StreamResult(content, reasoningContent, toolCalls(), error(), errorMessage);
-        }
-    }
-
     private static final class LoopState {
         private int step;
         private int noToolCallStreak;
         private int selfCorrectionAttempts;
         private String result;
         private IOException ioError;
-    }
-
-    /**
-     * 从 ONode 解析工具调用列表（不含暂存副作用）。
-     */
-    private static List<ToolCallEntry> parseToolCallsFromONode(ONode toolCalls) {
-        List<ToolCallEntry> tcList = new ArrayList<>();
-        if (toolCalls == null || !toolCalls.isArray()) return tcList;
-        for (ONode tc : toolCalls.getArray()) {
-            String tcId = tc.get("id").getString();
-            ONode func = tc.get("function");
-            String tcName = func.get("name").getString();
-            if (tcName == null || tcName.isEmpty()) continue;
-            String tcArgs = func.get("arguments").getString();
-            if (tcArgs == null) tcArgs = "{}";
-            String responseReasoning = tc.get("response_reasoning").getString();
-            tcList.add(new ToolCallEntry(tcId, tcName, tcArgs, responseReasoning));
-        }
-        return tcList;
     }
 
     /**
@@ -2089,31 +1908,6 @@ public class AgentLoop implements
         lastContextEstimate = ContextTokenEstimator.estimate(messages, tools, null);
 
         return new PreparedMessages(messages, foldedThisStep);
-    }
-
-    // ==================== 步骤 4: Scavenger 回收 ====================
-
-    private ONode scavengeToolCalls(ONode toolCalls, String reasoningContent, String content) {
-        boolean hasToolCalls = toolCalls != null && toolCalls.isArray() && !toolCalls.getArray().isEmpty();
-        if (hasToolCalls) return toolCalls;
-        if (reasoningContent == null && content == null) return toolCalls;
-
-        List<Scavenger.ToolCall> scavenged = Scavenger.scavenge(reasoningContent, content, new ArrayList<>());
-        if (scavenged.isEmpty()) return toolCalls;
-
-        ONode fakeTcArray = ONode.ofJson("[]").asArray();
-        for (Scavenger.ToolCall tc : scavenged) {
-            ONode tcn = fakeTcArray.addNew();
-            String idSuffix = tc.id() != null ? ""
-                    : "_" + Integer.toHexString(tc.arguments().hashCode())
-                    + "_" + System.nanoTime();
-            tcn.set("id", tc.id() != null ? tc.id() : "scavenged_" + tc.name() + idSuffix);
-            tcn.set("type", "function");
-            ONode fn = tcn.getOrNew("function");
-            fn.set("name", tc.name());
-            fn.set("arguments", tc.arguments());
-        }
-        return fakeTcArray;
     }
 
     // ==================== 步骤 6: 工具执行 ====================
@@ -2294,7 +2088,7 @@ public class AgentLoop implements
                 SessionFileChangeTracker.bind(executionRoot, getSessionId());
                 try {
                     ONode tc = tcArray.get(idx);
-                    ToolCall toolCall = getToolCall(tc);
+                    ToolCall toolCall = CutinStreamSupport.getToolCall(tc);
                     FunctionTool fc = registry.get(toolCall.getName());
                     // 拓展包/插件贡献的工具只注册在 cutin 视图（CutinToolRegistryView
                     // 外部注册区），存在性检查须同时覆盖两侧，避免“已注册却报工具不存在”。
@@ -2408,7 +2202,7 @@ public class AgentLoop implements
             return ToolCallValidator.Decision.deny("工具调用格式无效");
         }
         for (ONode node : toolCalls.getArray()) {
-            ToolCall toolCall = getToolCall(node);
+            ToolCall toolCall = CutinStreamSupport.getToolCall(node);
             if (toolCall.getName() == null || toolCall.getName().isBlank()) {
                 return ToolCallValidator.Decision.deny("工具名称为空");
             }
@@ -2634,35 +2428,4 @@ public class AgentLoop implements
         safeOutput("abort", () -> output.onLog(LogLevel.INFO, "[abort] 用户请求中断，停止推理循环"));
     }
 
-    public ToolCall getToolCall(ONode n1) {
-        String callId = n1.get("id").getString();
-
-        String index = n1.get("index").getString();
-
-        ONode n1f = n1.get("function");
-        String name = n1f.get("name").getString(); //可能是空的
-        ONode n1fArgs = n1f.get("arguments");
-        String argStr = n1fArgs.getString();
-
-        if (n1fArgs.isString()) {
-            //有可能是 json string（还可能只是流的中间消息）
-            if (FormatUtil.hasNestedJsonBlock(argStr)) {
-                JsonReader reader = new JsonReader(argStr, Options.of(Feature.Read_AutoRepair));
-                n1fArgs = reader.readLast();
-
-                if (n1fArgs == null) {
-                    log.warn("Parse tool arguments failed: {}", argStr);
-                }
-            }
-        }
-
-        Map<String, Object> argMap = new HashMap<>();
-        if (n1fArgs != null) {
-            if (n1fArgs.isObject()) {
-                argMap = n1fArgs.toBean(Map.class);
-            }
-        }
-
-        return new ToolCall(index, callId, name, argStr, argMap);
-    }
 }
