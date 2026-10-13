@@ -6,6 +6,7 @@ import './styles.css';
 import './chat-blocks.css';
 import './motion.css';
 import './composer.css';
+import './background-tasks.css';
 import './settings.css';
 import './sessions.css';
 import './help.css';

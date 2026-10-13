@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Input, Modal, ModalContent } from '@nextui-org/react';
-import { Activity, Archive, ArrowDownToLine, Bot, Check, ChevronDown, ClipboardList, Copy, Crosshair, Download, FileCode2, FoldVertical, FolderClosed, FolderOpen, FolderPlus, GitBranch, HelpCircle, MessageCirclePlus, MessagesSquare, MoreHorizontal, PanelLeft, PanelRight, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, SlidersHorizontal, Sparkles, SquareTerminal, SunMoon, Trash2, Wrench } from 'lucide-react';
+import { Activity, Archive, ArrowDownToLine, Bot, Check, ChevronDown, ClipboardList, Copy, Crosshair, Download, FileCode2, FoldVertical, FolderClosed, FolderOpen, FolderPlus, GitBranch, HelpCircle, MessageCirclePlus, MessagesSquare, MoreHorizontal, PanelLeft, PanelRight, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, SlidersHorizontal, Sparkles, SunMoon, Trash2, Wrench } from 'lucide-react';
 import { getSessionMessages, useLocalState } from './lib';
 import type { Provider, Session } from './lib';
 import { LoopraMark, IconButton } from './components/ui';
 import { Messages } from './components/Conversation';
-import ChangesPanel, { TerminalPanel } from './components/Panels';
+import ChangesPanel from './components/Panels';
+import BackgroundTasks from './components/BackgroundTasks';
 import Settings, { defaultPreferences } from './components/Settings';
 import type { Preferences } from './components/Settings';
 import Search from './components/Search';
@@ -71,7 +72,6 @@ export default function App() {
   const [requirementsOpen, setRequirementsOpen] = useState(false);
   const [terminal, setTerminal] = useState(false);
   const [gitBranch, setGitBranch] = useState('工作区');
-  const [terminalShell, setTerminalShell] = useState('PowerShell');
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('通用');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -320,8 +320,8 @@ export default function App() {
     await sendMessage(buildUpdatePrompt(loadUpdateSource()), undefined, undefined, true);
     notify('已新建更新会话并发送更新指令');
   }
-  function openTerminal(shell = 'PowerShell') { setTerminalShell(shell); setTerminal(true); setMenu(null); }
-  function openWorkspace() { if (preferences.openWith === 'File Explorer') { setWorkbenchTab('files'); setChanges(true); } else openTerminal(preferences.openWith === 'Git Bash' ? 'Bash' : 'PowerShell'); setMenu(null); }
+  function openTerminal() { setTerminal(true); setMenu(null); }
+  function openWorkspace() { if (preferences.openWith === 'File Explorer') { setWorkbenchTab('files'); setChanges(true); } else openTerminal(); setMenu(null); }
   function copyPath() { void navigator.clipboard?.writeText(currentWorkspace?.path || ''); setMenu(null); notify('已复制工作区路径'); }
   async function stopGeneration() {
     const request = activeRequest.current; if (!request) return;
@@ -594,15 +594,8 @@ export default function App() {
     return () => { document.removeEventListener('pointerdown', onPointer); window.removeEventListener('keydown', onKey); };
   });
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
-  // Legacy `onBashStart()`: the right panel opens on the command tab whenever
-  // the agent launches a background shell (also fired from sub-agent events).
-  useEffect(() => {
-    const onBashStart = () => setTerminal(true);
-    window.addEventListener('loopra:bash-start', onBashStart);
-    return () => window.removeEventListener('loopra:bash-start', onBashStart);
-  }, []);
 
-  const composer = <Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
@@ -617,7 +610,7 @@ export default function App() {
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
     remoteRunning={!!session && remoteRun?.id === session.id} onStopRemote={stopRemoteRun}
     liveSpeed={liveSpeed}
-    onOpen={() => setMenu(null)} notify={notify} />;
+    onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} /></BackgroundTasks>;
 
   return <AppMotion enabled={preferences.animations}><div className={`desktop-app${isDesktopWindow() ? ' is-desktop-shell' : ''}`}>
     {isDesktopWindow() && <DesktopTitleBar />}
@@ -632,8 +625,8 @@ export default function App() {
         <header className={`conversation-header ${isHome ? 'home-header' : ''}`}>
           {!sidebar && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={() => setSidebar(true)}><PanelLeft size="1.0625rem" /></IconButton>}
           {!isHome && <div className="breadcrumb"><span>{workspaceName}</span><span className="breadcrumb-divider">/</span><strong title={session.title}>{session.title}</strong><div data-popover className="menu-anchor"><IconButton label="会话选项" onClick={() => toggleMenu('session')}><MoreHorizontal size="1.1875rem" /></IconButton><Popup open={menu === 'session'} className="popup session-menu" role="menu"><button role="menuitem" onClick={() => { setRename(session.id); setRenameValue(session.title); setMenu(null); }}><FileCode2 size="1rem" />重命名会话</button><button role="menuitem" onClick={() => { setSessionDetails(true); setMenu(null); }}>原始记录与快照</button><button role="menuitem" onClick={() => { setMenu(null); clearChat(); }}><MessageCirclePlus size="1rem" />清空当前对话</button><button role="menuitem" onClick={() => { setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}><Download size="1rem" />导出对话</button><button role="menuitem" onClick={archiveSession}><Archive size="1rem" />在本机隐藏</button><button role="menuitem" onClick={() => { setDeleteSession(session); setMenu(null); }}><Trash2 size="1rem" />删除会话</button><button role="menuitem" onClick={() => { void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }}><Copy size="1rem" />复制会话标题</button></Popup></div></div>}
-          <div className="header-actions"><button className={`backend-status ${backend.status}`} title={backend.error || `${server} · v${backend.version}`} onClick={() => openSettings('服务器')}><span />{backend.status === 'connecting' ? '连接中' : backend.status === 'error' ? '连接失败' : backend.ready ? 'Loopra 已连接' : '需要配置模型'}</button>{!isHome && <><div data-popover className="menu-anchor"><div className="folder-split"><button aria-label="查看工作区文件" onClick={openWorkspace}>📁</button><button aria-label="打开方式" onClick={() => toggleMenu('folder')}><ChevronDown size="1rem" /></button></div><Popup open={menu === 'folder'} className="popup folder-menu" role="menu"><button role="menuitem" onClick={() => { setWorkbenchTab('files'); setChanges(true); setMenu(null); }}><span className="emoji-icon">📁</span>File Explorer</button><button role="menuitem" onClick={() => { setTerminal(true); setMenu(null); }}><span className="terminal-icon">&gt;_</span>Terminal</button><button role="menuitem" onClick={() => openTerminal('Bash')}><span className="git-icon">◆</span>Git Bash</button><hr /><button role="menuitem" onClick={copyPath}><Copy size="1.0625rem" />复制路径</button></Popup></div>{!changes && <div data-popover className="menu-anchor"><button className="branch-button" onClick={() => toggleMenu('branch')}><GitBranch size="1rem" />{gitBranch}</button><Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={() => { setChanges(true); setMenu(null); }}><GitBranch size="0.9375rem" />{gitBranch}<Check size="1rem" /></button></Popup></div>}</>}
-              <IconButton label={terminal ? '关闭终端' : '打开终端'} active={terminal} onClick={() => setTerminal(!terminal)}><SquareTerminal size="1.0625rem" /></IconButton><IconButton label={changes ? '关闭改动面板' : '打开改动面板'} active={changes} onClick={() => setChanges(!changes)}><PanelRight size="1.0625rem" /></IconButton>
+          <div className="header-actions"><button className={`backend-status ${backend.status}`} title={backend.error || `${server} · v${backend.version}`} onClick={() => openSettings('服务器')}><span />{backend.status === 'connecting' ? '连接中' : backend.status === 'error' ? '连接失败' : backend.ready ? 'Loopra 已连接' : '需要配置模型'}</button>{!isHome && <><div data-popover className="menu-anchor"><div className="folder-split"><button aria-label="查看工作区文件" onClick={openWorkspace}>📁</button><button aria-label="打开方式" onClick={() => toggleMenu('folder')}><ChevronDown size="1rem" /></button></div><Popup open={menu === 'folder'} className="popup folder-menu" role="menu"><button role="menuitem" onClick={() => { setWorkbenchTab('files'); setChanges(true); setMenu(null); }}><span className="emoji-icon">📁</span>File Explorer</button><button role="menuitem" onClick={() => { setTerminal(true); setMenu(null); }}><span className="terminal-icon">&gt;_</span>Terminal</button><button role="menuitem" onClick={() => openTerminal()}><span className="git-icon">◆</span>Git Bash</button><hr /><button role="menuitem" onClick={copyPath}><Copy size="1.0625rem" />复制路径</button></Popup></div>{!changes && <div data-popover className="menu-anchor"><button className="branch-button" onClick={() => toggleMenu('branch')}><GitBranch size="1rem" />{gitBranch}</button><Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={() => { setChanges(true); setMenu(null); }}><GitBranch size="0.9375rem" />{gitBranch}<Check size="1rem" /></button></Popup></div>}</>}
+              <IconButton label={changes ? '关闭改动面板' : '打开改动面板'} active={changes} onClick={() => setChanges(!changes)}><PanelRight size="1.0625rem" /></IconButton>
           </div>
         </header>
         <div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
@@ -647,7 +640,6 @@ export default function App() {
             <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{composer}</div>
           </>}
         </div>
-        {terminal && <TerminalPanel api={api} workspaceHash={workspace} key="terminal" initialShell={terminalShell} onClose={() => setTerminal(false)} notify={notify} />}
       </main>
       {changes && <ChangesPanel api={api} workspaceHash={workspace} key={workspace} initialFile={diffPath} initialDiff={diffInline} initialTab={workbenchTab} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
