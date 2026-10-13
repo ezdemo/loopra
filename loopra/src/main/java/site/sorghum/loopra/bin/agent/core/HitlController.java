@@ -219,7 +219,11 @@ final class HitlController implements LoopraPreflightHost {
         }
         if (result.status() == LoopResult.Status.SUSPENDED) {
             suspendedCutinHandle = handle;
-            suspendedCutinContext = cutinContext;
+            // reenter 从快照创建新 context，传入的 cutinContext 可能仍是上一轮对象。
+            // 必须保存本次暂停的最新变量/产物，否则第二次批准会重放第一次的工具。
+            suspendedCutinContext = result.finalSnapshot() == null
+                    ? cutinContext
+                    : loop.cutinEngine().restore(result.finalSnapshot());
             suspendedCutinState = state;
             return result.message() != null && !result.message().isBlank()
                     ? result.message()

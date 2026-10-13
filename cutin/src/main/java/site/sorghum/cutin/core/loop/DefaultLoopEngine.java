@@ -265,10 +265,10 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
             while (true) {
                 while (nodeId != null) {
                     if (handle.isCancelled()) {
-                        return result(handle, LoopResult.Status.CANCELLED, nodeId, "cancelled");
+                        return result(handle, context, LoopResult.Status.CANCELLED, nodeId, "cancelled");
                     }
                     if (!context.budget().canStep()) {
-                        return result(handle, LoopResult.Status.FAILED, nodeId, "step budget exceeded");
+                        return result(handle, context, LoopResult.Status.FAILED, nodeId, "step budget exceeded");
                     }
                     context.budget().step();
 
@@ -282,10 +282,10 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
                     );
                     context = requireContext(before.context());
                     if (before.decision().isAbort()) {
-                        return result(handle, LoopResult.Status.ABORTED, nodeId, before.decision().reason());
+                        return result(handle, context, LoopResult.Status.ABORTED, nodeId, before.decision().reason());
                     }
                     if (before.decision().isSuspend()) {
-                        return result(handle, LoopResult.Status.SUSPENDED, nodeId, before.decision().reason());
+                        return result(handle, context, LoopResult.Status.SUSPENDED, nodeId, before.decision().reason());
                     }
                     if (before.decision().isSkipStep()) {
                         nodeId = program.next(nodeId);
@@ -306,10 +306,10 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
                         );
                         context = requireContext(beforeOutput.context());
                         if (beforeOutput.decision().isAbort()) {
-                            return result(handle, LoopResult.Status.ABORTED, nodeId, beforeOutput.decision().reason());
+                            return result(handle, context, LoopResult.Status.ABORTED, nodeId, beforeOutput.decision().reason());
                         }
                         if (beforeOutput.decision().isSuspend()) {
-                            return result(handle, LoopResult.Status.SUSPENDED, nodeId, beforeOutput.decision().reason());
+                            return result(handle, context, LoopResult.Status.SUSPENDED, nodeId, beforeOutput.decision().reason());
                         }
                         if (beforeOutput.decision().isSkipStep()) {
                             nodeId = program.next(nodeId);
@@ -334,10 +334,10 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
                         );
                         context = requireContext(beforeRetry.context());
                         if (beforeRetry.decision().isAbort()) {
-                            return result(handle, LoopResult.Status.ABORTED, nodeId, beforeRetry.decision().reason());
+                            return result(handle, context, LoopResult.Status.ABORTED, nodeId, beforeRetry.decision().reason());
                         }
                         if (beforeRetry.decision().isSuspend()) {
-                            return result(handle, LoopResult.Status.SUSPENDED, nodeId, beforeRetry.decision().reason());
+                            return result(handle, context, LoopResult.Status.SUSPENDED, nodeId, beforeRetry.decision().reason());
                         }
                         if (beforeRetry.decision().isGoto()) {
                             nodeId = beforeRetry.decision().targetNodeId();
@@ -352,12 +352,12 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
                         nodeId = exception.targetNodeId();
                         continue;
                     } catch (LoopAbortException exception) {
-                        return result(handle, LoopResult.Status.ABORTED, nodeId, exception.getMessage());
+                        return result(handle, context, LoopResult.Status.ABORTED, nodeId, exception.getMessage());
                     } catch (LoopSuspendException exception) {
-                        return result(handle, LoopResult.Status.SUSPENDED, nodeId, exception.getMessage());
+                        return result(handle, context, LoopResult.Status.SUSPENDED, nodeId, exception.getMessage());
                     } catch (RuntimeException exception) {
                         events.emit(new LoopEvent("ON_ERROR", loopId, nodeId, Map.of("error", message(exception))));
-                        return result(handle, LoopResult.Status.FAILED, nodeId, message(exception));
+                        return result(handle, context, LoopResult.Status.FAILED, nodeId, message(exception));
                     }
 
                     InterceptionResult after = interceptors.run(
@@ -366,10 +366,10 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
                     );
                     context = requireContext(after.context());
                     if (after.decision().isAbort()) {
-                        return result(handle, LoopResult.Status.ABORTED, nodeId, after.decision().reason());
+                        return result(handle, context, LoopResult.Status.ABORTED, nodeId, after.decision().reason());
                     }
                     if (after.decision().isSuspend()) {
-                        return result(handle, LoopResult.Status.SUSPENDED, nodeId, after.decision().reason());
+                        return result(handle, context, LoopResult.Status.SUSPENDED, nodeId, after.decision().reason());
                     }
                     if (after.decision().isGoto()) {
                         nodeId = after.decision().targetNodeId();
@@ -384,11 +384,11 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
                     }
 
                     if (stepResult instanceof StepResult.Suspend suspendResult) {
-                        return result(handle, LoopResult.Status.SUSPENDED, nodeId, suspendResult.reason());
+                        return result(handle, context, LoopResult.Status.SUSPENDED, nodeId, suspendResult.reason());
                     }
                     if (stepResult instanceof StepResult.Fail failResult) {
                         events.emit(new LoopEvent("ON_ERROR", loopId, nodeId, Map.of("error", failResult.reason())));
-                        return result(handle, LoopResult.Status.FAILED, nodeId, failResult.reason());
+                        return result(handle, context, LoopResult.Status.FAILED, nodeId, failResult.reason());
                     }
                     if (stepResult instanceof StepResult.Exit) {
                         ExitDecision exit = decideExit(handle, context, nodeId);
@@ -460,7 +460,7 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
         if (decision.isAbort()) {
             return new ExitDecision(
                 true,
-                result(handle, LoopResult.Status.ABORTED, nodeId, decision.reason()),
+                result(handle, effective, LoopResult.Status.ABORTED, nodeId, decision.reason()),
                 null,
                 effective
             );
@@ -468,7 +468,7 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
         if (decision.isSuspend()) {
             return new ExitDecision(
                 true,
-                result(handle, LoopResult.Status.SUSPENDED, nodeId, decision.reason()),
+                result(handle, effective, LoopResult.Status.SUSPENDED, nodeId, decision.reason()),
                 null,
                 effective
             );
@@ -507,9 +507,11 @@ public final class DefaultLoopEngine implements LoopEngine, LoopRegistrar {
     ) {
     }
 
-    /** 按结束状态与最新检查点组装结果。 */
-    private LoopResult result(DefaultLoopHandle handle, LoopResult.Status status, String nodeId, String message) {
-        LoopSnapshot snapshot = checkpoints.latest(handle.id()).orElse(null);
+    /** 保存退出时的当前状态，避免暂停后恢复到节点执行前的旧检查点。 */
+    private LoopResult result(DefaultLoopHandle handle, DefaultLoopContext context,
+                              LoopResult.Status status, String nodeId, String message) {
+        LoopSnapshot snapshot = checkpoints.checkpoint(handle.id(), context, nodeId);
+        handle.updateSnapshot(snapshot);
         return new LoopResult(handle.id(), status, nodeId, message, snapshot);
     }
 
