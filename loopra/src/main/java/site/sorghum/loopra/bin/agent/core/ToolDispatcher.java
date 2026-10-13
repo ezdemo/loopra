@@ -477,6 +477,9 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                                 imageResult.dataUri(), imageResult.detail());
                         return timedToolResult(toolMessage, toolStartedAt);
                     } catch (HitlRequiredException e) {
+                        if (!loop.isHitlMode()) {
+                            return timedToolResult(toolCall.getId(), "工具执行失败: " + e.getDetails(), toolStartedAt);
+                        }
                         hitlRef.compareAndSet(null, e);
                         return toolResult(toolCall.getId(),
                                 "[HITL_PENDING:" + e.getReason() + "] " + e.getDetails());

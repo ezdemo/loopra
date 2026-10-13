@@ -2,7 +2,6 @@ package site.sorghum.loopra.bin.agent.core;
 
 import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
-import org.noear.solon.ai.chat.tool.ToolCall;
 import site.sorghum.cutin.core.context.DefaultLoopContext;
 import site.sorghum.cutin.core.loop.LoopHandle;
 import site.sorghum.cutin.core.loop.LoopResult;
@@ -23,12 +22,11 @@ import site.sorghum.loopra.tool.LogLevel;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * HITL（人工审批）宿主。
  * <p>负责 preflight 消息清洗/注入、cutin 挂起态的保存与恢复（含沙箱越界审批）、
- * AFTER_MODEL 的 HITL 拦截，以及 AI 工具调用校验器兜底判定。</p>
+ * AFTER_MODEL 的审核结果展示；审核策略统一由 ToolApprovalReviewer 处理。</p>
  */
 @Slf4j
 final class HitlController implements LoopraPreflightHost {
@@ -40,15 +38,8 @@ final class HitlController implements LoopraPreflightHost {
     private volatile DefaultLoopContext suspendedCutinContext;
     private volatile AgentLoop.LoopState suspendedCutinState;
 
-    /** AI 工具调用校验器（tool-call-validator），不通过时回退人工审批。 */
-    private volatile ToolCallValidator toolCallValidator;
-
     HitlController(AgentLoop loop) {
         this.loop = loop;
-    }
-
-    void toolCallValidator(ToolCallValidator validator) {
-        this.toolCallValidator = Objects.requireNonNull(validator, "toolCallValidator must not be null");
     }
 
     @Override
@@ -129,63 +120,18 @@ final class HitlController implements LoopraPreflightHost {
                 toolCalls, loop.messagesForToolCallNormalization());
         String content = response.message().content();
         String reasoning = CutinStreamSupport.metadataString(response.message(), "reasoning_content");
+        ToolApprovalReviewer.Decision decision = loop.toolApprovalReviewer().review(toolCalls);
+        if (decision.approved()) return null;
+
+        loop.safeOutput("toolReview", () -> loop.getOutput().onLog(LogLevel.WARN,
+                "[tool-review/" + decision.reviewer() + "] " + decision.reason()));
         HitlManager hitlManager = loop.getHitlManager();
-        if (!hitlManager.isHitlMode() || !hitlManager.requiresHITL(toolCalls)) {
-            return null;
+        if (decision.verdict() == ToolApprovalReviewer.Verdict.SANDBOX) {
+            hitlManager.setSandboxPending(toolCalls, decision.reason());
+            hitlManager.storeSandboxContent(content, reasoning);
+            return hitlManager.interceptForSandboxHITL(loop.getOutput());
         }
-
-        if (toolCallValidator.enabled()) {
-            ToolCallValidator.Decision decision = validateHITLToolCalls(toolCalls);
-            if (decision.requiresHuman()) {
-                hitlManager.setSandboxPending(toolCalls, decision.reason());
-                hitlManager.storeSandboxContent(content, reasoning);
-                return hitlManager.interceptForSandboxHITL(loop.getOutput());
-            }
-            if (decision.failed()) {
-                loop.safeOutput("toolValidator", () -> loop.getOutput().onLog(LogLevel.WARN,
-                        "[tool-validator] " + decision.reason() + "，回退人工审批"));
-                String hitlPrompt = hitlManager.interceptForHITL(
-                        toolCalls, content, reasoning, loop.getOutput());
-                return hitlPrompt;
-            }
-            if (!decision.allowed()) {
-                String denyMsg = "工具调用未通过 AI 审批: " + decision.reason();
-                loop.safeOutput("toolValidator", () -> loop.getOutput().onLog(LogLevel.WARN,
-                        "[tool-validator] " + denyMsg));
-                loop.ctx().addAssistant(denyMsg, null, null);
-                return denyMsg;
-            }
-            loop.safeOutput("toolValidator", () -> loop.getOutput().onLog(LogLevel.INFO,
-                    "[tool-validator] AI 审批通过，继续执行工具调用"));
-            return null;
-        }
-        return hitlManager.interceptForHITL(toolCalls, content, reasoning, loop.getOutput());
-    }
-
-    ToolCallValidator.Decision validateHITLToolCalls(ONode toolCalls) {
-        if (toolCalls == null || !toolCalls.isArray()) {
-            return ToolCallValidator.Decision.deny("工具调用格式无效");
-        }
-        for (ONode node : toolCalls.getArray()) {
-            ToolCall toolCall = CutinStreamSupport.getToolCall(node);
-            if (toolCall.getName() == null || toolCall.getName().isBlank()) {
-                return ToolCallValidator.Decision.deny("工具名称为空");
-            }
-            ToolCallValidator.Decision decision = toolCallValidator.validate(
-                    toolCall.getName(), ONode.ofBean(toolCall.getArguments()).toJson());
-            if (decision.requiresHuman()) {
-                return ToolCallValidator.Decision.requireHuman(
-                        toolCall.getName() + ": " + decision.reason());
-            }
-            if (decision.failed()) {
-                return ToolCallValidator.Decision.failed(
-                        toolCall.getName() + ": " + decision.reason());
-            }
-            if (!decision.allowed()) {
-                return ToolCallValidator.Decision.deny(toolCall.getName() + ": " + decision.reason());
-            }
-        }
-        return ToolCallValidator.Decision.allow();
+        return hitlManager.requestApproval(toolCalls, content, reasoning, loop.getOutput(), decision.reason());
     }
 
     /**

@@ -142,6 +142,7 @@ public class AgentLoop implements
     private final TurnExitController turnExitController = new TurnExitController(this);
     @Getter
     private final HitlManager hitlManager;
+    private final ToolApprovalReviewer toolApprovalReviewer;
 
     @Setter
     private SessionUsageSink sessionUsageSink;
@@ -276,6 +277,10 @@ public class AgentLoop implements
         return turnExitController;
     }
 
+    ToolApprovalReviewer toolApprovalReviewer() {
+        return toolApprovalReviewer;
+    }
+
     HitlController hitlController() {
         return hitlController;
     }
@@ -290,7 +295,6 @@ public class AgentLoop implements
         this.config = config;
         this.terminateOnNoToolCall = config == null || config.terminateOnNoToolCall();
         this.hitlManager = new HitlManager("free");
-        this.hitlManager.setConfig(config);
         this.stormBreaker = StormBreaker.fromConfig(config);
         this.usageReporter = new UsageReporter(this::lastPromptTokens, this::getSessionUsageSink,
                 modelProvider::getModel, this::listener, this::getOutput);
@@ -303,8 +307,8 @@ public class AgentLoop implements
         Path executionRoot = registry.getEnvironment() == null
                 ? null
                 : registry.getEnvironment().executionRoot();
-        hitlController.toolCallValidator(ToolCallValidator.fromConfig(config, executionRoot));
         this.cutinEngine = new DefaultLoopEngine(registry.cutinRegistry(), new ModelRegistry());
+        this.toolApprovalReviewer = new ToolApprovalReviewer(this, ToolCallValidator.fromConfig(config, executionRoot));
         this.cutinEngine.registrar().addModelProvider(modelProvider);
         this.cutinPlugins = createCutinPlugins();
     }
@@ -411,7 +415,7 @@ public class AgentLoop implements
 
     /** 仅测试注入：覆盖由配置生成的工具调用校验器，避免为测试保留专用构造器。 */
     void setToolCallValidator(ToolCallValidator toolCallValidator) {
-        hitlController.toolCallValidator(toolCallValidator);
+        toolApprovalReviewer.setAiReviewer(toolCallValidator);
     }
 
     void disposeCutinPlugins() {
@@ -1088,6 +1092,9 @@ public class AgentLoop implements
                             : afterBatch.decision().reason());
         }
         ctx.setLatestAssistantFileChanges(ter.fileChanges());
+        // 越界授权只用于本次重放，下一批工具必须重新按其自身目标判定。
+        context.putArtifact("loopraSandboxResume", Boolean.FALSE);
+        context.putVariable("loopraSandboxApproved", Boolean.FALSE);
         return completeToolStep(context, ter);
     }
 
@@ -1127,10 +1134,6 @@ public class AgentLoop implements
 
     ToolExecutionResult executeToolCalls(ONode toolCalls, DefaultLoopContext cutinContext) {
         return toolDispatcher.executeToolCalls(toolCalls, cutinContext);
-    }
-
-    ToolCallValidator.Decision validateHITLToolCalls(ONode toolCalls) {
-        return hitlController.validateHITLToolCalls(toolCalls);
     }
 
     // ==================== 内部辅助 ====================

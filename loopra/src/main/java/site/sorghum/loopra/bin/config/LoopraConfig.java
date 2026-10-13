@@ -668,8 +668,8 @@ public class LoopraConfig implements AgentConfig {
      * 获取 HITL（Human-In-The-Loop）模式。
      * <ul>
      *   <li>{@code "free"} — 自由模式，所有工具直接执行，无需审批</li>
-     *   <li>{@code "approval"} — 审批模式，非只读工具执行前需用户审批</li>
-     *   <li>{@code "auto"} — 自动模式，自动批准所有工具调用</li>
+     *   <li>{@code "approval"} — 按需审批，普通工作区读写自动放行，越界及无法确认范围的操作需审批</li>
+     *   <li>{@code "auto"} — 自动审批，按需审批规则后追加 AI 审核，不通过时转人工</li>
      * </ul>
      * <p>向后兼容旧的 boolean 配置：{@code true → "approval"}，{@code false → "free"}。</p>
      * 未配置时默认 {@code "free"}。
@@ -686,18 +686,8 @@ public class LoopraConfig implements AgentConfig {
     }
 
     /**
-     * 获取 HITL 自动模式的工具白名单。
-     * <p>
-     * 仅在 hitl 模式为 {@code "auto"} 时生效。
-     * 工具名称匹配白名单中的任一规则时自动放行，否则需走审批流程。
-     * 支持 glob 通配符：{@code *} 匹配任意字符序列。
-     * </p>
-     * <ul>
-     *   <li>{@code "*"} — 匹配所有工具（等同于旧版 auto 行为）</li>
-     *   <li>{@code "read_*"} — 匹配以 "read_" 开头的工具</li>
-     *   <li>{@code "finish"} — 精确匹配 "finish" 工具</li>
-     * </ul>
-     * <p>未配置或为空时返回空列表，auto 模式下所有非免审工具需走审批。</p>
+     * 读取旧版 HITL 工具白名单，保留配置兼容性。
+     * 当前自动审批使用按需审批规则 + AI 审核，此列表不再绕过审核链。
      */
     public List<String> autoWhitelist() {
         ONode arr = root.select("$.autoWhitelist");

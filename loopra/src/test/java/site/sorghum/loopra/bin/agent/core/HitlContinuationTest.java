@@ -37,8 +37,8 @@ class HitlContinuationTest {
         };
         registry.setDisabledTools(Set.of());
         registry.setEnvironment(SessionEnvironment.local(Paths.get(".").toAbsolutePath()));
-        registry.register(new FunctionToolDesc("read")
-                .description("read")
+        registry.register(new FunctionToolDesc("write")
+                .description("write")
                 .inputSchema("{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}")
                 .returnType(String.class)
                 .doHandle(args -> {
@@ -85,7 +85,7 @@ class HitlContinuationTest {
         ONode call = calls.addNew();
         call.set("id", "call-" + step);
         call.set("index", 0);
-        call.getOrNew("function").set("name", "read");
+        call.getOrNew("function").set("name", "write");
         call.getOrNew("function").set("arguments", "{\"path\":\"file-" + step + "\"}");
         return calls;
     }
