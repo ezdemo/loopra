@@ -1,0 +1,30 @@
+.project-capabilities { display: flex; flex-direction: column; min-width: 0; }
+.project-capabilities .workbench-card-head { display: flex; align-items: center; gap: .5rem; }
+.project-capabilities .workbench-card-head strong { flex-shrink: 0; }
+.project-capabilities .workbench-card-head .section-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
+.spin { animation: capabilities-spin .8s linear infinite; }
+@keyframes capabilities-spin { to { transform: rotate(360deg); } }
+.capabilities-summary { display: flex; align-items: baseline; gap: .75rem; margin: .75rem; padding-bottom: .5rem; border-bottom: 1px solid var(--line); color: var(--secondary); font-size: .6875rem; }
+.capabilities-summary span { display: inline-flex; align-items: baseline; gap: .25rem; }
+.capabilities-summary strong { color: var(--text); font-size: .8125rem; font-weight: 600; }
+.capability-list { list-style: none; display: flex; flex-direction: column; }
+.capability-row { display: flex; align-items: center; gap: .5rem; min-width: 0; padding: .4rem 0; }
+.capability-row:hover { background: var(--hover); border-radius: .375rem; }
+.capability-row details { width: 100%; min-width: 0; }
+.capability-row summary { display: flex; align-items: center; gap: .5rem; cursor: pointer; list-style: none; }
+.capability-row summary::-webkit-details-marker { display: none; }
+.capability-dot { width: .375rem; height: .375rem; flex: 0 0 .375rem; border-radius: 50%; background: var(--secondary); opacity: .55; }
+.capability-dot.project { opacity: .85; }
+.capability-dot.loaded { background: #4c8a68; opacity: 1; }
+.capability-main { flex: 1; min-width: 0; display: grid; }
+.capability-main strong, .capability-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capability-main strong { font-size: .75rem; font-weight: 600; }
+.capability-main small, .capability-detail, .mcp-failed { color: var(--secondary); font-size: .6875rem; }
+.mcp-status { flex: 0 0 auto; font-size: .6875rem; color: var(--secondary); }
+.mcp-status.loaded { color: #4c8a68; }
+.capability-detail { padding: .25rem 0 .375rem 1rem; }
+.mcp-tools { display: flex; flex-wrap: wrap; gap: .25rem .5rem; margin: 0; color: inherit; font-size: inherit; }
+.mcp-tools code { padding: 0; background: transparent; color: inherit; font-size: inherit; }
+.mcp-failed { margin: 0; }
+[data-theme="dark"] .capability-dot.loaded { background: #84b995; }
+[data-theme="dark"] .mcp-status.loaded { color: #84b995; }

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@nextui-org/react';
 import { ArrowLeft, ChevronRight, Copy, Download, Plus, Trash2 } from 'lucide-react';
 import type { AgentSettings } from '../settings-data';
-import { validateProvider } from '../settings-data';
+import { applyProviderPreset, providerPresetFor, providerPresets, validateProvider } from '../settings-data';
 import type { Provider } from '../lib';
 import { getModelCatalog, newModel, providerModels, type ComposerOptions } from '../composer';
 import { Enter } from './Motion';
@@ -38,7 +38,7 @@ export default function ModelProviderSettings(props: Props) {
   if (editing) return <Enter key={editing.id || 'new'}>
     <PageHeader title={editing.id ? '编辑模型供应商' : '添加模型供应商'} description="配置保存到 Loopra 后端，密钥保留在后端配置文件中。"><Button isIconOnly variant="light" aria-label="返回模型列表" onPress={() => setEditing(null)}><ArrowLeft size="1.125rem" /></Button></PageHeader>
     <form className="rich-settings-form" onSubmit={event => { event.preventDefault(); save(); }}>
-      <div className="settings-field-grid"><Field label="供应商名称" value={editing.name} onChange={name => setEditing({ ...editing, name })} placeholder="例如：我的模型渠道" /><Field label="API 地址" value={editing.baseUrl || ''} onChange={baseUrl => updateConnection({ baseUrl })} placeholder="https://api.example.com/v1" />
+      <div className="settings-field-grid"><SelectField label="常用服务商（自动填入地址）" value={providerPresetFor(editing.baseUrl)} onChange={name => { const preset = providerPresets.find(item => item.name === name); if (preset) setEditing(applyProviderPreset(editing, preset)); }} options={[{ value: '', label: '自定义地址' }, ...providerPresets.map(preset => preset.name)]} /><Field label="供应商名称" value={editing.name} onChange={name => setEditing({ ...editing, name })} placeholder="例如：我的模型渠道" /><Field label="API 地址" value={editing.baseUrl || ''} onChange={baseUrl => updateConnection({ baseUrl })} placeholder="https://api.example.com/v1" />
         <SelectField label="API 协议" value={editing.type} onChange={type => updateConnection({ type })} options={['responses', 'chat_completions', 'anthropic']} /><SelectField label="特殊兼容" value={editing.compatibility || ''} onChange={compatibility => updateConnection({ compatibility })} options={[{ value: '', label: '无' }, { value: 'opencode', label: 'OpenCode 兼容' }]} />
         <Field label="API 密钥" type="password" value={editing.apiKey || ''} onChange={apiKey => updateConnection({ apiKey })} placeholder="已保存的密钥会脱敏显示；留空保留原密钥" />
       </div>

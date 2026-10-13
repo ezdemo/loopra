@@ -11,7 +11,7 @@ export type AgentSettings = {
   codeFontSize: number; defaultWorkspace: string; projectPath: string; agentName: string; systemPrompt: string;
   serverUrl: string; browserEnabled: boolean; browser: string; headless: boolean;
   validatorModel: string; imageModel: string; tools: ToolConfig[]; skills: SkillConfig[]; agents: AgentProfile[];
-  integrations: Integration[]; plugins: Extension[]; extensions: Extension[]; petEnabled: boolean; petStyle: string;
+  integrations: Integration[]; plugins: Extension[]; extensions: Extension[]; petEnabled: boolean;
 };
 export const defaultSystemPrompt = '# Loopra\n\n你是一位编程助手。先理解需求与现有代码，再给出清晰、可验证的解决方案。\n保持现有项目风格，说明改动与验证结果。';
 export const defaultTools: ToolConfig[] = [
@@ -46,7 +46,7 @@ export const defaultAgentSettings: AgentSettings = {
     { id: 'browser', name: '浏览器工具', description: '页面预览与交互检查', enabled: true },
   ],
   extensions: [{ id: 'core', name: 'Loopra Core', description: '基础 Agent 能力 · 内置演示', enabled: true }],
-  petEnabled: false, petStyle: 'Loopra 蓝',
+  petEnabled: false,
 };
 
 export function availableTools(settings: AgentSettings, mode: string) {
@@ -69,6 +69,29 @@ export function runtimeSnapshot(settings: AgentSettings, workspace: string, opti
     ...(settings.imageModel ? [`图片理解模型：${settings.imageModel}`] : []),
   ];
 }
+// Preset endpoints from legacy `views/Settings.vue` (AI模型自动填入 → 选择服务商).
+export type ProviderPreset = { name: string; baseUrl: string; type: string; compatibility?: string };
+export const providerPresets: ProviderPreset[] = [
+  { name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', type: 'chat_completions' },
+  { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', type: 'chat_completions' },
+  { name: '小米', baseUrl: 'https://api.xiaomimimo.com/v1', type: 'chat_completions' },
+  { name: '小米TokenPlan', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', type: 'chat_completions' },
+  { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', type: 'chat_completions' },
+  { name: 'OpenCode Go', baseUrl: 'https://opencode.ai/zen/go/v1', type: 'chat_completions', compatibility: 'opencode' },
+];
+
+/** Which preset the current address came from (empty when the user typed it). */
+export function providerPresetFor(baseUrl?: string) {
+  const normalized = (baseUrl || '').trim().replace(/\/+$/, '');
+  if (!normalized) return '';
+  return providerPresets.find(preset => preset.baseUrl.replace(/\/+$/, '') === normalized)?.name || '';
+}
+
+/** Filling a preset keeps a name the user already typed, like the legacy dialog. */
+export function applyProviderPreset(provider: Provider, preset: ProviderPreset): Provider {
+  return { ...provider, name: provider.name?.trim() ? provider.name : preset.name, baseUrl: preset.baseUrl, type: preset.type, compatibility: preset.compatibility || '' };
+}
+
 export function validateProvider(provider: Provider) {
   if (!provider.name.trim()) return '请输入供应商名称';
   if (provider.baseUrl) { try { if (!['http:', 'https:'].includes(new URL(provider.baseUrl).protocol)) return '请输入有效的 HTTP / HTTPS API 地址'; } catch { return '请输入有效的 HTTP / HTTPS API 地址'; } }

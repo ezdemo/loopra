@@ -12,7 +12,7 @@ export function useLocalState<T>(key: string, initial: T) {
   return [value, setValue] as const;
 }
 
-export type Session = { id: string; title: string; workspace: string; kind: 'api' | 'repair' | 'demo' | 'mock' | 'remote'; messages: Message[]; archived?: boolean; name?: string; workspaceHash?: string; mtime?: number };
+export type Session = { id: string; title: string; workspace: string; kind: 'api' | 'repair' | 'demo' | 'mock' | 'remote'; messages: Message[]; archived?: boolean; name?: string; workspaceHash?: string; mtime?: number; messageCount?: number; worktreeMode?: boolean };
 
 export function getSessionMessages(session: Session): Message[] {
   return [...(session.kind === 'mock' || session.kind === 'remote' ? [] : demoMessages[session.kind]), ...session.messages];

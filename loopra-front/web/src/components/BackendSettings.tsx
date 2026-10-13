@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Button, Spinner } from '@nextui-org/react';
-import { FolderClosed, RefreshCw } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Button } from '@nextui-org/react';
 import { LoopraClient, serverAddress, type Workspace } from '../backend';
-import { EmptySetting, Field, PageHeader, SettingRow, SettingSwitch } from './SettingControls';
+import { EmptySetting, Field, PageHeader, SettingRow } from './SettingControls';
+import { ConfirmAction } from './RemoteControls';
 
 export function BackendServer({ server, onSave }: { server: string; onSave: (server: string) => void }) {
   const [url, setUrl] = useState(server);
@@ -17,51 +17,47 @@ export function BackendServer({ server, onSave }: { server: string; onSave: (ser
   return <><PageHeader title="服务器" description="连接本地 Loopra Web 服务，聊天与配置直接读写后端。" /><form className="settings-card rich-settings-card rich-settings-form" onSubmit={event => { event.preventDefault(); void check(true); }}><Field label="后端 API 地址" value={url} onChange={setUrl} placeholder="http://127.0.0.1:4567" /><p className="section-note" role="status">{state || `当前地址：${server}`}</p><div className="settings-save-row"><Button variant="flat" isLoading={busy} onPress={() => void check(false)}>检查连接</Button><Button type="submit" color="primary" isDisabled={busy}>保存并连接</Button></div></form></>;
 }
 
-export function BackendProjects({ server, workspaces, onRefresh }: { server: string; workspaces: Workspace[]; onRefresh: () => Promise<void> }) {
+export function BackendProjects({ server, workspaces, sessions = [], onRefresh }: { server: string; workspaces: Workspace[]; sessions?: { workspaceHash?: string }[]; onRefresh: () => Promise<void> }) {
+  const api = useMemo(() => new LoopraClient(server), [server]);
   const [path, setPath] = useState('');
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [removing, setRemoving] = useState<Workspace>();
+  const [clearing, setClearing] = useState<Workspace>();
+  const [days, setDays] = useState(30);
+  const countFor = (hash: string) => sessions.filter(item => item.workspaceHash === hash).length;
+  async function run(label: string, task: () => Promise<unknown>, after: () => void) {
+    setBusy(label); setError('');
+    try { await task(); await onRefresh(); after(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : `${label}失败`); }
+    finally { setBusy(''); }
+  }
   async function add() {
-    setBusy(true); setError('');
-    try { await new LoopraClient(server).request('/workspace', 'POST', { path: path.trim() }); await onRefresh(); setPath(''); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : '添加失败'); }
-    finally { setBusy(false); }
+    await run('添加项目', () => api.request('/workspace', 'POST', { path: path.trim() }), () => setPath(''));
   }
-  return <><PageHeader title="项目" description="项目与会话保存在 Loopra 后端，可在侧栏选择工作区。" /><div className="settings-card">{workspaces.map(item => <SettingRow key={item.hash} title={item.name} description={item.path}><FolderClosed size="1.25rem" /></SettingRow>)}</div><h2>添加本地项目</h2><form className="rich-settings-form" onSubmit={event => { event.preventDefault(); void add(); }}><Field label="项目绝对路径" value={path} onChange={setPath} placeholder="C:\Projects\my-app" />{error && <p className="settings-error" role="alert">{error}</p>}<div className="settings-save-row"><Button type="submit" color="primary" isLoading={busy} isDisabled={!path.trim()}>添加项目</Button></div></form></>;
-}
-
-const resources: Record<string, string> = { '子代理': '/sub-agents', '技能': '/agent/skills', '插件': '/plugins', '拓展包': '/extpacks', 'OpenAPI': '/openapi/sources', 'MCP 服务器': '/mcp/servers', 'LSP 服务器': '/lsp/servers', '数据面板': '/usage/dashboard?days=30' };
-type Resource = { id?: string; name?: string; displayName?: string; description?: string; remark?: string; command?: string; docUrl?: string; enabled?: boolean; enable?: boolean; installed?: boolean; tools?: unknown[] };
-export function BackendResources({ tab, server }: { tab: string; server: string }) {
-  const api = useMemo(() => new LoopraClient(server), [server]);
-  const [items, setItems] = useState<Resource[]>([]);
-  const [metrics, setMetrics] = useState<Record<string, number>>({});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function load(signal?: AbortSignal) {
-    setBusy(true); setError('');
-    try {
-      const data = await api.request<Resource[] | Record<string, number>>(resources[tab], 'GET', undefined, signal);
-      if (signal?.aborted) return;
-      if (Array.isArray(data)) setItems(data); else setMetrics(data);
-    } catch (cause) { if (!signal?.aborted) setError(cause instanceof Error ? cause.message : '加载失败'); }
-    finally { if (!signal?.aborted) setBusy(false); }
+  // ProjectCatalog applies the saved order, so persisting the swapped array is enough.
+  function move(index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= workspaces.length) return;
+    const next = [...workspaces];
+    [next[index], next[target]] = [next[target], next[index]];
+    void run('调整排序', () => api.request('/workspaces/order', 'PUT', next.map(item => item.hash)), () => {});
   }
-  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [api, tab]);
-  async function toggle(item: Resource, enabled: boolean) {
-    setBusy(true); setError('');
-    try {
-      if (tab === '插件' || tab === '拓展包') await api.request(`${tab === '插件' ? '/plugins' : '/extpacks'}/${encodeURIComponent(item.id || '')}/toggle`, 'POST', { enabled });
-      else await api.request(`${tab === 'MCP 服务器' ? '/mcp' : '/lsp'}/servers/toggle`, 'POST', { name: item.name, enabled });
-      await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败'); setBusy(false); }
-  }
-  const canToggle = ['插件', '拓展包', 'MCP 服务器', 'LSP 服务器'].includes(tab);
-  return <><PageHeader title={tab} description="读取 Loopra 当前配置与运行状态。"><Button isIconOnly size="sm" variant="light" aria-label={`刷新${tab}`} isDisabled={busy} onPress={() => void load()}><RefreshCw size="1rem" /></Button></PageHeader>
-    {error && <p role="alert" className="settings-error">{error}</p>}
-    {busy && <Spinner size="sm" />}
-    {tab === '数据面板' ? <div className="settings-metrics">{[['请求次数', 'totalRequests'], ['输入 Token', 'totalPromptTokens'], ['输出 Token', 'totalCompletionTokens'], ['缓存命中', 'totalCacheHit'], ['总费用', 'totalCost'], ['活跃天数', 'activeDays']].map(([label, key]) => <div className="settings-metric" key={key}><span>{label}</span><strong>{(metrics[key] || 0).toLocaleString()}</strong></div>)}</div> : <div className="settings-card">{items.map((item, index) => <SettingRow key={item.id || item.name || String(index)} title={item.displayName || item.name || item.docUrl || `配置 ${index + 1}`} description={item.description || item.remark || item.command || (item.tools ? `${item.tools.length} 个工具` : undefined)}>{canToggle && typeof item.enabled === 'boolean' ? <SettingSwitch label={`启用：${item.displayName || item.name}`} value={item.enabled} onChange={enabled => void toggle(item, enabled)} /> : <span className="tag">{item.enable === false ? '已停用' : '已配置'}</span>}</SettingRow>)}</div>}
-    {!busy && !error && tab !== '数据面板' && !items.length && <EmptySetting>Loopra 暂无{tab}配置</EmptySetting>}
-    <p className="section-note">新增、编辑及高级配置可在 <a href={`${server}/legacy.html`} target="_blank" rel="noreferrer">Loopra 高级控制台</a> 中管理，保存后点击刷新同步。</p>
+  return <><PageHeader title="项目" description="项目与会话保存在 Loopra 后端，可在侧栏选择工作区。" />
+    {workspaces.length ? <div className="settings-card">{workspaces.map((item, index) => <SettingRow key={item.hash} title={item.name} description={`${item.path} · ${countFor(item.hash)} 个会话`}>
+      <div className="workbench-actions">
+        <Button isIconOnly size="sm" variant="light" aria-label={`上移 ${item.name}`} isDisabled={!!busy || index === 0} onPress={() => move(index, -1)}>↑</Button>
+        <Button isIconOnly size="sm" variant="light" aria-label={`下移 ${item.name}`} isDisabled={!!busy || index === workspaces.length - 1} onPress={() => move(index, 1)}>↓</Button>
+        <Button size="sm" variant="light" isDisabled={!!busy} onPress={() => setClearing(item)}>清空会话</Button>
+        <Button size="sm" variant="light" color="danger" isDisabled={!!busy} onPress={() => setRemoving(item)}>移除</Button>
+      </div>
+    </SettingRow>)}</div> : <EmptySetting>{'Loopra 还没有项目，添加一个本地目录即可开始。'}</EmptySetting>}
+    <h2>添加本地项目</h2><form className="rich-settings-form" onSubmit={event => { event.preventDefault(); void add(); }}><Field label="项目绝对路径" value={path} onChange={setPath} placeholder="C:\Projects\my-app" />{error && <p className="settings-error" role="alert">{error}</p>}<div className="settings-save-row"><Button type="submit" color="primary" isLoading={busy === '添加项目'} isDisabled={!path.trim()}>添加项目</Button></div></form>
+    <h2>清理过期会话</h2>
+    <div className="settings-card"><SettingRow title="保留最近" description="删除所有工作区中早于该时间的会话记录（磁盘文件与缓存）">
+      <div className="workbench-actions"><select aria-label="保留天数" value={days} onChange={event => setDays(Number(event.target.value))}>{[7, 14, 30, 90, 365].map(value => <option key={value} value={value}>近 {value} 天</option>)}</select><Button size="sm" variant="light" isLoading={busy === '清理过期会话'} onPress={() => void run('清理过期会话', async () => { const before = Date.now() - days * 86400000; const results = await Promise.allSettled(workspaces.map(item => api.request(`/sessions/cleanup?workspaceHash=${encodeURIComponent(item.hash)}&before=${before}`, 'DELETE'))); const failed = results.filter(result => result.status === 'rejected'); if (failed.length) throw new Error(`${failed.length} 个工作区清理失败`); }, () => {})}>清理过期会话</Button></div>
+    </SettingRow></div>
+    {removing && <ConfirmAction title="移除项目" onClose={() => setRemoving(undefined)} action={() => api.request(`/workspaces/${encodeURIComponent(removing.hash)}`, 'DELETE')} onDone={() => void onRefresh()}><p>从 Loopra 移除项目 {removing.name}？磁盘上的文件不会被删除，会话记录会一并移除。</p></ConfirmAction>}
+    {clearing && <ConfirmAction title="清空会话" onClose={() => setClearing(undefined)} action={() => api.request(`/sessions?workspaceHash=${encodeURIComponent(clearing.hash)}`, 'DELETE')} onDone={() => void onRefresh()}><p>清空 {clearing.name} 下的全部 {countFor(clearing.hash)} 个会话？此操作不可恢复。</p></ConfirmAction>}
   </>;
 }

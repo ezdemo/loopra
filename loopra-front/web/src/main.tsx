@@ -7,6 +7,12 @@ import './chat-blocks.css';
 import './motion.css';
 import './composer.css';
 import './settings.css';
+import './sessions.css';
+import './help.css';
+import './pets.css';
+import './workbench.css';
+import './capabilities.css';
+import './requirements.css';
 
 async function initialize() {
   // Keep explicit browser preferences; otherwise migrate the original console's

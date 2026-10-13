@@ -15,7 +15,9 @@ import site.sorghum.loopra.bin.agent.prompt.DEFAULT_PROMPT;
 import site.sorghum.loopra.bin.agent.prompt.EnvInfoUtil;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -88,6 +90,20 @@ public final class LoopraPromptPlugin implements LoopPlugin {
 
     private void registerBuiltIns() {
         PromptSliceProvider core = ctx -> PromptSlice.of("core-identity", DEFAULT_PROMPT.PROMPT, 100);
+        // 用户级 ~/.loopra/loopra.md：旧路径由 AgentService.loadDefaultSystemPrompt 拼在 core 之后，
+        // 插件化后由本切片补齐，保证设置页保存的「系统提示词」仍然生效。
+        PromptSliceProvider userPrompt = ctx -> {
+            Path homePrompt = Paths.get(System.getProperty("user.home"), ".loopra", "loopra.md");
+            if (!Files.isRegularFile(homePrompt)) return null;
+            try {
+                String content = Files.readString(homePrompt);
+                if (content == null || content.isBlank()) return null;
+                return PromptSlice.of("user-prompt", content.trim(), 200);
+            } catch (Exception e) {
+                log.debug("[prompt] 读取用户级 ~/.loopra/loopra.md 失败: {}", e.getMessage());
+                return null;
+            }
+        };
         PromptSliceProvider skill = ctx -> {
             // 与旧路径 SolonToolScanProvider.getSkillToolDescription 完全一致：
             // LoopraSkillProvider 系统提示 + Solon context 中全部 SolonToTools bean 的提示
@@ -127,6 +143,7 @@ public final class LoopraPromptPlugin implements LoopPlugin {
             return PromptSlice.of("project-doc", d.trim(), 900);
         };
         builtIns.add(core);
+        builtIns.add(userPrompt);
         builtIns.add(skill);
         builtIns.add(env);
         builtIns.add(toolContract);

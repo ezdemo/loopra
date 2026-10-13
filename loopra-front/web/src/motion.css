@@ -4,7 +4,6 @@
 .send-button:not(:disabled):hover { box-shadow: 0 0.1875rem 0.625rem #2083ff26; }
 .content-collapse, .code-preview { overflow: hidden; min-width: 0; }
 .sidebar, .changes-panel, .terminal-panel { overflow: hidden; }
-.terminal-output { height: 12.8125rem; }
 .disclosure-heading { width: 100%; text-align: left; }
 .loopra-conversation .compacted-summary > .disclosure-heading { font: inherit; }
 .session-item, .settings-nav button, .file-view-toggle button, .segmented > button { position: relative; isolation: isolate; }

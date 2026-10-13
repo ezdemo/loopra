@@ -1,4 +1,4 @@
-import { createContext, useContext, useId, useLayoutEffect, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { NextUIProvider } from '@nextui-org/react';
 import { MotionGlobalConfig } from 'framer-motion';
@@ -42,17 +42,29 @@ export function Collapse({ open, children, className, id }: { open: boolean; chi
   return open ? <div className="content-collapse"><div id={id} className={className}>{children}</div></div> : null;
 }
 
+/** Legacy `loopra:collapse-all-blocks` bridge: the chat toolbar folds every block. */
+export function useCollapseAll(collapse: () => void) {
+  const handler = useRef(collapse);
+  useEffect(() => { handler.current = collapse; });
+  useEffect(() => {
+    const listener = () => handler.current();
+    window.addEventListener('loopra:collapse-all-blocks', listener);
+    return () => window.removeEventListener('loopra:collapse-all-blocks', listener);
+  }, []);
+}
+
 export function Disclosure({ children, heading, className, headingClass = 'disclosure-heading' }: { children: ReactNode; heading: ReactNode; className: string; headingClass?: string }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  useCollapseAll(() => setOpen(false));
   return <div className={className} data-open={open}>
     <button type="button" className={headingClass} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>{heading}</button>
     <Collapse open={open} id={id}>{children}</Collapse>
   </div>;
 }
 
-export function Enter({ children, className, as: Component = 'div', style, 'aria-label': label }: { children: ReactNode; className?: string; as?: 'div' | 'article' | 'section'; style?: CSSProperties; 'aria-label'?: string }) {
-  return <Component aria-label={label} className={className} style={style}>{children}</Component>;
+export function Enter({ children, className, as: Component = 'div', style, 'aria-label': label, 'data-message-id': messageId }: { children: ReactNode; className?: string; as?: 'div' | 'article' | 'section'; style?: CSSProperties; 'aria-label'?: string; 'data-message-id'?: string }) {
+  return <Component aria-label={label} className={className} style={style} data-message-id={messageId}>{children}</Component>;
 }
 
 export function SidebarSurface({ children }: { children: ReactNode }) {

@@ -9,7 +9,8 @@ package site.sorghum.loopra.integration.cutin.plugin.prompt;
  *
  * @param id      切片唯一标识，用于去重与调试
  * @param content markdown 内容，为空时该切片被忽略
- * @param order   越小越靠前。约定：0-99 身份、100-299 技能规约、500 环境、900 项目文档
+ * @param order   越小越靠前。约定：0-99 身份、100-299 用户级提示词、300-499 技能规约、
+ *                500 环境、600-899 工具约定、900 项目文档
  */
 public record PromptSlice(String id, String content, int order) {
 

@@ -19,7 +19,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -61,32 +60,6 @@ public class ProjectRegistry {
         } catch (IOException e) {
             log.error("[project] 创建项目目录失败: {}", e.getMessage());
         }
-    }
-
-    /**
-     * 判断路径是否为 JUnit 测试临时目录：位于系统临时目录下，且路径中某一段目录名以 junit 开头。
-     * <p>
-     * JUnit 5 {@code @TempDir} 生成的目录名为 {@code junit{随机数字}}，测试结束目录会被删除，
-     * 但注册表记录不会清理，导致桌面端首页项目列表堆积无用的测试项目。
-     * 命中此类路径时跳过注册（不写 workspace.json），目录结构仍创建以保证 Goal/Checklist 等存储可用。
-     * </p>
-     */
-    static boolean isJunitTempPath(String projectPath) {
-        if (projectPath == null || projectPath.isBlank()) {
-            return false;
-        }
-        Path path = Paths.get(projectPath).toAbsolutePath().normalize();
-        Path tmpDir = Paths.get(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
-        if (!path.startsWith(tmpDir)) {
-            return false;
-        }
-        for (Path part : tmpDir.relativize(path)) {
-            String name = part.getFileName().toString().toLowerCase(Locale.ROOT);
-            if (name.startsWith("junit")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -181,13 +154,6 @@ public class ProjectRegistry {
         // 创建目录结构
         Files.createDirectories(projectDir);
         Files.createDirectories(sessionsDir);
-
-        // 测试临时目录（JUnit @TempDir）不写入注册表，避免污染桌面端首页项目列表；
-        // 目录结构已创建，Goal/Checklist/会话存储仍可用，listProjects() 会跳过无配置的目录。
-        if (isJunitTempPath(projectPath)) {
-            log.info("[project] 跳过测试临时目录注册: {}", projectPath);
-            return;
-        }
 
         // 如果配置文件不存在，创建默认配置
         if (!Files.exists(configPath)) {

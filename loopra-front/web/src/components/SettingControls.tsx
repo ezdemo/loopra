@@ -38,7 +38,7 @@ function useSelectPopover() {
 }
 
 export function SettingRow({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return <div className="setting-row"><div><div className="setting-label">{title}</div>{description && <p>{description}</p>}</div><div className="setting-control">{children}</div></div>;
+  return <div className="setting-row" data-setting-title={title} tabIndex={-1}><div><div className="setting-label">{title}</div>{description && <p>{description}</p>}</div><div className="setting-control">{children}</div></div>;
 }
 export function SettingSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
   return <Switch aria-label={label} isSelected={value} onValueChange={onChange} size="sm" color="primary" className="settings-next-switch" />;

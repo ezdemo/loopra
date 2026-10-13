@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { SseParser, LoopraClient, applyEvent, historyMessages, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { SseParser, LoopraClient, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('SSE preserves fragmented UTF-8, CRLF, comments and multiline frames', () => {
   const events = [];
@@ -184,4 +184,35 @@ test('sub-agent output stays isolated and approvals preserve backend IDs and val
   assert.equal(message.blocks[1].subId, '7');
   assert.equal(message.blocks[1].options[0].value, '/agree');
   assert.equal(message.text, '');
+});
+
+test('encrypted reasoning opens a slot that visible deltas replace', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  message = applyEvent(message, { type: 'reasoning_started' });
+  assert.deepEqual(message.blocks, [{ id: 'reply-0', type: 'reasoning_started', content: '' }]);
+  // Repeated starts collapse into one slot (legacy only pushes when the last
+  // block is a different type).
+  message = applyEvent(message, { type: 'reasoning_started' });
+  assert.equal(message.blocks.length, 1);
+  message = applyEvent(message, { type: 'reasoning', content: '可读思考' });
+  assert.deepEqual(message.blocks, [{ id: 'reply-0', type: 'reasoning', content: '可读思考' }]);
+  // A retry (stream_reset) also drops the empty encrypted slot.
+  message = applyEvent(message, { type: 'reasoning_started' });
+  message = applyEvent(message, { type: 'stream_reset' });
+  assert.deepEqual(message.blocks, []);
+});
+
+test('history marks turns whose reasoning was encrypted', () => {
+  assert.equal(hasEncryptedReasoning(undefined), false);
+  assert.equal(hasEncryptedReasoning('not json'), false);
+  assert.equal(hasEncryptedReasoning({ type: 'reasoning', encrypted_content: '' }), false);
+  assert.equal(hasEncryptedReasoning({ type: 'reasoning', encrypted_content: 'gAAAA' }), true);
+  assert.equal(hasEncryptedReasoning(JSON.stringify({ type: 'reasoning', encrypted_content: 'gAAAA' })), true);
+  const messages = historyMessages([
+    { role: 'user', content: '你好', timestamp: 1 },
+    { role: 'assistant', content: '嗯', response_reasoning: { type: 'reasoning', encrypted_content: 'gAAAA' }, timestamp: 2 },
+  ]);
+  assert.deepEqual(messages[1].blocks.map(block => block.type), ['reasoning_started', 'content']);
+  const plain = historyMessages([{ role: 'assistant', content: '嗯', response_reasoning: { type: 'reasoning', encrypted_content: '' } }]);
+  assert.deepEqual(plain[0].blocks.map(block => block.type), ['content']);
 });

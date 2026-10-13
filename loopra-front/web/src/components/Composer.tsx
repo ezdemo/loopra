@@ -1,24 +1,35 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Star, Trash2, X, Zap } from 'lucide-react';
-import { appendPreset, effortLevels, estimateContext, getModelCatalog, groupModels, initialPresets } from '../composer';
-import type { ComposerContext, ComposerOptions, PromptPreset } from '../composer';
+import { appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, getModelCatalog, groupModels, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, tokenSpeedTitle } from '../composer';
+import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
+import { contextFromUsage, FOLD_THRESHOLD_RATIO, foldThreshold, usagePath, type UsageDTO } from '../usage';
+import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
 import { useLocalState, type Provider } from '../lib';
 import type { LoopraClient, Workspace } from '../backend';
 import { Collapse, Popup } from './Motion';
-import { LoopraMark } from './ui';
+import PetCompanion from './PetCompanion';
+import { petScale, type PetAnimation, type PetReply } from '../pets';
+import type { PetStore } from '../usePets';
 import ReasoningControl from './ReasoningControl';
 
 type Props = {
   home: boolean; language: string; draft: string; onDraft: (text: string) => void;
   inputRef: RefObject<HTMLTextAreaElement>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void | Promise<void>;
-  skillOptions: { name: string; description: string }[]; systemPrompt: string; petEnabled: boolean; petStyle: string;
+  skillOptions: { name: string; description: string }[]; systemPrompt: string; petEnabled: boolean; pets: PetStore; petActivity: PetAnimation;
+  petReply: PetReply | null; latestPetReply: string; onPetClose: () => void;
   context: ComposerContext; onContext: (value: ComposerContext) => void; providers: Provider[];
   workspaces: Workspace[]; connected: boolean;
   api: LoopraClient; workspaceHash: string;
+  sessionName?: string;
   defaultModel: string; onDefaultModel: (id: string) => void; history: string[];
   busy: boolean; generating: boolean; onSend: () => void; onStop: () => void; onContinue: () => void;
+  queue: QueuedMessage[]; onRemoveQueued: (id: string) => void; onGuideQueued: (id: string) => void;
+  remoteRunning: boolean; onStopRemote: () => void;
+  liveSpeed?: LiveSpeed;
   onNew: () => void; onTerminal: () => void; onManage: () => void; onOpen: () => void; notify: (text: string) => void;
+  onExport: () => void; onSessions: () => void;
+  onClear: () => void;
 };
 type Menu = 'models' | 'effort' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context';
 
@@ -38,12 +49,17 @@ export default function Composer(props: Props) {
   const [dragging, setDragging] = useState(false);
   const [popoverHeight, setPopoverHeight] = useState(500);
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([]);
+  const [remoteCommands, setRemoteCommands] = useState<ServerCommand[]>([]);
+  const [remoteSkills, setRemoteSkills] = useState<ServerSkill[]>([]);
+  const [remoteUsage, setRemoteUsage] = useState<UsageDTO | null>(null);
+  // Character counts for large pastes saved to disk, keyed by the saved path.
+  const [pasteChars, setPasteChars] = useState<Record<string, number>>({});
   const dragDepth = useRef(0);
   const root = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const models = getModelCatalog(providers);
   const selected = models.find(model => model.id === options.modelId);
-  const usage = estimateContext(props.history, draft, context, selected?.contextTokens, props.systemPrompt);
+  const usage = contextFromUsage(remoteUsage, estimateContext(props.history, draft, context, selected?.contextTokens, props.systemPrompt));
   const effortIndex = effortLevels.findIndex(level => level.value === options.effort);
   const effort = effortLevels[effortIndex];
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => onOptions({ ...options, [key]: value });
@@ -57,19 +73,93 @@ export default function Composer(props: Props) {
   function focusInput() { requestAnimationFrame(() => inputRef.current?.focus()); }
   async function addFiles(files: FileList | File[]) {
     const attachments = [...(context.attachments || [])];
+    let imageCount = attachments.filter(file => file.image).length;
+    let docCount = attachments.length - imageCount;
+    let limitNotified = false;
     for (const file of Array.from(files)) {
-      if (file.size > 5 * 1024 * 1024) { notify(`${file.name} 超过 5 MB，请缩小后上传`); continue; }
-      if (file.type.startsWith('image/')) {
-        const image = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
-        attachments.push({ name: file.name, image });
-      } else if (file.type.startsWith('text/') || /\.(md|txt|json|csv|log|[cm]?[jt]sx?|py|java|html|css|ya?ml|xml|sh|ps1|sql|vue|rs|go|c|cpp|h)$/i.test(file.name)) attachments.push({ name: file.name, text: await file.text() });
-      else { notify(`${file.name} 暂不支持，请使用图片或文本文件`); }
+      const kind = fileKind(file.name, file.type);
+      if (kind === 'unsupported') { notify(`${file.name} 暂不支持，请使用图片、文本、PDF、Word 或 Excel`); continue; }
+      if (attachmentLimitReached(imageCount, docCount, kind)) {
+        if (!limitNotified) {
+          notify(kind === 'image' ? `图片数量已达上限（${MAX_IMAGE_COUNT} 张）` : `上传文件数量已达上限（${MAX_UPLOAD_FILES} 个）`);
+          limitNotified = true;
+        }
+        continue;
+      }
+      const limit = kind === 'text' ? MAX_TEXT_FILE_SIZE : kind === 'image' ? 5 * 1024 * 1024 : MAX_DOC_FILE_SIZE;
+      if (file.size > limit) { notify(`${file.name} 超过大小限制（${kind === 'text' ? '512KB' : kind === 'image' ? '5MB' : '30MB'}）`); continue; }
+      try {
+        if (kind === 'image') {
+          const image = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
+          attachments.push({ name: file.name, image, size: file.size });
+          imageCount += 1;
+        } else {
+          attachments.push({ name: file.name, text: await extractDocumentText(file), size: file.size });
+          docCount += 1;
+        }
+      } catch (error) {
+        notify(`${file.name} 解析失败：${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     onContext({ ...context, files: [...new Set([...context.files, ...attachments.map(file => file.name)])], attachments });
+  }
+  // Large plain-text pastes are saved into the project instead of the draft.
+  async function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files: File[] = [];
+    for (const item of Array.from(event.clipboardData?.items || [])) {
+      if (item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+    if (files.length) { event.preventDefault(); await addFiles(files); return; }
+    const text = event.clipboardData?.getData('text/plain') || '';
+    if (!props.workspaceHash || text.length <= LARGE_PASTE_THRESHOLD_CHARS) return;
+    event.preventDefault();
+    try {
+      const saved = await props.api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: props.workspaceHash, content: text });
+      if (!saved?.path) throw new Error('服务端未返回文件路径');
+      onContext({ ...context, files: [...new Set([...context.files, saved.path])] });
+      setPasteChars(current => ({ ...current, [saved.path]: Number(saved.chars) || text.length }));
+      notify(`大段粘贴已保存为 ${saved.path}`);
+    } catch (error) {
+      onDraft(draft ? `${draft}\n\n${text}` : text);
+      notify(`大段粘贴内容保存失败：${error instanceof Error ? error.message : String(error)}，已恢复原文`);
+    }
   }
   function toggleContext(key: 'projects' | 'skills', value: string) {
     onContext({ ...context, [key]: context[key].includes(value) ? context[key].filter(item => item !== value) : [...context[key], value] });
   }
+  // Slash commands and skills live on the backend; fetch once per client.
+  useEffect(() => {
+    const controller = new AbortController();
+    void props.api.request<ServerCommand[]>('/agent/commands', 'GET', undefined, controller.signal)
+      .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteCommands(list); }).catch(() => {});
+    void props.api.request<ServerSkill[]>('/agent/skills', 'GET', undefined, controller.signal)
+      .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteSkills(list); }).catch(() => {});
+    return () => controller.abort();
+  }, [props.api]);
+  // Prompt presets are server-side config; the local cache is only a fallback.
+  useEffect(() => {
+    const controller = new AbortController();
+    void props.api.request<ServerPreset[]>('/prompt-presets', 'GET', undefined, controller.signal)
+      .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setPresets(presetsFromServer(list)); }).catch(() => {});
+    return () => controller.abort();
+  }, [props.api, setPresets]);
+  function persistPresets(next: PromptPreset[]) {
+    void props.api.request('/prompt-presets', 'PUT', presetPayload(next))
+      .catch((error: unknown) => notify(`常用要求同步失败：${error instanceof Error ? error.message : String(error)}`));
+  }
+  // Real token usage for the active session, refreshed as the conversation grows.
+  useEffect(() => {
+    if (!props.workspaceHash || !props.sessionName) { setRemoteUsage(null); return; }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void props.api.request<UsageDTO>(usagePath(props.workspaceHash, props.sessionName), 'GET', undefined, controller.signal)
+        .then(data => { if (!controller.signal.aborted) setRemoteUsage(data); })
+        .catch(() => { if (!controller.signal.aborted) setRemoteUsage(null); });
+    }, 400);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [props.api, props.workspaceHash, props.sessionName, props.history.length, props.generating]);
   useLayoutEffect(() => {
     const measure = () => {
       const scale = parseFloat(getComputedStyle(document.documentElement).fontSize) / 16;
@@ -90,12 +180,21 @@ export default function Composer(props: Props) {
     return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', escape); };
   }, [draft]);
 
-  const commands = [
-    { id: '/new', title: '新建会话', description: '回到当前工作区的新会话', action: props.onNew },
-    { id: '/continue', title: '继续生成', description: props.history.length ? '让助手继续上一次回复' : '开始会话后可用', action: () => { if (props.history.length && !props.busy) { onDraft(''); props.onContinue(); } else notify('请先开始会话'); } },
-    { id: '/skills', title: '选择技能', description: '为这次消息附加技能', action: () => { onDraft(''); open('skills'); } },
-    { id: '/help', title: '输入帮助', description: '/ 调用指令 · @ 引用工作区文件 · Shift + Enter 换行', action: () => { onDraft(''); notify('/ 调用指令，@ 引用工作区文件，Shift + Enter 换行'); } },
-  ];
+  const localCommands = localSlashCommands({
+    onNew: props.onNew,
+    onContinue: props.onContinue,
+    onSkills: () => open('skills'),
+    onHelp: () => notify('/ 调用指令，@ 引用工作区文件，Shift + Enter 换行'),
+    onExport: props.onExport,
+    onSessions: props.onSessions,
+    onTerminal: props.onTerminal,
+    onClear: props.onClear,
+    hasHistory: !!props.history.length, busy: props.busy, notify,
+  }).map(command => ({ ...command, action: () => { onDraft(''); command.action?.(); } }));
+  // Server commands/skills insert their text so the agent handles them.
+  const remoteSlash = serverSlashCommands(remoteCommands, remoteSkills)
+    .map(command => ({ ...command, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
+  const commands = mergeSlashCommands(localCommands, remoteSlash);
   const mention = draft.match(/(?:^|\s)@([^\s]*)$/);
   const mentionQuery = mention?.[1];
   useEffect(() => {
@@ -115,29 +214,51 @@ export default function Composer(props: Props) {
         onDraft(draft.slice(0, draft.length - mention[1].length - 1));
       },
     })) : [];
-  function selectSuggestion(index: number) { suggestions[index]?.action(); setSuggestionIndex(0); if (suggestions[index]?.id !== '/skills') focusInput(); }
+  function selectSuggestion(index: number) { suggestions[index]?.action?.(); setSuggestionIndex(0); if (suggestions[index]?.id !== '/skills') focusInput(); }
   function savePreset() {
     if (!editing?.name.trim() || !editing.text.trim()) return;
     const item = { ...editing, name: editing.name.trim(), text: editing.text.trim() };
-    setPresets(current => current.some(preset => preset.id === item.id) ? current.map(preset => preset.id === item.id ? item : preset) : [...current, item]);
+    const next = presets.some(preset => preset.id === item.id) ? presets.map(preset => preset.id === item.id ? item : preset) : [...presets, item];
+    setPresets(next); persistPresets(next);
     setEditing(null); notify('常用要求已保存');
   }
   const menuTitles: Record<Menu, string> = { models: '选择模型', effort: '推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量' };
+  // Legacy ChatInput split context into image thumbnails and file chips with sizes.
+  const { images: contextImages, files: contextFiles } = attachmentViews(context, pasteChars);
+  const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
+  const hasContext = contextImages.length > 0 || context.projects.length > 0 || context.skills.length > 0 || contextFiles.length > 0;
 
-  return <div ref={root} data-popover style={{ '--composer-popover-height': `${popoverHeight}px` } as CSSProperties} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
+  return <div ref={root} data-popover style={{ '--composer-popover-height': `${popoverHeight}px`, '--pet-height': `${props.petEnabled && props.pets.active ? 208 * petScale(props.pets.active) * 0.75 : 0}px` } as CSSProperties} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
     onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
     onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); addFiles(event.dataTransfer.files); }}>
-    {home && props.petEnabled && <div className={`peek-brand ${props.petStyle === '柔和紫' ? 'pet-violet' : ''}`}><LoopraMark /></div>}
+    {props.petEnabled && props.pets.active && <PetCompanion key={props.pets.active.name} src={props.pets.imageUrl} name={props.pets.active.displayName || props.pets.active.name} scale={petScale(props.pets.active)} position={props.pets.active.position}
+      activity={props.petActivity} reply={props.petReply} latestReply={props.latestPetReply} hidden={!!menu || !!suggestions.length} onMove={props.pets.move} onResize={props.pets.resize} onClose={props.onPetClose} onError={props.notify} />}
     <div className="composer-context-chips">
-      {(['projects', 'skills', 'files'] as const).flatMap(key => context[key].map(name => <Chip size="sm" variant="flat" key={`${key}:${name}`} classNames={{ base: `context-chip chip-${key}` }}
-        startContent={key === 'projects' ? <FolderClosed size="0.8125rem" /> : key === 'skills' ? <Sparkles size="0.8125rem" /> : <Paperclip size="0.8125rem" />}
-        endContent={<button className="context-chip-remove" aria-label={`移除${key === 'projects' ? '项目' : key === 'skills' ? '技能' : '附件'}：${name}`} onClick={() => onContext({ ...context, [key]: context[key].filter(item => item !== name), ...(key === 'files' ? { attachments: context.attachments?.filter(file => file.name !== name) } : {}) })}><X size="0.75rem" /></button>}>{name}</Chip>))}
+      {contextImages.map(image => <div className="composer-image-thumb" key={`image:${image.name}`} title={image.name}>
+        <img className="composer-image-preview" src={image.src} alt={image.name} />
+        <button type="button" className="composer-image-remove" aria-label={`移除图片：${image.name}`} title="移除图片" onClick={() => removeAttachment(image.name)}><X size="0.75rem" /></button>
+      </div>)}
+      {(['projects', 'skills'] as const).flatMap(key => context[key].map(name => <Chip size="sm" variant="flat" key={`${key}:${name}`} classNames={{ base: `context-chip chip-${key}` }}
+        startContent={key === 'projects' ? <FolderClosed size="0.8125rem" /> : <Sparkles size="0.8125rem" />}
+        endContent={<button className="context-chip-remove" aria-label={`移除${key === 'projects' ? '项目' : '技能'}：${name}`} onClick={() => onContext({ ...context, [key]: context[key].filter(item => item !== name) })}><X size="0.75rem" /></button>}>{name}</Chip>))}
+      {contextFiles.map(file => <Chip size="sm" variant="flat" key={`files:${file.name}`} classNames={{ base: 'context-chip chip-files' }}
+        startContent={<Paperclip size="0.8125rem" />}
+        endContent={<button className="context-chip-remove" aria-label={`移除附件：${file.name}`} onClick={() => removeAttachment(file.name)}><X size="0.75rem" /></button>}>
+        {file.name}{file.chars != null ? <small className="context-chip-size">{file.chars.toLocaleString()} 字符</small> : file.size != null ? <small className="context-chip-size">{formatFileSize(file.size)}</small> : null}
+      </Chip>)}
       {options.plan && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label="退出计划模式" onClick={() => update('plan', false)}><X size="0.75rem" /></button>}>计划模式</Chip>}
+      {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>清除</button>}
     </div>
+    {props.remoteRunning && <div className="composer-run-status" role="status"><i /><span>该会话正在后台执行，输入的内容会加入队列</span></div>}
+    {props.queue.length > 0 && <section className="composer-queue" aria-label={`排队消息 ${props.queue.length} 条`}>
+      <div className="composer-queue-summary"><ListChecks size="0.875rem" /><span>排队 {props.queue.length} 条 · 当前回复结束后自动发送</span></div>
+      <ul className="composer-queue-list">{props.queue.map(item => <li key={item.id}><span className="composer-queue-text" title={item.text}>{item.text || '（仅附件）'}</span><button type="button" className="composer-queue-guide" title="停止当前生成，优先发送这条消息" onClick={() => props.onGuideQueued(item.id)}>引导</button><button type="button" className="composer-queue-remove" title="移出队列" aria-label="移出队列" onClick={() => props.onRemoveQueued(item.id)}><X size="0.75rem" /></button></li>)}</ul>
+    </section>}
     <textarea ref={inputRef} aria-label="输入消息" placeholder={props.language === 'English' ? 'Message… / commands, @ context' : '输入消息，/ 调用指令，@ 引用文件…'} value={draft}
       onChange={event => { onDraft(event.target.value); setSuggestionIndex(0); setDismissedDraft(null); }}
+      onPaste={event => { void handlePaste(event); }}
       onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;
         if (suggestions.length && ['ArrowDown', 'ArrowUp', 'Tab', 'Enter'].includes(event.key) && !event.shiftKey) {
@@ -158,15 +279,17 @@ export default function Composer(props: Props) {
         {props.history.length > 0 && <Tooltip content={draft.trim() ? '先发送或清空草稿' : '继续生成'} delay={600}><Button isIconOnly variant="light" className="composer-icon continue-button" aria-label="继续生成" isDisabled={props.busy || !!draft.trim()} onPress={props.onContinue}><Play size="1rem" /></Button></Tooltip>}
       </div>
       <div className="composer-right">
-        <Tooltip content={`上下文 ${usage.percent.toFixed(1)}% · 本地估算`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
+        {formatTokenSpeed(props.liveSpeed) && <span className="composer-tps" title={tokenSpeedTitle(props.liveSpeed)}><Zap size="0.75rem" /><span>{formatTokenSpeed(props.liveSpeed)}</span></span>}
+        <Tooltip content={`上下文 ${usage.percent.toFixed(1)}% · ${usage.metrics ? '服务端统计' : '本地估算'}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
         <Tooltip content={selected ? `${selected.provider} / ${selected.name}` : '选择模型'} delay={600}><Button variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} aria-label={`选择模型：${selected?.name || '未选择'}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{selected?.name || '选择模型'}</span><ChevronDown size="0.875rem" /></Button></Tooltip>
         <Tooltip content="推理强度与快速模式" delay={600}><Button variant="light" className={`composer-effort ${menu === 'effort' ? 'is-active' : ''}`} aria-label="推理设置" aria-expanded={menu === 'effort'} onPress={() => open('effort')}>{options.fast ? <Zap size="0.875rem" /> : <Brain size="0.875rem" />}<span>{effort ? effort.value === 'none' ? '无' : effort.value === 'xhigh' ? 'XHigh' : effort.value[0].toUpperCase() + effort.value.slice(1) : options.effort}</span></Button></Tooltip>
         {props.generating ? <Button isIconOnly aria-label="停止生成" className="send-button generating" onPress={props.onStop}><Square size="0.9375rem" fill="currentColor" /></Button>
-          : <Button isIconOnly aria-label="发送消息" className="send-button" isDisabled={(!draft.trim() && !context.files.length) || props.busy || !selected} onPress={props.onSend}><ArrowUp size="1.4375rem" strokeWidth={2.5} /></Button>}
+          : props.remoteRunning ? <Button isIconOnly aria-label="停止后台任务" className="send-button generating" onPress={props.onStopRemote}><Square size="0.9375rem" fill="currentColor" /></Button> : null}
+        <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={(!draft.trim() && !context.files.length) || !selected || (!props.generating && !props.remoteRunning && props.busy)} onPress={props.onSend}><ArrowUp size="1.4375rem" strokeWidth={2.5} /></Button>
       </div>
     </div>
     <div className="composer-caption"><span><span>/</span> 指令 <span>·</span> <span>@</span> 上下文</span><span>Loopra <span>·</span> Shift + Enter 换行</span></div>
-    <input ref={fileInput} type="file" multiple hidden onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />
+    <input ref={fileInput} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.properties,.cfg,.conf,.env,.vue,.svelte" onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />
 
     <Popup open={!!menu} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
       {menu && <section role="dialog" aria-label={menuTitles[menu]}>
@@ -200,7 +323,7 @@ export default function Composer(props: Props) {
         </div>}
 
         {menu === 'tools' && <div className="composer-tool-list">
-          <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>上传文件</strong><small>图片与文本代码 · 读取内容发送</small></span><Plus size="0.9375rem" /></button>
+          <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>上传文件</strong><small>图片、文本、PDF、Word、Excel · 读取内容发送</small></span><Plus size="0.9375rem" /></button>
           <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={options.plan} onChange={value => update('plan', value)} /></div>
           <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>
           <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>
@@ -224,13 +347,13 @@ export default function Composer(props: Props) {
 
         {menu === 'presets' && <>
           {editing ? <form className="preset-form" onSubmit={event => { event.preventDefault(); savePreset(); }}><Input autoFocus size="sm" variant="bordered" label="名称" aria-label="常用要求名称" maxLength={24} value={editing.name} onValueChange={name => setEditing({ ...editing, name })} /><Textarea variant="bordered" size="sm" label="要求内容" aria-label="常用要求内容" minRows={3} maxRows={5} maxLength={500} value={editing.text} onValueChange={text => setEditing({ ...editing, text })} /><div><Button size="sm" variant="light" onPress={() => setEditing(null)}>取消</Button><Button size="sm" color="primary" type="submit" isDisabled={!editing.name.trim() || !editing.text.trim()}>保存</Button></div></form>
-            : <><p className="composer-note">点击要求追加到输入框，可自行编辑。</p><div className="preset-list">{presets.map(preset => <div className="preset-row" key={preset.id}><button className="preset-append" onClick={() => { onDraft(appendPreset(draft, preset.text)); close(); focusInput(); }}><strong>{preset.name}</strong><small>{preset.text}</small></button><Button isIconOnly size="sm" variant="light" aria-label={`编辑要求：${preset.name}`} onPress={() => setEditing({ ...preset })}><Pencil size="0.875rem" /></Button><Button isIconOnly size="sm" variant="light" aria-label={`删除要求：${preset.name}`} onPress={() => setPresets(current => current.filter(item => item.id !== preset.id))}><Trash2 size="0.875rem" /></Button></div>)}{!presets.length && <p className="composer-empty">还没有常用要求，添加一条试试。</p>}</div><div className="popover-footer"><span>保存在当前浏览器</span><Button size="sm" variant="light" onPress={() => setEditing({ id: crypto.randomUUID(), name: '', text: '' })}><Plus size="0.875rem" />添加要求</Button></div></>}
+            : <><p className="composer-note">点击要求追加到输入框，可自行编辑。</p><div className="preset-list">{presets.map(preset => <div className="preset-row" key={preset.id}><button className="preset-append" onClick={() => { onDraft(appendPreset(draft, preset.text)); close(); focusInput(); }}><strong>{preset.name}</strong><small>{preset.text}</small></button><Button isIconOnly size="sm" variant="light" aria-label={`编辑要求：${preset.name}`} onPress={() => setEditing({ ...preset })}><Pencil size="0.875rem" /></Button><Button isIconOnly size="sm" variant="light" aria-label={`删除要求：${preset.name}`} onPress={() => { const next = presets.filter(item => item.id !== preset.id); setPresets(next); persistPresets(next); }}><Trash2 size="0.875rem" /></Button></div>)}{!presets.length && <p className="composer-empty">还没有常用要求，添加一条试试。</p>}</div><div className="popover-footer"><span>保存在服务端</span><Button size="sm" variant="light" onPress={() => setEditing({ id: crypto.randomUUID(), name: '', text: '' })}><Plus size="0.875rem" />添加要求</Button></div></>}
         </>}
 
-        {menu === 'context' && <div className="context-body"><div className="context-total"><strong>{usage.total.toLocaleString()}<small> / {(usage.limit / 1000).toLocaleString()}K</small></strong><span>{usage.percent.toFixed(1)}%</span></div><p className="composer-note">上下文窗口 · 本地本地估算</p><div className="context-bar">{usage.parts.map(part => <span key={part.name} style={{ background: part.color, width: `${part.tokens / usage.total * 100}%` }} />)}</div>{usage.parts.map(part => <div className="context-breakdown" key={part.name}><span><i style={{ background: part.color }} />{part.name}</span><strong>{part.tokens.toLocaleString()}</strong><small>{(part.tokens / usage.total * 100).toFixed(1)}%</small></div>)}<p className="composer-note context-disclaimer">根据文字长度估算，附件只计入文件名。上下文窗口来自 Loopra 模型配置；实际用量以服务端统计为准。</p></div>}
+        {menu === 'context' && <div className="context-body"><div className="context-total"><strong>{usage.total.toLocaleString()}<small> / {(usage.limit / 1000).toLocaleString()}K</small></strong><span className={usage.percent >= 80 ? 'context-high' : usage.percent >= 50 ? 'context-medium' : 'context-low'}>{usage.percent.toFixed(1)}%</span></div>{formatTokenSpeed(props.liveSpeed) && <p className="composer-note">生成速度 {formatTokenSpeed(props.liveSpeed)}{props.liveSpeed?.completionTokens ? ` · 已生成 ${props.liveSpeed.completionTokens.toLocaleString()} tokens` : ''}</p>}<p className="composer-note">上下文窗口 · {usage.metrics ? '服务端统计' : '本地估算'}</p><div className="context-gauge" role="img" aria-label={`上下文占用 ${usage.percent.toFixed(1)}%，折叠阈值 ${FOLD_THRESHOLD_RATIO * 100}%`}><span className="context-gauge-fill" style={{ width: `${usage.percent}%` }} /><span className="context-bar-threshold" style={{ left: `${FOLD_THRESHOLD_RATIO * 100}%` }} title="折叠阈值 (80%)" /></div><div className="context-gauge-scale"><span>当前 {usage.total.toLocaleString()}</span><span>窗口 {(usage.limit / 1000).toLocaleString()}K</span></div><p className="composer-note context-threshold-note">折叠阈值: {foldThreshold(usage.limit).toLocaleString()} ({FOLD_THRESHOLD_RATIO * 100}%)</p><div className="context-bar">{usage.parts.map(part => <span key={part.name} style={{ background: part.color, width: `${part.tokens / usage.total * 100}%` }} />)}</div>{usage.parts.map(part => <div className="context-breakdown" key={part.name}><span><i style={{ background: part.color }} />{part.name}</span><strong>{part.tokens.toLocaleString()}</strong><small>{(part.tokens / usage.total * 100).toFixed(1)}%</small></div>)}<p className="composer-note context-disclaimer">{usage.metrics ? `服务端统计：输入 ${usage.metrics.promptTokens.toLocaleString()} · 输出 ${usage.metrics.completionTokens.toLocaleString()}${usage.metrics.hasPrice ? ` · 费用 ¥${usage.metrics.totalCost.toFixed(2)}（输入 ¥${usage.metrics.inputCost.toFixed(4)} · 缓存 ¥${usage.metrics.cacheCost.toFixed(4)} · 输出 ¥${usage.metrics.outputCost.toFixed(4)}）` : ''}${usage.metrics.cacheHitRate != null ? ` · 缓存命中 ${usage.metrics.cacheHitRate.toFixed(1)}%` : ''}` : '根据文字长度估算，附件只计入文件名；上下文窗口来自 Loopra 模型配置。'}</p></div>}
       </section>}
     </Popup>
-    <Popup open={!!suggestions.length} className="composer-popover popover-left composer-suggestions"><section aria-label={slash ? '输入指令' : '示例文件引用'}><div className="suggestions-heading">{slash ? '输入指令' : '示例文件引用'}<small>↑ ↓ 选择 · Tab / Enter 确认</small></div>{suggestions.map((item, index) => <button key={item.id} className={suggestionIndex % suggestions.length === index ? 'is-selected' : ''} onMouseEnter={() => setSuggestionIndex(index)} onClick={() => selectSuggestion(index)}>{slash ? <SquareTerminal size="1.0625rem" /> : <FileText size="1.0625rem" />}<span><strong>{item.label}<em>{item.title}</em></strong><small>{item.description}</small></span></button>)}</section></Popup>
+    <Popup open={!!suggestions.length} className="composer-popover popover-left composer-suggestions"><section aria-label={slash ? '输入指令' : '工作区文件'}><div className="suggestions-heading">{slash ? '输入指令' : '工作区文件'}<small>↑ ↓ 选择 · Tab / Enter 确认</small></div>{suggestions.map((item, index) => <button key={item.id} className={suggestionIndex % suggestions.length === index ? 'is-selected' : ''} onMouseEnter={() => setSuggestionIndex(index)} onClick={() => selectSuggestion(index)}>{slash ? <SquareTerminal size="1.0625rem" /> : <FileText size="1.0625rem" />}<span><strong>{item.label}<em>{item.title}</em></strong><small>{item.description}</small></span></button>)}</section></Popup>
     {dragging && <div className="composer-drop-hint"><Paperclip size="1.5rem" /><span>松开以添加附件</span></div>}
   </div>;
 }

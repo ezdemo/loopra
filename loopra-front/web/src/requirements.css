@@ -1,0 +1,110 @@
+/* Requirement board, ported from legacy `src/views/RequirementBoard.vue`.
+   Colours go through the shared theme tokens so light / dark stay consistent. */
+.requirement-board-wrapper { padding: 0 !important; }
+.requirement-board { width: 100vw !important; max-width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; margin: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+
+.req-board { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface); color: var(--text); }
+.req-board-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0 1.25rem; height: 3.5rem; border-bottom: 1px solid var(--line); }
+.req-board-title { display: flex; align-items: center; gap: 0.5rem; font-size: 1rem; }
+.req-board-title svg { color: var(--muted); }
+.req-board-title span { color: var(--muted); font-size: 0.75rem; font-weight: 400; }
+.req-board-header-actions { display: flex; align-items: center; gap: 0.375rem; }
+.req-board-tip { color: var(--muted); font-size: 0.75rem; }
+.req-board-columns { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.875rem; padding: 1rem 1.25rem 1.25rem; background: var(--soft); overflow: hidden; }
+.req-column { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 0.625rem; background: var(--sidebar); overflow: hidden; }
+.req-column > header { flex: 0 0 auto; display: flex; align-items: center; gap: 0.5rem; height: 2.5rem; padding: 0 0.875rem; border-bottom: 1px solid var(--line); background: var(--surface); }
+.req-column > header i { width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+.req-column > header strong { font-size: 0.8125rem; }
+.req-column > header > span { display: inline-flex; align-items: center; justify-content: center; min-width: 1.25rem; height: 1.25rem; padding: 0 0.375rem; border-radius: 0.625rem; background: var(--soft); color: var(--muted); font-size: 0.75rem; }
+.req-column > header small { margin-left: auto; color: var(--muted); font-size: 0.6875rem; }
+.req-column-body { flex: 1; min-height: 0; display: grid; gap: 0.5rem; align-content: start; padding: 0.625rem; overflow-y: auto; scrollbar-width: thin; }
+.req-card { border: 1px solid var(--line); border-radius: 0.5rem; background: var(--surface); transition: border-color 0.15s, box-shadow 0.15s; }
+.req-card:hover { border-color: color-mix(in srgb, var(--blue) 35%, var(--line)); box-shadow: var(--shadow); }
+.req-card > button { display: block; width: 100%; padding: 0.625rem 0.75rem; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.req-card-title { display: flex; align-items: flex-start; gap: 0.375rem; font-size: 0.8125rem; line-height: 1.45; word-break: break-word; }
+.req-card-meta { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.5rem; }
+.req-card-meta time { margin-left: auto; color: var(--muted); font-size: 0.6875rem; }
+.req-ai-badge, .req-schedule-badge, .req-project-badge { display: inline-flex; align-items: center; gap: 0.25rem; height: 1.125rem; padding: 0 0.375rem; border-radius: 0.25rem; font-size: 0.6875rem; flex: 0 0 auto; }
+.req-ai-badge { background: var(--selected); color: var(--secondary); }
+.req-schedule-badge { background: color-mix(in srgb, var(--blue) 14%, transparent); color: var(--blue); }
+.req-project-badge { max-width: 7.5rem; border: 1px solid var(--line); color: var(--secondary); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.req-column-empty { padding: 1.5rem 0; color: var(--muted); font-size: 0.75rem; text-align: center; }
+.req-loading { position: absolute; inset: 0; display: grid; place-items: center; }
+
+.req-priority { display: inline-flex; align-items: center; height: 1rem; padding: 0 0.375rem; border-radius: 0.25rem; font-size: 0.6875rem; font-style: normal; flex: 0 0 auto; }
+.req-priority-high { background: color-mix(in srgb, #ef4444 16%, transparent); color: #dc2626; }
+.req-priority-medium { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #d97706; }
+.req-priority-low { background: color-mix(in srgb, #6b7280 16%, transparent); color: #6b7280; }
+.req-status { display: inline-flex; align-items: center; height: 1.25rem; padding: 0 0.5rem; border-radius: 0.625rem; font-size: 0.75rem; flex: 0 0 auto; }
+.req-status-todo { background: color-mix(in srgb, #9ca3af 18%, transparent); color: #6b7280; }
+.req-status-doing { background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); }
+.req-status-done { background: color-mix(in srgb, #22c55e 16%, transparent); color: #16a34a; }
+.req-status-failed { background: color-mix(in srgb, #ef4444 16%, transparent); color: #dc2626; }
+
+.req-detail { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface); color: var(--text); }
+.req-detail-topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 1rem; height: 3.25rem; padding: 0 1rem; border-bottom: 1px solid var(--line); }
+.req-back { display: inline-flex; align-items: center; gap: 0.25rem; height: 1.875rem; padding: 0 0.625rem; border: 0; border-radius: 0.375rem; background: transparent; color: var(--secondary); font-size: 0.8125rem; cursor: pointer; flex: 0 0 auto; }
+.req-back:hover { background: var(--hover); color: var(--text); }
+.req-detail-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.5rem; }
+.req-detail-title strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.875rem; }
+.req-detail-id { color: var(--muted); font-size: 0.6875rem; }
+.req-detail-actions { display: flex; align-items: center; gap: 0.25rem; flex: 0 0 auto; }
+.req-detail-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0.875rem clamp(1rem, 4vw, 3rem) 0; }
+.req-detail-info { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 0.75rem; }
+.req-info-card { padding: 0.75rem 0.875rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--sidebar); }
+.req-info-card h3 { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; color: var(--muted); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; }
+.req-info-project { font-weight: 400; }
+.req-detail-desc { margin: 0; color: var(--secondary); font-size: 0.8125rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.req-ai-box { display: flex; align-items: center; gap: 0.625rem; }
+.req-ai-icon { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 0.5rem; background: var(--selected); color: var(--secondary); flex: 0 0 auto; }
+.req-ai-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.125rem; }
+.req-ai-info strong { font-size: 0.8125rem; }
+.req-ai-info small { color: var(--muted); font-size: 0.6875rem; }
+.req-ai-actions { display: flex; align-items: center; gap: 0.375rem; flex: 0 0 auto; }
+.req-detail-tabs { flex: 0 0 auto; display: flex; gap: 0.25rem; margin-top: 0.875rem; border-bottom: 1px solid var(--line); }
+.req-detail-tabs button { height: 2.25rem; padding: 0 0.875rem; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--secondary); font: inherit; font-size: 0.8125rem; cursor: pointer; }
+.req-detail-tabs button:hover { color: var(--text); }
+.req-detail-tabs button.active { border-bottom-color: var(--text); color: var(--text); font-weight: 600; }
+.req-detail-body { flex: 1; min-height: 0; display: grid; gap: 0.625rem; align-content: start; padding: 0.75rem 0.25rem; overflow-y: auto; scrollbar-width: thin; }
+.req-log-message { padding: 0.25rem 0; }
+.req-comment { padding: 0.625rem 0.75rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--sidebar); }
+.req-comment > header { display: flex; align-items: center; gap: 0.5rem; }
+.req-comment-avatar { display: inline-flex; align-items: center; justify-content: center; width: 1.375rem; height: 1.375rem; border-radius: 50%; background: var(--soft); color: var(--secondary); font-size: 0.6875rem; font-weight: 700; }
+.req-comment-avatar.assistant { background: var(--selected); }
+.req-comment > header strong { font-size: 0.75rem; }
+.req-comment > header time { margin-left: auto; color: var(--muted); font-size: 0.6875rem; }
+.req-comment-text { margin-top: 0.5rem; font-size: 0.8125rem; line-height: 1.65; color: var(--secondary); word-break: break-word; }
+.req-empty { padding: 2rem 0; color: var(--muted); font-size: 0.75rem; text-align: center; }
+.req-comment-form { flex: 0 0 auto; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 0 1rem; border-top: 1px solid var(--line); }
+.req-comment-form textarea { width: 100%; min-height: 3.5rem; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--surface); color: var(--text); font: inherit; font-size: 0.8125rem; line-height: 1.6; resize: vertical; }
+.req-comment-form textarea:focus-visible { outline: 0.125rem solid var(--blue); outline-offset: 0.0625rem; }
+.req-comment-form > div { display: flex; justify-content: flex-end; }
+
+.req-create-modal { width: min(46rem, calc(100vw - 2rem)) !important; max-width: 46rem !important; }
+.req-create { display: flex; flex-direction: column; max-height: 88dvh; }
+.req-create > header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); }
+.req-create-body { display: grid; gap: 0.875rem; padding: 1.125rem 1.25rem; overflow-y: auto; }
+.req-create-body label { display: flex; flex-direction: column; gap: 0.375rem; color: var(--secondary); font-size: 0.75rem; }
+.req-create-body input, .req-create-body textarea, .req-create-body select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 0.375rem; background: var(--surface); color: var(--text); font: inherit; font-size: 0.8125rem; }
+.req-create-body textarea { min-height: 5rem; resize: vertical; }
+.req-config-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.875rem; }
+.req-create-tip { margin: 0; color: var(--muted); font-size: 0.75rem; }
+.req-create > footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.875rem 1.25rem; border-top: 1px solid var(--line); }
+.req-schedule-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.req-schedule-mode button { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5625rem 0.625rem; border: 1px solid var(--line); border-radius: 0.375rem; background: var(--surface); color: var(--secondary); font: inherit; font-size: 0.75rem; text-align: left; cursor: pointer; }
+.req-schedule-mode button:hover { background: var(--hover); }
+.req-schedule-mode button.active { border-color: var(--blue); box-shadow: 0 0 0 0.125rem color-mix(in srgb, var(--blue) 18%, transparent); color: var(--text); }
+.req-schedule-mode svg { flex: 0 0 auto; margin-top: 0.0625rem; }
+.req-schedule-mode span { display: flex; flex-direction: column; gap: 0.125rem; font-weight: 600; }
+.req-schedule-mode small { color: var(--muted); font-size: 0.6875rem; font-weight: 400; }
+
+@media (max-width: 900px) {
+  .req-detail-info { grid-template-columns: 1fr; }
+  .req-board-columns { grid-template-columns: 1fr; overflow-y: auto; }
+  .req-column { max-height: 22rem; }
+  .req-board-tip { display: none; }
+}
+@media (max-width: 640px) {
+  .req-config-row { grid-template-columns: 1fr; }
+  .req-schedule-mode { grid-template-columns: 1fr; }
+}

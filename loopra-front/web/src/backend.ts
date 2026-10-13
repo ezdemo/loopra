@@ -3,11 +3,11 @@ import type { Provider, Session } from './lib';
 
 export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
 export type Workspace = { hash: string; name: string; path: string };
-export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number };
+export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; terminateOnNoToolCall: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };
-export type StreamEvent = { type: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; task?: string; duration?: number };
-export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; model: string; modelChannelId: string; reasoningEffort: string; fastMode: boolean; linkedProjectHashes?: string[]; images?: string[] };
+export type StreamEvent = { type: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
+export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; model: string; modelChannelId: string; reasoningEffort: string; fastMode: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
 
 export function serverAddress(value: string) {
   const url = new URL(value.trim() || DEFAULT_SERVER);
@@ -24,6 +24,7 @@ export class LoopraClient {
     const sameOrigin = typeof window !== 'undefined' && this.base === window.location.origin;
     this.apiBase = localProxy || sameOrigin ? '/api' : `${this.base}/api`;
   }
+  assetUrl(path: string) { return `${this.apiBase}${path}`; }
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const response = await fetch(`${this.apiBase}${path}`, { method, signal: signal || AbortSignal.timeout(30000), headers: body === undefined ? {} : { 'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json' }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
     const result = await response.json().catch(() => { throw new Error(`Loopra 返回了无效响应（HTTP ${response.status}）`); });
@@ -124,13 +125,17 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     if (event.type === 'sub_end') sub.status = '成功';
     else if (event.type === 'sub_error') sub.status = '失败';
     else sub.blocks = applyEvent({ ...message, id: subId, blocks: sub.blocks }, { ...event, type: event.type.slice(4) }).blocks || [];
+  } else if (event.type === 'reasoning_started') {
+    // Encrypted reasoning opens a slot without any visible delta (legacy Chat.vue).
+    if (blocks.at(-1)?.type !== 'reasoning_started') blocks.push({ id, type: 'reasoning_started', content: '' });
   } else if (event.type === 'content' || event.type === 'reasoning') {
     const last = blocks.at(-1);
     if (last?.type === event.type) last.content += content;
+    else if (last?.type === 'reasoning_started' && event.type === 'reasoning') blocks[blocks.length - 1] = { id: last.id, type: 'reasoning', content };
     else if (content.trim()) blocks.push({ id, type: event.type, content });
   } else if (event.type === 'stream_reset') {
     // Retry invalidates only the current model segment, retaining completed tools.
-    while (['content', 'reasoning'].includes(blocks.at(-1)?.type || '')) blocks.pop();
+    while (['content', 'reasoning', 'reasoning_started'].includes(blocks.at(-1)?.type || '')) blocks.pop();
   } else if (event.type === 'tool_call') blocks.push({ id, type: 'tool_call', name: event.name || 'unknown', status: '执行中', args: argsObject(event.args ?? event.arguments) });
   else if (event.type === 'tool_result') {
     const target = [...blocks].reverse().find(block => block.type === 'tool_call' && block.status === '执行中' && (!event.name || block.name === event.name));
@@ -144,7 +149,19 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
   return { ...message, blocks, text: blocks.flatMap(block => block.type === 'content' ? [block.content] : []).join('\n\n') };
 }
 
-export type HistoryMessage = { role: string; content?: string | { type: string; text?: string; image_url?: { url: string } }[]; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number };
+export type HistoryMessage = { snapshot_id?: string; rollback_id?: string; role: string; content?: string | { type: string; text?: string; image_url?: { url: string } }[]; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; response_reasoning?: unknown; responseReasoning?: unknown; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number };
+
+/** Legacy `chatHistory.hasEncryptedReasoning`: does a stored turn hide reasoning? */
+export function hasEncryptedReasoning(value: unknown) {
+  if (!value) return false;
+  try {
+    const item = (typeof value === 'string' ? JSON.parse(value) : value) as { type?: string; encrypted_content?: string } | null;
+    return item?.type === 'reasoning' && typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function historyMessages(raw: HistoryMessage[]): Message[] {
   const messages: Message[] = [];
   const results = new Map(raw.filter(item => item.role === 'tool' && item.tool_call_id).map(item => [item.tool_call_id!, item]));
@@ -154,13 +171,14 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
     const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
     if (entry.role === 'user') {
       current = undefined;
-      if (!entry.web_hidden && !entry.webHidden) messages.push({ id: `history-${index}`, role: 'user', text: content, time, historyCount: index + 1 });
+      if (!entry.web_hidden && !entry.webHidden) messages.push({ id: `history-${index}`, role: 'user', text: content, time, historyCount: index + 1, snapshotId: entry.snapshot_id, rollbackId: entry.rollback_id || entry.snapshot_id, rollbackTimestamp: entry.timestamp, images: Array.isArray(entry.content) ? entry.content.flatMap(part => part.image_url?.url ? [part.image_url.url] : []) : [] });
     } else if (entry.role === 'tool') {
       if (current) current.historyCount = index + 1;
     } else if (entry.role === 'assistant') {
       if (!current) { current = { id: `history-${index}`, role: 'assistant', text: '', blocks: [], time, startedAt: entry.turn_started_at || entry.timestamp, finishedAt: entry.turn_finished_at || entry.timestamp }; messages.push(current); }
       const events: StreamEvent[] = [];
       if (entry.reasoning_content) events.push({ type: 'reasoning', content: entry.reasoning_content });
+      if (hasEncryptedReasoning(entry.response_reasoning || entry.responseReasoning)) events.push({ type: 'reasoning_started' });
       for (const call of entry.tool_calls || []) {
         const name = call.function?.name || call.name || 'unknown';
         events.push({ type: 'tool_call', name, args: call.function?.arguments ?? call.arguments });
@@ -177,7 +195,7 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
   return messages;
 }
 export function remoteSession(item: RemoteSession, workspace: Workspace): Session {
-  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime };
+  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime, messageCount: item.messageCount || 0, worktreeMode: !!item.worktreeMode };
 }
 export function configProviders(config: RemoteConfig): Provider[] {
   return (config.modelChannels || []).map(channel => ({ id: channel.id, name: channel.name, type: channel.apiProtocol, baseUrl: channel.baseUrl, apiKey: channel.apiKey, compatibility: channel.specialCompatibility, count: channel.models.length, enabled: true, models: channel.models.map(model => ({ ...model, priceEnabled: !!model.price, inputPrice: model.price?.input || 0, cachePrice: model.price?.cache || 0, outputPrice: model.price?.output || 0 })) }));
@@ -189,3 +207,4 @@ export function sessionQuery(session: Session) { return `workspaceHash=${encodeU
 export function sessionRoute(session: Session, suffix = '') { return `/sessions/${encodeURIComponent(session.name || '')}${suffix}?workspaceHash=${encodeURIComponent(session.workspaceHash || '')}`; }
 export const permissionLabel = (hitl: string) => hitl === 'approval' ? '按需审批' : hitl === 'auto' ? '自动审批' : '完全自动';
 export const permissionValue = (label: string) => label === '按需审批' ? 'approval' : label === '自动审批' ? 'auto' : 'free';
+

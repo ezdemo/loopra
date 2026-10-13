@@ -24,6 +24,7 @@ import site.sorghum.loopra.web.model.BashSessionTerminateRequest;
 import site.sorghum.loopra.web.model.CommandMetaDTO;
 import site.sorghum.loopra.web.model.PlanModeRequest;
 import site.sorghum.loopra.web.model.ProjectCapabilitiesDTO;
+import site.sorghum.loopra.web.model.PromptDTO;
 import site.sorghum.loopra.web.model.SessionStatusDTO;
 import site.sorghum.loopra.web.model.SkillMetaDTO;
 import site.sorghum.loopra.web.service.AgentService;
@@ -210,6 +211,20 @@ public class AgentController {
             throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
         }
         return ApiResponse.ok(agentService.getCommandMetaList());
+    }
+
+    @ApiOperation(value = "获取当前会话的系统提示词",
+            notes = "返回切片聚合后的完整 system 内容（含项目文档、环境信息与工具协作约定）")
+    @Get
+    @Mapping("/prompt")
+    public ApiResponse<PromptDTO> prompt(
+            @ApiParam(value = "项目 hash") @Param(value = "workspaceHash", required = false) String workspaceHash,
+            @ApiParam(value = "会话名称") @Param(value = "sessionName", required = false) String sessionName) {
+        if (!agentService.isReady()) {
+            throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        }
+        String workspacePath = workspaceHash != null ? agentService.resolveProjectPath(workspaceHash) : null;
+        return ApiResponse.ok(agentService.getSystemPrompt(workspacePath, sessionName));
     }
 
     @ApiOperation(value = "获取当前项目能力", notes = "返回当前项目会话可见的项目 Skill 与项目级 MCP 摘要")

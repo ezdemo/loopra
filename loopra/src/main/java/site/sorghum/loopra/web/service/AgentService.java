@@ -31,6 +31,7 @@ import site.sorghum.loopra.web.model.BashSessionLogDTO;
 import site.sorghum.loopra.web.model.CommandMetaDTO;
 import site.sorghum.loopra.web.model.ProjectCapabilitiesDTO;
 import site.sorghum.loopra.web.model.ProjectInfoDTO;
+import site.sorghum.loopra.web.model.PromptDTO;
 import site.sorghum.loopra.web.model.SessionInfoDTO;
 import site.sorghum.loopra.web.model.SessionSettingsDTO;
 import site.sorghum.loopra.web.model.SessionStatusDTO;
@@ -614,6 +615,30 @@ public class AgentService implements ProjectRuntimeAccess {
             }
         }
         return new ArrayList<>();
+    }
+
+    /**
+     * 获取会话实际生效的系统提示词。
+     * <p>返回当前 Agent 切片聚合后的完整 system 内容（含项目文档、环境信息、
+     * 工具协作约定等），供前端「实际系统提示词」与旧版「提示词」弹窗展示。</p>
+     *
+     * @param workspacePath 项目路径（可选，缺省用当前项目）
+     * @param sessionName   会话名称（可选，缺省用当前会话）
+     */
+    public PromptDTO getSystemPrompt(String workspacePath, String sessionName) {
+        if (sessionName == null || sessionName.isEmpty()) {
+            sessionName = getCurrentSessionName(workspacePath);
+        }
+        if (sessionName == null) {
+            return new PromptDTO("", 0);
+        }
+        String sessionKey = generateSessionKey(workspacePath, sessionName);
+        LoopraAgent agent = getOrCreateAgent(sessionKey);
+        String content = agent.effectiveSystemPrompt();
+        if (content == null) {
+            content = "";
+        }
+        return new PromptDTO(content, content.length());
     }
 
     /**

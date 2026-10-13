@@ -1,13 +1,15 @@
 export type ToolStatus = '成功' | '执行中' | '失败';
 export type FileChange = { path: string; additions: number; deletions: number; created?: boolean; diff?: string };
 export type ChatBlock =
-  | { id: string; type: 'content' | 'reasoning'; content: string }
+  // `reasoning_started` marks a slot the model opened without streaming visible
+  // tokens (encrypted reasoning); it upgrades to `reasoning` on the first delta.
+  | { id: string; type: 'content' | 'reasoning' | 'reasoning_started'; content: string }
   | { id: string; type: 'tool_call'; name: string; status: ToolStatus; args?: Record<string, unknown>; result?: string; duration?: string }
   | { id: string; type: 'file_changes'; changes: FileChange[] }
   | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string }[] }
   | { id: string; type: 'sub_agent'; name: string; status: ToolStatus; blocks: ChatBlock[] }
   | { id: string; type: 'choice'; question: string; description?: string; subId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
-export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number };
+export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number; rollbackId?: string; snapshotId?: string; rollbackTimestamp?: number; images?: string[] };
 
 // Accept longer fences when a system prompt itself contains Markdown code blocks.
 export function splitUserContext(text: string) {
@@ -34,6 +36,39 @@ export function splitAssistantBlocks(blocks: ChatBlock[]) {
 }
 
 export type BlockGroup = { id: string; type: 'tool_group'; tools: Extract<ChatBlock, { type: 'tool_call' }>[] };
+
+/** Legacy `Chat.vue` scroll threshold: within this distance of the bottom counts as "at bottom". */
+export const CHAT_SCROLL_THRESHOLD = 80;
+
+/** Legacy `isNearBottom()` for the message scroller. */
+export function chatNearBottom(element: { scrollHeight: number; scrollTop: number; clientHeight: number } | null, threshold = CHAT_SCROLL_THRESHOLD) {
+  if (!element) return true;
+  return element.scrollHeight - element.scrollTop - element.clientHeight < threshold;
+}
+
+/** Legacy `truncateText()` used by the message thumbnail dock. */
+export function truncatePreview(text: string, max = 40) {
+  if (!text) return '';
+  return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
+/** Legacy dock lists user messages only, with their index in the full message list. */
+export function userMessageDock(messages: { id: string; role: string; text: string }[]) {
+  return messages.map((message, index) => ({ ...message, globalIndex: index })).filter(message => message.role === 'user');
+}
+
+/**
+ * Legacy `onScroll()` decision: streamed content pushes the viewport up without
+ * the user leaving, so only an upward movement (or staying away from the
+ * bottom) marks `away`; returning near the bottom resumes auto-follow.
+ */
+export function chatScrollState(element: { scrollHeight: number; scrollTop: number; clientHeight: number } | null, previousTop: number, away: boolean, threshold = CHAT_SCROLL_THRESHOLD) {
+  if (!element) return { away, showScrollButton: false };
+  const nearBottom = chatNearBottom(element, threshold);
+  const next = element.scrollTop < previousTop - 2 ? true : nearBottom ? false : away;
+  return { away: next, showScrollButton: !nearBottom };
+}
+
 export function groupToolBlocks(blocks: ChatBlock[]): (ChatBlock | BlockGroup)[] {
   const groups: (ChatBlock | BlockGroup)[] = [];
   for (let index = 0; index < blocks.length; index++) {

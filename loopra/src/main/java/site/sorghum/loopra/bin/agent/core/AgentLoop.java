@@ -332,6 +332,22 @@ public class AgentLoop implements
         return promptRegistry;
     }
 
+    /**
+     * 汇总当前会话实际生效的系统提示词。
+     * <p>
+     * 与模型调用前 {@link LoopraPromptPlugin} 的切片聚合结果一致，供前端
+     * 「查看系统提示词」使用。切片提供者可能依赖循环上下文，这里用一个
+     * 空上下文预览，不会污染正在运行的会话。
+     * </p>
+     */
+    public String effectiveSystemPrompt() {
+        DefaultLoopContext preview = cutinEngine == null
+                ? null
+                : cutinEngine.newContext("prompt-preview", Map.of(), workingDirectory());
+        String assembled = promptRegistry.assemble(preview);
+        return assembled == null ? "" : assembled;
+    }
+
     @Override
     public Path workspace() {
         SessionEnvironment env = registry.getEnvironment();

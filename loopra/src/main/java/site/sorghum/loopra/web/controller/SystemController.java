@@ -63,6 +63,21 @@ public class SystemController {
     }
 
     /**
+     * 读取本机 AI 浏览器桥接状态 —— 桌面端未登记时 {@code address} 为空。
+     */
+    @ApiOperation(value = "读取本机 AI 浏览器桥接状态", notes = "返回 Electron 桌面端登记的本机浏览器桥接地址；未登记时 address 为空字符串")
+    @Get
+    @Mapping("/browser-bridge")
+    public ApiResponse<java.util.Map<String, Object>> browserBridgeStatus() {
+        String address = browserBridgeService.getAddress();
+        boolean registered = address != null && !address.isBlank();
+        java.util.Map<String, Object> status = new java.util.LinkedHashMap<>();
+        status.put("registered", registered);
+        status.put("address", registered ? address : "");
+        return ApiResponse.ok(status);
+    }
+
+    /**
      * 从 Solon 配置读取版本号（由 Maven 资源过滤从 pom.xml 注入）。
      */
     private String readVersion() {

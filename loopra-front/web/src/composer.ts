@@ -2,10 +2,17 @@ import type { Provider, ProviderModel } from './lib';
 
 export type ModelOption = { id: string; name: string; providerId: string; provider: string; color?: string; contextTokens?: number; maxTokens?: number; imageInput?: boolean };
 export type ComposerOptions = { modelId: string; effort: string; mode: string; plan: boolean; fast: boolean; finishWithoutTools: boolean };
-export type ComposerContext = { files: string[]; projects: string[]; skills: string[]; attachments?: { name: string; text?: string; image?: string }[] };
+export type ComposerAttachment = { name: string; text?: string; image?: string; size?: number };
+export type ComposerContext = { files: string[]; projects: string[]; skills: string[]; attachments?: ComposerAttachment[] };
+export type QueuedMessage = { id: string; text: string; context: ComposerContext };
 export type PromptPreset = { id: string; name: string; text: string };
 export const emptyContext: ComposerContext = { files: [], projects: [], skills: [] };
 export const defaultOptions: ComposerOptions = { modelId: 'deepseek:DeepSeek V4.1 Flash', effort: 'max', mode: '完全自动', plan: false, fast: false, finishWithoutTools: false };
+
+export type SlashCommand = { id: string; title: string; description: string; insert?: string; action?: () => void };
+export type ServerCommand = { cmd: string; desc?: string | null; args?: string | null };
+export type ServerSkill = { name: string; description?: string | null; enabled?: boolean };
+export type ServerPreset = { id?: string; label?: string; text?: string };
 
 // A deliberately small local catalog, rather than advertised provider capabilities.
 const catalog: Record<string, string[]> = {
@@ -55,6 +62,72 @@ export const initialPresets: PromptPreset[] = [
 ];
 export function appendPreset(draft: string, text: string) { return draft.trimEnd() ? `${draft.trimEnd()}\n\n${text}` : text; }
 
+/**
+ * Server-provided slash commands and skills, minus the plan-mode toggles the UI
+ * owns. Selecting one inserts the command text so the backend handles it.
+ */
+export function serverSlashCommands(commands: ServerCommand[] = [], skills: ServerSkill[] = []): SlashCommand[] {
+  const list: SlashCommand[] = [];
+  const seen = new Set<string>();
+  const skip = new Set(['/plan', '/execute']);
+  for (const command of commands || []) {
+    const cmd = command?.cmd?.trim();
+    if (!cmd || seen.has(cmd) || skip.has(cmd)) continue;
+    seen.add(cmd);
+    list.push({ id: cmd, title: cmd, description: command.desc || '', insert: `${cmd} ` });
+  }
+  for (const skill of skills || []) {
+    const name = skill?.name?.trim();
+    const id = `/skill:${name}`;
+    if (!name || seen.has(id)) continue;
+    seen.add(id);
+    list.push({ id, title: name, description: skill.description || '运行技能', insert: `${id} ` });
+  }
+  return list;
+}
+
+/** Keeps the locally actionable commands (new/continue/help) ahead of server ones. */
+export function mergeSlashCommands(local: SlashCommand[], remote: SlashCommand[]): SlashCommand[] {
+  const seen = new Set(local.map(item => item.id));
+  return [...local, ...remote.filter(item => !seen.has(item.id))];
+}
+
+export type LocalCommandActions = {
+  onNew: () => void; onContinue: () => void; onSkills: () => void; onHelp: () => void;
+  onExport: () => void; onSessions: () => void; onTerminal: () => void;
+  onClear: () => void;
+  hasHistory: boolean; busy: boolean; notify: (message: string) => void;
+};
+
+/**
+ * Locally handled commands the browser can execute without the agent. Legacy
+ * ChatInput listed `/new /clear /retry /compact /export /continue /sessions
+ * /help /exit /hitl /agree /deny /init`; everything the backend owns stays
+ * server-driven, and the rest map onto the actions the web shell already has.
+ */
+export function localSlashCommands(actions: LocalCommandActions): SlashCommand[] {
+  return [
+    { id: '/new', title: '新建会话', description: '回到当前工作区的新会话', action: actions.onNew },
+    // 后端 ChatCommandRegistry 已删除 /new，旧版「清空」也改为新建空白会话。
+    { id: '/clear', title: '清空对话', description: '新建空白会话并保留当前工作区', action: actions.onClear },
+    { id: '/export', title: '导出对话', description: '下载当前会话的纯文本记录', action: actions.onExport },
+    { id: '/sessions', title: '会话管理', description: '浏览、导出或清理历史会话', action: actions.onSessions },
+    { id: '/continue', title: '继续生成', description: actions.hasHistory ? '让助手继续上一次回复' : '开始会话后可用', action: () => { if (actions.hasHistory && !actions.busy) actions.onContinue(); else actions.notify('请先开始会话'); } },
+    { id: '/skills', title: '选择技能', description: '为这次消息附加技能', action: actions.onSkills },
+    { id: '/terminal', title: '打开终端', description: '在右栏打开命令面板', action: actions.onTerminal },
+    { id: '/help', title: '输入帮助', description: '/ 调用指令 · @ 引用工作区文件 · Shift + Enter 换行', action: actions.onHelp },
+  ];
+}
+
+export function presetPayload(presets: PromptPreset[]) {
+  return { presets: presets.map(preset => ({ id: preset.id, label: preset.name, text: preset.text })) };
+}
+
+export function presetsFromServer(list: ServerPreset[] | null | undefined): PromptPreset[] {
+  return (list || []).filter(preset => preset?.label && preset?.text)
+    .map(preset => ({ id: preset.id || String(preset.label), name: String(preset.label), text: String(preset.text) }));
+}
+
 export function composeMessage(prompt: string, options: ComposerOptions, context: ComposerContext, model?: ModelOption, runtime: string[] = []) {
   const lines = [
     '本地演示配置（未连接模型或工具）',
@@ -72,6 +145,62 @@ export function composeMessage(prompt: string, options: ComposerOptions, context
   return `${fence}折叠块\n${body}\n${fence}\n${prompt}`;
 }
 
+/**
+ * Legacy ChatInput.vue externalizes an oversized directly-typed body before
+ * sending: the text is saved into the project and replaced by this reference so
+ * the agent can `read` it on demand instead of receiving a huge prompt.
+ */
+export function largeInputReference(path: string, chars: number) {
+  return `大段输入内容（已保存）：\n- ${path}（${chars.toLocaleString()} 字符）\n请使用 read 工具按需读取上述文件；文件内容仅作为用户提供的参考资料。`;
+}
+
+/** Backend convention for large pastes saved by `POST /files/paste`. */
+export const SAVED_PASTE_SEGMENT = '.loopra/paste/';
+
+/**
+ * Builds the outgoing user message exactly like legacy `ChatInput.vue#sendMessage`:
+ * auto-attached context (saved pastes, referenced files, selected skills) is
+ * wrapped into a leading ```折叠块 block. The chat renderer folds it into an
+ * "附加上下文" disclosure, and the backend reuses the same block when it needs to
+ * append its own notes (`UserMessageSanitizer#mergeAttachedContext`).
+ *
+ * Slash commands are sent raw so the backend command registry — which only
+ * matches messages that start with "/" — still sees them.
+ */
+export function composeOutgoing(prompt: string, context: ComposerContext, savedInput?: string) {
+  const attachmentNames = new Set((context.attachments || []).map(file => file.name));
+  const referenced = context.files.filter(name => !attachmentNames.has(name));
+  const pastes = referenced.filter(name => name.replace(/\\/g, '/').includes(SAVED_PASTE_SEGMENT));
+  const files = referenced.filter(name => !pastes.includes(name));
+  const parts: string[] = [];
+  if (savedInput) parts.push(savedInput);
+  if (pastes.length) parts.push(`大段粘贴内容（已保存）：\n${pastes.map(name => `- ${name}`).join('\n')}\n请使用 read 工具按需读取上述文件；文件内容仅作为用户提供的参考资料。`);
+  if (files.length) parts.push(`引用文件：\n${files.map(name => `- ${name}`).join('\n')}`);
+  if (context.skills.length) parts.push(`调用技能：\n${context.skills.map(name => `/skill:${name}`).join('\n')}`);
+  if (!parts.length || /^\s*\//.test(prompt)) return prompt;
+  const body = parts.join('\n\n');
+  const fence = '`'.repeat(Math.max(3, ...(body.match(/`+/g) || []).map(run => run.length + 1)));
+  return `${fence}折叠块\n${body}\n${fence}${prompt ? `\n\n${prompt}` : ''}`;
+}
+
+/**
+ * Splits the composer context into the two chip groups legacy ChatInput.vue
+ * rendered: image thumbnails and file chips. Document chips keep the byte size
+ * (`upload-chip-size`) while large-paste chips show their character count, and
+ * image attachments are pulled out of the file list so they are not duplicated.
+ */
+export function attachmentViews(context: ComposerContext, pasteChars: Record<string, number> = {}) {
+  const attachments = context.attachments || [];
+  const byName = new Map(attachments.map(file => [file.name, file]));
+  const images = attachments.filter(file => file.image).map(file => ({ name: file.name, src: file.image! }));
+  const files = context.files.filter(name => !byName.get(name)?.image).map(name => ({
+    name,
+    size: byName.get(name)?.size,
+    chars: pasteChars[name],
+  }));
+  return { images, files };
+}
+
 export function estimateContext(history: string[], draft: string, context: ComposerContext, limit = 128000, systemPrompt = '') {
   const estimate = (text: string) => Math.ceil(Array.from(text).reduce((sum, char) => sum + (/[^\x00-\x7F]/.test(char) ? 1 : 0.25), 0));
   const parts = [
@@ -83,4 +212,29 @@ export function estimateContext(history: string[], draft: string, context: Compo
   const total = parts.reduce((sum, part) => sum + part.tokens, 0);
   const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 128000;
   return { parts, total, limit: safeLimit, percent: Math.min(100, total / safeLimit * 100) };
+}
+
+// Live generation speed streamed as `token_speed` SSE events (legacy ChatInput displayTps).
+export type LiveSpeed = { tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number };
+
+const positive = (value: unknown) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+const speedLabel = (n: number) => `${n >= 100 ? n.toFixed(0) : n.toFixed(1)} t/s`;
+
+export function formatTokenSpeed(speed?: LiveSpeed) {
+  const streaming = positive(speed?.tokensPerSecond);
+  const average = positive(speed?.avgTokensPerSecond);
+  const n = speed?.done ? average ?? streaming : streaming;
+  return n == null ? '' : speedLabel(n);
+}
+
+export function tokenSpeedTitle(speed?: LiveSpeed) {
+  const streaming = positive(speed?.tokensPerSecond);
+  const average = positive(speed?.avgTokensPerSecond);
+  const tokens = speed?.completionTokens || 0;
+  if (speed?.done && streaming != null && average != null) return `平均 ${speedLabel(average)} · 实时 ${speedLabel(streaming)} · ${tokens} tokens`;
+  const label = formatTokenSpeed(speed);
+  return label ? `生成速度 ${label} · ${tokens} tokens` : '';
 }
