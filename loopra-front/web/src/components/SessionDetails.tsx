@@ -1,19 +1,39 @@
 import { useState } from 'react';
-import { Button, Modal, ModalContent } from '@nextui-org/react';
+import { Button, Modal, ModalBody, ModalContent, ModalHeader } from '@nextui-org/react';
+import { Copy, Download, FileText, ListTree, RefreshCw } from 'lucide-react';
 import { sessionQuery, type LoopraClient } from '../backend';
 import type { Session } from '../lib';
-import { ConfirmAction, query, RemoteState, useRemote } from './RemoteControls';
+import { query, RemoteState, useRemote } from './RemoteControls';
 import { promptText } from '../session-prompt';
 import Markdown, { copyText } from './Markdown';
+import RawSessionRecords from './RawSessionRecords';
 export function downloadJson(name: string, value: unknown) { const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-export default function SessionDetails({ api, session, onClose, onRolledBack, busy, initialTab = 'events', notify }: { api: LoopraClient; session: Session; onClose: () => void; onRolledBack: (text?: string) => Promise<void>; busy: boolean; initialTab?: string; notify?: (message: string) => void }) {
-  const [tab, setTab] = useState(initialTab); const [revision, setRevision] = useState(0); const suffix = sessionQuery(session);
-  const events = useRemote<unknown[]>(api, tab === 'events' ? `/agent/history/events?${suffix}` : null, revision);
-  const snapshots = useRemote<{ msgId: string; createdAt: number; commitHash: string }[]>(api, tab === 'snapshots' ? `/snapshots?${suffix}` : null, revision);
-  // 后端返回 { content, length }；直接渲染对象会让 React 抛错并卸载整页
-  const prompt = useRemote<{ content?: string; length?: number }>(api, tab === 'prompt' ? `/agent/prompt?${suffix}` : null, revision);
-  const [rollback, setRollback] = useState<string>();
-  return <Modal isOpen onClose={onClose} size="4xl" scrollBehavior="inside" aria-label="会话记录"><ModalContent><div className="remote-confirm"><h2>{session.title}</h2><div className="workbench-tabs" role="tablist">{[['events', '原始记录'], ['snapshots', '代码快照'], ['prompt', '实际系统提示词']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}<Button size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button></div>{tab === 'events' ? <><RemoteState {...events} /><Button size="sm" isDisabled={!events.data} onPress={() => downloadJson(`${session.name}-events.json`, events.data)}>导出原始记录</Button><pre className="session-raw">{events.data && JSON.stringify(events.data, null, 2)}</pre></> : tab === 'prompt' ? <><RemoteState {...prompt} /><div className="session-prompt-actions"><Button size="sm" variant="light" isDisabled={!prompt.data} onPress={() => { void copyText(promptText(prompt.data), notify || (() => {})); }}>复制提示词</Button></div><div className="session-prompt-md"><Markdown text={promptText(prompt.data)} notify={notify || (() => {})} /></div></> : <><RemoteState {...snapshots} />{snapshots.data?.map(snapshot => <section className="workbench-card" key={snapshot.msgId}><strong>{snapshot.msgId}</strong><p>{new Date(snapshot.createdAt).toLocaleString()}</p><code>{snapshot.commitHash?.slice(0, 12)}</code><Button size="sm" variant="light" color="danger" isDisabled={busy} onPress={() => setRollback(snapshot.msgId)}>回滚到此快照</Button></section>)}{snapshots.data?.length === 0 && <p>暂无代码快照。</p>}</>}</div>{rollback && <ConfirmAction title="回滚会话与代码" onClose={() => setRollback(undefined)} action={async () => { const result = await api.request<{ success: boolean; message: string; rollbackUserText?: string }>(`/snapshots/rollback?${suffix}&${query({ msgId: rollback, rollbackCode: true })}`, 'POST'); if (!result.success) throw new Error(result.message); await onRolledBack(result.rollbackUserText); }} onDone={() => setRevision(value => value + 1)}><p>将恢复项目代码，并撤回该消息及之后的记录。当前未提交的修改可能被覆盖。</p></ConfirmAction>}</ModalContent></Modal>;
+const recordTabs = [{ id: 'events', label: '原始记录', Icon: ListTree }, { id: 'prompt', label: '系统提示词', Icon: FileText }] as const;
+export default function SessionDetails({ api, session, onClose, initialTab = 'events', notify = () => {} }: { api: LoopraClient; session: Session; onClose: () => void; initialTab?: string; notify?: (message: string) => void }) {
+  const [tab, setTab] = useState(initialTab === 'prompt' ? 'prompt' : 'events');
+  const [revision, setRevision] = useState({ events: 0, prompt: 0 });
+  const [promptView, setPromptView] = useState('read');
+  const suffix = sessionQuery(session);
+  // Keep both results cached while switching tabs; refresh only the active tab.
+  const events = useRemote<unknown[]>(api, `/agent/history/events?${suffix}`, revision.events);
+  const prompt = useRemote<{ content?: string; length?: number }>(api, `/agent/prompt?${suffix}`, revision.prompt);
+  const state = tab === 'events' ? events : prompt;
+  const text = promptText(prompt.data);
+  return <Modal isOpen onClose={onClose} size="4xl" placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog session-record-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="会话记录"><ModalContent>
+    <ModalHeader className="app-dialog-header"><div className="session-record-title"><h2>会话记录</h2><span title={session.title}>{session.title}</span></div></ModalHeader>
+    <div className="session-record-toolbar"><div className="workbench-tabs" role="tablist" aria-label="会话记录分类">{recordTabs.map(({ id, label, Icon }) => <button key={id} id={`session-record-tab-${id}`} role="tab" aria-selected={tab === id} aria-controls="session-record-panel" onClick={() => setTab(id)}><Icon size="0.9375rem" />{label}</button>)}</div>
+      <div className="session-record-tools">{tab === 'events' ? <Button size="sm" variant="light" isDisabled={!events.data?.length} onPress={() => downloadJson(`${session.name}-events.json`, events.data)} startContent={<Download size="0.875rem" />}>导出记录</Button> : <Button size="sm" variant="light" isDisabled={!text} onPress={() => { void copyText(text, notify); }} startContent={<Copy size="0.875rem" />}>复制提示词</Button>}<Button size="sm" variant="light" isLoading={state.loading} onPress={() => setRevision(value => ({ ...value, [tab]: value[tab as keyof typeof value] + 1 }))} startContent={<RefreshCw size="0.875rem" />}>刷新</Button></div>
+    </div>
+    <ModalBody className="app-dialog-body session-record-body"><div id="session-record-panel" role="tabpanel" aria-labelledby={`session-record-tab-${tab}`}>
+      {tab === 'events' ? <>
+        <RemoteState {...events} />
+        {events.data && <RawSessionRecords messages={events.data} notify={notify} />}
+      </> : tab === 'prompt' ? <>
+        <RemoteState {...prompt} />
+        {prompt.data && <><div className="session-prompt-toolbar"><span>{text.length.toLocaleString()} 字符</span><div role="group" aria-label="提示词显示方式"><button type="button" aria-pressed={promptView === 'read'} onClick={() => setPromptView('read')}>阅读</button><button type="button" aria-pressed={promptView === 'source'} onClick={() => setPromptView('source')}>原文</button></div></div>{text ? promptView === 'read' ? <div className="session-prompt-md loopra-conversation"><Markdown text={promptText(prompt.data)} notify={notify} /></div> : <pre className="session-prompt-source">{text}</pre> : <p className="record-empty">没有可显示的系统提示词。</p>}</>}
+      </> : null}
+    </div></ModalBody>
+  </ModalContent></Modal>;
 }
 type ProgressStep = { id?: string; index?: number; description: string; status: string; kind?: string; result?: string; evidence?: string };
 type Progress = { title: string; status: string; progress?: string; totalSteps?: number; doneSteps?: number; currentStepIndex?: number; blockedReason?: string; completionSummary?: string; verifyCommand?: string; steps?: ProgressStep[] };

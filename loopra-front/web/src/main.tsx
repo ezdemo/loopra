@@ -14,6 +14,7 @@ import './pets.css';
 import './workbench.css';
 import './capabilities.css';
 import './requirements.css';
+import './session-records.css';
 
 async function initialize() {
   // Keep explicit browser preferences; otherwise migrate the original console's

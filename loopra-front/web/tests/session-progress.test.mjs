@@ -30,6 +30,9 @@ const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, ...rest }, children);
 export const Modal = ({ children }) => createElement('div', { role: 'dialog' }, children);
 export const ModalContent = ({ children }) => createElement('div', null, children);
+export const ModalHeader = ({ children }) => createElement('header', null, children);
+export const ModalBody = ({ children }) => createElement('div', null, children);
+export const ModalFooter = ({ children }) => createElement('footer', null, children);
 `);
 const promptStub = dataUrl(`export const promptText = value => typeof value === 'string' ? value : (value && value.content) || '';`);
 const markdownStub = dataUrl(`
@@ -39,6 +42,10 @@ const Markdown = ({ text }) => createElement('div', { className: 'markdown' }, t
 export default Markdown;
 `);
 const backendStub = dataUrl('export const sessionQuery = session => `workspaceHash=${encodeURIComponent(session.workspaceHash || "")}&sessionName=${encodeURIComponent(session.name || "")}`;');
+const recordDependencies = {
+  'lucide-react': dataUrl('export const Copy=()=>null, Download=()=>null, FileText=()=>null, ListTree=()=>null, RefreshCw=()=>null;'),
+  './RawSessionRecords': dataUrl('export default () => null;'),
+};
 const controlsStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
 export const query = values => new URLSearchParams(Object.entries(values).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)])).toString();
@@ -59,6 +66,7 @@ export function useRemote(api, path, revision = 0) {
 `);
 
 const { SessionProgress } = await import(await sourceUrl('components/SessionDetails.tsx', {
+  ...recordDependencies,
   '@nextui-org/react': nextuiStub,
   '../backend': backendStub,
   './RemoteControls': controlsStub,
@@ -158,6 +166,7 @@ test('renders nothing when neither Goal nor checklist exists', async () => {
 
 test('status maps match the legacy GoalSteps / ChecklistSteps tables', async () => {
   const module = await import(await sourceUrl('components/SessionDetails.tsx', {
+    ...recordDependencies,
     '@nextui-org/react': nextuiStub,
     '../backend': backendStub,
     './RemoteControls': controlsStub,
