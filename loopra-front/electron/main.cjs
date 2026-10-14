@@ -56,7 +56,7 @@ if (handleSquirrelEvent()) {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const isWin = process.platform === 'win32'
 const shouldOpenDevTools = process.env.LOOPRA_OPEN_DEVTOOLS === '1'
-const DESKTOP_CHAT_DEV_RENDERER_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:3000']
+const DESKTOP_CHAT_DEV_RENDERER_ORIGINS = ['http://127.0.0.1:3000', 'http://localhost:3000']
 const DESKTOP_CHAT_LOAD_ATTEMPTS = DESKTOP_CHAT_DEV_RENDERER_ORIGINS.length
 const DESKTOP_CHAT_LOAD_RETRY_DELAY_MS = 200
 const DESKTOP_CHAT_LOAD_TIMEOUT_MS = 10000
@@ -786,7 +786,7 @@ function createSplashWindow(options = {}) {
   const query = { desktopSplash: '1' }
   if (from) query.from = from
   if (isDev) {
-    const url = new URL('http://localhost:3000/')
+    const url = new URL('http://127.0.0.1:3000/')
     url.searchParams.set('desktopSplash', '1')
     if (from) url.searchParams.set('from', from)
     splashWindow.loadURL(url.toString())
@@ -827,7 +827,7 @@ function openOnboardingWindow() {
   onboardingWindow.on('closed', () => { onboardingWindow = null })
 
   if (isDev) {
-    onboardingWindow.loadURL('http://localhost:3000/?desktopOnboarding=1')
+    onboardingWindow.loadURL('http://127.0.0.1:3000/?desktopOnboarding=1')
   } else {
     onboardingWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { desktopOnboarding: '1' } })
   }
@@ -881,15 +881,8 @@ function setTitleBarOverlayDimmed(dimmed) {
 }
 
 function createWindow() {
-  const titleBarOptions = process.platform === 'win32'
-    ? {
-      frame: false,
-      titleBarStyle: 'hidden',
-      titleBarOverlay: nativeTitleBarOverlay(nativeTitleBarTheme === 'dark')
-    }
-    : process.platform === 'darwin'
-      ? { frame: false, titleBarStyle: 'hiddenInset' }
-      : { frame: true }
+  // React supplies the drag region and window controls on every platform.
+  const titleBarOptions = { frame: false }
   mainWindow = new BrowserWindow({
     width: 1200, height: 800,
     minWidth: 800, minHeight: 600,
@@ -905,7 +898,7 @@ function createWindow() {
 
   // 开发模式：加载 Vite dev server；生产模式：加载打包后的 renderer
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000/?desktopShell=1')
+    mainWindow.loadURL('http://127.0.0.1:3000/?desktopShell=1')
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { desktopShell: '1' } })
   }
@@ -1099,22 +1092,33 @@ function openDesktopPetWindow() {
   desktopPetWindow.webContents.on('did-finish-load', sendPendingDesktopPetReply)
 
   if (isDev) {
-    desktopPetWindow.loadURL('http://localhost:3000/?desktopPet=1')
+    desktopPetWindow.loadURL('http://127.0.0.1:3000/?desktopPet=1')
   } else {
     desktopPetWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { desktopPet: '1' } })
   }
   return desktopPetWindow
 }
 
-app.whenReady().then(() => {
+async function openDesktopWorkspace() {
+  // A healthy existing core can open the workspace immediately. Installation
+  // and service startup remain available through the dedicated setup window.
+  if (await healthCheck(currentPort || 4567)) {
+    currentPort = currentPort || 4567
+    createWindow()
+  } else {
+    createSplashWindow()
+  }
+}
+
+app.whenReady().then(async () => {
   // The renderer provides its own toolbar; do not expose Electron's default menu bar.
   Menu.setApplicationMenu(null)
   startAiBrowserBridge().catch((error) => console.error('[ai-browser] failed to start bridge:', error.message))
-  createSplashWindow()
+  await openDesktopWorkspace()
   if (isDesktopPetEnabled()) openDesktopPetWindow()
   app.on('activate', () => {
     // macOS dock 点击时无窗口则重新走启动窗口流程（服务已就绪时快速通过）
-    if (BrowserWindow.getAllWindows().length === 0) createSplashWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void openDesktopWorkspace()
   })
 })
 
@@ -1313,7 +1317,10 @@ ipcMain.handle('system-fonts-list', async (event) => {
   return systemFontsCache
 })
 
-ipcMain.handle('get_loopra_web_port', async () => currentPort)
+ipcMain.handle('get_loopra_web_port', async () => {
+  if (!currentPort && await healthCheck(4567)) currentPort = 4567
+  return currentPort
+})
 
 ipcMain.handle('get_electron_version', async () => {
   return app.getVersion()
@@ -1986,11 +1993,15 @@ ipcMain.handle('desktop-pet-reply', (event, rawReply) => {
 
 ipcMain.handle('pick_loopra_workspace_folder', async (event) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized folder picker request')
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: '选择项目文件夹',
-    properties: ['openDirectory', 'createDirectory']
+  const response = await fetch(`http://127.0.0.1:${currentPort || 4567}/api/system/pick-directory`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '' }),
+    signal: AbortSignal.timeout(130000)
   })
-  return result.canceled ? '' : (result.filePaths[0] || '')
+  const result = await response.json()
+  if (!response.ok || !result.success) throw new Error(result.error || '选择项目文件夹失败')
+  return result.data || ''
 })
 
 ipcMain.handle('pick_jar_file', async (event) => {
@@ -2132,7 +2143,7 @@ function ensureDesktopMessageWindow() {
   messageWindow.webContents.setWindowOpenHandler(() => ({action: 'deny'}))
 
   if (isDev) {
-    messageWindow.loadURL('http://localhost:3000/?desktopMessage=1')
+    messageWindow.loadURL('http://127.0.0.1:3000/?desktopMessage=1')
   } else {
     messageWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {query: {desktopMessage: '1'}})
   }
@@ -3475,7 +3486,7 @@ function openAiBrowserWindow() {
     aiBrowserWindow?.webContents.send('ai-browser-activity', aiBrowserActivity)
   })
   if (isDev) {
-    aiBrowserWindow.loadURL('http://localhost:3000/?aiBrowser=1')
+    aiBrowserWindow.loadURL('http://127.0.0.1:3000/?aiBrowser=1')
   } else {
     aiBrowserWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { aiBrowser: '1' } })
   }
@@ -4790,7 +4801,7 @@ function openElementInspectorWindow(initialUrl = '') {
     elementInspectorPendingUrl = ''
   })
   if (isDev) {
-    elementInspectorWindow.loadURL('http://localhost:3000/?elementInspector=1')
+    elementInspectorWindow.loadURL('http://127.0.0.1:3000/?elementInspector=1')
   } else {
     elementInspectorWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { elementInspector: '1' } })
   }
@@ -4832,7 +4843,7 @@ function openRequirementBoardWindow() {
     requirementBoardWindow = null
   })
   if (isDev) {
-    requirementBoardWindow.loadURL('http://localhost:3000/?requirementBoard=1')
+    requirementBoardWindow.loadURL('http://127.0.0.1:3000/?requirementBoard=1')
   } else {
     requirementBoardWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { requirementBoard: '1' } })
   }

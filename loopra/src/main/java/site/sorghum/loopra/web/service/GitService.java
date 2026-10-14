@@ -113,17 +113,13 @@ public class GitService {
         String workspacePath = resolveWorkspace(workspaceHash);
 
         String branch = runGitSimple(workspacePath, "rev-parse", "--abbrev-ref", "HEAD");
-        String raw = runGitSimple(workspacePath, "status", "--porcelain");
-
-        List<GitFileChangeDTO> changed = new ArrayList<>();
-        List<GitFileChangeDTO> untracked = new ArrayList<>();
-        parsePorcelainStatus(raw, changed, untracked);
-
-        return new GitDiffDTO(
-                branch != null ? branch.trim() : "unknown",
-                changed, untracked,
-                changed.size() + untracked.size()
-        );
+        try {
+            WorkspaceChanges changes = readWorkspaceChanges(new File(workspacePath));
+            return new GitDiffDTO(branch != null ? branch.trim() : "unknown", changes.changed(), changes.untracked(),
+                    changes.changed().size() + changes.untracked().size());
+        } catch (Exception error) {
+            throw new ServiceException("无法读取项目 Git 改动: " + error.getMessage());
+        }
     }
 
     /**
@@ -156,11 +152,8 @@ public class GitService {
         String branch = branchResult.stdout.trim();
         if (branch.isEmpty()) branch = "master";
 
-        // 4. 解析 git status --porcelain=v1
-        ProcessResult statusResult = runGit(workspaceDir, "git", "status", "--porcelain=v1");
-        List<GitFileChangeDTO> changed = new ArrayList<>();
-        List<GitFileChangeDTO> untracked = new ArrayList<>();
-        parsePorcelainStatus(statusResult.stdout, changed, untracked);
+        // 4. 展开未跟踪目录，只返回当前项目内、相对项目的文件路径。
+        WorkspaceChanges changes = readWorkspaceChanges(workspaceDir);
 
         // 5. 获取配置的模型与渠道
         Map<String, String> config = getGitConfig(workspaceHash);
@@ -168,41 +161,30 @@ public class GitService {
         String modelChannelId = config.get("modelChannelId");
 
         return new GitStatusDTO(true, true, branch,
-                workspaceDir.getAbsolutePath(), changed, untracked, model, modelChannelId);
+                workspaceDir.getAbsolutePath(), changes.changed(), changes.untracked(), model, modelChannelId);
     }
 
     /**
-     * 解析 git status --porcelain 输出，将结果填充到 changed 和 untracked 列表中。
-     * <p>
-     * 自动处理重命名（R old -> new）、带引号文件名和尾部斜杠。
-     * </p>
+     * NUL 分隔保留中文、空格、引号及换行等文件名，不依赖 Git 的显示转义。
+     * porcelain 路径始终相对仓库根目录；剥离 prefix 后才是项目内路径。
      */
-    private void parsePorcelainStatus(String porcelainOutput,
+    private void parsePorcelainStatus(String porcelainOutput, String prefix,
                                        List<GitFileChangeDTO> changed,
                                        List<GitFileChangeDTO> untracked) {
-        if (porcelainOutput == null || porcelainOutput.trim().isEmpty()) return;
-        for (String line : porcelainOutput.split("\n")) {
-            if (line.trim().isEmpty() || line.length() < MIN_STATUS_LINE_LENGTH) continue;
+        if (porcelainOutput == null || porcelainOutput.isEmpty()) return;
+        String[] entries = porcelainOutput.split("\0", -1);
+        for (int index = 0; index < entries.length; index++) {
+            String line = entries[index];
+            if (line.length() < MIN_STATUS_LINE_LENGTH) continue;
 
             String indexStatus = String.valueOf(line.charAt(0));
             String workStatus = String.valueOf(line.charAt(1));
-            String filename = line.substring(3).trim();
-
-            // 处理重命名：R  old -> new
-            if (filename.contains(" -> ")) {
-                String[] parts = filename.split(" -> ", 2);
-                filename = parts[1];
-            }
-
-            // 去掉文件名前后的引号
-            if (filename.startsWith("\"") && filename.endsWith("\"")) {
-                filename = filename.substring(1, filename.length() - 1);
-            }
-
-            // 去掉尾部斜杠
-            if (filename.endsWith("/")) {
-                filename = filename.substring(0, filename.length() - 1);
-            }
+            String filename = line.substring(3);
+            // -z 重命名/复制记录先给出新路径，下一条是旧路径。
+            if ("RC".contains(indexStatus) || "RC".contains(workStatus)) index++;
+            if (!filename.startsWith(prefix)) continue;
+            filename = filename.substring(prefix.length());
+            if (filename.isEmpty()) continue;
 
             if ("?".equals(indexStatus) && "?".equals(workStatus)) {
                 untracked.add(new GitFileChangeDTO(filename, indexStatus, workStatus, "U"));
@@ -211,6 +193,19 @@ public class GitService {
                 changed.add(new GitFileChangeDTO(filename, indexStatus, workStatus, status));
             }
         }
+    }
+
+    private record WorkspaceChanges(List<GitFileChangeDTO> changed, List<GitFileChangeDTO> untracked) { }
+
+    private WorkspaceChanges readWorkspaceChanges(File workspaceDir) throws Exception {
+        ProcessResult prefixResult = runGit(workspaceDir, "git", "rev-parse", "--show-prefix");
+        if (prefixResult.exitCode != 0) throw new ServiceException("当前项目不在 Git 仓库中");
+        String prefix = prefixResult.stdout.replaceFirst("\\r?\\n$", "");
+        ProcessResult status = runGit(workspaceDir, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".");
+        if (status.exitCode != 0) throw new ServiceException("读取 Git 改动失败: " + status.stderr);
+        List<GitFileChangeDTO> changed = new ArrayList<>(), untracked = new ArrayList<>();
+        parsePorcelainStatus(status.stdout, prefix, changed, untracked);
+        return new WorkspaceChanges(changed, untracked);
     }
 
     /**
@@ -668,7 +663,7 @@ public class GitService {
     }
 
     /**
-     * 切换文件状态：未追踪 → 变更（git add），或变更 → 未追踪（git reset HEAD --）。
+     * 暂存或取消暂存文件及目录；可用 staged 显式指定目标状态。
      */
     public Map<String, Object> toggleFile(String workspaceHash, String body) throws Exception {
         File workspaceDir = new File(resolveWorkspace(workspaceHash));
@@ -682,25 +677,31 @@ public class GitService {
             throw new ServiceException("Path is required");
         }
 
-        // 检查文件当前状态
+        // 批量目录操作显式指定目标状态，避免混合暂存状态被逐个反转。
+        ONode request = parseJsonBody(body, "toggle");
+        Boolean requestedStage = null;
+        if (request != null && request.hasKey("staged")) {
+            if (!request.get("staged").isBoolean()) throw new ServiceException("staged 必须为布尔值");
+            requestedStage = request.get("staged").getBoolean();
+        }
         ProcessResult statusResult = runGit(workspaceDir, "git", "status", "--porcelain", "--", path);
-        String statusLine = statusResult.stdout.trim();
+        if (statusResult.exitCode != 0) throw new ServiceException("读取文件状态失败: " + statusResult.stderr);
+        // 保留 XY 状态的前导空格：' M' 是未暂存，'M ' 才是已暂存。
+        String statusLine = statusResult.stdout;
+        boolean stage = requestedStage != null ? requestedStage
+                : !statusLine.isBlank() && (statusLine.charAt(0) == ' ' || statusLine.charAt(0) == '?');
 
         ProcessResult result;
         String newState;
 
-        if (statusLine.isEmpty() || statusLine.startsWith("M") || statusLine.startsWith("A") ||
-                statusLine.startsWith("D") || statusLine.startsWith("R")) {
-            // 已暂存或已追踪的变更 → 取消暂存
-            result = runGit(workspaceDir, "git", "reset", "HEAD", "--", path);
+        if (!stage) {
+            // 首次提交之前还没有 HEAD，只移除索引项，保留工作区文件。
+            ProcessResult head = runGit(workspaceDir, "git", "rev-parse", "--verify", "HEAD");
+            result = head.exitCode == 0 ? runGit(workspaceDir, "git", "reset", "HEAD", "--", path)
+                    : runGit(workspaceDir, "git", "rm", "--cached", "-r", "-f", "--", path);
             newState = "untracked";
-        } else if (statusLine.startsWith("?")) {
-            // 未追踪 → 暂存
-            result = runGit(workspaceDir, "git", "add", "--", path);
-            newState = "changed";
         } else {
-            // 其他情况（如  M 未暂存修改）→ 暂存
-            result = runGit(workspaceDir, "git", "add", "--", path);
+            result = runGit(workspaceDir, "git", "add", "-A", "--", path);
             newState = "changed";
         }
 
@@ -930,26 +931,9 @@ public class GitService {
      * 获取项目中所有变更文件列表（含暂存、未暂存、未跟踪）。
      */
     private List<String> getChangedFiles(File workspaceDir) throws Exception {
-        ProcessResult result = runGit(workspaceDir, "git", "status", "--porcelain");
-        if (result.exitCode != 0 || result.stdout == null || result.stdout.trim().isEmpty()) {
-            return List.of();
-        }
-        List<String> fileList = new ArrayList<>();
-        for (String line : result.stdout.split("\n")) {
-            if (line.trim().isEmpty() || line.length() < MIN_STATUS_LINE_LENGTH) continue;
-            String filename = line.substring(3).trim();
-            // 处理重命名
-            if (filename.contains(" -> ")) {
-                filename = filename.split(" -> ", 2)[1];
-            }
-            if (filename.startsWith("\"") && filename.endsWith("\"")) {
-                filename = filename.substring(1, filename.length() - 1);
-            }
-            if (!fileList.contains(filename)) {
-                fileList.add(filename);
-            }
-        }
-        return fileList;
+        WorkspaceChanges changes = readWorkspaceChanges(workspaceDir);
+        return java.util.stream.Stream.concat(changes.changed().stream(), changes.untracked().stream())
+                .map(GitFileChangeDTO::path).distinct().toList();
     }
 
     /**

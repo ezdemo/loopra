@@ -12,8 +12,9 @@ let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.
 const deps = {
   react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'),
   '@nextui-org/react': dataUrl('export const Button = () => null;'),
+  'lucide-react': dataUrl('export const ChevronLeft = () => null; export const ChevronRight = () => null;'),
   './RemoteControls': dataUrl('export const RemoteState = () => null; export function useRemote() { return { data: undefined }; }'),
-  './SettingControls': dataUrl('export const PageHeader = () => null;'),
+  './SettingControls': dataUrl('export const PageActions = () => null; export const SelectField = () => null;'),
 };
 for (const [specifier, url] of Object.entries(deps)) outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
 const { compactTokens, formatCost, usageHeatmap, usageModelPage } = await import(dataUrl(outputText));

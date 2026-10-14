@@ -6,7 +6,7 @@ import ts from 'typescript';
 
 // Legacy TitleBar.vue supplied the frameless Electron window chrome. The React
 // renderer needs its own bridge detection + drag region + window controls, and
-// an opt-in way to be selected inside Electron (src/entry-routing.js).
+// the default Electron workspace entry (src/entry-routing.js).
 const shellSource = await readFile(new URL('../src/desktop-shell.ts', import.meta.url), 'utf8');
 const shellJs = ts.transpileModule(shellSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const shellUrl = 'data:text/javascript;base64,' + Buffer.from(shellJs).toString('base64');
@@ -52,8 +52,9 @@ test('the desktop title bar provides a draggable region with no-drag controls', 
   assert.match(styles, /\.desktop-window-controls \{[^}]*-webkit-app-region: no-drag;/);
 });
 
-test('entry routing lets Electron opt into the React renderer', () => {
-  assert.equal(routing.usesLegacyRenderer('?desktopShell=1', true), true);
+test('entry routing uses React by default in Electron and preserves auxiliary windows', () => {
+  assert.equal(routing.usesLegacyRenderer('?desktopShell=1', true), false);
+  assert.equal(routing.usesLegacyRenderer('', true), false);
   assert.equal(routing.usesLegacyRenderer('?desktopShell=1&react=1', true), false);
   assert.equal(routing.usesLegacyRenderer('?react=1', true), false);
   assert.equal(routing.usesLegacyRenderer('', false), false);

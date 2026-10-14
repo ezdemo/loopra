@@ -4,8 +4,8 @@ import type { ComposerOptions } from './composer';
 export type SkillConfig = { id: string; name: string; description: string; enabled: boolean };
 export type ToolConfig = { name: string; description: string; category: string; readOnly: boolean; enabled: boolean };
 export type AgentProfile = { id: string; name: string; description: string; instructions: string; readOnly: boolean; enabled: boolean; modelId: string; tools: string[] };
-export type IntegrationKind = 'mcp' | 'lsp' | 'openapi';
-export type Integration = { id: string; kind: IntegrationKind; name: string; enabled: boolean; transport: string; url: string; command: string; args: string; env: string; headers: string; extensions: string; timeout: number; auth: string; token: string; tools: string[] };
+export type IntegrationKind = 'mcp' | 'openapi';
+export type Integration = { id: string; kind: IntegrationKind; name: string; enabled: boolean; transport: string; url: string; command: string; args: string; env: string; headers: string; timeout: number; auth: string; token: string; tools: string[] };
 export type Extension = { id: string; name: string; description: string; enabled: boolean; source?: string };
 export type AgentSettings = {
   codeFontSize: number; defaultWorkspace: string; projectPath: string; agentName: string; systemPrompt: string;
@@ -107,11 +107,11 @@ export function validateProvider(provider: Provider) {
   return '';
 }
 export function newIntegration(kind: IntegrationKind): Integration {
-  return { id: '', kind, name: '', enabled: true, transport: kind === 'mcp' ? 'stdio' : kind, url: '', command: '', args: '', env: '', headers: '', extensions: '.ts, .tsx, .js', timeout: 30, auth: 'none', token: '', tools: [] };
+  return { id: '', kind, name: '', enabled: true, transport: kind === 'mcp' ? 'stdio' : kind, url: '', command: '', args: '', env: '', headers: '', timeout: 30, auth: 'none', token: '', tools: [] };
 }
 export function validateIntegration(item: Integration) {
   if (!item.name.trim()) return '请输入配置名称';
-  if (item.kind === 'lsp' || (item.kind === 'mcp' && item.transport === 'stdio')) { if (!item.command.trim()) return '请输入启动命令'; }
+  if (item.kind === 'mcp' && item.transport === 'stdio') { if (!item.command.trim()) return '请输入启动命令'; }
   else { try { if (!['http:', 'https:'].includes(new URL(item.url).protocol)) throw new Error(); } catch { return '请输入有效的 HTTP / HTTPS 地址'; } }
   if (!Number.isInteger(item.timeout) || item.timeout < 1 || item.timeout > 600) return '超时应为 1–600 秒的整数';
   return '';

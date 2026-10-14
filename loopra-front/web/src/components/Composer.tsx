@@ -228,7 +228,7 @@ export default function Composer(props: Props) {
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
   const hasContext = contextImages.length > 0 || context.projects.length > 0 || context.skills.length > 0 || contextFiles.length > 0;
 
-  return <div ref={root} data-popover style={{ '--composer-popover-height': `${popoverHeight}px`, '--pet-height': `${props.petEnabled && props.pets.active ? 208 * petScale(props.pets.active) * 0.75 : 0}px` } as CSSProperties} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
+  return <div ref={root} data-popover style={{ '--composer-popover-height': `${popoverHeight}px` } as CSSProperties} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
     onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}

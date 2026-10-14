@@ -4,10 +4,10 @@ import type { AgentSettings } from '../settings-data';
 import { defaultSystemPrompt } from '../settings-data';
 import { effortLevels, type ComposerOptions } from '../composer';
 import type { Provider, Session } from '../lib';
-import { PageHeader, SelectField, SettingRow, SettingSwitch, TextField } from './SettingControls';
+import { PageActions, SelectField, SettingRow, SettingSwitch, TextField } from './SettingControls';
 
 // 设置页里只有「会话默认」和「系统提示词」仍走本地 props（由 App 统一持久化到后端）。
-// 服务器 / 项目 / 工具 / 技能 / 子代理 / 数据面板 / 拓展包 / 集成（MCP·LSP·OpenAPI）
+// 服务器 / 项目 / 工具 / 技能 / 子代理 / 数据面板 / 拓展包 / 集成（MCP·OpenAPI）
 // 都已迁移到后端驱动页（BackendSettings / ResourceManagers / UsageDashboard / IntegrationManager）。
 // 历史上这里还有一批本地 mock 实现，与旧 legacy.html 的「演示配置」语义混淆，已删除。
 export type SettingsPageProps = { config: AgentSettings; onConfig: (value: AgentSettings) => void | Promise<void>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void; providers: Provider[]; sessions: Session[]; notify: (text: string) => void };
@@ -24,5 +24,5 @@ export function AgentDefaults({ options, onOptions }: SettingsPageProps) {
 }
 export function PromptSettings({ config, onConfig, notify }: SettingsPageProps) {
   const [prompt, setPrompt] = useState(config.systemPrompt);
-  return <><PageHeader title="系统提示词" description="编辑 Loopra 的 loopra.md，保存后重新初始化 Agent。" /><form className="rich-settings-form" onSubmit={event => { event.preventDefault(); void Promise.resolve(onConfig({ ...config, systemPrompt: prompt })).catch(error => notify(error instanceof Error ? error.message : '保存失败')); }}><TextField label="系统提示词内容" value={prompt} onChange={setPrompt} rows={12} placeholder="输入 Markdown 格式的系统提示词…" /><div className="settings-inline-heading"><span className="settings-local-status">{prompt.length} 字符{prompt !== config.systemPrompt ? ' · 有未保存修改' : ' · 已保存'}</span><div className="settings-action-group"><Button size="sm" variant="light" onPress={() => setPrompt(defaultSystemPrompt)}>恢复默认内容</Button><Button size="sm" color="primary" type="submit" isDisabled={prompt === config.systemPrompt}>保存提示词</Button></div></div></form><p className="section-note">保存到 Loopra 的 ~/.loopra/loopra.md 文件。</p></>;
+  return <><PageActions title="系统提示词" /><form className="rich-settings-form" onSubmit={event => { event.preventDefault(); void Promise.resolve(onConfig({ ...config, systemPrompt: prompt })).catch(error => notify(error instanceof Error ? error.message : '保存失败')); }}><TextField label="系统提示词内容" value={prompt} onChange={setPrompt} rows={12} placeholder="输入 Markdown 格式的系统提示词…" /><div className="settings-inline-heading"><span className="settings-local-status">{prompt.length} 字符{prompt !== config.systemPrompt ? ' · 有未保存修改' : ' · 已保存'}</span><div className="settings-action-group"><Button size="sm" variant="light" onPress={() => setPrompt(defaultSystemPrompt)}>恢复默认内容</Button><Button size="sm" color="primary" type="submit" isDisabled={prompt === config.systemPrompt}>保存提示词</Button></div></div></form><p className="section-note">保存到 Loopra 的 ~/.loopra/loopra.md 文件。</p></>;
 }

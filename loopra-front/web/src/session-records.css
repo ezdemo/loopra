@@ -12,12 +12,6 @@
 .session-record-dialog .session-record-body { flex: 1; min-height: 0; padding: 0; overflow: hidden; font-size: .8125rem; }
 .session-record-body > [role="tabpanel"] { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .raw-records { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-.record-overview { display: flex; flex-shrink: 0; gap: .5rem; padding: .875rem 1.25rem; border-bottom: 1px solid var(--line); }
-.record-overview-labels { display: grid; gap: .25rem; width: 2rem; font-size: .625rem; line-height: .625rem; color: var(--muted); }
-.record-overview-track { display: grid; flex: 1; min-width: 0; gap: 2px; }
-.record-overview-column { display: grid; grid-template-rows: repeat(3, .625rem); gap: .25rem; min-width: 0; }
-.record-marker { width: 100%; max-width: .625rem; min-width: 2px; height: .625rem; justify-self: center; border-radius: 1px; background: var(--record-color); opacity: .72; }
-.record-marker:hover, .record-marker:focus-visible { opacity: 1; outline: 1px solid var(--record-color); outline-offset: 2px; }
 .kind-input { --record-color: #50aa79; --record-soft: #50aa7914; }
 .kind-model { --record-color: #9072b5; --record-soft: #9072b514; }
 .kind-tool { --record-color: #dc8a34; --record-soft: #dc8a3414; }
@@ -37,7 +31,6 @@
 .record-row > .record-row-summary::before { display: none; }
 .record-row-summary:hover { background: var(--hover); }
 .record-row-summary:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-.record-row.is-active > summary { box-shadow: inset 2px 0 var(--blue); }
 .record-row-chevron { flex-shrink: 0; color: var(--muted); }
 .record-row[open] > summary > .record-row-chevron { transform: rotate(90deg); }
 .record-role { flex-shrink: 0; padding: .0625rem .3125rem; border-radius: .25rem; background: var(--record-soft); color: var(--record-color); font-size: .6875rem; white-space: nowrap; }

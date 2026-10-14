@@ -1,3 +1,4 @@
+import { fieldStubs, checkboxStub } from './helpers/form-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -31,6 +32,9 @@ export const Button = ({ children, onPress, isDisabled, isLoading, isIconOnly, s
 export const Spinner = () => null;
 export const Modal = ({ children, isOpen, ...rest }) => isOpen ? createElement('div', { role: 'dialog', 'aria-label': rest['aria-label'] }, children) : null;
 export const ModalContent = ({ children }) => createElement('div', null, children);
+${checkboxStub}
+export const RadioGroup = ({ children, label }) => createElement('div', { role: 'radiogroup', 'aria-label': label }, children);
+export const Radio = ({ children, value, description }) => createElement('label', null, createElement('input', { type: 'radio', value }), children, description);
 `);
 const iconsStub = dataUrl('export const ArrowLeft=()=>null;export const Bot=()=>null;export const Calendar=()=>null;export const Clock=()=>null;export const Plus=()=>null;export const RefreshCw=()=>null;export const Send=()=>null;export const Trash2=()=>null;export const X=()=>null;export const Zap=()=>null;');
 const markdownStub = dataUrl(`
@@ -61,6 +65,7 @@ export function historyMessages(raw) {
 
 const { default: RequirementBoard } = await import(await sourceUrl('components/RequirementBoard.tsx', {
   '@nextui-org/react': nextuiStub,
+  './SettingControls': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)}); ${fieldStubs}`),
   'lucide-react': iconsStub,
   './Markdown': markdownStub,
   './Markdown.tsx': markdownStub,

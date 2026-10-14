@@ -1,5 +1,6 @@
+import { Field } from './SettingControls';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Modal, ModalContent } from '@nextui-org/react';
+import { Button, Modal, ModalContent, Checkbox } from '@nextui-org/react';
 import { Activity, Clock, Download, MessageCircle, Plus, RefreshCw, Trash2, Wrench } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { query, ConfirmAction } from './RemoteControls';
@@ -114,11 +115,11 @@ export default function SessionsManager({ api, sessions, workspaceHash, workspac
           .map(([label, value, Icon]) => <div className="settings-metric" key={label}><span><Icon size="0.875rem" />{label}</span><strong>{typeof value === 'number' ? value.toLocaleString() : value}</strong></div>)}
       </div>
 
-      <label className="sessions-manager-search"><input aria-label="搜索会话" placeholder="搜索会话标题或工作区…" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></label>
+      <Field className="sessions-manager-search" label={"搜索会话"} aria-label={"搜索会话"} placeholder={"搜索会话标题或工作区…"} value={(search) ?? ''} onChange={value => { setSearch(value); setPage(1); }} />
 
       {!filtered.length ? <p className="panel-empty">{sessions.length ? '没有匹配的会话' : '暂无会话，创建您的第一个会话开始使用。'}</p> : <div className="sessions-manager-list">
         {paged.items.map(session => <article key={session.id} className={`sessions-manager-card ${activeId === session.id ? 'active' : ''} ${selected.includes(session.id) ? 'selected' : ''}`}>
-          <label className="sessions-manager-check"><input type="checkbox" aria-label={`选择会话：${session.title}`} checked={selected.includes(session.id)} onChange={() => toggleSelected(session.id)} /></label>
+          <Checkbox className={`settings-next-checkbox ${"sessions-manager-check"}`} size="sm" aria-label={`选择会话：${session.title}`} isSelected={selected.includes(session.id)} onValueChange={() => toggleSelected(session.id)} />
           <div className="sessions-manager-card-main">
             <h3>{session.title}{session.worktreeMode && <span className="wt-badge" title="隔离分支模式">🌲</span>}</h3>
             <p>#{session.name || session.id} · {session.workspace || workspaceName}</p>

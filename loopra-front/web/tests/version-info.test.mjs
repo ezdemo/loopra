@@ -29,10 +29,11 @@ const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isLoading, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isLoading, onClick: onPress, ...rest }, startContent, children);
 `);
-const iconsStub = dataUrl('export const Download=()=>null;export const RefreshCw=()=>null;export const Server=()=>null;export const Sparkles=()=>null;');
+const iconsStub = dataUrl('export const ArrowUpRight=()=>null;export const Download=()=>null;export const RefreshCw=()=>null;export const Server=()=>null;export const Sparkles=()=>null;');
 const controlsStub = dataUrl(`export const errorText = cause => cause instanceof Error ? cause.message : String(cause);`);
 const settingControlsStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
+export const PageActions = ({ title, children }) => createElement('header', null, createElement('h2', null, title), children);
 export const SettingRow = ({ title, description, children }) => createElement('div', { className: 'row' }, createElement('span', { className: 'row-title' }, title), description ? createElement('small', null, description) : null, children);
 export const SelectField = ({ label, value, onChange, options }) => createElement('select', { 'aria-label': label, value, onChange: event => onChange(event.target.value) },
   options.map(option => { const item = typeof option === 'string' ? { value: option, label: option } : option; return createElement('option', { key: item.value, value: item.value }, item.label); }));

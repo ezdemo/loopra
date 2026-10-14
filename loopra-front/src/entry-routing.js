@@ -6,13 +6,10 @@ const ELECTRON_AUXILIARY = [
   'requirementBoard', 'aiBrowser', 'elementInspector'
 ]
 
-// Keep the existing Electron renderers and auxiliary windows on their Vue entry.
-export function usesLegacyRenderer(search, desktop = false) {
+// The main workspace uses React in both the browser and Electron. Auxiliary
+// windows retain their dedicated Vue implementations.
+export function usesLegacyRenderer(search) {
   const page = new URLSearchParams(search)
   const auxiliary = ELECTRON_AUXILIARY.some(key => page.get(key) === '1')
-  // Opt-in escape hatch: `?react=1` loads the React renderer in the Electron
-  // main window (React draws its own frameless chrome via DesktopTitleBar);
-  // auxiliary windows are not affected. Default desktop behaviour stays on Vue.
-  if (!auxiliary && page.get('react') === '1') return false
-  return desktop || auxiliary || page.get('desktopShell') === '1'
+  return auxiliary
 }

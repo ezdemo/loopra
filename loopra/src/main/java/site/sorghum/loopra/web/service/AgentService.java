@@ -1606,6 +1606,10 @@ public class AgentService implements ProjectRuntimeAccess {
         return projectCatalog.listProjects();
     }
 
+    public ProjectInfoDTO renameProject(String hash, String displayName) {
+        return projectCatalog.renameProject(hash, displayName);
+    }
+
     /**
      * 按用户保存的顺序合并项目列表：
      * order 中的 hash 按保存顺序排列在前，未保存过排序的项目按原顺序追加到末尾，

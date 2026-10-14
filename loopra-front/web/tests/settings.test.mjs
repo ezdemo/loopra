@@ -54,7 +54,7 @@ test('integration validation distinguishes command transports and URL transports
   assert.match(settings.validateIntegration({ ...mcp, transport: 'SSE', url: 'javascript:alert(1)' }), /HTTP/);
   assert.equal(settings.validateIntegration({ ...mcp, transport: 'Streamable HTTP', url: 'http://localhost:3000/mcp' }), '');
   assert.match(settings.validateIntegration({ ...mcp, command: 'demo', timeout: -1 }), /超时/);
-  assert.match(settings.validateIntegration({ ...settings.newIntegration('lsp'), name: 'TypeScript' }), /启动命令/);
+  assert.equal(settings.validateIntegration({ ...settings.newIntegration('openapi'), name: 'Example', url: 'https://example.test/openapi.json' }), '');
 });
 
 test('selected read-only roles apply their instructions and tool whitelist', () => {

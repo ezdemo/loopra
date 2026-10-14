@@ -5,8 +5,9 @@
 .help-heading { display: flex; align-items: center; gap: 0.5rem; color: var(--text); }
 .help-heading h1 { font-size: 1.0625rem; font-weight: 600; margin: 0; }
 .help-heading svg { color: var(--blue); }
-.help-search { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; max-width: 20rem; height: 2.25rem; padding: 0 0.625rem; border: 1px solid var(--line); border-radius: 0.625rem; color: var(--muted); }
-.help-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font-size: 0.8125rem; }
+.help-search { flex: 1; min-width: 0; max-width: 20rem; }
+.help-search [data-slot="input-wrapper"] { background: var(--surface); }
+.help-search [data-slot="input"] { color: var(--text); font-size: .8125rem; }
 .help-body { flex: 1; display: grid; grid-template-columns: 13rem minmax(0, 1fr); min-height: 0; }
 .help-nav { border-right: 1px solid var(--line); background: var(--sidebar); padding: 1.25rem 0.75rem; overflow-y: auto; scrollbar-width: thin; }
 .help-nav h2 { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; margin: 0 0 0.5rem 0.5rem; }

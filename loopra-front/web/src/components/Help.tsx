@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, ModalContent } from '@nextui-org/react';
+import { Input, Modal, ModalContent } from '@nextui-org/react';
 import { HelpCircle, Search as SearchIcon, X } from 'lucide-react';
 import { IconButton } from './ui';
 import {
@@ -41,10 +41,7 @@ export default function Help({ open, onClose, server }: { open: boolean; onClose
       <div className="help-layout">
         <header className="help-header">
           <div className="help-heading"><HelpCircle size="1.25rem" /><h1>帮助中心</h1></div>
-          <label className="help-search">
-            <SearchIcon size="0.9375rem" />
-            <input aria-label="搜索帮助文档" placeholder="搜索帮助文档…" value={query} onChange={event => setQuery(event.target.value)} />
-          </label>
+          <Input size="sm" variant="bordered" className="help-search" aria-label="搜索帮助文档" placeholder="搜索帮助文档…" value={query} onValueChange={setQuery} startContent={<SearchIcon size="0.9375rem" />} />
           <IconButton label="关闭帮助" onClick={onClose} className="settings-close"><X size="1.25rem" /></IconButton>
         </header>
 

@@ -12,13 +12,22 @@ async function sourceModule(name) {
 const { resolveInitialServer } = await sourceModule('runtime-config');
 const { LoopraClient } = await sourceModule('backend');
 
-test('default Web entry changes while all Electron and auxiliary windows keep their renderer', () => {
+test('Web and Electron workspaces use React while auxiliary windows keep their renderer', () => {
   assert.equal(usesLegacyRenderer(''), false);
   assert.equal(usesLegacyRenderer('?theme=dark&desktopChatTab=0'), false);
-  for (const key of ['desktopShell', 'desktopSplash', 'desktopUpdate', 'desktopOnboarding', 'desktopChatTab', 'desktopSearch', 'desktopMessage', 'desktopPopup', 'desktopPet', 'requirementBoard', 'aiBrowser', 'elementInspector']) {
+  assert.equal(usesLegacyRenderer('?desktopShell=1&theme=dark', true), false);
+  for (const key of ['desktopSplash', 'desktopUpdate', 'desktopOnboarding', 'desktopChatTab', 'desktopSearch', 'desktopMessage', 'desktopPopup', 'desktopPet', 'requirementBoard', 'aiBrowser', 'elementInspector']) {
     assert.equal(usesLegacyRenderer(`?${key}=1&theme=dark`), true, key);
   }
-  assert.equal(usesLegacyRenderer('', true), true);
+  assert.equal(usesLegacyRenderer('', true), false);
+});
+
+test('Electron uses the live core port instead of stale saved addresses', () => {
+  const sources = { saved: '"http://127.0.0.1:59999"', legacy: 'http://localhost:4567', origin: 'null', development: false };
+  assert.equal(resolveInitialServer({ ...sources, desktopPort: 49123 }), 'http://127.0.0.1:49123');
+  for (const desktopPort of [0, -1, 65536, 1.5, NaN, undefined]) {
+    assert.equal(resolveInitialServer({ ...sources, desktopPort }), 'http://127.0.0.1:59999');
+  }
 });
 
 test('server migration preserves user addresses and supports same-origin packaged Web on custom ports', () => {

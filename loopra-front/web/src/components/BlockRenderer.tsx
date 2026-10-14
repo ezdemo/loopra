@@ -1,13 +1,13 @@
-import { Collapse, Disclosure, Enter, useCollapseAll } from './Motion';
+import { Collapse, Disclosure, useCollapseAll } from './Motion';
 import { useId, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { Brain, Check, ChevronDown, Circle, CircleHelp, FileCode2, FileDiff, LoaderCircle, Undo2, X } from 'lucide-react';
+import { Brain, Check, ChevronDown, Circle, FileCode2, FileDiff, LoaderCircle, Undo2, X } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
 import { groupToolBlocks } from '../chat';
 import { toolParam } from '../tool-params';
 import Markdown from './Markdown';
 
-export type BlockActions = { notify: (message: string) => void; onDiff?: (path: string, diff?: string) => void; onRevert?: (changes: FileChange[]) => Promise<void>; onChoice?: (value: string, subId?: string) => void | Promise<void> };
+export type BlockActions = { notify: (message: string) => void; onDiff?: (path: string, diff?: string) => void; onRevert?: (changes: FileChange[]) => Promise<void> };
 function StatusIcon({ status }: { status: ToolStatus }) {
   return <span className={`tool-icon ${status === '成功' ? 'success' : status === '失败' ? 'failed' : 'running'}`}>{status === '成功' ? <Check size="0.9375rem" /> : status === '失败' ? <X size="0.9375rem" /> : <LoaderCircle size="0.9375rem" className="spin" />}</span>;
 }
@@ -34,11 +34,6 @@ function FileChanges({ changes, onDiff, onRevert, notify }: { changes: FileChang
   return <section className={`block-file-changes ${undone ? 'undone' : ''}`} aria-label="文件改动"><div className="file-changes-head"><button type="button" className="file-changes-main" onClick={() => onlyFile && onDiff?.(onlyFile.path, onlyFile.diff)} disabled={!onlyFile || undone}><span className="file-changes-icon"><FileDiff size="1.3125rem" /></span><span className="file-changes-summary"><strong>{undone ? '文件改动已撤销' : onlyFile ? onlyFile.path.split('/').pop() : `${changes.length} 个文件已修改`}</strong><span className="file-changes-total"><b className="file-change-add">+{total.additions}</b><b className="file-change-del">−{total.deletions}</b>{onlyFile && <span>{onlyFile.created ? '新增文件' : '文件已修改'}</span>}</span></span></button><Button size="sm" variant="light" className="file-changes-undo" endContent={<Undo2 size="0.875rem" />} isDisabled={undone || !onRevert || changes.some(change => !change.diff)} onPress={() => { void onRevert?.(changes).then(() => { setUndone(true); notify('文件改动已撤销'); }).catch(error => notify(error instanceof Error ? error.message : '撤销失败')); }}>{undone ? '已撤销' : '撤销'}</Button></div><Collapse open={!undone && !onlyFile}>{changes.slice(0, 3).map(change => <button key={change.path} type="button" className="file-change-row" onClick={() => onDiff?.(change.path, change.diff)}><FileCode2 size="0.875rem" /><span>{change.path}</span><span className="file-change-stats"><b className="file-change-add">+{change.additions}</b><b className="file-change-del">−{change.deletions}</b></span></button>)}<Collapse open={showAll}>{changes.slice(3).map(change => <button key={change.path} type="button" className="file-change-row" onClick={() => onDiff?.(change.path, change.diff)}><FileCode2 size="0.875rem" /><span>{change.path}</span><span className="file-change-stats"><b className="file-change-add">+{change.additions}</b><b className="file-change-del">−{change.deletions}</b></span></button>)}</Collapse></Collapse>{!undone && changes.length > 3 && <button type="button" className="file-changes-expand" onClick={() => setShowAll(!showAll)}>{showAll ? '收起文件' : `再显示 ${changes.length - 3} 个文件`}<ChevronDown size="0.875rem" className={showAll ? 'rotated' : ''} /></button>}</section>;
 }
 
-function ChoiceBlock({ block, onChoice, notify }: { block: Extract<ChatBlock, { type: 'choice' }> } & BlockActions) {
-  const [selected, setSelected] = useState(block.selected || '');
-  return <section className="block-choice" aria-label="选项"><div className="choice-question"><CircleHelp size="1rem" /><strong>{block.question}</strong></div>{block.description && <p className="choice-desc">{block.description}</p>}<Enter key={selected || 'options'}>{selected ? <div className="choice-resolved"><Check size="0.875rem" /><span>已选择</span><strong>{selected}</strong><button type="button" onClick={() => setSelected('')}>重新选择</button></div> : <div className="choice-buttons">{block.options.map((option, index) => <button type="button" key={option.title} className="choice-btn" onClick={() => { void Promise.resolve(onChoice?.(option.value || option.title, block.subId)).then(() => setSelected(option.title)).catch(error => notify(error instanceof Error ? error.message : '选择失败')); }}><span className="choice-index">{index + 1}</span><span><strong>{option.title}</strong>{option.description && <small>{option.description}</small>}</span></button>)}</div>}</Enter></section>;
-}
-
 export default function BlockRenderer({ blocks, ...actions }: { blocks: ChatBlock[] } & BlockActions) {
   return <div className="msg-blocks">{groupToolBlocks(blocks).map(block => {
     if (block.type === 'content') return <Markdown key={block.id} text={block.content} notify={actions.notify} onOpenFile={actions.onDiff} />;
@@ -54,7 +49,9 @@ export default function BlockRenderer({ blocks, ...actions }: { blocks: ChatBloc
       return <ToolBlock key={block.id} block={block} onOpenFile={actions.onDiff} />;
     }
     if (block.type === 'file_changes') return <FileChanges key={block.id} changes={block.changes} {...actions} />;
-    if (block.type === 'choice') return <ChoiceBlock key={block.id} block={block} {...actions} />;
+    // Choice cards (HITL approval / ask_choice) render nothing in the transcript:
+    // the composer popup owns the question and its options, so an approval never
+    // interrupts the run's flow.
     if (block.type === 'sub_agent') return <Disclosure key={block.id} className="block-tool" headingClass="tool-head" heading={<><StatusIcon status={block.status} /><code className="tool-name">子代理</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span><span className="tool-param">{block.name} · {block.blocks.length} 步</span><ChevronDown size="0.875rem" /></>}><div className="tool-group-detail"><BlockRenderer blocks={block.blocks} {...actions} /></div></Disclosure>;
     if (block.type === 'checklist') {
       const completed = block.steps.filter(step => step.status === 'done').length;

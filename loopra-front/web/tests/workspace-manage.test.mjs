@@ -1,3 +1,4 @@
+import { fieldStubs } from './helpers/form-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -36,7 +37,7 @@ export const PageHeader = ({ title, children }) => createElement('header', null,
 export const SettingRow = ({ title, description, children }) => createElement('div', { className: 'row' }, createElement('span', { className: 'row-title' }, title), description ? createElement('small', null, description) : null, children);
 export const SettingSwitch = () => null;
 export const EmptySetting = ({ children }) => createElement('div', { className: 'empty' }, children);
-export const Field = ({ label, value, onChange }) => createElement('input', { 'aria-label': label, value, onChange: event => onChange(event.target.value) });
+${fieldStubs}
 `);
 const confirmStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
@@ -57,7 +58,7 @@ export class LoopraClient {
 }
 export const serverAddress = value => value;
 `);
-const projectsUrl = await sourceUrl('components/BackendSettings.tsx', { '@nextui-org/react': nextuiStub, './SettingControls': controlsStub, './RemoteControls': confirmStub, '../backend': backendStub, 'lucide-react': dataUrl('export const RefreshCw = () => null;') });
+const projectsUrl = await sourceUrl('components/BackendSettings.tsx', { '@nextui-org/react': nextuiStub, './SettingControls': controlsStub, './RemoteControls': confirmStub, '../backend': backendStub, 'lucide-react': dataUrl('export const RefreshCw = () => null; export const ArrowUp = () => null; export const ArrowDown = () => null;') });
 const { BackendProjects } = await import(projectsUrl);
 
 const workspaces = [{ hash: 'aaa111', name: 'alpha', path: 'C:\\alpha' }, { hash: 'bbb222', name: 'beta', path: 'D:\\beta' }];
@@ -83,7 +84,7 @@ test('workspace ordering persists the swapped hash list', async () => {
   const view = await mount();
   try {
     assert.equal(row('alpha').querySelector('.row-title').textContent, 'alpha');
-    await click(buttonIn(row('alpha'), '↓'));
+    await click(row('alpha').querySelector('[aria-label="下移 alpha"]'));
     const order = view.calls().find(call => call.path === '/workspaces/order');
     assert.deepEqual(order, { path: '/workspaces/order', method: 'PUT', body: ['bbb222', 'aaa111'] });
     // Once App re-renders with the persisted order, alpha is no longer first so

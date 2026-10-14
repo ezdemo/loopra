@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { ArrowLeft, ChevronRight, Copy, Download, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Copy, Download, Plus, Trash2 } from 'lucide-react';
 import type { AgentSettings } from '../settings-data';
 import { applyProviderPreset, providerPresetFor, providerPresets, validateProvider } from '../settings-data';
 import type { Provider } from '../lib';
 import { getModelCatalog, newModel, providerModels, type ComposerOptions } from '../composer';
 import { Enter } from './Motion';
 import { LoopraMark } from './ui';
-import { Field, ModelSelect, PageHeader, SelectField, SettingSwitch, SettingDisclosure } from './SettingControls';
+import { Field, ModelSelect, PageActions, SelectField, SettingSwitch, SettingDisclosure } from './SettingControls';
 import RemoteModelsPicker from './RemoteModelsPicker';
 
 type Props = { server: string; providers: Provider[]; onProviders: (value: Provider[]) => void | Promise<void>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void; defaultModel: string; onDefaultModel: (id: string) => void; config: AgentSettings; onConfig: (value: AgentSettings) => void; notify: (message: string) => void };
@@ -36,7 +36,7 @@ export default function ModelProviderSettings(props: Props) {
     setEditing(current => current ? { ...current, ...patch } : null);
   }
   if (editing) return <Enter key={editing.id || 'new'}>
-    <PageHeader title={editing.id ? '编辑模型供应商' : '添加模型供应商'} description="配置保存到 Loopra 后端，密钥保留在后端配置文件中。"><Button isIconOnly variant="light" aria-label="返回模型列表" onPress={() => setEditing(null)}><ArrowLeft size="1.125rem" /></Button></PageHeader>
+    <PageActions title={editing.id ? '编辑模型供应商' : '添加模型供应商'} onBack={() => setEditing(null)} backLabel="返回模型列表" />
     <form className="rich-settings-form" onSubmit={event => { event.preventDefault(); save(); }}>
       <div className="settings-field-grid"><SelectField label="常用服务商（自动填入地址）" value={providerPresetFor(editing.baseUrl)} onChange={name => { const preset = providerPresets.find(item => item.name === name); if (preset) setEditing(applyProviderPreset(editing, preset)); }} options={[{ value: '', label: '自定义地址' }, ...providerPresets.map(preset => preset.name)]} /><Field label="供应商名称" value={editing.name} onChange={name => setEditing({ ...editing, name })} placeholder="例如：我的模型渠道" /><Field label="API 地址" value={editing.baseUrl || ''} onChange={baseUrl => updateConnection({ baseUrl })} placeholder="https://api.example.com/v1" />
         <SelectField label="API 协议" value={editing.type} onChange={type => updateConnection({ type })} options={['responses', 'chat_completions', 'anthropic']} /><SelectField label="特殊兼容" value={editing.compatibility || ''} onChange={compatibility => updateConnection({ compatibility })} options={[{ value: '', label: '无' }, { value: 'opencode', label: 'OpenCode 兼容' }]} />
@@ -60,7 +60,7 @@ export default function ModelProviderSettings(props: Props) {
     </form>
   </Enter>;
   return <>
-    <PageHeader title="模型供应商" description="按渠道管理模型，并与聊天输入栏共享配置。"><Button size="sm" variant="bordered" startContent={<Plus size="1rem" />} onPress={() => edit()}>添加供应商</Button></PageHeader>
+    <PageActions title="模型供应商"><Button size="sm" variant="bordered" startContent={<Plus size="1rem" />} onPress={() => edit()}>添加供应商</Button></PageActions>
     <div className="settings-card rich-settings-card"><div className="settings-field-grid model-defaults"><ModelSelect label="新会话默认模型" value={props.defaultModel} onChange={props.onDefaultModel} models={models} /><ModelSelect label="当前聊天模型" value={options.modelId} onChange={modelId => onOptions({ ...options, modelId })} models={models} /><ModelSelect label="命令校验模型" optional value={config.validatorModel} onChange={validatorModel => onConfig({ ...config, validatorModel })} models={models} /><ModelSelect label="图片理解模型" optional value={config.imageModel} onChange={imageModel => onConfig({ ...config, imageModel })} models={models.filter(model => model.imageInput)} /></div></div>
     <div className="settings-card provider-card">{providers.map(provider => <div className="settings-provider-list-row" key={provider.id}><Button variant="light" className="provider-row" onPress={() => edit(provider)}><span className={`provider-icon ${provider.id === 'loopra' ? 'loopra' : ''}`} style={{ background: provider.color || 'var(--line)', color: provider.color ? 'white' : 'var(--secondary)' }}>{provider.id === 'loopra' ? <LoopraMark small /> : provider.name[0]?.toUpperCase()}</span><span className="provider-name">{provider.name}<small>{provider.type}</small></span><span className="provider-count">{providerModels(provider).length} 个模型</span><ChevronRight size="1rem" /></Button></div>)}</div>
     {providers.length === 0 && <p className="rich-settings-empty">还没有模型供应商，添加一个开始配置。</p>}

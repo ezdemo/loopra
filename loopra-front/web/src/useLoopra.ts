@@ -21,6 +21,12 @@ export default function useLoopra(server: string) {
     if (signal?.aborted) return;
     setSessions(current => lists.flat().map(item => ({ ...item, messages: current.find(old => old.id === item.id)?.messages || [] })));
   }, [api]);
+  const refreshWorkspaces = useCallback(async () => {
+    const projects = await api.request<Workspace[]>('/workspaces');
+    setWorkspaces(projects);
+    await refreshSessions(projects);
+    return projects;
+  }, [api, refreshSessions]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setStatus('connecting'); setError('');
     try {
@@ -48,5 +54,5 @@ export default function useLoopra(server: string) {
     } catch (cause) { if (signal?.aborted) return; setStatus('error'); setReady(false); setError(cause instanceof Error ? cause.message : '连接失败'); }
   }, [api, refreshSessions]);
   useEffect(() => { const controller = new AbortController(); void refresh(controller.signal); return () => controller.abort(); }, [refresh]);
-  return { api, sessions, setSessions, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, refresh, refreshSessions };
+  return { api, sessions, setSessions, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, refresh, refreshSessions, refreshWorkspaces };
 }

@@ -341,6 +341,17 @@ public class ConfigController {
         return ApiResponse.ok(agentService.listProjects());
     }
 
+    @ApiOperation(value = "修改项目展示名称", notes = "仅修改展示名称；displayName 为空字符串时恢复文件夹名称")
+    @Put
+    @Mapping("/workspaces/{hash}/name")
+    public ApiResponse<ProjectInfoDTO> renameProject(
+            @ApiParam(value = "项目 hash") @Param("hash") String hash,
+            @ApiParam @Body Map<String, String> body) {
+        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        if (body == null || !body.containsKey("displayName")) throw new ServiceException("缺少展示名称 displayName");
+        return ApiResponse.ok(agentService.renameProject(hash, body.get("displayName")));
+    }
+
     @ApiOperation(value = "删除项目", notes = "根据 hash 删除指定项目记录")
     @Delete
     @Mapping("/workspaces/{hash}")

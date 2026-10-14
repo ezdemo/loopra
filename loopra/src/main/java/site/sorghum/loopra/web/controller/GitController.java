@@ -143,7 +143,7 @@ public class GitController {
         return ApiResponse.ok(gitService.commit(workspaceHash, body));
     }
 
-    @ApiOperation(value = "切换文件状态", notes = "未追踪文件变为变更状态，或变更文件变为未追踪状态")
+    @ApiOperation(value = "暂存或取消暂存文件及目录", notes = "path 为项目内相对路径；staged=true 暂存全部改动，false 取消暂存。省略 staged 时兼容旧版切换操作")
     @Post
     @Mapping("/toggle")
     public ApiResponse<Map<String, Object>> toggle(

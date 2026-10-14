@@ -3,9 +3,8 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 
-// Legacy Sidebar.vue exposed a 「技能」 shortcut that opened the skill market,
-// and legacy RightPanel.vue let the right dock be dragged and remembered its
-// width. The React shell had neither, so both are re-checked here.
+// Skills remain available in settings after simplifying the sidebar.
+// The right dock retains the legacy resize behaviour.
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const panels = await readFile(new URL('../src/components/Panels.tsx', import.meta.url), 'utf8');
 const workbenchCss = await readFile(new URL('../src/workbench.css', import.meta.url), 'utf8');
@@ -13,10 +12,10 @@ const panelResizeSource = await readFile(new URL('../src/panel-resize.ts', impor
 const { outputText } = ts.transpileModule(panelResizeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 const { clampPanelWidth, resizePanelWidth } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
-test('the sidebar exposes the legacy skill-market shortcut', () => {
-  assert.match(app, /<button onClick=\{\(\) => openSettings\('技能'\)\}><Sparkles size="1\.1875rem" \/>\{preferences\.language === 'English' \? 'Skills' : '技能'\}<\/button>/);
-  // Sparkles is imported from lucide so the shortcut has its icon.
-  assert.match(app, /import \{[^}]*\bSparkles\b[^}]*\} from 'lucide-react';/);
+test('skills remain available in settings after removing the sidebar shortcut', async () => {
+  const settings = await readFile(new URL('../src/components/Settings.tsx', import.meta.url), 'utf8');
+  assert.match(settings, /tab === '技能' && <SkillManager/);
+  assert.doesNotMatch(app, /onClick=\{\(\) => openSettings\('技能'\)\}/);
 });
 
 test('the sidebar exposes the legacy refresh-projects control', () => {

@@ -12,14 +12,22 @@ import './sessions.css';
 import './help.css';
 import './pets.css';
 import './workbench.css';
+import './workspace-tabs.css';
+import './git-panel.css';
+import './resources.css';
 import './capabilities.css';
 import './requirements.css';
+import './dialogs.css';
 import './session-records.css';
+import './project-manager.css';
 
 async function initialize() {
   // Keep explicit browser preferences; otherwise migrate the original console's
   // address and honor config.json without pinning packaged Web pages to port 4567.
   try {
+    let desktopPort: number | undefined;
+    const desktopService = (window as Window & { electronAPI?: { loopraWebService?: { getCurrentPort?: () => Promise<number> } } }).electronAPI?.loopraWebService;
+    try { desktopPort = await desktopService?.getCurrentPort?.(); } catch { /* Use saved/default addresses if the bridge is unavailable. */ }
     let configured: unknown;
     if (!localStorage.getItem('loopra:backend-server') && !localStorage.getItem('loopra-api-base')) {
       try {
@@ -29,7 +37,7 @@ async function initialize() {
     }
     const server = resolveInitialServer({
       saved: localStorage.getItem('loopra:backend-server'),
-      legacy: localStorage.getItem('loopra-api-base'), configured,
+      legacy: localStorage.getItem('loopra-api-base'), configured, desktopPort,
       origin: window.location.origin, development: import.meta.env.DEV,
     });
     localStorage.setItem('loopra:backend-server', JSON.stringify(server));

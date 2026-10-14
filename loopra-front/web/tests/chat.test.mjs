@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { splitAssistantBlocks, groupToolBlocks, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { splitAssistantBlocks, groupToolBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const reasoning = { id: 'r', type: 'reasoning', content: '检查项目' };
 const read = { id: 'read', type: 'tool_call', name: 'read', status: '成功' };
@@ -52,6 +52,59 @@ test('only adjacent ordinary tools merge; finish and reasoning separate groups',
   assert.deepEqual(result.slice(1), [reasoning, read, finish, bash]);
   assert.deepEqual(groupToolBlocks([finish]), [finish]);
   assert.deepEqual(groupToolBlocks([]), []);
+});
+
+test('pending choices are collected in order, including sub-agent cards', () => {
+  const first = { id: 'c1', type: 'choice', question: '第一个？', options: [{ title: 'A' }] };
+  const second = { id: 'c2', type: 'choice', question: '第二个？', options: [{ title: 'B' }] };
+  const nested = { id: 'c3', type: 'choice', question: '子代理？', options: [{ title: 'C' }], subId: '7' };
+  const resolved = { id: 'c4', type: 'choice', question: '已答', options: [{ title: 'D' }], selected: 'D' };
+  const sub = { id: 'sub', type: 'sub_agent', name: '子代理', status: '执行中', blocks: [nested] };
+  const messages = [
+    { id: 'u', role: 'user', text: '问题' },
+    { id: 'a', role: 'assistant', text: '', blocks: [first, sub, resolved, second] },
+  ];
+  assert.deepEqual(collectPendingChoices(messages).map(choice => choice.id), ['c1', 'c3', 'c2']);
+  assert.deepEqual(collectPendingChoices([{ id: 'u', role: 'user', text: 'x' }]), []);
+});
+
+test('resolving a choice marks it (even nested) so it drops out of the pending list', () => {
+  const nested = { id: 'c3', type: 'choice', question: '子代理？', options: [{ title: 'C' }] };
+  const blocks = [
+    { id: 'c1', type: 'choice', question: '第一个？', options: [{ title: 'A' }] },
+    { id: 'sub', type: 'sub_agent', name: '子代理', status: '执行中', blocks: [nested] },
+  ];
+  const next = resolveChoiceBlock(blocks, 'c3', '同意');
+  assert.equal(next[1].blocks[0].selected, '同意');
+  assert.equal(next[0].selected, undefined);
+  const messages = [{ id: 'a', role: 'assistant', text: '', blocks: next }];
+  assert.deepEqual(collectPendingChoices(messages).map(choice => choice.id), ['c1']);
+});
+
+test('unresolvedChoices keeps only the unanswered cards from a stream', () => {
+  const pending = { id: 'c1', type: 'choice', question: '待选', options: [{ title: 'A' }] };
+  const done = { id: 'c2', type: 'choice', question: '已选', options: [{ title: 'B' }], selected: 'B' };
+  const tool = { id: 't', type: 'tool_call', name: 'read', status: '成功' };
+  assert.deepEqual(unresolvedChoices([tool, pending, done]), [pending]);
+  assert.deepEqual(unresolvedChoices(undefined), []);
+});
+
+test('attachPendingChoices reattaches a client-only card to the reloaded transcript', () => {
+  const card = { id: 'c1', type: 'choice', question: '待选', options: [{ title: 'A' }] };
+  const transcript = [
+    { id: 'h0', role: 'user', text: '问题' },
+    { id: 'h1', role: 'assistant', text: '', blocks: [{ id: 'h1-0', type: 'tool_call', name: 'ls', status: '成功' }] },
+  ];
+  const attached = attachPendingChoices(transcript, [card]);
+  assert.equal(attached.length, 2);
+  assert.deepEqual(attached[1].blocks.map(block => block.id), ['h1-0', 'c1']);
+  // No-op without choices keeps the transcript identity.
+  assert.equal(attachPendingChoices(transcript, []), transcript);
+  // A trailing user message gets a fresh assistant bubble to hold the card.
+  const trailingUser = attachPendingChoices([{ id: 'u', role: 'user', text: 'x' }], [card]);
+  assert.equal(trailingUser.length, 2);
+  assert.equal(trailingUser[1].role, 'assistant');
+  assert.deepEqual(trailingUser[1].blocks, [card]);
 });
 
 test('demo turns keep their answer visible and block IDs are unique', () => {

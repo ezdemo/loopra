@@ -9,6 +9,10 @@ const nextuiTheme = dirname(requireNextUI.resolve('@nextui-org/theme')).replaceA
 export default {
   content: ['./index.html', './web/src/**/*.{ts,tsx}', `${nextuiTheme}/**/*.{js,ts,jsx,tsx}`],
   darkMode: 'class',
-  theme: {extend: {colors: {primary: '#2083ff'}}},
-  plugins: [nextui({themes: {light: {colors: {primary: '#2083ff'}}, dark: {colors: {primary: '#2083ff'}}}})]
+  // Keep NextUI's full primary palette, including the foreground utility.
+  // A scalar Tailwind override drops text-primary-foreground entirely.
+  plugins: [nextui({themes: {
+    light: {colors: {primary: {DEFAULT: '#2083ff', foreground: '#fff'}}},
+    dark: {colors: {primary: {DEFAULT: '#2083ff', foreground: '#fff'}}},
+  }})]
 }

@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Input, Modal, ModalContent } from '@nextui-org/react';
-import { Activity, Archive, ArrowDownToLine, Bot, Check, ChevronDown, ClipboardList, Copy, Crosshair, Download, FileCode2, FoldVertical, FolderClosed, FolderOpen, FolderPlus, GitBranch, HelpCircle, MessageCirclePlus, MessagesSquare, MoreHorizontal, PanelLeft, PanelRight, Plus, RefreshCw, ScrollText, Search as SearchIcon, Settings as SettingsIcon, SlidersHorizontal, Sparkles, SunMoon, Trash2, Wrench } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
+import { Archive, ArrowDownToLine, Check, ChevronDown, ChevronRight, Copy, Crosshair, Download, FileCode2, FoldVertical, FolderClosed, FolderOpen, FolderPlus, GitBranch, MessageCirclePlus, MoreHorizontal, PanelLeft, PanelRight, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, SlidersHorizontal, ScrollText, SquareTerminal, Trash2, UnfoldVertical } from 'lucide-react';
 import { getSessionMessages, useLocalState } from './lib';
 import type { Provider, Session } from './lib';
 import { LoopraMark, IconButton } from './components/ui';
@@ -11,7 +11,7 @@ import Settings, { defaultPreferences } from './components/Settings';
 import type { Preferences } from './components/Settings';
 import Search from './components/Search';
 import type { FileChange, Message } from './chat';
-import { chatNearBottom, chatScrollState, truncatePreview, userMessageDock } from './chat';
+import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, truncatePreview, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
@@ -27,14 +27,20 @@ import { petActivity, petReplyPreview, type PetReply } from './pets';
 import SessionDetails, { SessionProgress } from './components/SessionDetails';
 import { ConfirmAction, query } from './components/RemoteControls';
 import ProjectSessions from './components/ProjectSessions';
+import ProjectManager from './components/ProjectManager';
 import Help from './components/Help';
 import SessionsManager from './components/SessionsManager';
 import RequirementBoard from './components/RequirementBoard';
 import PlanReview from './components/PlanReview';
+import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
 import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
 import { isDesktopWindow } from './desktop-shell';
+import { launchWorkspace, workspaceApplications } from './workspace-launcher';
+import { notifyWorkspaceChanged } from './workspace-events';
+import WorkspaceTabs from './components/WorkspaceTabs';
+import { closeWorkspaceFile, emptyWorkspaceTabs, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
 
 export default function App() {
   const [server, setServer] = useLocalState('backend-server', DEFAULT_SERVER);
@@ -54,7 +60,6 @@ export default function App() {
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const [changes, setChanges] = useState(false);
-  const [workbenchTab, setWorkbenchTab] = useState('git');
   const [sessionDetails, setSessionDetails] = useState(false);
   const [sessionDetailsTab, setSessionDetailsTab] = useState('events');
   const [deleteSession, setDeleteSession] = useState<Session>();
@@ -64,9 +69,11 @@ export default function App() {
   const [discardPlan, setDiscardPlan] = useState(false);
   const [planBusy, setPlanBusy] = useState(false);
   const [progressRevision, setProgressRevision] = useState(0);
-  const [diffPath, setDiffPath] = useState<string | null>(null);
-  const [diffInline, setDiffInline] = useState<string | undefined>(undefined);
+  const [workspaceEditors, setWorkspaceEditors] = useState<Record<string, WorkspaceTabsState>>({});
+  const editorKey = `${server}/${workspace}`;
+  const editorTabs = workspaceEditors[editorKey] || emptyWorkspaceTabs;
   const [projectDialog, setProjectDialog] = useState<Workspace>();
+  const [projectsOpen, setProjectsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [requirementsOpen, setRequirementsOpen] = useState(false);
@@ -90,6 +97,10 @@ export default function App() {
   const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage[]>>({});
   const queuedRef = useRef(queuedMessages);
   useEffect(() => { queuedRef.current = queuedMessages; }, [queuedMessages]);
+  // Live sessions for async senders: a resumed turn must find the bubble it is
+  // continuing even while several choice answers are sent back to back.
+  const sessionsRef = useRef(sessions);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
   const [remoteRun, setRemoteRun] = useState<{ id: string; requestId?: string | null } | null>(null);
   const remoteRunRef = useRef<string | null>(null);
   const historyRequest = useRef<AbortController>();
@@ -110,6 +121,9 @@ export default function App() {
   const settingsQueue = useRef(Promise.resolve());
   const session = sessions.find(item => item.id === activeId && !hiddenSessions.includes(item.id));
   const isHome = !session;
+  // Pending HITL/ask_choice cards drive the composer popup. Read from the live
+  // session messages (not demo history) so mock/offline sessions never pop it.
+  const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
   const visibleSessions = sessions.filter(item => !hiddenSessions.includes(item.id));
   const currentWorkspace = workspaces.find(item => item.hash === workspace);
   const workspaceName = currentWorkspace?.name || '选择工作区';
@@ -124,6 +138,10 @@ export default function App() {
   }, [preferences.fontScale, agentSettings.codeFontSize]);
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
+  function selectMainTab(path: string | null, hash = workspace) { const key = `${server}/${hash}`; setWorkspaceEditors(current => ({ ...current, [key]: { ...(current[key] || emptyWorkspaceTabs), active: path } })); }
+  function openFile(file: WorkspaceFile) { setWorkspaceEditors(current => ({ ...current, [editorKey]: openWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, file) })); if (narrow) setChanges(false); }
+  function changeFilePath(from: string, to?: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: updateWorkspaceFilePath(current[editorKey] || emptyWorkspaceTabs, from, to) })); }
+  function closeFile(path: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, path) })); }
   function mutation(task: () => Promise<void>) {
     const result = settingsQueue.current.then(async () => {
       if (activeRequest.current) throw new Error('请等待当前回复结束后再修改运行配置');
@@ -185,11 +203,12 @@ export default function App() {
     try { await api.request(sessionRoute(target, '/title'), 'PUT', { title: renameValue.trim() }); setSessions(current => current.map(item => item.id === rename ? { ...item, title: renameValue.trim() } : item)); setRename(null); notify('会话已重命名'); }
     catch (error) { notify(`重命名失败：${error instanceof Error ? error.message : error}`); }
   }
-  function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') { if (narrow) setSidebar(false); historyRequest.current?.abort(); if (getModelCatalog(providers).some(model => model.id === defaultModel)) setComposerOptions(value => ({ ...value, modelId: defaultModel })); setActiveId(null); setWorkspace(nextWorkspace); setChanges(false); setDraft(''); setComposerContext(emptyContext); setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null); userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false); setTimeout(() => textarea.current?.focus(), 50); }
+  function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') { selectMainTab(null, nextWorkspace); if (narrow) setSidebar(false); historyRequest.current?.abort(); if (getModelCatalog(providers).some(model => model.id === defaultModel)) setComposerOptions(value => ({ ...value, modelId: defaultModel })); setActiveId(null); setWorkspace(nextWorkspace); setChanges(false); setDraft(''); setComposerContext(emptyContext); setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null); userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false); setTimeout(() => textarea.current?.focus(), 50); }
   // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
   function clearChat() { if (generatingId) { notify('生成中无法清空，请先停止生成'); return; } newSession(workspace || workspaces[0]?.hash || ''); notify('已新建空白会话'); }
   async function selectSession(id: string) {
     const selected = sessions.find(item => item.id === id); if (!selected) return;
+    selectMainTab(null, selected.workspaceHash || '');
     if (narrow) setSidebar(false);
     historyRequest.current?.abort(); const controller = new AbortController(); historyRequest.current = controller;
     setActiveId(id); setWorkspace(selected.workspaceHash || ''); setMenu(null); setDraft(''); setComposerContext(emptyContext);
@@ -213,7 +232,6 @@ export default function App() {
   function openSettings(tab = '通用') { setSettingsTab(tab); setSettingsOpen(true); setMenu(null); }
   // Legacy Sidebar.vue footer exposed 工具 / 子代理 / 数据面板 / 主题 / 设置; the
   // theme button flipped light↔dark without touching 跟随系统.
-  function toggleTheme() { setPreferences(current => ({ ...current, theme: isDark ? '浅色' : '深色' })); }
   function openSessionsManager() { setSessionsOpen(true); setMenu(null); if (narrow) setSidebar(false); }
   // Legacy Chat.vue onScroll(): only an upward movement counts as leaving the
   // bottom; being pushed up by streamed content keeps auto-follow active.
@@ -321,7 +339,11 @@ export default function App() {
     notify('已新建更新会话并发送更新指令');
   }
   function openTerminal() { setTerminal(true); setMenu(null); }
-  function openWorkspace() { if (preferences.openWith === 'File Explorer') { setWorkbenchTab('files'); setChanges(true); } else openTerminal(); setMenu(null); }
+  async function openWorkspace(application = preferences.openWith) {
+    setMenu(null);
+    try { await launchWorkspace(api, currentWorkspace?.hash || '', application); }
+    catch (error) { notify(`打开失败：${error instanceof Error ? error.message : error}`); }
+  }
   function copyPath() { void navigator.clipboard?.writeText(currentWorkspace?.path || ''); setMenu(null); notify('已复制工作区路径'); }
   async function stopGeneration() {
     const request = activeRequest.current; if (!request) return;
@@ -341,7 +363,10 @@ export default function App() {
       const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
       if (!controller.signal.aborted && history.length) setSessions(current => current.map(item => item.id === target.id ? { ...item, messages: historyMessages(history) } : item));
     }
-    if (observe.running && !running && queuedRef.current[target.id]?.length) void sendQueuedMessage(target.id);
+    if (observe.running && !running) {
+      notifyWorkspaceChanged(target.workspaceHash);
+      if (queuedRef.current[target.id]?.length) void sendQueuedMessage(target.id);
+    }
     observe.running = running;
   }
   async function stopRemoteRun() {
@@ -351,11 +376,12 @@ export default function App() {
   }
   // Legacy `openStoredDiff`: a message's file list carries the diff saved with
   // that turn, so show it directly instead of re-reading the live working tree.
-  function openDiff(path: string, storedDiff?: string) { setDiffPath(path); setDiffInline(storedDiff); setWorkbenchTab('git'); setChanges(true); }
+  function openDiff(path: string, storedDiff?: string) { openFile({ path, mode: 'diff', diff: storedDiff }); }
   function addFileContext(path: string, selection?: string) {
+    selectMainTab(null);
     setComposerContext(current => ({ ...current, files: [...new Set([...current.files, path])] }));
     if (selection) setDraft(current => `${current}${current ? '\n\n' : ''}来自 ${path}：\n${selection}`);
-    notify('已加入消息上下文'); textarea.current?.focus();
+    notify('已加入消息上下文'); requestAnimationFrame(() => textarea.current?.focus());
   }
   async function refreshCurrentSession(text?: string) {
     if (session) await selectSession(session.id);
@@ -381,9 +407,21 @@ export default function App() {
   }, [api, session?.id, generatingId, backend.status]);
   async function revertChanges(changes: FileChange[]) { await mutation(async () => { await api.request('/sessions/file-changes/revert', 'POST', { workspaceHash: workspace, changes }); }); }
   function fillDraft(text: string) { setDraft(text); textarea.current?.focus(); }
-  async function chooseOption(value: string, subId?: string) {
-    if (subId) { await api.request(`/chat/sub-hitl/${encodeURIComponent(subId)}`, 'POST', { action: value === '/agree' || value === 'approve' ? 'approve' : 'deny' }); notify('子代理审批已发送'); }
-    else fillDraft(value);
+  // Answering a pending choice auto-sends silently: normal choices (HITL 同意/拒绝
+  // and ask_choice) go out as control messages — no user bubble — while sub-agent
+  // approvals post to their own endpoint. Each answer resumes the suspended turn
+  // in place (same bubble, one running timer); the final reload only reconciles it.
+  function submitChoices(answers: ChoiceAnswer[]) {
+    if (!session) return;
+    const key = session.id;
+    setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => message.blocks ? { ...message, blocks: answers.reduce((blocks, answer) => resolveChoiceBlock(blocks, answer.id, answer.label), message.blocks) } : message) } : item));
+    const outgoing: string[] = [];
+    for (const answer of answers) {
+      if (answer.subId) void api.request(`/chat/sub-hitl/${encodeURIComponent(answer.subId)}`, 'POST', { action: answer.value === '/agree' || answer.value === 'approve' ? 'approve' : 'deny' }).then(() => notify('子代理审批已发送')).catch(error => notify(error instanceof Error ? error.message : '审批失败'));
+      else if (answer.value) outgoing.push(answer.value);
+    }
+    if (!outgoing.length) return;
+    void (async () => { for (const value of outgoing) await sendMessage(value, undefined, undefined, false, true); })();
   }
   async function branchSession(messageId: string) {
     if (!session || generatingId) return;
@@ -428,7 +466,7 @@ export default function App() {
     else void sendQueuedMessage(key);
   }
 
-  async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false) {
+  async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false) {
     if (activeRequest.current || remoteRunRef.current === (session?.id ?? '')) { if (!override && !action) queueMessage(); return; }
     if (!override && !action && !draft.trim() && !composerContext.files.length) return;
     if (backend.status !== 'connected' || !backend.ready || !currentWorkspace) { notify('请先连接 Loopra 并选择工作区'); return; }
@@ -461,12 +499,20 @@ export default function App() {
     setLiveSpeed(undefined);
     // A fresh send ignores the selected session so the prompt opens a new one.
     let target = fresh ? undefined : session;
-    const answerId = crypto.randomUUID();
+    // An auto-answered choice resumes the suspended assistant turn in place:
+    // reusing its id lands the resumed stream in the same bubble, so approving
+    // adds no second turn, bubble or timer and reads exactly like a plain run.
+    const source = sessionsRef.current.find(item => item.id === session?.id) || session;
+    const resumed = autoAnswer ? source?.messages.filter(entry => entry.role === 'assistant').at(-1) : undefined;
+    const answerId = resumed?.id || crypto.randomUUID();
     const now = Date.now();
     const time = new Date(now).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    const message = { id: crypto.randomUUID(), role: 'user' as const, text, time };
-    // Structured actions (execute_plan) are silent: they run the plan without a user bubble.
-    const silent = !!action;
+    // Legacy Chat.vue attached the outgoing images to the local user bubble so
+    // they render before any history reload (which may be skipped on a choice).
+    const message = { id: crypto.randomUUID(), role: 'user' as const, text, time, images: (context.attachments || []).flatMap(file => file.image ? [file.image] : []) };
+    // Structured actions (execute_plan) and automatic choice answers run without a
+    // user bubble — an answer is a control reply, not something the user typed.
+    const silent = !!action || autoAnswer;
     let completed = false;
     const assistant: Message = { id: answerId, role: 'assistant', text: '', time, startedAt: now, blocks: [] };
     let petAnswer = assistant;
@@ -482,8 +528,11 @@ export default function App() {
       await api.request('/config', 'PUT', { hitl: permissionValue(options.mode), fastMode: options.fast, terminateOnNoToolCall: options.finishWithoutTools }, controller.signal);
       // Approving a plan (execute_plan) must not re-enter plan mode; the agent clears it while executing.
       if (!action) await api.request('/agent/mode', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name, enabled: options.plan }, controller.signal);
-      setSessions(current => current.map(item => item.id === id ? { ...item, messages: silent ? [...item.messages, assistant] : [...item.messages, message, assistant] } : item));
-      setDraft(''); setComposerContext(emptyContext); setMenu(null);
+      // A continued turn already owns its bubble: reopen it (so its timer ticks
+      // again) instead of inserting a second one.
+      if (resumed) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: undefined } : entry) } : item));
+      else setSessions(current => current.map(item => item.id === id ? { ...item, messages: silent ? [...item.messages, assistant] : [...item.messages, message, assistant] } : item));
+      if (!autoAnswer) { setDraft(''); setComposerContext(emptyContext); setMenu(null); }
       // A new prompt always returns to the newest message (legacy scroll(true)).
       userScrolledAway.current = false;
       const scroller = scrollArea.current;
@@ -517,8 +566,19 @@ export default function App() {
     } finally {
       if (target) {
         const id = target.id;
+        notifyWorkspaceChanged(target.workspaceHash);
         setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: Date.now() } : entry) } : item));
-        try { const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`); if (completed && !controller.signal.aborted && history.length) setSessions(current => current.map(item => item.id === id ? { ...item, messages: historyMessages(history) } : item)); } catch { /* Keep the already received stream if history reload fails. */ }
+        try {
+          const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`);
+          // The reload is authoritative: the server folds the whole approval loop
+          // (prompt → approve ×N) into one assistant turn and never stores the
+          // "/agree" command, so this drops the extra bubbles and merges the AI
+          // replies for free. A suspended choice is client-only, so reattach it.
+          if (completed && !controller.signal.aborted && history.length) {
+            const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks));
+            setSessions(current => current.map(item => item.id === id ? { ...item, messages } : item));
+          }
+        } catch { /* Keep the already received stream if history reload fails. */ }
         if (action === 'execute_plan') { try { const mode = await api.request<{ mode: string; pendingPlan?: string | null }>(`/agent/mode?${sessionQuery(target)}`, 'GET'); setComposerOptions(current => ({ ...current, plan: mode.mode === 'plan' })); setPendingPlan(mode.pendingPlan || undefined); } catch { /* keep the stream-derived state */ } }
       }
       activeRequest.current = undefined; setGeneratingId(null);
@@ -583,10 +643,11 @@ export default function App() {
   useEffect(() => {
     function onPointer(event: PointerEvent) { if (!(event.target as HTMLElement).closest('[data-popover]')) setMenu(null); }
     function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') { setMenu(null); if (narrow) setSidebar(false); return; }
+      if (event.key === 'Escape') { setMenu(null); if (!event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"]')) { setChanges(false); if (narrow) setSidebar(false); } return; }
       if (event.ctrlKey || event.metaKey) {
         if (event.key.toLowerCase() === 'k') { event.preventDefault(); setSearchOpen(true); setMenu(null); }
         if (event.key.toLowerCase() === 'n') { event.preventDefault(); newSession(); }
+        if (event.key.toLowerCase() === 'b') { event.preventDefault(); setSidebar(value => !value); }
         if (event.key === ',') { event.preventDefault(); openSettings(); }
       }
     }
@@ -594,10 +655,11 @@ export default function App() {
     return () => { document.removeEventListener('pointerdown', onPointer); window.removeEventListener('keydown', onKey); };
   });
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
+  const allWorkspacesCollapsed = workspaces.length > 0 && workspaces.every(item => collapsed.includes(item.hash));
 
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !sessionsOpen && !helpOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId && generatingId === activeId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -616,36 +678,38 @@ export default function App() {
     {isDesktopWindow() && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && sidebar && <button className="sidebar-backdrop" aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebar && <SidebarSurface key="sidebar"><div className="sidebar-brand"><span className="app-icon"><LoopraMark small /></span><span>Loopra</span><IconButton label="收起侧边栏" onClick={() => setSidebar(false)}><PanelLeft size="1.0625rem" /></IconButton></div><div className="sidebar-actions"><button onClick={() => newSession()}><MessageCirclePlus size="1.1875rem" />{preferences.language === 'English' ? 'New chat' : '新建会话'}</button><button onClick={() => { setSearchOpen(true); setMenu(null); }}><SearchIcon size="1.25rem" />{preferences.language === 'English' ? 'Search' : '搜索'}</button><button onClick={() => openSettings('技能')}><Sparkles size="1.1875rem" />{preferences.language === 'English' ? 'Skills' : '技能'}</button><button onClick={openSessionsManager}><MessagesSquare size="1.1875rem" />{preferences.language === 'English' ? 'Manage sessions' : '会话管理'}</button><button onClick={() => { setRequirementsOpen(true); setMenu(null); if (narrow) setSidebar(false); }}><ClipboardList size="1.1875rem" />{preferences.language === 'English' ? 'Requirement board' : '需求池'}</button><button onClick={() => { setHelpOpen(true); setMenu(null); }}><HelpCircle size="1.1875rem" />{preferences.language === 'English' ? 'Help' : '帮助中心'}</button></div>
-        <div className="session-section" ref={sessionSection}><div className="section-label"><span>会话</span><div><IconButton label="定位当前会话" onClick={locateActiveSession}><Crosshair size="0.875rem" /></IconButton><IconButton label="折叠工作区" onClick={() => setCollapsed(collapsed.length ? [] : workspaces.map(item => item.hash))}><Plus size="0.9375rem" className="collapse-icon" /></IconButton><IconButton label={sortNewest ? '恢复默认排序' : '按最新排序'} active={sortNewest} onClick={() => setSortNewest(!sortNewest)}><SlidersHorizontal size="0.875rem" /></IconButton><IconButton label="刷新项目列表" onClick={() => void backend.refresh()}><RefreshCw size="0.875rem" /></IconButton></div></div>
-          {workspaces.map(item => <div key={item.hash} className={`workspace-group ${dragWorkspace === item.hash ? 'dragging' : ''} ${dragOverWorkspace === item.hash && dragWorkspace !== item.hash ? 'drag-over' : ''}`} draggable onDragStart={event => { setDragWorkspace(item.hash); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={event => { if (!dragWorkspace || dragWorkspace === item.hash) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverWorkspace(item.hash); }} onDragLeave={() => setDragOverWorkspace(current => current === item.hash ? '' : current)} onDrop={event => { event.preventDefault(); reorderWorkspaces(dragWorkspace, item.hash); }} onDragEnd={() => { setDragWorkspace(''); setDragOverWorkspace(''); }}><div className="workspace-heading-row"><button className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} onClick={() => newSession(item.hash)} onDoubleClick={() => setCollapsed(current => current.includes(item.hash) ? current.filter(name => name !== item.hash) : [...current, item.hash])}>{collapsed.includes(item.hash) ? <FolderClosed size="1.1875rem" /> : <FolderOpen size="1.1875rem" />}<span>{item.name}</span></button><span className="workspace-tools"><IconButton label={`在 ${item.name} 新建会话`} onClick={() => newSession(item.hash)}><Plus size="0.8125rem" /></IconButton><IconButton label={`刷新 ${item.name} 的会话`} onClick={() => void refreshProject(item.hash)}><RefreshCw size="0.8125rem" /></IconButton><IconButton label={`管理 ${item.name} 的会话`} onClick={() => setProjectDialog(item)}><MoreHorizontal size="0.9375rem" /></IconButton></span></div><Collapse open={!collapsed.includes(item.hash)} className="workspace-sessions">{!visibleSessions.some(entry => entry.workspaceHash === item.hash) && <p className="no-conversation">暂无对话</p>}{(sortNewest ? [...visibleSessions].reverse() : visibleSessions).filter(entry => entry.workspaceHash === item.hash).map(entry => <div key={entry.id} data-session-key={entry.id} className={`session-row ${activeId === entry.id ? 'selected' : ''}`}><button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => selectSession(entry.id)} title={entry.title}>{activeId === entry.id && <SelectionIndicator />}<span>{entry.title}</span>{entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}<time>{entry.mtime ? new Date(entry.mtime).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : ''}</time></button><span className="session-row-tools"><IconButton label={`刷新 ${entry.title}`} onClick={() => void refreshSessionChat(entry)}><RefreshCw size="0.75rem" /></IconButton><IconButton label={`删除 ${entry.title}`} onClick={() => setDeleteSession(entry)}><Trash2 size="0.75rem" /></IconButton></span></div>)}</Collapse></div>)}
-        </div><footer className="sidebar-footer"><button className="profile-button" onClick={() => openSettings('账户')}><span className="avatar">🌷</span><span>Loopra</span><span className="free-badge">Local</span></button><span className="sidebar-quick-actions"><IconButton label="工具列表" onClick={() => openSettings('工具')}><Wrench size="0.9375rem" /></IconButton><IconButton label="子代理" onClick={() => openSettings('子代理')}><Bot size="0.9375rem" /></IconButton><IconButton label="数据面板" onClick={() => openSettings('数据面板')}><Activity size="0.9375rem" /></IconButton><IconButton label="切换主题" onClick={toggleTheme}><SunMoon size="0.9375rem" /></IconButton></span><IconButton label="设置" onClick={() => openSettings()}><SettingsIcon size="1.1875rem" /></IconButton></footer>
+      {sidebar && <SidebarSurface key="sidebar"><div className="sidebar-brand"><span className="app-icon"><LoopraMark small /></span><span>Loopra</span><IconButton label="收起侧边栏" onClick={() => setSidebar(false)}><PanelLeft size="1.0625rem" /></IconButton></div><div className="sidebar-actions"><button onClick={() => newSession()}><MessageCirclePlus size="1.1875rem" />{preferences.language === 'English' ? 'New chat' : '新建会话'}</button><button onClick={() => { setSearchOpen(true); setMenu(null); }}><SearchIcon size="1.25rem" />{preferences.language === 'English' ? 'Search' : '搜索'}</button></div>
+        <div className="session-section" ref={sessionSection}><div className="section-label"><span>会话</span><div><IconButton label="定位当前会话" onClick={locateActiveSession}><Crosshair size="0.875rem" /></IconButton><IconButton label={allWorkspacesCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={() => setCollapsed(allWorkspacesCollapsed ? [] : workspaces.map(item => item.hash))}>{allWorkspacesCollapsed ? <UnfoldVertical size="0.9375rem" /> : <FoldVertical size="0.9375rem" />}</IconButton><IconButton label={sortNewest ? '恢复默认排序' : '按最新排序'} active={sortNewest} onClick={() => setSortNewest(!sortNewest)}><SlidersHorizontal size="0.875rem" /></IconButton><IconButton label="刷新项目列表" onClick={() => void backend.refresh()}><RefreshCw size="0.875rem" /></IconButton></div></div>
+          {workspaces.map(item => <div key={item.hash} className={`workspace-group ${dragWorkspace === item.hash ? 'dragging' : ''} ${dragOverWorkspace === item.hash && dragWorkspace !== item.hash ? 'drag-over' : ''}`} draggable onDragStart={event => { setDragWorkspace(item.hash); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={event => { if (!dragWorkspace || dragWorkspace === item.hash) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverWorkspace(item.hash); }} onDragLeave={() => setDragOverWorkspace(current => current === item.hash ? '' : current)} onDrop={event => { event.preventDefault(); reorderWorkspaces(dragWorkspace, item.hash); }} onDragEnd={() => { setDragWorkspace(''); setDragOverWorkspace(''); }}><div className="workspace-heading-row"><button type="button" title={item.path || item.name} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${collapsed.includes(item.hash) ? '展开' : '折叠'} ${item.name}`} aria-expanded={!collapsed.includes(item.hash)} onClick={() => setCollapsed(current => current.includes(item.hash) ? current.filter(hash => hash !== item.hash) : [...current, item.hash])}><ChevronRight className="workspace-chevron" size="0.875rem" />{collapsed.includes(item.hash) ? <FolderClosed size="1.1875rem" /> : <FolderOpen size="1.1875rem" />}<span>{item.name}</span></button><span className="workspace-tools"><IconButton label={`在 ${item.name} 新建会话`} onClick={() => newSession(item.hash)}><Plus size="0.8125rem" /></IconButton><IconButton label={`刷新 ${item.name} 的会话`} onClick={() => void refreshProject(item.hash)}><RefreshCw size="0.8125rem" /></IconButton><IconButton label={`管理 ${item.name} 的会话`} onClick={() => setProjectDialog(item)}><MoreHorizontal size="0.9375rem" /></IconButton></span></div><Collapse open={!collapsed.includes(item.hash)} className="workspace-sessions">{!visibleSessions.some(entry => entry.workspaceHash === item.hash) && <p className="no-conversation">暂无对话</p>}{(sortNewest ? [...visibleSessions].reverse() : visibleSessions).filter(entry => entry.workspaceHash === item.hash).map(entry => <div key={entry.id} data-session-key={entry.id} className={`session-row ${activeId === entry.id ? 'selected' : ''}`}><button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => selectSession(entry.id)} title={entry.title}>{activeId === entry.id && <SelectionIndicator />}<span>{entry.title}</span>{entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}<time>{entry.mtime ? new Date(entry.mtime).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : ''}</time></button><span className="session-row-tools"><IconButton label={`刷新 ${entry.title}`} onClick={() => void refreshSessionChat(entry)}><RefreshCw size="0.75rem" /></IconButton><IconButton label={`删除 ${entry.title}`} onClick={() => setDeleteSession(entry)}><Trash2 size="0.75rem" /></IconButton></span></div>)}</Collapse></div>)}
+        </div><footer className="sidebar-footer"><button type="button" className="sidebar-settings" aria-label="设置" onClick={() => openSettings()}><SettingsIcon size="1.0625rem" /><span>{preferences.language === 'English' ? 'Settings' : '设置'}</span></button></footer>
       </SidebarSurface>}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <header className={`conversation-header ${isHome ? 'home-header' : ''}`}>
           {!sidebar && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={() => setSidebar(true)}><PanelLeft size="1.0625rem" /></IconButton>}
           {!isHome && <div className="breadcrumb"><span>{workspaceName}</span><span className="breadcrumb-divider">/</span><strong title={session.title}>{session.title}</strong><div data-popover className="menu-anchor"><IconButton label="会话选项" onClick={() => toggleMenu('session')}><MoreHorizontal size="1.1875rem" /></IconButton><Popup open={menu === 'session'} className="popup session-menu" role="menu"><button role="menuitem" onClick={() => { setRename(session.id); setRenameValue(session.title); setMenu(null); }}><FileCode2 size="1rem" />重命名会话</button><button role="menuitem" onClick={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}><ScrollText size="1rem" />会话记录</button><button role="menuitem" onClick={() => { setMenu(null); clearChat(); }}><MessageCirclePlus size="1rem" />清空当前对话</button><button role="menuitem" onClick={() => { setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}><Download size="1rem" />导出对话</button><button role="menuitem" onClick={archiveSession}><Archive size="1rem" />在本机隐藏</button><button role="menuitem" onClick={() => { setDeleteSession(session); setMenu(null); }}><Trash2 size="1rem" />删除会话</button><button role="menuitem" onClick={() => { void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }}><Copy size="1rem" />复制会话标题</button></Popup></div></div>}
-          <div className="header-actions"><button className={`backend-status ${backend.status}`} title={backend.error || `${server} · v${backend.version}`} onClick={() => openSettings('服务器')}><span />{backend.status === 'connecting' ? '连接中' : backend.status === 'error' ? '连接失败' : backend.ready ? 'Loopra 已连接' : '需要配置模型'}</button>{!isHome && <><div data-popover className="menu-anchor"><div className="folder-split"><button aria-label="查看工作区文件" onClick={openWorkspace}>📁</button><button aria-label="打开方式" onClick={() => toggleMenu('folder')}><ChevronDown size="1rem" /></button></div><Popup open={menu === 'folder'} className="popup folder-menu" role="menu"><button role="menuitem" onClick={() => { setWorkbenchTab('files'); setChanges(true); setMenu(null); }}><span className="emoji-icon">📁</span>File Explorer</button><button role="menuitem" onClick={() => { setTerminal(true); setMenu(null); }}><span className="terminal-icon">&gt;_</span>Terminal</button><button role="menuitem" onClick={() => openTerminal()}><span className="git-icon">◆</span>Git Bash</button><hr /><button role="menuitem" onClick={copyPath}><Copy size="1.0625rem" />复制路径</button></Popup></div>{!changes && <div data-popover className="menu-anchor"><button className="branch-button" onClick={() => toggleMenu('branch')}><GitBranch size="1rem" />{gitBranch}</button><Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={() => { setChanges(true); setMenu(null); }}><GitBranch size="0.9375rem" />{gitBranch}<Check size="1rem" /></button></Popup></div>}</>}
+          <div className="header-actions"><button className={`backend-status ${backend.status}`} title={backend.error || `${server} · v${backend.version}`} onClick={() => openSettings('服务器')}><span />{backend.status === 'connecting' ? '连接中' : backend.status === 'error' ? '连接失败' : backend.ready ? 'Loopra 已连接' : '需要配置模型'}</button>{!isHome && <><div data-popover className="menu-anchor"><div className="folder-split"><button aria-label="在系统应用中打开项目" onClick={() => void openWorkspace()}><FolderClosed size="1rem" /></button><button aria-label="打开方式" onClick={() => toggleMenu('folder')}><ChevronDown size="1rem" /></button></div><Popup open={menu === 'folder'} className="popup folder-menu" role="menu">{workspaceApplications.map(item => <button key={item.application} role="menuitem" onClick={() => void openWorkspace(item.name)}>{item.application === 'folder' ? <FolderClosed size="1rem" /> : <SquareTerminal size="1rem" />}{item.label}</button>)}<button role="menuitem" onClick={() => { setTerminal(true); setMenu(null); }}><SquareTerminal size="1rem" />后台命令</button><hr /><button role="menuitem" onClick={copyPath}><Copy size="1.0625rem" />复制路径</button></Popup></div>{!changes && <div data-popover className="menu-anchor"><button className="branch-button" onClick={() => toggleMenu('branch')}><GitBranch size="1rem" />{gitBranch}</button><Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={() => { setChanges(true); setMenu(null); }}><GitBranch size="0.9375rem" />{gitBranch}<Check size="1rem" /></button></Popup></div>}</>}
               <IconButton label={changes ? '关闭改动面板' : '打开改动面板'} active={changes} onClick={() => setChanges(!changes)}><PanelRight size="1.0625rem" /></IconButton>
           </div>
         </header>
-        <div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
+        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
-          {isHome ? <section className="welcome-shell"><Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark />Loopra</h1></Enter><div className="workspace-selector menu-anchor" data-popover><button onClick={() => toggleMenu('workspace')}><FolderClosed size="1.125rem" />{workspaceName}<ChevronDown size="1.0625rem" /></button><Popup open={menu === 'workspace'} className="popup workspace-menu"><h3>选择工作区</h3>{workspaces.map(item => <button key={item.hash} onClick={() => { setWorkspace(item.hash); setMenu(null); }}><FolderClosed size="1rem" />{item.name}{workspace === item.hash && <Check size="1rem" />}</button>)}{!workspaces.length && <p className="composer-empty">暂无可用项目</p>}<hr /><button onClick={() => openSettings('项目')}><FolderPlus size="1rem" />管理项目</button></Popup></div>{composer}</section> : <>
-            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onChoice={chooseOption} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
+          {isHome ? <section className="welcome-shell"><Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark />Loopra</h1></Enter><div className="workspace-selector menu-anchor" data-popover><button onClick={() => toggleMenu('workspace')}><FolderClosed size="1.125rem" />{workspaceName}<ChevronDown size="1.0625rem" /></button><Popup open={menu === 'workspace'} className="popup workspace-menu"><h3>选择工作区</h3>{workspaces.map(item => <button key={item.hash} onClick={() => { setWorkspace(item.hash); setMenu(null); }}><FolderClosed size="1rem" />{item.name}{workspace === item.hash && <Check size="1rem" />}</button>)}{!workspaces.length && <p className="composer-empty">暂无可用项目</p>}<hr /><button onClick={() => { setMenu(null); setProjectsOpen(true); }}><FolderPlus size="1rem" />管理项目</button></Popup></div>{composer}</section> : <>
+            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             {(() => { const dock = userMessageDock(getSessionMessages(session)); return dock.length > 0 && <nav className="msg-thumb-dock" aria-label="消息定位"><div className="thumb-dock-inner">{dock.map(item => <button key={item.id} type="button" className="thumb-item" title={item.text} onClick={() => jumpToMessage(item.id)}><span className="thumb-indicator" /><span className="thumb-preview">{truncatePreview(item.text)}</span></button>)}</div></nav>; })()}
             {showScrollBtn && <button type="button" className="scroll-bottom-btn" title="滚动到底部" aria-label="滚动到底部" onClick={scrollToBottom}><ArrowDownToLine size="1rem" /></button>}
             {getSessionMessages(session).length > 0 && <button type="button" className="collapse-all-btn" title="一键折叠所有展开的块" aria-label="一键折叠所有展开的块" onClick={collapseAllBlocks}><FoldVertical size="1rem" /></button>}
-            <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{composer}</div>
+            <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{composer}</div>
           </>}
-        </div>
+        </div></WorkspaceTabs>
       </main>
-      {changes && <ChangesPanel api={api} workspaceHash={workspace} key={workspace} initialFile={diffPath} initialDiff={diffInline} initialTab={workbenchTab} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {changes && <button className="workbench-backdrop" aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
+      {changes && <ChangesPanel api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
-    {projectDialog && <ProjectSessions api={api} workspace={projectDialog} count={sessions.filter(item => item.workspaceHash === projectDialog.hash).length} onClose={() => setProjectDialog(undefined)} onRefresh={() => backend.refresh()} onCompleted={kind => projectMaintained(kind, projectDialog)} notify={notify} />}
+    {projectDialog && <ProjectSessions api={api} workspace={projectDialog} count={sessions.filter(item => item.workspaceHash === projectDialog.hash).length} onClose={() => setProjectDialog(undefined)} onRefresh={async () => { await backend.refreshWorkspaces(); }} onCompleted={kind => projectMaintained(kind, projectDialog)} onRenamed={(previous, renamed) => { setProjectDialog(renamed); setComposerContext(current => ({ ...current, projects: current.projects.map(name => name === previous.name ? renamed.name : name) })); }} notify={notify} />}
+    {projectsOpen && <ProjectManager api={api} workspaces={workspaces} sessions={sessions} current={workspace} onClose={() => setProjectsOpen(false)} onRefresh={backend.refreshWorkspaces} onAdded={item => { setCollapsed(previous => previous.filter(hash => hash !== item.hash)); newSession(item.hash); }} onDeleted={item => projectMaintained('delete', item)} notify={notify} />}
     {sessionsOpen && <SessionsManager api={api} sessions={visibleSessions} workspaceHash={workspace} workspaceName={workspaceName} activeId={activeId} onClose={() => setSessionsOpen(false)} onOpen={id => { setSessionsOpen(false); void selectSession(id); }} onNew={() => { setSessionsOpen(false); newSession(); }} onChanged={() => backend.refresh()} notify={notify} />}
     <Help open={helpOpen} onClose={() => setHelpOpen(false)} server={server} />
     {requirementsOpen && <RequirementBoard api={api} onClose={() => setRequirementsOpen(false)} notify={notify} />}
@@ -656,8 +720,8 @@ export default function App() {
     }}><p>撤回这条消息及之后的所有记录？</p>{rollbackMessage.snapshotId && <label><input type="checkbox" checked={rollbackCode} onChange={event => setRollbackCode(event.target.checked)} />同时恢复代码到本条消息之前</label>}</ConfirmAction>}
     {discardPlan && <ConfirmAction title="退出计划模式" onClose={() => setDiscardPlan(false)} action={exitPlanMode}><p>{pendingPlan ? '待审查计划将被丢弃，且无法恢复。' : '将退出计划模式并恢复全部工具。'}</p></ConfirmAction>}
     <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={visibleSessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
-    <Settings pets={pets} onInitPet={initPet} onAutoUpdate={() => void autoUpdate()} onRefresh={() => backend.refresh()} workspaces={workspaces} server={server} config={agentSettings} onConfig={saveAgentSettings} options={composerOptions} onOptions={saveOptions} defaultModel={defaultModel} onDefaultModel={saveDefaultModel} open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab={settingsTab} preferences={preferences} onPreferences={setPreferences} providers={providers} onProviders={saveProviders} sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))} onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }} notify={notify} />
-    <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" classNames={{ base: 'rename-modal', backdrop: 'modal-backdrop' }} aria-label="重命名会话"><ModalContent><form onSubmit={event => { event.preventDefault(); void renameSession(); }}><h2>重命名会话</h2><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /><div className="form-buttons"><Button variant="light" onPress={() => setRename(null)}>取消</Button><Button type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></div></form></ModalContent></Modal>
+    <Settings onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }} onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }} onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }} pets={pets} onInitPet={initPet} onAutoUpdate={() => void autoUpdate()} onRefresh={() => backend.refresh()} workspaces={workspaces} server={server} config={agentSettings} onConfig={saveAgentSettings} options={composerOptions} onOptions={saveOptions} defaultModel={defaultModel} onDefaultModel={saveDefaultModel} open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab={settingsTab} preferences={preferences} onPreferences={setPreferences} providers={providers} onProviders={saveProviders} sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))} onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }} notify={notify} />
+    <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>
   </div></AppMotion>;
 }

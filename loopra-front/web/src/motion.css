@@ -21,9 +21,10 @@
 }
 .segmented .segment-label { position: relative; }
 .file-view-toggle button > svg { position: relative; }
-.toast-region { position: fixed; left: 50%; bottom: 1.625rem; transform: translateX(-50%); z-index: 150; pointer-events: none; }
-.toast { position: static; transform: none; animation: none; white-space: nowrap; }
-.toast > span { display: flex; align-items: center; gap: 0.5625rem; }
+.toast-region { position: fixed; left: 50%; top: calc(1rem + env(safe-area-inset-top, 0px)); width: max-content; max-width: calc(100vw - 2rem); transform: translateX(-50%); z-index: 150; pointer-events: none; }
+.toast { animation: none; white-space: normal; overflow-wrap: anywhere; }
+.toast > span { display: flex; align-items: center; min-width: 0; gap: 0.5625rem; }
+.toast svg { flex-shrink: 0; }
 .toast svg { color: var(--blue); }
 @media (max-width: 760px) {
   .settings-nav button > .selection-indicator { display: block; }

@@ -1,6 +1,7 @@
+import { TextField, Field, SelectField } from './SettingControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Modal, ModalContent, Spinner } from '@nextui-org/react';
-import { ArrowLeft, Bot, Calendar, Clock, Plus, RefreshCw, Send, Trash2, X, Zap } from 'lucide-react';
+import { Button, Modal, ModalContent, Radio, RadioGroup, Spinner } from '@nextui-org/react';
+import { ArrowLeft, Bot, Calendar, Clock, Plus, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import type { HistoryMessage } from '../backend';
 import type { Workspace } from '../backend';
@@ -232,7 +233,7 @@ export default function RequirementBoard({ api, onClose, notify }: { api: Loopra
             </>}
           </div>
           {detailTab === 'comments' && <form className="req-comment-form" onSubmit={event => { event.preventDefault(); void sendComment(); }}>
-            <textarea rows={2} maxLength={500} aria-label="需求评论" placeholder="写下你的评论…（Enter 发送，Shift+Enter 换行）" value={commentDraft} onChange={event => setCommentDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendComment(); } }} />
+            <TextField label={"需求评论"} rows={2} maxLength={500} aria-label={"需求评论"} placeholder={"写下你的评论…（Enter 发送，Shift+Enter 换行）"} value={(commentDraft) ?? ''} onChange={value => setCommentDraft(value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendComment(); } }} />
             <div><Button size="sm" type="submit" color="primary" isDisabled={!commentDraft.trim() || detailBusy}><Send size="0.875rem" />发送评论</Button></div>
           </form>}
         </div>
@@ -277,22 +278,22 @@ export default function RequirementBoard({ api, onClose, notify }: { api: Loopra
       <ModalContent><form className="req-create" onSubmit={event => { event.preventDefault(); void createRequirement(); }}>
         <header><strong>新建需求</strong><Button isIconOnly size="sm" variant="light" aria-label="关闭新建需求" onPress={() => setCreateOpen(false)}><X size="0.9375rem" /></Button></header>
         <div className="req-create-body">
-          <label>标题 *<input required maxLength={60} placeholder="需求标题" value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
-          <label>描述<textarea rows={4} maxLength={500} placeholder="需求描述、验收标准…（AI 将根据描述自动执行）" value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
-          <label>项目 *<select required value={draft.projectHash} onChange={event => setDraft({ ...draft, projectHash: event.target.value })}><option value="">请选择项目</option>{workspaces.map(item => <option key={item.hash} value={item.hash}>{item.name || item.path}</option>)}</select></label>
+          <Field label="标题" required={true} maxLength={60} placeholder={"需求标题"} value={(draft.title) ?? ''} onChange={value => setDraft({ ...draft, title: value })} />
+          <TextField label={"描述"} rows={4} maxLength={500} placeholder={"需求描述、验收标准…（AI 将根据描述自动执行）"} value={(draft.description) ?? ''} onChange={value => setDraft({ ...draft, description: value })} />
+          <SelectField label="项目" required={true} value={String((draft.projectHash) ?? '')} onChange={value => setDraft({ ...draft, projectHash: value })} options={[({ value: String(""), label: "请选择项目" }), ...(workspaces.map(item => ({ value: String(item.hash), label: String(item.name || item.path) })) || [])]} />
           <div className="req-config-row">
-            <label>优先级<select value={draft.priority} onChange={event => setDraft({ ...draft, priority: event.target.value })}>{REQUIREMENT_PRIORITY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label>模型<select value={draft.modelSelection} onChange={event => setDraft({ ...draft, modelSelection: event.target.value })}><option value="">使用默认模型</option>{modelOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <SelectField label={"优先级"} value={String((draft.priority) ?? '')} onChange={value => setDraft({ ...draft, priority: value })} options={[...(REQUIREMENT_PRIORITY_OPTIONS.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
+            <SelectField label={"模型"} value={String((draft.modelSelection) ?? '')} onChange={value => setDraft({ ...draft, modelSelection: value })} options={[({ value: String(""), label: "使用默认模型" }), ...(modelOptions.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
           </div>
           <div className="req-config-row">
-            <label>推理强度<select value={draft.reasoningEffort} onChange={event => setDraft({ ...draft, reasoningEffort: event.target.value })}>{REQUIREMENT_EFFORT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label>审批模式<select value={draft.hitl} onChange={event => setDraft({ ...draft, hitl: event.target.value })}>{REQUIREMENT_HITL_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <SelectField label={"推理强度"} value={String((draft.reasoningEffort) ?? '')} onChange={value => setDraft({ ...draft, reasoningEffort: value })} options={[...(REQUIREMENT_EFFORT_OPTIONS.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
+            <SelectField label={"审批模式"} value={String((draft.hitl) ?? '')} onChange={value => setDraft({ ...draft, hitl: value })} options={[...(REQUIREMENT_HITL_OPTIONS.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
           </div>
-          <div className="req-schedule-mode" role="radiogroup" aria-label="执行方式">
-            <button type="button" role="radio" aria-checked={draft.scheduleMode === 'immediate'} className={draft.scheduleMode === 'immediate' ? 'active' : ''} onClick={() => setDraft({ ...draft, scheduleMode: 'immediate', scheduledAt: '' })}><Zap size="1rem" /><span>立即执行<small>创建后直接进入执行队列</small></span></button>
-            <button type="button" role="radio" aria-checked={draft.scheduleMode === 'scheduled'} className={draft.scheduleMode === 'scheduled' ? 'active' : ''} onClick={() => setDraft({ ...draft, scheduleMode: 'scheduled' })}><Calendar size="1rem" /><span>定时执行<small>到指定时间后自动执行</small></span></button>
-          </div>
-          {draft.scheduleMode === 'scheduled' && <label>执行时间 *<input required type="datetime-local" min={requirementScheduleMin()} value={draft.scheduledAt} onChange={event => setDraft({ ...draft, scheduledAt: event.target.value })} /></label>}
+          <RadioGroup label="执行方式" value={draft.scheduleMode} onValueChange={value => setDraft({ ...draft, scheduleMode: value === 'scheduled' ? 'scheduled' : 'immediate', scheduledAt: value === 'scheduled' ? draft.scheduledAt : '' })} className="req-schedule-mode" classNames={{ wrapper: 'req-schedule-options' }}>
+            <Radio value="immediate" description="创建后直接进入执行队列">立即执行</Radio>
+            <Radio value="scheduled" description="到指定时间后自动执行">定时执行</Radio>
+          </RadioGroup>
+          {draft.scheduleMode === 'scheduled' && <Field label="执行时间" required={true} type={"datetime-local"} min={requirementScheduleMin()} value={(draft.scheduledAt) ?? ''} onChange={value => setDraft({ ...draft, scheduledAt: value })} />}
           <p className="req-create-tip">立即执行会直接入队；定时执行将在指定时间由 AI 自动启动。</p>
           {error && <p className="settings-error" role="alert">{error}</p>}
         </div>

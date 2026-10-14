@@ -3,6 +3,12 @@ import { demoMessages } from './chat';
 import type { Message } from './chat';
 export type { Message } from './chat';
 
+export const UI_SCALE_LEVELS = [80, 90, 100, 125, 150] as const;
+export function normalizeUiScale(value: number): number {
+  if (!Number.isFinite(value)) return 100;
+  return UI_SCALE_LEVELS.reduce<number>((nearest, level) => Math.abs(level - value) < Math.abs(nearest - value) ? level : nearest, 100);
+}
+
 export function useLocalState<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(() => {
     try { const saved = localStorage.getItem(`loopra:${key}`); return saved ? migrateSavedState(key, JSON.parse(saved)) as T : initial; }
@@ -38,7 +44,7 @@ function migrateSavedState(key: string, value: unknown): unknown {
     const legacyScale: Record<string, number> = { S: 93, M: 100, L: 114, XL: 129 };
     const scale = typeof saved.fontScale === 'number' && Number.isFinite(saved.fontScale) ? saved.fontScale : legacyScale[String(saved.fontSize)] || 100;
     delete saved.fontSize;
-    return { ...saved, fontScale: Math.min(150, Math.max(80, scale)), theme: value.theme === '月之亮面' ? '浅色' : value.theme === '月之暗面' ? '深色' : value.theme };
+    return { ...saved, fontScale: normalizeUiScale(scale), theme: value.theme === '月之亮面' ? '浅色' : value.theme === '月之暗面' ? '深色' : value.theme };
   }
   return value;
 }

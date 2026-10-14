@@ -202,18 +202,6 @@
 .loopra-conversation .checklist-row.done > svg { color: var(--chat-green); }
 .loopra-conversation .checklist-row.active > svg { color: var(--chat-yellow); }
 .loopra-conversation .checklist-row small { display: block; color: var(--chat-fg-4); font-size: 0.6875rem; }
-.loopra-conversation .block-choice { border: 1px solid var(--chat-border); border-radius: 0.5625rem; background: var(--chat-subtle); padding: 0.75rem; margin: 0.375rem 0; }
-.loopra-conversation .choice-question { display: flex; align-items: center; gap: 0.4375rem; color: var(--chat-fg-2); }
-.loopra-conversation .choice-question strong { font-weight: 500; }
-.loopra-conversation .choice-desc { margin: 0.375rem 0 0.625rem; font-size: 0.75rem; color: var(--chat-fg-3); }
-.loopra-conversation .choice-buttons { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.625rem; }
-.loopra-conversation .choice-btn { display: flex; align-items: center; gap: 0.625rem; width: 100%; padding: 0.5625rem 0.75rem; background: var(--chat-bg); border: 1px solid var(--chat-border); border-radius: 0.4375rem; text-align: left; }
-.loopra-conversation .choice-btn:hover { border-color: var(--blue); background: var(--chat-hover); }
-.loopra-conversation .choice-index { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid var(--chat-border); border-radius: 0.25rem; font: 0.6875rem var(--chat-mono); color: var(--chat-fg-3); }
-.loopra-conversation .choice-btn strong { display: block; font-size: 0.8125rem; font-weight: 500; }
-.loopra-conversation .choice-btn small { display: block; font-size: 0.75rem; color: var(--chat-fg-3); }
-.loopra-conversation .choice-resolved { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4375rem; margin-top: 0.5rem; color: var(--chat-green); font-size: 0.75rem; }
-.loopra-conversation .choice-resolved button { margin-left: auto; color: var(--chat-fg-3); text-decoration: underline; }
 .loopra-conversation .thinking { margin: 0.25rem 0 0.625rem; }
 .loopra-conversation .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }

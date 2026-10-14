@@ -10,7 +10,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "dev:electron": "pnpm build:main && pnpm build:preload && concurrently -k \"vite\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev:electron": "node scripts/dev-electron.mjs",
     "build": "pnpm typecheck:web && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix",

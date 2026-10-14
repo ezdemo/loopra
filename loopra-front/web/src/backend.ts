@@ -2,7 +2,7 @@ import type { ChatBlock, Message } from './chat';
 import type { Provider, Session } from './lib';
 
 export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
-export type Workspace = { hash: string; name: string; path: string };
+export type Workspace = { hash: string; name: string; path: string; displayName?: string | null };
 export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; terminateOnNoToolCall: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };

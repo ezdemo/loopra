@@ -720,7 +720,11 @@ async function performCoreUpdate({ auto = false } = {}) {
 
 // ---------- 启动 / 停止 / 重启 ----------
 async function startService(options = {}) {
-  if (starting.value || running.value) return
+  if (starting.value) return
+  if (running.value) {
+    autoStarting.value = false
+    return
+  }
   starting.value = true
   startCancelled = false
   errorMessage.value = ''

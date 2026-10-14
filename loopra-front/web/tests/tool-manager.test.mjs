@@ -1,3 +1,4 @@
+import { fieldStubs, checkboxStub } from './helpers/form-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -27,6 +28,7 @@ async function sourceUrl(name, dependencies = {}) {
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, className, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, className: className || undefined, ...rest }, children);
+${checkboxStub}
 `);
 const controlsStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
@@ -45,6 +47,7 @@ export function ConfirmAction() { return null; }
 const settingControlsStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const PageHeader = ({ title, children }) => createElement('header', null, title, children);
+${fieldStubs}
 `);
 const usageStub = dataUrl('export const UsageDashboard = () => null;');
 const gitModelsSource = await readFile(new URL('../src/git-models.ts', import.meta.url), 'utf8');

@@ -33,6 +33,7 @@ export const Modal = ({ children }) => createElement('div', { role: 'dialog' }, 
 export const ModalContent = ({ children }) => createElement('div', null, children);
 export const Tooltip = ({ children }) => children;
 export const Button = ({ children, onPress, ...rest }) => createElement('button', { type: 'button', onClick: onPress, ...rest }, children);
+export const Input = ({ value, onValueChange, startContent, size, variant, ...props }) => createElement('input', { ...props, value, onChange: event => onValueChange(event.target.value) });
 `);
 
 const helpUrl = await sourceUrl('help.ts');

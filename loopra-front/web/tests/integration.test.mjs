@@ -1,3 +1,4 @@
+import { fieldStubs, checkboxStub } from './helpers/form-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -28,6 +29,7 @@ const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, isIconOnly, size, variant, color, ...rest }) =>
   createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, ...rest }, children);
+${checkboxStub}
 `);
 const remoteStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
@@ -52,10 +54,11 @@ export const ConfirmAction = () => null;
 const controlsStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const PageHeader = ({ title, children }) => createElement('header', null, title, children);
+${fieldStubs}
 `);
 const integrationUrl = await sourceUrl('integration.ts');
 const managerUrl = await sourceUrl('components/IntegrationManager.tsx', { '@nextui-org/react': nextuiStub, './RemoteControls': remoteStub, './SettingControls': controlsStub, '../integration': integrationUrl });
-const { default: IntegrationManager } = await import(managerUrl);
+const { default: IntegrationManager, McpPublishingSettings } = await import(managerUrl);
 
 const exportConfig = {
   enabled: true, name: 'loopra', version: '1.0.0', channel: 'streamable', endpoint: '/mcp',
@@ -81,7 +84,7 @@ function harness(responses) {
   } };
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
-  return { api, calls, container, root, async render(kind) { await act(async () => root.render(createElement(IntegrationManager, { api, kind }))); },
+  return { api, calls, container, root, async render(kind) { await act(async () => root.render(kind === 'mcp-publishing' ? createElement(McpPublishingSettings, { api }) : createElement(IntegrationManager, { api, kind }))); },
     async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 const button = text => [...document.querySelectorAll('button')].find(element => element.textContent.trim() === text);
@@ -97,7 +100,8 @@ async function type(element, value) {
 test('MCP publish config sends only McpExportConfig fields and an explicit tool whitelist', async () => {
   const view = harness({ '/mcp/servers': [], '/mcp/export': exportConfig, '/mcp/tunnel': tunnelStatus });
   try {
-    await view.render('mcp');
+    await view.render('mcp-publishing');
+    assert.ok(!view.calls.some(call => call.path.startsWith('/mcp/servers')), 'publishing does not load external servers');
     await act(async () => button('手动选择').click());
     const write = [...document.querySelectorAll('.mcp-export-tool')].find(row => row.textContent.includes('write')).querySelector('input');
     await act(async () => write.click());
@@ -117,7 +121,7 @@ test('MCP publish config sends only McpExportConfig fields and an explicit tool 
 test('Cloudflare tunnel saves the configured path, never the status DTO, and drives start/stop', async () => {
   const view = harness({ '/mcp/servers': [], '/mcp/export': exportConfig, '/mcp/tunnel': tunnelStatus });
   try {
-    await view.render('mcp');
+    await view.render('mcp-publishing');
     assert.equal(field('cloudflared 路径').value, 'C:\\saved\\cloudflared.exe');
     await type(field('cloudflared 路径'), 'C:\\tools\\cloudflared.exe');
     await act(async () => button('保存路径').click());
@@ -132,7 +136,7 @@ test('Cloudflare tunnel saves the configured path, never the status DTO, and dri
 test('tunnel failures surface the server message and keep the path editable', async () => {
   const view = harness({ '/mcp/servers': [], '/mcp/export': exportConfig, '/mcp/tunnel': tunnelStatus, '/mcp/tunnel/config': new Error('cloudflared 不存在') });
   try {
-    await view.render('mcp');
+    await view.render('mcp-publishing');
     await type(field('cloudflared 路径'), 'missing-cloudflared');
     await act(async () => { button('保存路径').click(); await Promise.resolve(); await Promise.resolve(); });
     assert.match(document.querySelector('[role="alert"]').textContent, /cloudflared 不存在/);
@@ -168,5 +172,45 @@ test('OpenAPI sources submit the documented authConfig keys and header lines', a
     body = view.calls.filter(call => call.path === '/openapi/sources' && call.method === 'POST').at(-1).body;
     assert.deepEqual(body.authConfig, { name: 'X-Api-Key', value: 'key-value' });
     assert.equal(body.authType, 'apiKey');
+  } finally { await view.close(); }
+});
+
+test('OpenAPI search encodes keywords and renders endpoint results, empty results and service messages', async () => {
+  const view = harness({ '/openapi/sources': [], '/openapi/search': path => {
+    const keyword = new URL(path, 'http://test.invalid').searchParams.get('keyword');
+    return keyword === '订单 查询' ? [{ api_name: 'getOrder', category: '订单', description: '查询订单详情', endpoint: 'GET /orders/{id}' }] : keyword === 'empty' ? [] : '请先添加接口源';
+  } });
+  try {
+    await view.render('openapi');
+    await type(field('搜索接口'), '  订单 查询  ');
+    await act(async () => button('搜索').click());
+    assert.ok(view.calls.some(call => call.path === '/openapi/search?keyword=%E8%AE%A2%E5%8D%95+%E6%9F%A5%E8%AF%A2' && call.method === 'GET'));
+    assert.match(view.container.textContent, /getOrder/);
+    assert.match(view.container.textContent, /查询订单详情/);
+    assert.match(view.container.textContent, /GET \/orders\/\{id\}/);
+    await act(async () => button('清除结果').click());
+    assert.doesNotMatch(view.container.textContent, /getOrder/);
+    await type(field('搜索接口'), 'empty');
+    await act(async () => button('搜索').click());
+    assert.match(view.container.textContent, /未找到匹配的接口/);
+    await type(field('搜索接口'), 'missing');
+    await act(async () => button('搜索').click());
+    assert.match(view.container.textContent, /请先添加接口源/);
+  } finally { await view.close(); }
+});
+
+test('MCP servers load independently from publishing and preserve the update payload', async () => {
+  const server = { name: 'example', type: 'stdio', command: 'old-command', enabled: false, args: [], env: {}, headers: {}, timeout: '30s' };
+  const view = harness({ '/mcp/servers': [server] });
+  try {
+    await view.render('mcp');
+    assert.deepEqual(view.calls.map(call => call.path), ['/mcp/servers']);
+    await act(async () => button('编辑').click());
+    await type(field('启动命令'), 'new-command');
+    await act(async () => button('保存').click());
+    const saved = view.calls.find(call => call.path === '/mcp/servers/update');
+    assert.equal(saved.method, 'POST');
+    assert.deepEqual(saved.body, { originalName: 'example', server: { ...server, command: 'new-command', authConfig: {} } });
+    assert.ok(!view.calls.some(call => call.path.startsWith('/mcp/export') || call.path.startsWith('/mcp/tunnel')));
   } finally { await view.close(); }
 });

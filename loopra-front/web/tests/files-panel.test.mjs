@@ -86,7 +86,7 @@ const roots = [
 const srcChildren = [{ name: 'a.txt', path: 'src/a.txt', directory: false }];
 
 async function mount({ status = 'ok' } = {}) {
-  globalThis.__calls = []; globalThis.__added = [];
+  globalThis.__calls = []; globalThis.__added = []; globalThis.__opened = [];
   const api = {
     request: (path, method = 'GET') => {
       globalThis.__calls.push({ path, method });
@@ -103,13 +103,14 @@ async function mount({ status = 'ok' } = {}) {
   await act(async () => root.render(createElement(Panel, {
     api, workspaceHash: 'hash1', revision: 0,
     onAdd: (path, selection) => globalThis.__added.push({ path, selection }),
+    onOpen: path => globalThis.__opened.push(path),
   })));
   return { container, root, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 const buttonIn = (element, text) => [...element.querySelectorAll('button')].find(candidate => candidate.textContent.includes(text));
 async function click(element) { await act(async () => { element.click(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); }); }
 
-test('loads the directory tree on demand and previews a file', async () => {
+test('loads the directory tree on demand and opens a file in the main workspace', async () => {
   const view = await mount();
   try {
     assert.deepEqual(globalThis.__calls[0], { path: '/files/tree?workspaceHash=hash1', method: 'GET' });
@@ -117,8 +118,8 @@ test('loads the directory tree on demand and previews a file', async () => {
     await click(buttonIn(view.container, 'src'));
     assert.ok(globalThis.__calls.some(call => call.path === '/files/tree?workspaceHash=hash1&path=src'));
     await click(buttonIn(view.container, 'a.txt'));
-    assert.ok(globalThis.__calls.some(call => call.path === '/git/working-file-content?workspaceHash=hash1&path=src%2Fa.txt'));
-    assert.ok(view.container.textContent.includes('hello'));
+    assert.deepEqual(globalThis.__opened, ['src/a.txt']);
+    assert.equal(view.container.querySelector('.workspace-preview'), null);
   } finally { await view.close(); }
 });
 
@@ -138,7 +139,7 @@ test('collapse all clears every expanded directory', async () => {
   } finally { await view.close(); }
 });
 
-test('search hits the recursive endpoint and switches to Git Diff', async () => {
+test('recursive search opens its result in the main workspace', async () => {
   const view = await mount();
   try {
     const input = view.container.querySelector('input[aria-label="筛选文件"]');
@@ -147,9 +148,7 @@ test('search hits the recursive endpoint and switches to Git Diff', async () => 
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
     assert.ok(globalThis.__calls.some(call => call.path === '/files/search?workspaceHash=hash1&query=index'));
     await click(buttonIn(view.container, 'index.ts'));
-    await click(buttonIn(view.container, 'Git Diff'));
-    assert.ok(globalThis.__calls.some(call => call.path === '/git/diff-content?workspaceHash=hash1&path=src%2Findex.ts'));
-    assert.match(view.container.querySelector('.stub-diff').textContent, /\+new/);
+    assert.deepEqual(globalThis.__opened, ['src/index.ts']);
   } finally { await view.close(); }
 });
 
@@ -165,11 +164,11 @@ test('deleting from the context menu confirms and hits the delete endpoint', asy
   } finally { await view.close(); }
 });
 
-test('the preview header and context menu add files to the session', async () => {
+test('the context menu adds files to the session independently of opening them', async () => {
   const view = await mount();
   try {
-    await click(buttonIn(view.container, 'README.md'));
-    await click(buttonIn(view.container, '引用文件'));
+    const menu = await openContextMenu(view.container, 'README.md');
+    await click(buttonIn(menu, '添加到上下文'));
     assert.deepEqual(globalThis.__added, [{ path: 'README.md', selection: undefined }]);
   } finally { await view.close(); }
 });

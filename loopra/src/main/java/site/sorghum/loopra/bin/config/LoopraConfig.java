@@ -182,7 +182,7 @@ public class LoopraConfig implements AgentConfig {
                     "deepseek-v4-flash": { "input": "1", "cache": "0.02", "output": "2" },
                     "deepseek-v4-pro": { "input": "3", "cache": "0.025", "output": "6" }
                   },
-                  "disabledTools": ["lsp"],
+                  "disabledTools": [],
                   "blockedPaths": [],
                   "availableModels": ["deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.5", "mimo-v2.5-pro"]
                 }""";

@@ -37,7 +37,7 @@ export default function PetSettings({ pets, enabled, onEnabled, notify, onInitPe
           <Button isIconOnly size="sm" variant="light" aria-label={`删除宠物：${pet.displayName || pet.name}`} isDisabled={pets.loading} onPress={() => setRemoving(pet.name)}>×</Button>
         </div>)}
       </div>
-      <div className="workbench-actions"><Button size="sm" variant="light" isLoading={pets.loading} onPress={() => void pets.refresh()}>刷新宠物列表</Button>{onInitPet && <Button size="sm" variant="light" onPress={onInitPet}>初始化宠物</Button>}<Button size="sm" variant="light" onPress={() => window.open('https://petdex.dev/', '_blank', 'noreferrer')}>去网站看看</Button></div>
+      <div className="workbench-actions"><Button className="settings-outlined-action" size="sm" variant="light" isLoading={pets.loading} onPress={() => void pets.refresh()}>刷新宠物列表</Button>{onInitPet && <Button size="sm" variant="light" onPress={onInitPet}>初始化宠物</Button>}<Button size="sm" variant="light" onPress={() => window.open('https://petdex.dev/', '_blank', 'noreferrer')}>去网站看看</Button></div>
       {pets.error ? <p role="alert" className="settings-error">{pets.error}</p> : !active && <p role="status" className="form-hint">{pets.loading ? '正在加载宠物…' : available.length ? '请选择一个宠物' : '服务端还没有可用宠物。安装后点击重新加载。'}</p>}
       {active && <p className="form-hint pet-interaction-hint">点击宠物互动，双击跳跃；拖动可移动，右键或长按可调整大小和关闭。</p>}
     </div>

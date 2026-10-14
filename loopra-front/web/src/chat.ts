@@ -85,6 +85,51 @@ export function groupToolBlocks(blocks: ChatBlock[]): (ChatBlock | BlockGroup)[]
   return groups;
 }
 
+export type ChoiceBlockData = Extract<ChatBlock, { type: 'choice' }>;
+
+/**
+ * Unresolved choice cards (HITL approval / ask_choice) in declaration order,
+ * including ones nested inside sub-agent containers. The composer popup walks
+ * these one by one; `resolveChoiceBlock` marks each answered card so it drops
+ * out of the list.
+ */
+export function collectPendingChoices(messages: Message[]): ChoiceBlockData[] {
+  const found: ChoiceBlockData[] = [];
+  const visit = (blocks?: ChatBlock[]) => {
+    for (const block of blocks || []) {
+      if (block.type === 'choice') { if (!block.selected) found.push(block); }
+      else if (block.type === 'sub_agent') visit(block.blocks);
+    }
+  };
+  for (const message of messages) if (message.role === 'assistant') visit(message.blocks);
+  return found;
+}
+
+/** Marks one choice card (by id) resolved with the picked option label. */
+export function resolveChoiceBlock(blocks: ChatBlock[], id: string, label: string): ChatBlock[] {
+  return blocks.map(block => block.id === id && block.type === 'choice'
+    ? { ...block, selected: label }
+    : block.type === 'sub_agent' ? { ...block, blocks: resolveChoiceBlock(block.blocks, id, label) } : block);
+}
+
+/** The choice cards a just-finished stream left unanswered (HITL pending). */
+export function unresolvedChoices(blocks?: ChatBlock[]): ChoiceBlockData[] {
+  return (blocks || []).filter((block): block is ChoiceBlockData => block.type === 'choice' && !block.selected);
+}
+
+/**
+ * Reattaches client-only pending choices to a reloaded transcript. The server
+ * folds a whole approval loop (prompt → approve ×N) into one assistant turn and
+ * never persists the suspended turn, so the reload drops the pending card; this
+ * puts it back on the last assistant message.
+ */
+export function attachPendingChoices(messages: Message[], choices: ChoiceBlockData[]): Message[] {
+  if (!choices.length) return messages;
+  const last = messages[messages.length - 1];
+  if (last?.role === 'assistant') return [...messages.slice(0, -1), { ...last, blocks: [...(last.blocks || []), ...choices] }];
+  return [...messages, { id: `pending-${choices[0].id}`, role: 'assistant', text: '', blocks: [...choices] }];
+}
+
 const apiAnswer = `可以的，ComfyUI 提供了 HTTP API 和 WebSocket 接口，可以直接接入自研前端。
 
 ### 常用接口

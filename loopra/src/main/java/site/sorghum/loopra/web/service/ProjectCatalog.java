@@ -123,7 +123,7 @@ final class ProjectCatalog {
                 result.add(new ProjectInfoDTO(
                         info.hash(), info.name(), info.path(),
                         info.createdAt(), info.lastAccessedAt(),
-                        info.sessionCount()
+                        info.sessionCount(), info.displayName()
                 ));
             }
         } catch (IOException e) {
@@ -145,6 +145,16 @@ final class ProjectCatalog {
         }
 
         return applyProjectOrder(result, ConfigService.getWorkspaceOrder());
+    }
+
+    ProjectInfoDTO renameProject(String hash, String displayName) {
+        try {
+            new ProjectRegistry().renameProject(hash, displayName);
+            return listProjects().stream().filter(project -> project.hash().equals(hash)).findFirst()
+                    .orElseThrow(() -> new ServiceException("项目不存在"));
+        } catch (IllegalArgumentException | IOException error) {
+            throw new ServiceException("保存项目展示名称失败：" + error.getMessage());
+        }
     }
 
     private Set<String> cachedProjectPaths() {

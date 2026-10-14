@@ -45,4 +45,40 @@ class ProjectRegistryTest {
         assertEquals(2, registry.listProjects().stream()
                 .filter(project -> project.path().equals(first.toString()) || project.path().equals(second.toString())).count());
     }
+
+    @Test
+    void displayNamesPersistAcrossLoadsAndDoNotChangePathsOrSessions() throws Exception {
+        Path project = Files.createDirectories(projects.resolve("service"));
+        ProjectRegistry registry = ProjectRegistry.getOrCreate(project.toString());
+        String hash = ProjectRegistry.computeProjectHash(project.toString());
+        Path session = registry.getSessionsDir(project.toString()).resolve("conversation.jsonl");
+        Files.writeString(session, "saved conversation");
+        String originalMetadata = Files.readString(registry.getProjectConfigPath(project.toString()));
+        registry.renameProject(hash, "  核心服务  ");
+        registry.updateLastAccessed(project.toString());
+        var info = new ProjectRegistry().listProjects().stream().filter(item -> item.hash().equals(hash)).findFirst().orElseThrow();
+        assertEquals("核心服务", info.name());
+        assertEquals("核心服务", info.displayName());
+        assertEquals(project.toString(), info.path());
+        assertEquals(1, info.sessionCount());
+        assertEquals("saved conversation", Files.readString(session));
+        assertEquals(org.noear.snack4.ONode.ofJson(originalMetadata).get("createdAt").getLong(), info.createdAt());
+        registry.renameProject(hash, "");
+        var restored = registry.listProjects().stream().filter(item -> item.hash().equals(hash)).findFirst().orElseThrow();
+        assertEquals("service", restored.name());
+        assertNull(restored.displayName());
+    }
+
+    @Test
+    void rejectsInvalidProjectNamesAndHashesBeforeWriting() throws Exception {
+        ProjectRegistry registry = ProjectRegistry.getOrCreate(projects.toString());
+        String hash = ProjectRegistry.computeProjectHash(projects.toString());
+        String before = Files.readString(registry.getProjectConfigPath(projects.toString()));
+        assertThrows(IllegalArgumentException.class, () -> registry.renameProject("../escape", "名称"));
+        assertThrows(IllegalArgumentException.class, () -> registry.renameProject(hash, null));
+        assertThrows(IllegalArgumentException.class, () -> registry.renameProject(hash, "x".repeat(81)));
+        assertThrows(IllegalArgumentException.class, () -> registry.renameProject(hash, "第一行\n第二行"));
+        assertThrows(IllegalArgumentException.class, () -> registry.renameProject("000000000000", "不存在"));
+        assertEquals(before, Files.readString(registry.getProjectConfigPath(projects.toString())));
+    }
 }

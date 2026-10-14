@@ -39,8 +39,11 @@ function AssistantMessage({ message, streaming, ...actions }: { message: Message
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
   const [clock, setClock] = useState(Date.now());
+  // Choices are answered in the composer popup and render nothing themselves, so
+  // they must not act as a folding boundary: until the final body arrives the
+  // already-run 思考/工具 stay visible, exactly as they were before the question.
   const blocks: ChatBlock[] = useMemo(() => message.blocks?.length ? message.blocks : message.text ? [{ id: message.id + '-text', type: 'content', content: message.text }] : [], [message.blocks, message.text, message.id]);
-  const { process, final } = useMemo(() => splitAssistantBlocks(blocks), [blocks]);
+  const { process, final } = useMemo(() => splitAssistantBlocks(blocks.filter(block => block.type !== 'choice')), [blocks]);
   useEffect(() => {
     if (!streaming) return;
     setClock(Date.now());
@@ -50,10 +53,14 @@ function AssistantMessage({ message, streaming, ...actions }: { message: Message
   const elapsed = message.startedAt ? Math.max(0, Math.round(((message.finishedAt || clock) - message.startedAt) / 1000)) : null;
   const duration = elapsed === null ? '' : elapsed < 60 ? elapsed + '秒' : Math.floor(elapsed / 60) + '分' + (elapsed % 60 ? elapsed % 60 + '秒' : '');
   const stats = messageFileStats(blocks);
-  const answerText = final.map(block => block.type === 'content' ? block.content : block.type === 'tool_call' ? block.result || '' : block.type === 'choice' ? block.question : '').filter(Boolean).join('\n\n') || message.text;
+  const answerText = final.map(block => block.type === 'content' ? block.content : block.type === 'tool_call' ? block.result || '' : '').filter(Boolean).join('\n\n') || message.text;
   const processId = 'process-' + message.id;
+  // A pending choice keeps the turn's "用时" summary on screen even when nothing
+  // has folded into it yet; on approval the same bubble simply keeps streaming.
+  const pending = blocks.some(block => block.type === 'choice' && !block.selected);
+  if (!blocks.length && !streaming) return null;
   return <Enter as="article" className="msg assistant" aria-label="助手消息" data-message-id={message.id}><div className="msg-body assistant-body">
-    {(process.length > 0 || streaming) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
+    {(process.length > 0 || streaming || pending) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
       <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><span>{duration ? '用时 ' + duration : '思考过程'}</span><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} />{streaming && <span className="streaming-label"><i />正在生成</span>}</button>
       <Collapse open={expanded && process.length > 0} id={processId} className="assistant-process-detail"><BlockRenderer blocks={process} {...actions} /></Collapse>
     </section>}

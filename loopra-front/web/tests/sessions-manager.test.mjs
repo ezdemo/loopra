@@ -1,3 +1,4 @@
+import { fieldStubs, checkboxStub } from './helpers/form-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -33,6 +34,7 @@ const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, ...rest }, children);
 export const Modal = ({ children }) => createElement('div', { role: 'dialog' }, children);
 export const ModalContent = ({ children }) => createElement('div', null, children);
+${checkboxStub}
 `);
 const iconsStub = dataUrl('export const Activity=()=>null;export const Clock=()=>null;export const Download=()=>null;export const MessageCircle=()=>null;export const Plus=()=>null;export const RefreshCw=()=>null;export const Trash2=()=>null;export const Wrench=()=>null;');
 const confirmStub = dataUrl(`
@@ -48,6 +50,7 @@ const statsUrl = await sourceUrl('session-stats.ts');
 
 const Manager = (await import(await sourceUrl('components/SessionsManager.tsx', {
   '@nextui-org/react': nextuiStub,
+  './SettingControls': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)}); ${fieldStubs}`),
   'lucide-react': iconsStub,
   './RemoteControls': confirmStub,
   '../session-stats': statsUrl,

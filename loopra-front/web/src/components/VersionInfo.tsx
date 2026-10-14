@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { Download, RefreshCw, Server, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Download, RefreshCw, Server, Sparkles } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { errorText } from './RemoteControls';
-import { SelectField, SettingRow } from './SettingControls';
+import { PageActions, SelectField, SettingRow } from './SettingControls';
 import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL, buildUpdateCommand, loadUpdateSource, saveUpdateSource } from '../update-scripts';
 
 type SystemVersion = { version: string; name?: string; buildTime?: string };
@@ -49,13 +49,13 @@ export default function VersionInfo({ api, notify, onAutoUpdate }: { api: Loopra
   const options = [{ value: UPDATE_SOURCE_NORMAL, label: '直连（GitHub）' }, ...MIRROR_SOURCES.map(mirror => ({ value: mirror.value, label: `镜像 · ${mirror.label}` }))];
 
   return <>
-    <h2>版本与更新</h2>
+    <PageActions title="版本与更新" />
     <div className="settings-card">
       <SettingRow title="核心服务" description={`Loopra Web 服务 · ${api.base}`}>
         <span className="version-value">v{version}<i className={`tag ${hasNew && check ? '' : 'is-ok'}`}>{check ? (hasNew ? '新版' : '已是最新') : '未检查'}</i></span>
       </SettingRow>
       <SettingRow title="最新发布" description={check?.checkTime ? `上次检查：${check.checkTime}` : '点击「检查更新」获取远程最新版本'}>
-        <span className="version-value">{latest ? `v${latest}` : '—'}<a className="version-link" href={releaseUrl} target="_blank" rel="noreferrer">查看发布页 →</a></span>
+        <span className="version-value">{latest ? `v${latest}` : '—'}<a className="version-link" href={releaseUrl} target="_blank" rel="noreferrer">查看发布页<ArrowUpRight size=".875rem" aria-hidden="true" /></a></span>
       </SettingRow>
       <SettingRow title="更新源" description="更新命令与自动更新使用的下载源">
         <SelectField compact label="更新源" value={source} onChange={setSource} options={options} />

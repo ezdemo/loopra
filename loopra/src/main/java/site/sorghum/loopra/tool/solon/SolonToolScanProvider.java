@@ -24,7 +24,7 @@ import java.util.List;
  * <ol>
  *   <li>Solon IoC 容器中所有 {@code AgentTool} 接口的实现 Bean</li>
  *   <li>Skill 文件系统中注册的工具（通过 {@link LoopraSkillProvider} 加载）</li>
- *   <li>Solon IoC 容器中所有 {@link SolonToTools} Bean（技能网关：MCP/LSP/OpenAPI/WebFetch 等）</li>
+ *   <li>Solon IoC 容器中所有 {@link SolonToTools} Bean（技能网关：MCP/OpenAPI/WebFetch 等）</li>
  * </ol>
  * 启动时自动安装到 {@link ToolScanUtil}，供 loopra-model 内核的工具系统使用。
  * </p>

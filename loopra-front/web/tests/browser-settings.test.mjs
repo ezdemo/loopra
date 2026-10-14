@@ -43,6 +43,9 @@ export const RemoteState = ({ error }) => error ? React.createElement('p', { rol
 const settingControlsStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const PageHeader = ({ title, children }) => createElement('header', null, title, children);
+export const PageActions = ({ title, children }) => createElement('header', null, createElement('h2', null, title), children);
+export const ResourceEmpty = ({ title, children }) => createElement('div', null, title, children);
+export const SettingDisclosure = ({ heading, children }) => createElement('details', null, createElement('summary', null, heading), children);
 export const SettingRow = ({ title, description, children }) => createElement('div', { className: 'setting-row' }, createElement('strong', null, title), description ? createElement('span', null, description) : null, children);
 `);
 const BrowserSettings = (await import(await sourceUrl('components/BrowserSettings.tsx', {

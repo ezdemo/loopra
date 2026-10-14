@@ -59,15 +59,16 @@ test('record filters/search work and full tool data renders only after expansion
     assert.equal(JSON.parse(copied).result.tool_call_id, 'a');
   } finally { await view.close(); }
 });
-test('the overview can navigate beyond the initially mounted 200 records after filtering', async () => {
+test('long records load in batches and changing filters resets the visible batch', async () => {
   const view = await mount(RawSessionRecords, { messages: Array.from({ length: 300 }, (_, index) => ({ role: 'user', content: `message-${index}` })), notify() {} });
   try {
     assert.equal(view.container.querySelectorAll('.record-row').length, 200);
+    await act(async () => { view.container.querySelector('.record-load-more').click(); });
+    assert.equal(view.container.querySelectorAll('.record-row').length, 300);
     await act(async () => { [...view.container.querySelectorAll('.record-kind-filters button')].find(button => button.textContent.startsWith('工具')).click(); });
     assert.equal(view.container.querySelectorAll('.record-row').length, 0);
-    await act(async () => { view.container.querySelector('[aria-label="定位输入记录 299"]').click(); });
-    assert.match(view.container.querySelector('.record-row.is-active').textContent, /message-298/);
-    assert.equal(document.activeElement.closest('.record-row'), view.container.querySelector('.record-row.is-active'));
+    await act(async () => { [...view.container.querySelectorAll('.record-kind-filters button')].find(button => button.textContent.startsWith('全部')).click(); });
+    assert.equal(view.container.querySelectorAll('.record-row').length, 200);
   } finally { await view.close(); }
 });
 test('only records and prompt tabs remain, switching reuses fetched data, and prompt source/copy are exact', async () => {

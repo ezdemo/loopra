@@ -7,6 +7,7 @@ import ts from 'typescript';
 // and rendered the diff through the side-by-side DiffViewer component.
 const gitTools = await readFile(new URL('../src/components/GitTools.tsx', import.meta.url), 'utf8');
 const panels = await readFile(new URL('../src/components/Panels.tsx', import.meta.url), 'utf8');
+const workspaceTabs = await readFile(new URL('../src/components/WorkspaceTabs.tsx', import.meta.url), 'utf8');
 
 const modelsSource = await readFile(new URL('../src/git-models.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(modelsSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
@@ -18,11 +19,10 @@ test('git init can create the initial commit like the legacy panel', () => {
   assert.match(gitTools, /useState\(true\)/);
 });
 
-test('the git tab renders the shared side-by-side DiffView instead of raw text', () => {
-  assert.match(panels, /import DiffView from '\.\/DiffView';/);
-  assert.match(panels, /<DiffView diff=\{diff\.data\.diff\} \/>/);
-  // The old raw <pre> dump of the diff must be gone from the git tab preview.
-  assert.ok(!panels.includes("<pre>{diff.data?.diff"));
+test('the git tab opens a main workspace tab using the shared side-by-side DiffView', () => {
+  assert.match(panels, /onFile=\{path => onOpenFile\(\{ path, mode: 'diff' \}\)\}/);
+  assert.match(workspaceTabs, /import DiffView from '\.\/DiffView';/);
+  assert.match(workspaceTabs, /<DiffView diff=\{data\?\.diff\} \/>/);
 });
 
 test('git commit models group by channel with a round-tripping option value', () => {
@@ -75,6 +75,6 @@ test('message file changes reuse the stored diff while the live diff stays the f
   assert.match(blockRenderer, /onDiff\?: \(path: string, diff\?: string\) => void/);
   assert.match(blockRenderer, /onClick=\{\(\) => onDiff\?\.\(change\.path, change\.diff\)\}/);
   assert.match(app, /function openDiff\(path: string, storedDiff\?: string\)/);
-  assert.match(app, /initialDiff=\{diffInline\}/);
-  assert.match(panels, /file === initialFile && initialDiff !== undefined \? <DiffView diff=\{initialDiff\} \/>/);
+  assert.match(app, /openFile\(\{ path, mode: 'diff', diff: storedDiff \}\)/);
+  assert.match(workspaceTabs, /file.mode === 'diff' && file.diff !== undefined/);
 });

@@ -60,7 +60,7 @@
           <h2>{{ currentTab?.label || '设置' }}</h2>
           <p class="header-desc">{{ currentTab?.description }}</p>
         </div>
-        <div v-if="activeTab !== 'openapi' && activeTab !== 'mcp' && activeTab !== 'lsp' && activeTab !== 'skill-market' && activeTab !== 'plugins' && activeTab !== 'extpacks' && activeTab !== 'about' && activeTab !== 'pet' && activeTab !== 'prompt' && activeTab !== 'model-channels' && activeTab !== 'tools' && activeTab !== 'sub-agents' && activeTab !== 'dashboard'" class="header-actions">
+        <div v-if="activeTab !== 'openapi' && activeTab !== 'mcp' && activeTab !== 'skill-market' && activeTab !== 'plugins' && activeTab !== 'extpacks' && activeTab !== 'about' && activeTab !== 'pet' && activeTab !== 'prompt' && activeTab !== 'model-channels' && activeTab !== 'tools' && activeTab !== 'sub-agents' && activeTab !== 'dashboard'" class="header-actions">
           <button v-if="activeTab === 'ai'" class="btn btn-secondary" style="padding:6px 12px;" @click="openAutoFillDialog" title="自动填入配置">
             <svg fill="none" height="14" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="14">
               <polyline points="1 4 1 10 7 10"/>
@@ -1475,128 +1475,6 @@ X-Custom-Header=value"
           </div>
         </section>
 
-        <!-- LSP 服务器管理 -->
-        <section v-if="activeTab === 'lsp'" class="settings-section">
-          <div class="section-card mcp-card">
-            <!-- 列表视图 -->
-            <template v-if="currentLspView === 'list'">
-              <div class="card-header">
-                <div class="mcp-list-header">
-                  <div>
-                    <h3>LSP 服务器</h3>
-                    <p>配置语言服务器 (Language Server Protocol) 用于代码智能分析</p>
-                  </div>
-                  <div style="display:flex;align-items:center;gap:12px;">
-                    <label class="toggle-switch" :class="{disabled: lspFullDisableSaving}" title="完全禁用 LSP 功能，将 lsp 加入已禁用工具列表">
-                      <input type="checkbox" :checked="lspFullyDisabled" @change="toggleLspFullDisable" :disabled="lspFullDisableSaving"/>
-                      <span class="toggle-slider"></span>
-                    </label>
-                    <span v-if="lspFullDisableSaving" style="font-size:12px;color:var(--fg-3);white-space:nowrap;">保存中...</span>
-                    <span v-else style="font-size:12px;color:var(--fg-3);white-space:nowrap;">完全禁用</span>
-                    <button class="btn btn-primary btn-sm" @click="openLspAdd" :disabled="lspFullyDisabled">
-                      <svg fill="none" height="12" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="12">
-                        <line x1="12" x2="12" y1="5" y2="19"/>
-                        <line x1="5" x2="19" y1="12" y2="12"/>
-                      </svg>
-                      添加服务器
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div class="card-body">
-                <div v-if="lspFullyDisabled" class="mcp-state-box" style="background:var(--yellow-1, #fefce8);border:1px solid var(--yellow-5, #eab308);border-radius:8px;padding:12px 16px;margin-bottom:12px;">
-                  <svg fill="none" height="20" stroke="var(--yellow-5, #eab308)" stroke-width="2" viewBox="0 0 24 24" width="20">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" x2="12" y1="9" y2="13"/>
-                    <line x1="12" x2="12.01" y1="17" y2="17"/>
-                  </svg>
-                  <p style="margin:0;font-size:13px;color:var(--yellow-8, #854d0e);">LSP 已被完全禁用，所有语言服务器将不会启动。在左下角「工具」弹窗或工具箱中启用 "lsp" 即可恢复。</p>
-                </div>
-                <div v-if="lspLoading" class="mcp-state-box">
-                  <svg class="animate-spin" fill="none" height="24" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="24">
-                    <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                  </svg>
-                  <p>加载中...</p>
-                </div>
-                <div v-else-if="lspServers.length === 0" class="mcp-state-box">
-                  <svg fill="none" height="48" stroke="var(--fg-3)" stroke-width="1.5" viewBox="0 0 24 24" width="48">
-                    <polyline points="16 18 22 12 16 6"/>
-                    <polyline points="8 6 2 12 8 18"/>
-                  </svg>
-                  <h4>暂无 LSP 服务器</h4>
-                  <p>LSP 服务器可为 AI 提供代码理解能力——定义跳转、引用查找、悬停提示、文档符号等</p>
-                </div>
-                <div v-else class="mcp-server-list">
-                  <div v-for="svr in lspServers" :key="svr.name" class="mcp-server-item">
-                    <div class="mcp-item-icon">L</div>
-                    <div class="mcp-item-info">
-                      <div class="mcp-item-name">
-                        {{ svr.name }}
-                        <span v-if="svr.installed" class="mcp-type-tag" style="background:#e6f7e6;color:#389e0d;margin-left:4px">已安装</span>
-                      </div>
-                      <div class="mcp-item-detail">{{ typeof svr.command === 'string' ? svr.command : (svr.command || []).join(' ') }}</div>
-                      <div class="mcp-item-detail" style="font-size:11px;color:var(--fg-3);margin-top:2px">{{ (svr.extensions || []).join(', ') }}</div>
-                    </div>
-                    <div class="mcp-item-actions" @click.stop>
-                      <button class="btn-icon-xs" title="编辑" @click="openLspEdit(svr)" :disabled="lspFullyDisabled">
-                        <svg fill="none" height="14" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="14">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                      </button>
-                      <label class="toggle-switch" :class="{disabled: lspFullyDisabled}" :title="lspFullyDisabled ? 'LSP 已被完全禁用' : ''">
-                        <input type="checkbox" :checked="svr.enabled" @change="toggleLspServer(svr)" :disabled="lspFullyDisabled"/>
-                        <span class="toggle-slider"></span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <!-- 表单视图 -->
-            <template v-if="currentLspView === 'form'">
-              <div class="card-header">
-                <div class="mcp-form-header">
-                  <button class="btn btn-ghost btn-sm" @click="backToLspList">
-                    <svg fill="none" height="14" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="14">
-                      <polyline points="15 18 9 12 15 6"/>
-                    </svg>
-                    返回
-                  </button>
-                  <h3>{{ lspEditName ? '编辑 LSP 服务器' : '新增 LSP 服务器' }}</h3>
-                </div>
-              </div>
-              <div class="card-body">
-                <div class="mcp-field">
-                  <label>名称 <span class="req">*</span></label>
-                  <input v-model="lspForm.name" class="form-input" placeholder="my-lsp-server" type="text" :readonly="!!lspEditName"/>
-                  <p class="mcp-hint">仅允许字母、数字、下划线和连字符{{ lspEditName ? '（编辑时不可修改）' : '' }}</p>
-                </div>
-                <div class="mcp-field">
-                  <label>启动命令 <span class="req">*</span></label>
-                  <input v-model="lspForm.command" class="form-input" placeholder="typescript-language-server --stdio" type="text"/>
-                </div>
-                <div class="mcp-field">
-                  <label>关联扩展名（可选）</label>
-                  <input v-model="lspForm.extensionsText" class="form-input" placeholder=".ts, .tsx, .js, .jsx" type="text"/>
-                  <p class="mcp-hint">逗号分隔，用于自动匹配文件到 Language Server</p>
-                </div>
-                <div class="mcp-field">
-                  <label>环境变量（可选）</label>
-                  <textarea v-model="lspForm.envText" class="form-textarea" placeholder="NODE_PATH=/usr/local/lib/node_modules" rows="3"></textarea>
-                  <p class="mcp-hint">每行一个 KEY=VALUE</p>
-                </div>
-                <div class="mcp-form-actions">
-                  <button class="btn" @click="backToLspList">取消</button>
-                  <button v-if="lspEditName" class="btn btn-danger" @click="deleteLspServer(lspEditName)">删除</button>
-                  <button :disabled="lspSaving || !lspFormValid" class="btn btn-primary" @click="saveLspServer">{{ lspSaving ? '保存中...' : '保存' }}</button>
-                </div>
-              </div>
-            </template>
-          </div>
-        </section>
-
         <!-- ==================== 技能市场 ==================== -->
         <section v-if="activeTab === 'skill-market'" class="settings-section">
           <div class="section-card">
@@ -2141,7 +2019,6 @@ import {
   configAPI,
   DEFAULT_API_BASE,
   extpackAPI,
-  lspAPI,
   mcpAPI,
   openApiAPI,
   petAPI,
@@ -2967,12 +2844,6 @@ const tabs = computed(() => [
       <circle cx="6" cy="18" r="1.5" fill="currentColor"/>
     </svg>`
   },
-  {
-    id: 'lsp',
-    label: 'LSP 服务器',
-    description: '配置语言服务器用于代码智能分析',
-    icon: `<svg fill="none" height="16" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`
-  },
   // Electron 桌面端专属设置（已合并到关于页面的 VersionInfoPanel 中）
   {
     id: 'about',
@@ -2988,7 +2859,7 @@ const settingsNavGroups = computed(() => {
   const groupDefinitions = [
     {id: 'general', label: '常规', tabIds: ['general', 'workspace', 'server']},
     {id: 'ai', label: 'AI', tabIds: ['model-channels', 'tools', 'sub-agents', 'dashboard']},
-    {id: 'integrations', label: '集成', tabIds: ['plugins', 'extpacks', 'openapi', 'mcp', 'lsp']},
+    {id: 'integrations', label: '集成', tabIds: ['plugins', 'extpacks', 'openapi', 'mcp']},
     {id: 'other', label: '其他', tabIds: ['pet', 'prompt', 'about']}
   ]
   const tabMap = new Map(tabs.value.map((tab) => [tab.id, tab]))
@@ -3073,9 +2944,6 @@ watch(activeTab, async (tab) => {
       if (!mcpExportLoaded.value) loadMcpExport()
       if (!mcpTunnelLoaded.value) loadMcpTunnel()
     })
-  }
-  if (tab === 'lsp' && lspServers.value.length === 0) {
-    loadLspServers()
   }
   if (tab === 'skill-market') {
     // 先加载已安装技能列表，确保渲染市场列表时就有安装状态
@@ -4375,190 +4243,6 @@ async function saveMcpTools() {
     message.error('保存失败: ' + (e.message || ''))
   } finally {
     mcpToolsSaving.value = false
-  }
-}
-
-// ==================== LSP 服务器管理 ====================
-const lspLoading = ref(false)
-const lspSaving = ref(false)
-const lspServers = ref([])
-const currentLspView = ref('list') // list | form
-const lspEditName = ref(null)
-
-const lspForm = reactive({
-  name: '',
-  scope: 'user',
-  command: '',
-  extensionsText: '',
-  envText: '',
-  enabled: true
-})
-
-const lspFormValid = computed(() => {
-  if (!lspForm.name || !/^[a-zA-Z0-9_-]+$/.test(lspForm.name)) return false
-  if (!lspForm.command) return false
-  return true
-})
-
-// LSP 完全禁用状态（是否在 disabledTools 中）
-const lspFullyDisabled = computed(() => {
-  const tools = settings.security.disabledToolsText.split('\n').map(s => s.trim()).filter(s => s)
-  return tools.includes('lsp')
-})
-
-const lspFullDisableSaving = ref(false)
-
-async function toggleLspFullDisable() {
-  const tools = settings.security.disabledToolsText.split('\n').map(s => s.trim()).filter(s => s)
-  const newDisabledTools = tools.includes('lsp')
-    ? tools.filter(t => t !== 'lsp')
-    : [...tools, 'lsp']
-
-  lspFullDisableSaving.value = true
-  try {
-    const res = await configAPI.updateConfig({ disabledTools: newDisabledTools })
-    if (res.success !== false) {
-      settings.security.disabledToolsText = newDisabledTools.join('\n')
-      message.success(newDisabledTools.includes('lsp') ? 'LSP 已完全禁用' : 'LSP 已启用')
-    } else {
-      message.error(res.error || '操作失败')
-    }
-  } catch (e) {
-    message.error('操作失败: ' + (e.message || ''))
-  } finally {
-    lspFullDisableSaving.value = false
-  }
-}
-
-function resetLspForm() {
-  lspForm.name = ''
-  lspForm.scope = 'user'
-  lspForm.command = ''
-  lspForm.extensionsText = ''
-  lspForm.envText = ''
-  lspForm.enabled = true
-}
-
-function buildLspServerData() {
-  const data = {
-    name: lspForm.name,
-    scope: lspForm.scope,
-    command: lspForm.command,
-    enabled: lspForm.enabled,
-    extensions: lspForm.extensionsText
-      ? lspForm.extensionsText.split(',').map(s => s.trim()).filter(s => s)
-      : [],
-    env: {}
-  }
-  lspForm.envText.split('\n').forEach(line => {
-    const idx = line.indexOf('=')
-    if (idx > 0) {
-      const k = line.substring(0, idx).trim()
-      const v = line.substring(idx + 1).trim()
-      if (k) data.env[k] = v
-    }
-  })
-  return data
-}
-
-async function loadLspServers() {
-  lspLoading.value = true
-  try {
-    const res = await lspAPI.listServers()
-    if (res.success !== false) {
-      lspServers.value = res.data || []
-    } else {
-      message.error(res.error || '加载 LSP 服务器列表失败')
-    }
-  } catch (e) {
-    console.error('加载 LSP 服务器列表失败:', e)
-    message.error('加载失败: ' + (e.message || ''))
-  } finally {
-    lspLoading.value = false
-  }
-}
-
-function openLspAdd() {
-  lspEditName.value = null
-  resetLspForm()
-  currentLspView.value = 'form'
-}
-
-function openLspEdit(svr) {
-  lspEditName.value = svr.name
-  lspForm.name = svr.name
-  lspForm.scope = svr.scope || 'user'
-  lspForm.enabled = svr.enabled !== false
-  lspForm.command = typeof svr.command === 'string' ? svr.command : (svr.command || []).join(' ')
-  lspForm.extensionsText = (svr.extensions || []).join(', ')
-  lspForm.envText = ''
-  if (svr.env) {
-    lspForm.envText = Object.entries(svr.env)
-      .map(([k, v]) => `${k}=${v}`)
-      .join('\n')
-  }
-  currentLspView.value = 'form'
-}
-
-function backToLspList() {
-  currentLspView.value = 'list'
-  loadLspServers()
-}
-
-async function saveLspServer() {
-  if (!lspFormValid.value) {
-    message.warning('请完善必填字段')
-    return
-  }
-  lspSaving.value = true
-  try {
-    const data = buildLspServerData()
-    let res
-    if (lspEditName.value) {
-      res = await lspAPI.updateServer(lspEditName.value, data)
-    } else {
-      res = await lspAPI.addServer(data)
-    }
-    if (res.success !== false) {
-      message.success(lspEditName.value ? '已更新' : '已添加')
-      backToLspList()
-    } else {
-      message.error(res.error || '保存失败')
-    }
-  } catch (e) {
-    message.error('保存失败: ' + (e.message || ''))
-  } finally {
-    lspSaving.value = false
-  }
-}
-
-async function deleteLspServer(name) {
-  if (!confirm(`确定删除 LSP 服务器 "${name}"？`)) return
-  try {
-    const res = await lspAPI.removeServer(name)
-    if (res.success !== false) {
-      message.success('已删除')
-      backToLspList()
-    } else {
-      message.error(res.error || '删除失败')
-    }
-  } catch (e) {
-    message.error('删除失败: ' + (e.message || ''))
-  }
-}
-
-async function toggleLspServer(svr) {
-  try {
-    const res = await lspAPI.toggleServer(svr.name, !svr.enabled)
-    if (res.success !== false) {
-      svr.enabled = !svr.enabled
-    } else {
-      message.error(res.error || '操作失败')
-      loadLspServers()
-    }
-  } catch (e) {
-    message.error('操作失败: ' + (e.message || ''))
-    loadLspServers()
   }
 }
 

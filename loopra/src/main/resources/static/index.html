@@ -1,87 +1,17 @@
-<!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<!doctype html>
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      if (new URLSearchParams(window.location.search).get('theme') === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark')
-      }
-      if (new URLSearchParams(window.location.search).get('desktopPet') === '1') {
-        document.documentElement.classList.add('desktop-pet-window')
-      }
-    </script>
-    <meta name="description" content="Loopra - AI 代码助手" />
-    <title>Loopra</title>
+    <meta name="theme-color" content="#f8fafb" />
+    <meta name="description" content="Loopra — AI 代码助手" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      html, body { height: 100%; overflow: hidden; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
-
-      #app-loader {
-        position: fixed; inset: 0;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: #fff; z-index: 9999; transition: opacity 0.2s;
-      }
-      [data-theme="dark"] #app-loader { background: #0c0c0c; }
-      [data-theme="retro"] #app-loader { background: #FAFAFA; }
-      [data-theme="retro-yellow"] #app-loader { background: #f5e6c8; }
-      .desktop-pet-window #app-loader { display: none; }
-      .desktop-pet-window body { background: transparent; }
-
-      .loader-icon {
-        width: 40px; height: 40px;
-        display: flex; align-items: center; justify-content: center;
-        margin-bottom: 16px; color: #2563eb;
-      }
-
-      .loader-logo-img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-      .loader-title {
-        font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 4px;
-      }
-      [data-theme="dark"] .loader-title { color: #e5e5e5; }
-      [data-theme="retro"] .loader-title { color: #1C1B1F; }
-      [data-theme="retro-yellow"] .loader-title { color: #3c2415; }
-      .loader-sub {
-        font-size: 12px; color: #9ca3af; margin-bottom: 20px;
-      }
-      .loader-spinner {
-        width: 20px; height: 20px;
-        border: 2px solid #e5e7eb; border-top-color: #2563eb;
-        border-radius: 50%; animation: spin 0.6s linear infinite;
-      }
-      [data-theme="dark"] .loader-spinner { border-color: #333; border-top-color: #3b82f6; }
-      [data-theme="retro"] .loader-spinner { border-color: #CAC4D0; border-top-color: #4CAF50; }
-      [data-theme="retro-yellow"] .loader-spinner { border-color: #c9b494; border-top-color: #8b4513; }
-
-      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      #app { height: 100%; }
-
-      ::selection { background: #2563eb; color: #fff; }
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-      [data-theme="dark"] ::-webkit-scrollbar-thumb { background: #333; }
-
-    </style>
-    <script type="module" crossorigin src="./assets/js/index-BZ_ii4V9.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/js/vue-BZSh_c_X.js">
-    <link rel="stylesheet" crossorigin href="./assets/css/index-B7KCAvdf.css">
+    <title>Loopra · Agent Workspace</title>
+    <script type="module" crossorigin src="./assets/js/index-DZOFSoi9.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/js/modulepreload-polyfill-DgTBsRTd.js">
+    <link rel="modulepreload" crossorigin href="./assets/js/preload-helper-BbFY8Ihp.js">
   </head>
   <body>
-    <div id="app-loader">
-      <div class="loader-icon">
-        <img src="./favicon.svg" alt="Loopra Logo" class="loader-logo-img" />
-      </div>
-      <div class="loader-title">Loopra</div>
-      <div class="loader-sub">加载中...</div>
-      <div class="loader-spinner"></div>
-    </div>
-    <div id="app"></div>
+    <div id="root"></div>
   </body>
 </html>
