@@ -11,6 +11,7 @@ import site.sorghum.cutin.core.plugin.AgentPlugin;
 import site.sorghum.cutin.core.plugin.LoopPlugin;
 import site.sorghum.cutin.core.plugin.LoopRegistrar;
 import site.sorghum.cutin.core.plugin.PluginContext;
+import site.sorghum.loopra.bin.agent.prompt.ClaudeCodePrompt;
 import site.sorghum.loopra.bin.agent.prompt.DEFAULT_PROMPT;
 import site.sorghum.loopra.bin.agent.prompt.EnvInfoUtil;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
@@ -89,7 +90,14 @@ public final class LoopraPromptPlugin implements LoopPlugin {
     }
 
     private void registerBuiltIns() {
-        PromptSliceProvider core = ctx -> PromptSlice.of("core-identity", DEFAULT_PROMPT.PROMPT, 100);
+        // 核心身份：Claude Code 原文移植版（逐字，仅换工具名）
+        PromptSliceProvider core = ctx -> PromptSlice.of("core-identity", ClaudeCodePrompt.join(), 100);
+        // Loopra 特有补充：Claude Code 原文里没有的能力（workspace_* / browser_* / goal_* 等）
+        PromptSliceProvider supplement = ctx -> PromptSlice.of("loopra-supplement", DEFAULT_PROMPT.PROMPT, 150);
+        // 语言约束：用 Claude Code 自己的 getLanguageSection 措辞，英文原文不必改动
+        PromptSliceProvider language = ctx -> PromptSlice.of("language", """
+                # Language
+                Always respond in Chinese (Simplified). Use Chinese (Simplified) for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.""", 250);
         // 用户级 ~/.loopra/loopra.md：旧路径由 AgentService.loadDefaultSystemPrompt 拼在 core 之后，
         // 插件化后由本切片补齐，保证设置页保存的「系统提示词」仍然生效。
         PromptSliceProvider userPrompt = ctx -> {
@@ -124,7 +132,9 @@ public final class LoopraPromptPlugin implements LoopPlugin {
         };
         PromptSliceProvider toolContract = ctx -> {
             // 工具协作约定：原来在 AgentLoop.prepareMessages 中每轮拼到 system 的动态尾部，现收敛为切片；
-            // 静态文案与 AgentLoop.buildToolInstructions 共用 ToolContract 单一来源，动态尾部（Goal/Plan）由宿主提供
+            // 静态文案与 AgentLoop.buildToolInstructions 共用 ToolContract 单一来源。
+            // Goal / 计划模式等易变状态不再拼进这里（那会让 system 每轮变字节、前缀缓存全废），
+            // 改由 LoopraStateNoticePlugin 作为历史中的状态通知注入。
             boolean terminate = false;
             try {
                 if (host instanceof site.sorghum.loopra.bin.agent.core.AgentLoop al) {
@@ -133,8 +143,13 @@ public final class LoopraPromptPlugin implements LoopPlugin {
             } catch (Exception ignored) {
                 // 方法不可用时按 false 处理
             }
-            String dynamic = host != null ? host.dynamicToolContractTail() : "";
-            return PromptSlice.of("tool-contract", ToolContract.build(terminate, dynamic), 600);
+            return PromptSlice.of("tool-contract", ToolContract.build(terminate, ""), 600);
+        };
+        PromptSliceProvider planContract = ctx -> {
+            // 计划模式的静态不变量常驻 system：只读约束不随模式切换变化，
+            // 即使状态通知被折叠或被插件禁用，模型仍知道约束存在。
+            return PromptSlice.of("plan-contract",
+                    site.sorghum.loopra.bin.agent.prompt.PlanModeContract.TEXT, 650);
         };
         PromptSliceProvider doc = ctx -> {
             Path ws = host == null ? null : host.workspace();
@@ -143,10 +158,13 @@ public final class LoopraPromptPlugin implements LoopPlugin {
             return PromptSlice.of("project-doc", d.trim(), 900);
         };
         builtIns.add(core);
+        builtIns.add(supplement);
         builtIns.add(userPrompt);
+        builtIns.add(language);
         builtIns.add(skill);
         builtIns.add(env);
         builtIns.add(toolContract);
+        builtIns.add(planContract);
         builtIns.add(doc);
         for (PromptSliceProvider p : builtIns) registry.register(p);
     }
@@ -157,7 +175,8 @@ public final class LoopraPromptPlugin implements LoopPlugin {
             return InterceptDecision.pass();
         }
         LoopContext context = intercept.context();
-        String built = registry != null ? registry.assemble(context) : "";
+        // assembleOnce：与折叠插件（order -200）共享同一次装配结果，避免重复读盘
+        String built = registry != null ? registry.assembleOnce(context) : "";
         if (built == null) built = "";
         String existingSystem = request.messages().stream()
                 .filter(m -> "system".equals(m.role()))
@@ -171,15 +190,19 @@ public final class LoopraPromptPlugin implements LoopPlugin {
             } else if (existingSystem.equals(built)) {
                 system = built;
             } else {
-                boolean existingIsCoreStyle = existingSystem.contains("Loopra 是什么") || existingSystem.contains("您已启动 Loopra");
-                boolean builtIsCoreStyle = built.contains("Loopra 是什么");
-                if (existingIsCoreStyle && builtIsCoreStyle) {
-                    system = built;
-                } else if (!existingIsCoreStyle && builtIsCoreStyle) {
+                // 声明式判定「这条 system 是不是本循环自己声明的」——
+                // 旧实现按提示词正文嗅探（contains("Loopra 是什么")），提示词一改判定就失效。
+                String declared = host != null ? host.systemPrefix() : "";
+                boolean ownPrefix = !declared.isBlank() && existingSystem.equals(declared);
+                if (ownPrefix) {
+                    // 子代理自拼 system / 注入的 ToolSystem 前缀：它是该循环的身份说明，必须保留，
+                    // 通用切片补充在后。既然已确认同源，就不必再做 substring 猜测。
                     system = built + "\n\n---\n\n" + existingSystem;
                 } else if (built.contains(existingSystem) || existingSystem.contains(built)) {
+                    // 未知来源但与本宿主产出的内容重叠（如旧版提示词）：取更长的那份，避免拼两遍
                     system = built.length() >= existingSystem.length() ? built : existingSystem;
                 } else {
+                    // 未知外部 system：保留并追加，而不是丢弃
                     system = built + "\n\n---\n\n" + existingSystem;
                 }
             }

@@ -479,6 +479,9 @@ public class ChatMessage {
         }
         copy.snapshotId = this.snapshotId;
         copy.rollbackId = this.rollbackId;
+        // webHidden 必须一并复制：系统状态通知依赖它保持「模型可见、Web 历史隐藏」，
+        // 丢失后通知会以用户气泡的形式直接出现在界面上。
+        copy.webHidden = this.webHidden;
         copy.timestamp = this.timestamp;
         copy.turnStartedAt = this.turnStartedAt;
         copy.turnFinishedAt = this.turnFinishedAt;

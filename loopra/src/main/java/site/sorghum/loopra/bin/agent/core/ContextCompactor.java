@@ -3,6 +3,7 @@ package site.sorghum.loopra.bin.agent.core;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
 import site.sorghum.cutin.core.context.DefaultLoopContext;
+import site.sorghum.cutin.core.context.LoopContext;
 import site.sorghum.loopra.bin.agent.context.CompactionRangeSelector;
 import site.sorghum.loopra.bin.agent.context.ContextCompactionPolicy;
 import site.sorghum.loopra.bin.agent.context.ContextFolding;
@@ -14,6 +15,7 @@ import site.sorghum.loopra.bin.agent.context.MessageHealer;
 import site.sorghum.loopra.bin.agent.context.ToolResultPruner;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.PreparedMessages;
+import site.sorghum.loopra.bin.agent.prompt.StateNoticeRenderer;
 import site.sorghum.loopra.integration.cutin.CutinMessageBridge;
 import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionHost;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.ToolContract;
@@ -21,6 +23,7 @@ import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecovery
 import site.sorghum.loopra.tool.LogLevel;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -41,8 +44,15 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
 
     /** 冻结后的工具定义快照；freezePromptPrefix 之后保持不变。 */
     private volatile ONode frozenTools;
-    /** 冻结后的工具指令快照；freezePromptPrefix 之后保持不变。 */
-    private volatile String frozenToolInstructions;
+
+    /**
+     * 冻结后的 system 文本快照（切片聚合结果）。
+     * <p>
+     * 冻结时装配并固定：system 是前缀缓存的主体，其 token 数在一次会话内
+     * 不应随状态切换漂移，否则折叠阈值会跟着抖动。
+     * </p>
+     */
+    private volatile String frozenSystemText;
 
     /** 上次触发 tool-gateway 重启时的禁用集合快照；用于跳过每轮无效重启。 */
     private volatile Set<String> lastGatewayDisabled = Collections.emptySet();
@@ -72,7 +82,7 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
     public PreparedMessages prepareCutinMessages(DefaultLoopContext context, int step) {
         try {
             ONode tools = refreshTools();
-            PreparedMessages prepared = prepareMessages(step, tools);
+            PreparedMessages prepared = prepareMessages(context, step, tools);
             context.replaceMessages(CutinMessageBridge.toCutin(prepared.messages()));
             return prepared;
         } catch (IOException exception) {
@@ -80,7 +90,7 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
             List<ChatMessage> fallback = loop.ctx().buildMessages();
             try {
                 ONode tools = refreshTools();
-                loop.lastContextEstimate(ContextTokenEstimator.estimate(fallback, tools, currentToolInstructions()));
+                loop.lastContextEstimate(ContextTokenEstimator.estimate(fallback, tools, currentSystemText(context)));
             } catch (Exception ignored) {
                 // token 估算失败时沿用上一次估值
             }
@@ -125,24 +135,68 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
         return planModeController.isPlanMode() ? planModeController.filterReadOnlyTools(tools) : tools;
     }
 
-    /** 固定后续请求的 system 附加指令和工具定义；必须在首轮模型调用前执行。 */
+    /**
+     * 冻结本会话的 system 文本与工具定义；必须在首轮模型调用前执行，此后不再重冻。
+     * <p>
+     * <b>为什么必须冻结：</b>system 是前缀缓存的主体（上万 token），只要它在会话中途
+     * 变过一个字节，其后所有请求的缓存前缀全部作废。切片本身只依赖宿主身份与工作目录
+     * （见 {@code LoopraPromptPlugin.registerBuiltIns}），因此把装配结果固定一次，
+     * 整个会话的 system 就是逐字节稳定的——Goal 状态、计划模式开关等易变信息已改由
+     * 历史中的状态通知（{@code LoopraStateNoticePlugin}）承载，不参与此处装配。
+     * </p>
+     * <p>
+     * <b>冻结后谁来兜底状态：</b>折叠阈值与 token 估算读同一份 {@code frozenSystemText}
+     * （见 {@link #currentSystemText}），口径与真实请求一致、且不随状态切换抖动；
+     * 模型侧的状态感知靠通知，约束兜底靠 {@code plan-contract} 切片与
+     * {@code PlanModeController} 的执行期拒绝。
+     * </p>
+     * <p>
+     * <b>注意 {@code frozenTools} 的语义：</b>它是会话起始时刻的工具视图快照
+     * （彼时若已在计划模式，则只读过滤已生效）。中途切换计划模式不会重冻，
+     * 非只读调用由 {@code ToolDispatcher} 在执行期拒绝。
+     * </p>
+     */
     void freezePromptPrefix() {
-        frozenToolInstructions = buildToolInstructions();
+        frozenSystemText = assembleSystemText();
         ONode tools = loop.getToolRegistry().toOpenAiTools();
         PlanModeController planModeController = loop.planModeController();
         frozenTools = ONode.ofJson((planModeController.isPlanMode()
                 ? planModeController.filterReadOnlyTools(tools) : tools).toJson());
     }
 
-    String currentToolInstructions() {
-        String fixed = frozenToolInstructions;
-        String base = fixed != null ? fixed : buildToolInstructions();
-        return loop.planModeController().isPlanMode() ? base + "\n\n" + PlanModeController.PLAN_MODE_INSTRUCTIONS : base;
+    /**
+     * 折叠决策与估算使用的 system 文本 —— 即 {@code LoopraPromptPlugin} 实际注入的那份。
+     * <p>
+     * 冻结后直接返回快照；未冻结时（冻结前的首轮估算）与 prompt 插件共用
+     * {@link site.sorghum.loopra.integration.cutin.plugin.prompt.PromptRegistry#assembleOnce}
+     * 的同一次装配结果，既不重复读盘，口径也与真实请求逐字节一致。
+     * </p>
+     */
+    private String currentSystemText(LoopContext context) {
+        String frozen = frozenSystemText;
+        if (frozen != null) {
+            return frozen;
+        }
+        try {
+            String text = context != null
+                    ? loop.promptRegistry().assembleOnce(context)
+                    : assembleSystemText();
+            return text == null ? "" : text;
+        } catch (Exception e) {
+            log.debug("[estimate] system 装配失败，按空处理: {}", e.getMessage());
+            return "";
+        }
     }
 
-    private String buildToolInstructions() {
-        // 静态文案与 LoopraPromptPlugin 的 tool-contract 切片共用 ToolContract 单一来源
-        return ToolContract.build(loop.terminateOnNoToolCall(), loop.currentGoalInstruction());
+    /** 无 LoopContext 时按预览上下文装配 system 文本（与前端「查看系统提示词」同一路径）。 */
+    private String assembleSystemText() {
+        try {
+            String text = loop.effectiveSystemPrompt();
+            return text == null ? "" : text;
+        } catch (Exception e) {
+            log.debug("[estimate] system 装配失败，按空处理: {}", e.getMessage());
+            return "";
+        }
     }
 
     /**
@@ -152,7 +206,7 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
     ContextTokenEstimate estimateCurrentContext() {
         ONode tools = refreshTools();
         ContextTokenEstimate estimate = ContextTokenEstimator.estimate(
-                loop.ctx().buildMessages(), tools, currentToolInstructions());
+                loop.ctx().buildMessages(), tools, currentSystemText(null));
         loop.lastContextEstimate(estimate);
         return estimate;
     }
@@ -216,35 +270,84 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
             return false;
         }
         loop.ctx().compact(folded);
+        pruneStaleStateNotices();
         loop.lastPromptTokens(0);
         loop.lastContextEstimate(null);
         return true;
     }
 
+    /**
+     * 折叠后只保留最新一条状态通知。
+     * <p>
+     * 折叠已经重写全部历史、前缀缓存必然失效，此刻顺带清理陈旧通知的边际成本为零；
+     * 放任堆积则每轮模型调用都要把历史里的旧 Goal 全文重复读一遍。判定用
+     * {@code isUser() && isWebHidden() && isNotice()} 三元组，与
+     * {@code ConversationContext.addSystemNotice} 的产物严格对应，
+     * 因此不会误伤折叠摘要（摘要也是 user 消息，但不带 webHidden）。
+     * </p>
+     *
+     * @return 被裁掉的陈旧通知条数（包级可见，便于单测直接驱动）
+     */
+    int pruneStaleStateNotices() {
+        List<ChatMessage> history = loop.ctx().getHistory();
+        int lastNotice = -1;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            if (isStateNotice(history.get(i))) {
+                lastNotice = i;
+                break;
+            }
+        }
+        if (lastNotice < 0) {
+            return 0;
+        }
+        List<ChatMessage> retained = new ArrayList<>(history.size());
+        for (int i = 0; i < history.size(); i++) {
+            if (i != lastNotice && isStateNotice(history.get(i))) {
+                continue;
+            }
+            retained.add(history.get(i));
+        }
+        int removed = history.size() - retained.size();
+        if (removed > 0) {
+            loop.ctx().compact(retained);
+        }
+        return removed;
+    }
+
+    private static boolean isStateNotice(ChatMessage message) {
+        return message != null
+                && message.isUser()
+                && message.isWebHidden()
+                && StateNoticeRenderer.isNotice(message.getContent());
+    }
+
     // ==================== 步骤 1: 消息准备 ====================
 
-    private PreparedMessages prepareMessages(int step, ONode tools) throws IOException {
+    private PreparedMessages prepareMessages(LoopContext context, int step, ONode tools) throws IOException {
         List<ChatMessage> messages = loop.ctx().buildMessages();
         MessageHealer.HealResult healResult = MessageHealer.heal(messages);
         messages = healResult.messages();
 
-        String instr = currentToolInstructions();
+        // 真实的 system 文本（切片聚合结果）：折叠阈值必须把它算进去，
+        // 否则上万 token 的系统提示词完全落在估算之外，折叠会系统性触发过晚。
+        String systemText = currentSystemText(context);
 
         boolean foldedThisStep = false;
         ContextCompactionPolicy compactionPolicy = ContextCompactionPolicy.from(loop.getAgentConfig());
         ContextPressure pressure = ContextPressureMeter.measure(
-                messages, tools, instr, loop.getLastPromptTokens(),
+                messages, tools, systemText, loop.getLastPromptTokens(),
                 loop.getModelProvider().getMaxContextTokens(), compactionPolicy);
         if (pressure.shouldCompact()) {
             ToolResultPruner.Config prunerConfig = ToolResultPruner.Config.from(loop.getAgentConfig());
             ToolResultPruner.PruneResult pruned = ToolResultPruner.prune(loop.ctx().getHistory(), prunerConfig);
             if (pruned.changed()) {
                 loop.ctx().compact(pruned.messages());
+                pruneStaleStateNotices();
                 foldedThisStep = true;
                 loop.lastPromptTokens(0);
                 messages = loop.ctx().buildMessages();
                 pressure = ContextPressureMeter.measure(
-                        messages, tools, instr, loop.getLastPromptTokens(),
+                        messages, tools, systemText, loop.getLastPromptTokens(),
                         loop.getModelProvider().getMaxContextTokens(), compactionPolicy);
                 try {
                     loop.getOutput().onLog(LogLevel.INFO, "[prune] 裁剪 " + pruned.prunedCount()
@@ -271,7 +374,7 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
             foldedThisStep = true;
             messages = loop.ctx().buildMessages();
             pressure = ContextPressureMeter.measure(
-                    messages, tools, instr, loop.getLastPromptTokens(),
+                    messages, tools, systemText, loop.getLastPromptTokens(),
                     loop.getModelProvider().getMaxContextTokens(), compactionPolicy);
         }
 
@@ -282,9 +385,9 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
             log.warn("[prepare] output.onLog异常: {}", e.getMessage());
         }
 
-        // 工具协作约定已由 LoopraPromptPlugin 的 tool-contract(600) 切片注入，此处不再重复拼接；
-        // 保留 instr 仅用于 token 估算的压缩阈值判断（与原语义一致）
-        loop.lastContextEstimate(ContextTokenEstimator.estimate(messages, tools, null));
+        // 上下文构成上报与折叠阈值同源：system 计入真实切片聚合文本，
+        // 前端展示的 token 分布才与实际请求一致
+        loop.lastContextEstimate(ContextTokenEstimator.estimate(messages, tools, systemText));
 
         return new PreparedMessages(messages, foldedThisStep);
     }

@@ -13,6 +13,7 @@ import site.sorghum.cutin.core.plugin.AgentPlugin;
 import site.sorghum.cutin.core.plugin.LoopPlugin;
 import site.sorghum.cutin.core.plugin.LoopRegistrar;
 import site.sorghum.cutin.core.tool.ToolDefinition;
+import site.sorghum.loopra.bin.agent.prompt.StateNoticeRenderer;
 import site.sorghum.loopra.bin.agent.resilient.ReasonBreaker;
 import site.sorghum.loopra.bin.tool.ToolMetadata;
 import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraPreflight;
@@ -73,6 +74,9 @@ public final class LoopraModelPolicyPlugin implements LoopPlugin {
     private static boolean hasUsableInput(List<Message> messages) {
         return messages.stream().anyMatch(message ->
             !"system".equals(message.role())
+                // 系统状态通知不是用户输入：只剩一条通知时（如会话刚恢复）应判定为空输入，
+                // 否则空回合会被当成有内容而继续调用模型
+                && !StateNoticeRenderer.isNotice(message.content())
                 && ((message.content() != null && !message.content().isEmpty())
                     || message.hasToolCalls()
                     || message.metadata("images") instanceof List<?> images && !images.isEmpty()));

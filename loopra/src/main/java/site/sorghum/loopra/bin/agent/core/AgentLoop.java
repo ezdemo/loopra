@@ -36,6 +36,7 @@ import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.agent.model.ToolExecutionResult;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.agent.output.ConsoleAgentOutput;
+import site.sorghum.loopra.bin.agent.prompt.StateNoticeRenderer;
 import site.sorghum.loopra.bin.agent.resilient.ReasonBreaker;
 import site.sorghum.loopra.bin.agent.resilient.StormBreaker;
 import site.sorghum.loopra.bin.agent.spi.AgentConfig;
@@ -70,6 +71,8 @@ import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryHost;
 import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryPolicyPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionAffinityPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.state.LoopraStateNoticeHost;
+import site.sorghum.loopra.integration.cutin.plugin.state.LoopraStateNoticePlugin;
 import site.sorghum.loopra.integration.cutin.plugin.tool.LoopraToolGatewayPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraTokenSpeedPlugin;
@@ -114,6 +117,7 @@ public class AgentLoop implements
         LoopraRetryHost,
         LoopraReasoningStartedHost,
         LoopraPromptHost,
+        LoopraStateNoticeHost,
         LoopraToolGatewayPlugin.LoopraToolHost {
 
     // ==================== 核心字段 ====================
@@ -189,6 +193,9 @@ public class AgentLoop implements
 
     /** 主循环是否正在执行中（防止巡检线程与主循环冲突） */
     private final AtomicBoolean running = new AtomicBoolean(false);
+
+    /** 本循环是否为子代理循环；影响状态通知的措辞（子代理无 submit_plan）。 */
+    private volatile boolean subAgentLoop = false;
 
     /**
      * cutin 引擎 —— loopra 主循环的编排状态机。
@@ -358,21 +365,97 @@ public class AgentLoop implements
         return env == null ? null : env.executionRoot();
     }
 
+    /**
+     * 子代理自拼的 system（{@code ConversationContext} 的前缀）。
+     * <p>主循环的前缀是空串，因此这里返回空串，prompt 插件据此判定
+     * 「现有 system 不是外部注入的」。</p>
+     */
     @Override
-    public String dynamicToolContractTail() {
-        // Goal 指令 + Plan Mode 指令：随会话状态实时变化，由 tool-contract 切片注入 system
-        StringBuilder tail = new StringBuilder();
+    public String systemPrefix() {
+        return ctx.prefixSystem();
+    }
+
+    // ========== LoopraStateNoticeHost 实现（易变状态移出 system） ==========
+
+    @Override
+    public String stateNoticeBody() {
+        StringBuilder body = new StringBuilder();
         String goal = currentGoalInstruction();
         if (!goal.isBlank()) {
-            tail.append(goal);
+            body.append(goal.strip());
         }
         if (planModeController.isPlanMode()) {
-            if (!tail.isEmpty()) {
-                tail.append("\n\n");
+            if (body.length() > 0) {
+                body.append("\n\n");
             }
-            tail.append(PlanModeController.PLAN_MODE_INSTRUCTIONS);
+            body.append(StateNoticeRenderer.planModeBody(isSubAgentLoop()));
         }
-        return tail.toString();
+        return body.toString();
+    }
+
+    @Override
+    public String appendStateNotice(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        ChatMessage notice = ctx.addSystemNotice(content);
+        return StateNoticeRenderer.fingerprintOf(notice.getContent());
+    }
+
+    @Override
+    public String replaceLastStateNotice(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        List<ChatMessage> history = ctx.getHistory();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage message = history.get(i);
+            if (!StateNoticeRenderer.isNotice(message.getContent())) {
+                continue;
+            }
+            message.setContent(content);
+            ctx.rewriteSession();
+            return StateNoticeRenderer.fingerprintOf(content);
+        }
+        return null;
+    }
+
+    @Override
+    public String lastStateNoticeFingerprint() {
+        List<ChatMessage> history = ctx.getHistory();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            String fingerprint = StateNoticeRenderer.fingerprintOf(history.get(i).getContent());
+            if (fingerprint != null) {
+                return fingerprint;
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public boolean modelProducedSinceLastNotice() {
+        List<ChatMessage> history = ctx.getHistory();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage message = history.get(i);
+            if (StateNoticeRenderer.isNotice(message.getContent())) {
+                return false;
+            }
+            if (message.isAssistant() || message.isTool()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 主循环不是子代理；子循环由 {@link SubAgent} 创建后调用 {@link #markSubAgentLoop()} 标记。 */
+    @Override
+    public boolean isSubAgentLoop() {
+        return subAgentLoop;
+    }
+
+    /** 标记本循环为子代理循环（由 {@link SubAgent} 在冻结前缀前调用）。 */
+    void markSubAgentLoop() {
+        this.subAgentLoop = true;
     }
 
     private PluginBeanManager createCutinPlugins() {
@@ -382,9 +465,11 @@ public class AgentLoop implements
         plugins.registerBean("promptRegistry", promptRegistry);
         plugins.registerBean("loopraToolHost", (LoopraToolGatewayPlugin.LoopraToolHost) this);
         plugins.registerBean("promptRegistryTyped", promptRegistry);
+        plugins.registerBean("loopraStateNoticeHost", (LoopraStateNoticeHost) this);
         // Prompt / Tool 插件化（优先级最高，最先拦截）
         plugins.registerPlugin(new LoopraPromptPlugin(this, promptRegistry));
         plugins.registerPlugin(new LoopraToolGatewayPlugin(this));
+        plugins.registerPlugin(new LoopraStateNoticePlugin(this));
         plugins.registerPlugin(new LoopraHttpLogPlugin(modelProvider));
         plugins.registerPlugin(new LoopraRawLogPlugin());
         plugins.registerPlugin(new LoopraMessageSanitizerPlugin(hitlController));
@@ -704,7 +789,12 @@ public class AgentLoop implements
         return contextCompactor.refreshTools();
     }
 
-    /** 固定后续请求的 system 附加指令和工具定义；必须在首轮模型调用前执行。 */
+    /**
+     * 冻结本会话的 system 文本与工具定义；必须在首轮模型调用前执行。
+     * <p>冻结后 system 逐字节稳定（易变状态已改由历史里的状态通知承载），
+     * 折叠阈值与估算也读同一份快照。语义细节见
+     * {@link ContextCompactor#freezePromptPrefix()}。</p>
+     */
     public void freezePromptPrefix() {
         contextCompactor.freezePromptPrefix();
     }

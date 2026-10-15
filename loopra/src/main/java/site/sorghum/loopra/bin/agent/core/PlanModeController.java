@@ -22,20 +22,6 @@ import java.util.Map;
 @Slf4j
 final class PlanModeController implements LoopraPlanHost {
 
-    /**
-     * 计划模式动态指令 —— 激活时追加到工具协作约定末尾。
-     * 放在动态尾部而非 system prompt 固定前缀，避免模式切换破坏前缀缓存稳定性。
-     */
-    static final String PLAN_MODE_INSTRUCTIONS = """
-            ## Plan Mode（当前处于计划模式）
-
-            - 仅只读工具可用：写入/修改/执行类工具已从工具列表移除，任何此类调用都会被直接拒绝
-            - 不要尝试修改文件、执行命令等任何改变操作，也不要尝试绕过此限制
-            - 先用只读工具充分探索，理解现状、明确目标、影响面与风险
-            - 探索完成后用 `submit_plan` 工具提交完整执行计划供用户审查，然后向用户简要总结计划要点并结束本轮
-            - 用户批准计划后系统会退出计划模式并按计划执行
-            """;
-
     private final AgentLoop loop;
 
     /** 计划模式开关（会话级，仅影响本循环）。 */

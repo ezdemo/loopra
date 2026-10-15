@@ -288,6 +288,8 @@ public class SubAgent {
         if (parentController != null && parentController.isPlanMode()) {
             subLoop.setPlanMode(true);
         }
+        // 标记为子循环：状态通知渲染时据此避开 submit_plan 指引（子代理无该工具）
+        subLoop.markSubAgentLoop();
         subLoop.freezePromptPrefix();
     }
 
