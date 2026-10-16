@@ -167,7 +167,6 @@ public class LoopraConfig implements AgentConfig {
                   },
                    "toolTimeoutSec": 360,
                    "subAgentTimeoutSec": 3600,
-                   "terminateOnNoToolCall": true,
                    "maxSelfCorrectionAttempts": 5,
                   "maxStreamErrorRetries": 10,
                   "flushIntervalSec": 30,
@@ -913,16 +912,6 @@ public class LoopraConfig implements AgentConfig {
     public int subAgentTimeoutSec() {
         ONode n = root.select("$.subAgentTimeoutSec");
         return n != null && !n.isNull() ? n.getInt() : 3600;
-    }
-
-    /**
-     * 无工具调用时是否将模型文本作为最终回答。
-     * false 时追加 ConversationContext.NO_TOOL_CALL_NOTICE 提醒模型继续推理，
-     * 并在连续三次无工具调用后兜底结束。
-     */
-    public boolean terminateOnNoToolCall() {
-        ONode n = root.select("$.terminateOnNoToolCall");
-        return n == null || n.isNull() || n.getBoolean();
     }
 
     /**

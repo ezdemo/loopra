@@ -559,15 +559,6 @@
               <input v-model="customReasoningEffort" aria-label="自定义推理强度" placeholder="例如 xhigh" @blur="commitCustomReasoningEffort" @keydown.enter.prevent="commitCustomReasoningEffort" />
             </label>
             <label class="chat-reasoning-end-toggle">
-              <span>无工具调用时结束</span>
-              <input
-                  :checked="props.terminateOnNoToolCall"
-                  type="checkbox"
-                  @change="emit('switchTerminateOnNoToolCall', $event.target.checked)"
-              />
-              <span class="chat-reasoning-toggle-slider"></span>
-            </label>
-            <label class="chat-reasoning-end-toggle">
               <span>快速模式</span>
               <input
                   :checked="props.fastMode"
@@ -666,7 +657,6 @@ const props = defineProps({
   initiallyEmpty: {type: Boolean, default: false},
   hasHistory: {type: Boolean, default: false},
   currentReasoningEffort: {type: String, default: 'max'},
-  terminateOnNoToolCall: {type: Boolean, default: true},
   fastMode: {type: Boolean, default: false},
   version: {type: String, default: ''},
   currentSkill: {type: Object, default: null},
@@ -681,7 +671,7 @@ const props = defineProps({
   sessionStatusStopping: {type: Boolean, default: false}
 })
 
-const emit = defineEmits(['update:inputText', 'send', 'abort', 'clear', 'export', 'refreshUsage', 'switchModel', 'setDefaultModel', 'continue', 'refreshModels', 'switchReasoningEffort', 'switchTerminateOnNoToolCall', 'switchFastMode', 'switchSkill', 'switchPermission', 'pickerOpen', 'manageModels', 'removeQueued', 'guideQueued', 'togglePlan'])
+const emit = defineEmits(['update:inputText', 'send', 'abort', 'clear', 'export', 'refreshUsage', 'switchModel', 'setDefaultModel', 'continue', 'refreshModels', 'switchReasoningEffort', 'switchFastMode', 'switchSkill', 'switchPermission', 'pickerOpen', 'manageModels', 'removeQueued', 'guideQueued', 'togglePlan'])
 const appStore = useAppStore()
 const sessionInitialized = ref(!props.initiallyEmpty)
 

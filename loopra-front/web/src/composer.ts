@@ -1,13 +1,13 @@
 import type { Provider, ProviderModel } from './lib';
 
 export type ModelOption = { id: string; name: string; providerId: string; provider: string; color?: string; contextTokens?: number; maxTokens?: number; imageInput?: boolean };
-export type ComposerOptions = { modelId: string; effort: string; mode: string; plan: boolean; fast: boolean; finishWithoutTools: boolean };
+export type ComposerOptions = { modelId: string; effort: string; mode: string; plan: boolean; fast: boolean };
 export type ComposerAttachment = { name: string; text?: string; image?: string; size?: number };
 export type ComposerContext = { files: string[]; projects: string[]; skills: string[]; attachments?: ComposerAttachment[] };
 export type QueuedMessage = { id: string; text: string; context: ComposerContext };
 export type PromptPreset = { id: string; name: string; text: string };
 export const emptyContext: ComposerContext = { files: [], projects: [], skills: [] };
-export const defaultOptions: ComposerOptions = { modelId: 'deepseek:DeepSeek V4.1 Flash', effort: 'max', mode: '完全自动', plan: false, fast: false, finishWithoutTools: false };
+export const defaultOptions: ComposerOptions = { modelId: 'deepseek:DeepSeek V4.1 Flash', effort: 'max', mode: '完全自动', plan: false, fast: false };
 
 export type SlashCommand = { id: string; title: string; description: string; insert?: string; action?: () => void };
 export type ServerCommand = { cmd: string; desc?: string | null; args?: string | null };
@@ -133,7 +133,7 @@ export function composeMessage(prompt: string, options: ComposerOptions, context
     '本地演示配置（未连接模型或工具）',
     `模型：${model ? `${model.provider} / ${model.name}` : '未选择'}`,
     `推理强度：${options.effort} · 权限：${options.mode}`,
-    `计划模式：${options.plan ? '开启' : '关闭'} · 快速模式：${options.fast ? '开启' : '关闭'} · 无工具调用时结束：${options.finishWithoutTools ? '开启' : '关闭'}`,
+    `计划模式：${options.plan ? '开启' : '关闭'} · 快速模式：${options.fast ? '开启' : '关闭'}`,
     ...(context.projects.length ? [`关联项目：${context.projects.join('、')}`] : []),
     ...(context.skills.length ? [`技能：${context.skills.join('、')}`] : []),
     ...(context.files.length ? [`附件（仅文件名，未读取内容）：${context.files.join('、')}`] : []),

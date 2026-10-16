@@ -203,7 +203,6 @@ class AgentLoopToolTimeoutTest {
         @Override public int maxContextChars() { return 200_000; }
         @Override public int keepTailChars() { return 80_000; }
         @Override public int maxSelfCorrectionAttempts() { return 5; }
-        @Override public boolean terminateOnNoToolCall() { return true; }
         @Override public int stormWindowSize() { return 6; }
         @Override public int stormThreshold() { return 3; }
         @Override public String validationModel() { return ""; }

@@ -184,16 +184,19 @@
   background: #fff;
   box-shadow: 0 0.0625rem 0.375rem #0000002b, 0 0 0 1px #0000000f, 0 0 calc(var(--effort-level) * 0.16rem) color-mix(in srgb, var(--blue) 34%, transparent);
 }
-.effort-levels { display: flex; justify-content: space-between; padding: 0.5625rem 0 0.875rem; }
+.effort-levels { display: flex; justify-content: space-between; padding: 0.5625rem 0 0.5rem; }
 .effort-levels button { padding: 0.1875rem 0.3125rem; min-width: 1.75rem; font-size: 0.75rem; color: var(--muted); }
 .effort-levels button[aria-pressed="true"] { background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
-.custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.75rem; }
+.custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.5rem; }
 .custom-effort > div { flex: 1; }
 .custom-effort button { min-width: 3.125rem; }
-.composer-toggle-row { border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.75rem 0; }
-.composer-toggle-row span { display: flex; align-items: center; gap: 0.3125rem; }
-.composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; margin-top: 0.25rem; }
-.effort-body > .composer-note { padding: 0.25rem 0; }
+/* Rows are deliberately one line tall: with the hint stacked under the label each row
+   ran to 65px and the two of them plus the custom-value field took over half the panel.
+   The hint now rides beside its label and truncates rather than wrapping. */
+.composer-toggle-row { border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.5rem 0; }
+.composer-toggle-row > div:first-child { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
+.composer-toggle-row span { display: flex; align-items: center; gap: 0.3125rem; flex-shrink: 0; }
+.composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-tool-list > button, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
 .composer-tool-list > button > svg:first-child, .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
 .composer-tool-list > button > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }

@@ -160,7 +160,7 @@ export default function App() {
     return mutation(async () => {
       const model = getModelCatalog(providers).find(item => item.id === next.modelId);
       if (!model) throw new Error('请选择有效模型');
-      await api.request('/config', 'PUT', { hitl: permissionValue(next.mode), fastMode: next.fast, terminateOnNoToolCall: next.finishWithoutTools });
+      await api.request('/config', 'PUT', { hitl: permissionValue(next.mode), fastMode: next.fast });
       if (session) {
         await api.request(sessionRoute(session, '/settings'), 'PUT', { model: model.name, modelChannelId: model.providerId, reasoningEffort: next.effort });
         if (next.plan !== composerOptions.plan) await api.request('/agent/mode', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, enabled: next.plan });
@@ -527,7 +527,7 @@ export default function App() {
         setSessions(current => [...current, target!]); setActiveId(target.id);
       }
       const id = target.id; setGeneratingId(id);
-      await api.request('/config', 'PUT', { hitl: permissionValue(options.mode), fastMode: options.fast, terminateOnNoToolCall: options.finishWithoutTools }, controller.signal);
+      await api.request('/config', 'PUT', { hitl: permissionValue(options.mode), fastMode: options.fast }, controller.signal);
       // Approving a plan (execute_plan) must not re-enter plan mode; the agent clears it while executing.
       if (!action) await api.request('/agent/mode', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name, enabled: options.plan }, controller.signal);
       // A continued turn already owns its bubble: reopen it (so its timer ticks
@@ -599,7 +599,7 @@ export default function App() {
     const config = backend.config; if (!config) return;
     const modelId = `${config.modelChannelId}:${config.model}`;
     setDefaultModel(modelId);
-    setComposerOptions(current => ({ ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode, finishWithoutTools: config.terminateOnNoToolCall }));
+    setComposerOptions(current => ({ ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode }));
     setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '' }));
     setWorkspace(current => backend.workspaces.some(item => item.hash === current) ? current : backend.workspaces.find(item => item.path === config.workspace)?.hash || backend.workspaces[0]?.hash || '');
   }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server]);

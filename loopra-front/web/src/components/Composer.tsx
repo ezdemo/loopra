@@ -317,8 +317,6 @@ export default function Composer(props: Props) {
         {menu === 'effort' && <div className="effort-body">
           <ReasoningControl value={options.effort} disabled={props.busy} onCommit={value => update('effort', value)} onClose={close} />
           <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />快速模式</span><small>发送快速模式参数，需模型支持</small></div><Toggle label="快速模式" value={options.fast} onChange={value => update('fast', value)} /></div>
-          <div className="composer-toggle-row"><div><span>无工具调用时结束</span><small>同步到 Loopra 运行配置</small></div><Toggle label="无工具调用时结束" value={options.finishWithoutTools} onChange={value => update('finishWithoutTools', value)} /></div>
-          <p className="composer-note">推理参数随请求发送，支持程度由所选模型决定。</p>
         </div>}
 
         {menu === 'tools' && <div className="composer-tool-list">

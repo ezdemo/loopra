@@ -92,11 +92,11 @@
             </div>
             <ChatInput ref="welcomeInput" welcome-mode v-model:input-text="welcomeText" :usage="usage" :current-model="currentModel" :default-model="defaultModel" :default-model-channel-id="defaultModelChannelId" :setting-default-model="settingDefaultModel" :available-models="availableModels"
                        :initially-empty="props.initiallyEmpty"
-                       :current-reasoning-effort="currentReasoningEffort" :terminate-on-no-tool-call="terminateOnNoToolCall" :fast-mode="currentFastMode" :current-permission="currentPermission"
+                       :current-reasoning-effort="currentReasoningEffort" :fast-mode="currentFastMode" :current-permission="currentPermission"
                        :workspace-hash="welcomeWorkspaceHash" :session-name="props.sessionName" :plan-mode="planMode"
                        :session-running="sessionTaskRunning" :session-busy="sessionBusy" :session-status-stopping="sessionStatusStopping"
                        :current-skill="currentSkill" @send="sendWelcomeMessage" @toggle-plan="togglePlan" @switch-model="handleSwitchModel" @set-default-model="handleSetDefaultModel"
-                       @switch-reasoning-effort="handleSwitchReasoningEffort" @switch-terminate-on-no-tool-call="handleSwitchTerminateOnNoToolCall" @switch-fast-mode="handleSwitchFastMode"
+                       @switch-reasoning-effort="handleSwitchReasoningEffort" @switch-fast-mode="handleSwitchFastMode"
                        @switch-permission="handleSwitchPermission" @switch-skill="handleSwitchSkill" @picker-open="handleWelcomePickerOpen" @refresh-models="loadUsage" @manage-models="$emit('manageModels')" />
           </div>
         </section>
@@ -308,7 +308,6 @@
         :setting-default-model="settingDefaultModel"
         :availableModels="availableModels"
         :currentReasoningEffort="currentReasoningEffort"
-        :terminateOnNoToolCall="terminateOnNoToolCall"
         :fast-mode="currentFastMode"
         :workspaceHash="props.workspaceHash"
         :sessionName="props.sessionName"
@@ -335,7 +334,6 @@
         @switchModel="handleSwitchModel"
         @set-default-model="handleSetDefaultModel"
         @switchReasoningEffort="handleSwitchReasoningEffort"
-        @switchTerminateOnNoToolCall="handleSwitchTerminateOnNoToolCall"
         @switchFastMode="handleSwitchFastMode"
         @refreshModels="loadUsage"
         @continue="continueChat"
@@ -486,7 +484,6 @@ const handleSetDefaultModel = async (modelName, channelId) => {
 
 // ============= 推理强度切换 =============
 const currentReasoningEffort = ref('max')
-const terminateOnNoToolCall = ref(true)
 const currentFastMode = ref(false)
 
 const handleSwitchReasoningEffort = async (value) => {
@@ -510,18 +507,6 @@ const handleSwitchReasoningEffort = async (value) => {
     await configAPI.updateConfig({reasoningEffort})
   } catch (e) {
     console.error('持久化推理强度失败:', e)
-  }
-}
-
-const handleSwitchTerminateOnNoToolCall = async (value) => {
-  if (value === terminateOnNoToolCall.value) return
-  try {
-    const r = await configAPI.updateConfig({terminateOnNoToolCall: value})
-    if (r.success) {
-      terminateOnNoToolCall.value = value
-    }
-  } catch (e) {
-    console.error('更新无工具调用结束策略失败:', e)
   }
 }
 
@@ -1465,7 +1450,6 @@ const loadUsage = async (override) => {
         || legacySessionReasoningEfforts.value[sessionKey]
         || sessionSettings.reasoningEffort
         || configRes.value.data?.reasoningEffort || 'max'
-      terminateOnNoToolCall.value = configRes.value.data?.terminateOnNoToolCall !== false
       currentFastMode.value = sessionFastModes.value[sessionKey]
         ?? configRes.value.data?.fastMode ?? false
       currentPermission.value = configRes.value.data?.hitl || 'free'

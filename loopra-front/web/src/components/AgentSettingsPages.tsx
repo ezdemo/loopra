@@ -18,7 +18,6 @@ export function AgentDefaults({ options, onOptions }: SettingsPageProps) {
       <SettingRow title="推理强度" description="与输入栏推理设置保持同步"><SelectField compact label="默认推理强度" value={options.effort} onChange={effort => onOptions({ ...options, effort })} options={[...(!effortLevels.some(level => level.value === options.effort) ? [options.effort] : []), ...effortLevels.map(level => ({ value: level.value, label: `${level.label} · ${level.description}` }))]} /></SettingRow>
       <SettingRow title="计划模式" description="启用 Loopra 会话计划模式"><SettingSwitch label="默认计划模式" value={options.plan} onChange={plan => onOptions({ ...options, plan })} /></SettingRow>
       <SettingRow title="快速模式" description="发送快速模式参数，需模型支持"><SettingSwitch label="默认快速模式" value={options.fast} onChange={fast => onOptions({ ...options, fast })} /></SettingRow>
-      <SettingRow title="无工具调用时结束" description="同步到 Loopra 运行配置"><SettingSwitch label="默认无工具调用时结束" value={options.finishWithoutTools} onChange={finishWithoutTools => onOptions({ ...options, finishWithoutTools })} /></SettingRow>
     </div>
   </>;
 }

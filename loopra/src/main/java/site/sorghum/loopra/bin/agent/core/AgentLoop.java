@@ -125,7 +125,6 @@ public class AgentLoop implements
     private final LoopraModelProvider modelProvider;
     private final ToolRegistry registry;
     private final AgentConfig config;
-    private volatile boolean terminateOnNoToolCall;
     @Getter
     private final ConversationContext ctx;
     private final ReasonBreaker reasonBreaker = new ReasonBreaker();
@@ -300,7 +299,6 @@ public class AgentLoop implements
         this.registry = Objects.requireNonNull(registry, "registry must not be null");
         this.ctx = ctx;
         this.config = config;
-        this.terminateOnNoToolCall = config == null || config.terminateOnNoToolCall();
         this.hitlManager = new HitlManager("free");
         this.stormBreaker = StormBreaker.fromConfig(config);
         this.usageReporter = new UsageReporter(this::lastPromptTokens, this::getSessionUsageSink,
@@ -588,16 +586,6 @@ public class AgentLoop implements
     /** 运行时切换快速模式（热更新，OpenAI service_tier=fast，仅 OpenAI 协议生效） */
     public void setFastMode(boolean fastMode) {
         modelProvider.setFastMode(fastMode);
-    }
-
-    @Override
-    public boolean terminateOnNoToolCall() {
-        return terminateOnNoToolCall;
-    }
-
-    /** 运行时更新无工具调用时的结束策略。 */
-    public void setTerminateOnNoToolCall(boolean enabled) {
-        this.terminateOnNoToolCall = enabled;
     }
 
     /** 手动触发上下文折叠（/compact 命令）；实际折叠逻辑在 {@link ContextCompactor}。 */

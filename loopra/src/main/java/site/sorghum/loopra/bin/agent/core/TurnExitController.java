@@ -79,17 +79,18 @@ final class TurnExitController implements LoopraExitHost {
         Object rawStreak = context.variables().getOrDefault("loopraNoToolStreak", 1);
         int streak = rawStreak instanceof Number number ? number.intValue() : 1;
         GoalGuard.GoalView openGoal = loadOpenGoalQuietly();
-        boolean shouldExit = (openGoal != null && !openGoal.requiresAgentWork())
-                || (loop.terminateOnNoToolCall() && openGoal == null)
+        // 无工具调用即收尾：终止策略已不再是配置项（terminateOnNoToolCall 已移除），
+        // 固定为“纯文本回复结束本轮”。只有尚未关闭、且仍需推进的 Goal 允许继续，
+        // 连续三轮没有工具调用时兜底结束。
+        boolean shouldExit = openGoal == null
+                || !openGoal.requiresAgentWork()
                 || streak >= 3;
         if (shouldExit) {
             String prefix = openGoal != null ? "[Goal 尚未关闭，后续回合可继续]\n" : "";
             context.putVariable("loopraTurnResult", prefix + candidate);
             return false;
         }
-        loop.ctx().addUser(openGoal != null
-                ? "[Goal guard] Goal 尚未关闭。请继续执行当前步骤，记录证据，并调用 goal_complete 后再结束。"
-                : ConversationContext.NO_TOOL_CALL_NOTICE);
+        loop.ctx().addUser("[Goal guard] Goal 尚未关闭。请继续执行当前步骤，记录证据，并调用 goal_complete 后再结束。");
         return true;
     }
 

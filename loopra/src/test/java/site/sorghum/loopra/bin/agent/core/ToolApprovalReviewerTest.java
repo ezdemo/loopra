@@ -211,7 +211,6 @@ class ToolApprovalReviewerTest {
         @Override public int toolTimeoutSec() { return 30; }
         @Override public int subAgentTimeoutSec() { return 30; }
         @Override public int maxSelfCorrectionAttempts() { return 5; }
-        @Override public boolean terminateOnNoToolCall() { return true; }
         @Override public int stormWindowSize() { return 6; }
         @Override public int stormThreshold() { return 3; }
         @Override public String validationModel() { return ""; }

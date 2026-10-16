@@ -30,7 +30,6 @@ class AgentLoopPromptFreezeTest {
         loop.freezePromptPrefix();
         ContextTokenEstimate before = loop.estimateCurrentContext();
 
-        loop.setTerminateOnNoToolCall(false);
         registry.register(tool("edit"));
         ContextTokenEstimate after = loop.estimateCurrentContext();
 

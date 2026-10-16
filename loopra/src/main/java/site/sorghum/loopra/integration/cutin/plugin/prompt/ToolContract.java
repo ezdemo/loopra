@@ -16,10 +16,9 @@ public final class ToolContract {
     /**
      * 生成工具协作约定全文。
      *
-     * @param terminateOnNoToolCall 无工具调用时模型纯文本回复是否直接结束对话
-     * @param dynamicTail           动态尾部（Goal 指令、Plan Mode 指令等），为空时省略
+     * @param dynamicTail 动态尾部（Goal 指令、Plan Mode 指令等），为空时省略
      */
-    public static String build(boolean terminateOnNoToolCall, String dynamicTail) {
+    public static String build(String dynamicTail) {
         String body = """
                 ## 工具协作约定
 
@@ -45,10 +44,8 @@ public final class ToolContract {
                 - 浏览器遇到登录、验证码、人机验证、二维码、短信/邮箱确认或安全风控时，严禁尝试绕过、猜测验证答案或索取敏感凭据。必须调用 `browser_request_user_action` 请求用户在可见浏览器中手动完成；用户确认后重新截图再继续。
                 - 浏览器超过 16 个标签页时仍可新建，但会返回清理提醒；应在当前步骤完成后用 `browser_tabs` 查看并关闭不再需要的非活动标签。达到 20 个硬上限时，必须清理后才能创建新标签。优先用 `browser_navigate` 复用当前标签，避免反复重试。
                 - 工作流和目标工具只用于需要跨回合追踪、人工审批或失败恢复的任务；普通的短任务无需创建工作流。
-                %s
-                """.formatted(terminateOnNoToolCall
-                ? "- 无工具调用时，模型的纯文本回复会结束对话"
-                : "- 结束对话时直接给出最终回答；纯文本回复不会立即收尾，连续三轮没有工具调用后兜底结束（未关闭的 Goal 会改变收尾时机）");
+                - 无工具调用时，模型的纯文本回复会结束对话
+                """;
         if (dynamicTail == null || dynamicTail.isBlank()) {
             return body;
         }

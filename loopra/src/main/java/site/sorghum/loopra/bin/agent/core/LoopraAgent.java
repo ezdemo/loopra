@@ -119,7 +119,6 @@ public class LoopraAgent {
                     }
                     case "fastMode" -> setFastMode(Boolean.parseBoolean(String.valueOf(e.value())));
                     case "hitl" -> setHitlMode(String.valueOf(e.value()));
-                    case "terminateOnNoToolCall" -> setTerminateOnNoToolCall(Boolean.parseBoolean(String.valueOf(e.value())));
                     case "disabledTools", "toolReadOnlyOverrides" -> refreshTools();
                     default -> log.warn("[bus] 未知配置键: {}", e.key());
                 }
@@ -505,11 +504,6 @@ public class LoopraAgent {
     /** 运行时切换快速模式（热更新，OpenAI service_tier=fast，仅 OpenAI 协议生效）。 */
     public void setFastMode(boolean fastMode) {
         loop.setFastMode(fastMode);
-    }
-
-    /** 运行时更新无工具调用时的结束策略。 */
-    public void setTerminateOnNoToolCall(boolean enabled) {
-        loop.setTerminateOnNoToolCall(enabled);
     }
 
     // ========== 计划模式（Plan Mode） ==========

@@ -135,15 +135,7 @@ public final class LoopraPromptPlugin implements LoopPlugin {
             // 静态文案与 AgentLoop.buildToolInstructions 共用 ToolContract 单一来源。
             // Goal / 计划模式等易变状态不再拼进这里（那会让 system 每轮变字节、前缀缓存全废），
             // 改由 LoopraStateNoticePlugin 作为历史中的状态通知注入。
-            boolean terminate = false;
-            try {
-                if (host instanceof site.sorghum.loopra.bin.agent.core.AgentLoop al) {
-                    terminate = al.terminateOnNoToolCall();
-                }
-            } catch (Exception ignored) {
-                // 方法不可用时按 false 处理
-            }
-            return PromptSlice.of("tool-contract", ToolContract.build(terminate, ""), 600);
+            return PromptSlice.of("tool-contract", ToolContract.build(""), 600);
         };
         PromptSliceProvider planContract = ctx -> {
             // 计划模式的静态不变量常驻 system：只读约束不随模式切换变化，

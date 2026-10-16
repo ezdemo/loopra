@@ -103,15 +103,6 @@ public interface AgentLoopController {
         return null;
     }
 
-    /**
-     * 无工具调用时是否直接结束本轮对话。
-     * 默认从配置视图读取；AgentLoop 可覆盖此方法以支持运行时热更新。
-     */
-    default boolean terminateOnNoToolCall() {
-        AgentConfig config = getAgentConfig();
-        return config == null || config.terminateOnNoToolCall();
-    }
-
     /** 注册当前工具的显式取消动作。 */
     default void registerToolCancellation(Runnable cancellation) {
     }
