@@ -8,7 +8,11 @@ import site.sorghum.loopra.bin.agent.prompt.PromptPrefix;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -39,13 +43,7 @@ public final class ToolSystemInitializer {
     }
 
     public static ToolSystem initializePluginized(SessionEnvironment environment, Set<String> disabledTools) {
-        final Set<String> effectiveDisabledTools = disabledTools != null ? disabledTools : Collections.emptySet();
-        final ToolRegistry registry = new ToolRegistry();
-        registry.setDisabledTools(effectiveDisabledTools);
-        registry.setEnvironment(environment);
-        if (!effectiveDisabledTools.isEmpty()) {
-            log.info("[config] 已禁用工具: {}", String.join(", ", effectiveDisabledTools));
-        }
+        final ToolRegistry registry = createRegistry(environment, disabledTools);
         // 空前缀：真实 system 在 BEFORE_MODEL 由 LoopraPromptPlugin 注入，可热插拔/禁用
         ONode emptyTools = ONode.ofJson("[]").asArray();
         PromptPrefix prefix = new PromptPrefix("", emptyTools);
@@ -60,13 +58,7 @@ public final class ToolSystemInitializer {
     public static ToolSystem initializeLegacy(SessionEnvironment environment, Set<String> disabledTools,
                                     String defaultSystemPrompt) {
         Path workspace = environment == null ? null : environment.executionRoot();
-        final Set<String> effectiveDisabledTools = disabledTools != null ? disabledTools : Collections.emptySet();
-        final ToolRegistry registry = new ToolRegistry();
-        registry.setDisabledTools(effectiveDisabledTools);
-        registry.setEnvironment(environment);
-        if (!effectiveDisabledTools.isEmpty()) {
-            log.info("[config] 已禁用工具: {}", String.join(", ", effectiveDisabledTools));
-        }
+        final ToolRegistry registry = createRegistry(environment, disabledTools);
         List<org.noear.solon.ai.chat.tool.FunctionTool> agentTools = ToolScanUtil.scanTools(workspace);
         StringBuilder toolSpecsBuilder = new StringBuilder();
         toolSpecsBuilder.append("\n\n## 可用工具规范\n\n");
@@ -87,6 +79,17 @@ public final class ToolSystemInitializer {
         PromptPrefix prefix = new PromptPrefix(systemPrompt, registry.toOpenAiTools());
         log.info("[init] 工具系统初始化完成 — 工具数: {}", agentTools.size());
         return new ToolSystem(registry, prefix);
+    }
+
+    private static ToolRegistry createRegistry(SessionEnvironment environment, Set<String> disabledTools) {
+        final Set<String> effectiveDisabledTools = disabledTools != null ? disabledTools : Collections.emptySet();
+        final ToolRegistry registry = new ToolRegistry();
+        registry.setDisabledTools(effectiveDisabledTools);
+        registry.setEnvironment(environment);
+        if (!effectiveDisabledTools.isEmpty()) {
+            log.info("[config] 已禁用工具: {}", String.join(", ", effectiveDisabledTools));
+        }
+        return registry;
     }
 
     public static String loadProjectMd(Path workspace) {

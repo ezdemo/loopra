@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/Java-17-blue?logo=openjdk" alt="Java 17"/>
   <img src="https://img.shields.io/badge/Solon-4.0.6-important?logo=java" alt="Solon 4.0.6"/>
   <img src="https://img.shields.io/badge/Vue-3.4-4FC08D?logo=vue.js" alt="Vue 3"/>
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react" alt="React 18"/>
   <img src="https://img.shields.io/badge/Electron-42.4-47848F?logo=electron" alt="Electron"/>
   <img src="https://img.shields.io/badge/version-26.9.91-lightgrey" alt="Version 26.9.91"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"/>
@@ -41,6 +42,8 @@
 Loopra 将用户任务、模型推理与受控工具调用组织成持续执行循环：它读取项目上下文，搜索、编辑或构建代码，消费执行结果后继续推理，直至完成任务或需要用户决策。
 
 提供 Web 与 Electron Desktop 工作台，适合在本地代码库中完成开发、排障、测试、文档整理和多步骤协作。
+
+Web 默认使用 React + NextUI 工作台，包含聊天、模型与输入栏、设置和远程模型选择；源码和开发说明见 [loopra-front/web](loopra-front/web/README.md)。Vue 高级控制台保留在 `/legacy.html`，Electron 窗口沿用原实现。
 
 ```text
 任务 -> 模型推理 -> 工具调用 -> 结果反馈 -> 模型推理 -> ... -> 完成
@@ -328,6 +331,8 @@ mvn test
 # 仅验证 Loopra 模块及其依赖模块
 mvn -pl loopra -am test
 ```
+
+后端依赖方向、聊天任务生命周期与验证约定见 [后端架构说明](docs/backend-architecture.md)。
 
 ### 前端与 Desktop
 

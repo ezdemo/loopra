@@ -23,7 +23,7 @@ public abstract class AgentTool {
 
     /**
      * 工具名称——模型调用时使用的标识。
-     * <p>例如：{@code "hashline_read"}、{@code "lsp_diagnostics"}。</p>
+     * <p>例如：{@code "hashline_read"}、{@code "browser_screenshot"}。</p>
      */
     public abstract String getName();
 

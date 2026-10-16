@@ -1,0 +1,753 @@
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
+import { Check } from 'lucide-react';
+import { getSessionMessages, useLocalState } from './lib';
+import type { Provider, Session } from './lib';
+import Sidebar from './layout/Sidebar';
+import Header from './layout/Header';
+import HomeView from './layout/HomeView';
+import ChatDock from './layout/ChatDock';
+import { Messages } from './components/Conversation';
+import ChangesPanel from './components/Panels';
+import BackgroundTasks from './components/BackgroundTasks';
+import Settings, { defaultPreferences } from './components/Settings';
+import type { Preferences } from './components/Settings';
+import Search from './components/Search';
+import type { FileChange, Message } from './chat';
+import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
+import Composer from './components/Composer';
+import { defaultAgentSettings, type AgentSettings } from './settings-data';
+import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
+import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
+import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
+import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
+import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type Workspace } from './backend';
+import useLoopra from './useLoopra';
+import { AppMotion, Enter, Toast } from './components/Motion';
+import { prepareCompletionSound, playCompletionSound } from './notifications';
+import usePets from './usePets';
+import { petActivity, petReplyPreview, type PetReply } from './pets';
+import SessionDetails, { SessionProgress } from './components/SessionDetails';
+import { ConfirmAction, query } from './components/RemoteControls';
+import ProjectSessions from './components/ProjectSessions';
+import ProjectManager from './components/ProjectManager';
+import Help from './components/Help';
+import SessionsManager from './components/SessionsManager';
+import RequirementBoard from './components/RequirementBoard';
+import PlanReview from './components/PlanReview';
+import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
+import { chatExportText, downloadText } from './chat-export';
+import ChatLogs, { useChatLogs } from './components/ChatLogs';
+import DesktopTitleBar from './components/DesktopTitleBar';
+import { isDesktopWindow } from './desktop-shell';
+import { launchWorkspace, workspaceApplications } from './workspace-launcher';
+import { notifyWorkspaceChanged } from './workspace-events';
+import WorkspaceTabs from './components/WorkspaceTabs';
+import { closeWorkspaceFile, emptyWorkspaceTabs, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
+
+export default function App() {
+  const [server, setServer] = useLocalState('backend-server', DEFAULT_SERVER);
+  const backend = useLoopra(server);
+  const { api, sessions, setSessions, providers, workspaces } = backend;
+  const pets = usePets(api, backend.status === 'connected');
+  const [hiddenSessions, setHiddenSessions] = useLocalState<string[]>(`hidden-sessions:${server}`, []);
+  const [preferences, setPreferences] = useLocalState<Preferences>('preferences', defaultPreferences);
+  const [composerOptions, setComposerOptions] = useLocalState<ComposerOptions>('composer-options', defaultOptions);
+  const [defaultModel, setDefaultModel] = useLocalState('default-model', defaultOptions.modelId);
+  const [agentSettings, setAgentSettings] = useLocalState<AgentSettings>('agent-settings', defaultAgentSettings);
+  const [petReply, setPetReply] = useState<PetReply | null>(null);
+  const [composerContext, setComposerContext] = useState<ComposerContext>(emptyContext);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState('');
+  const [sidebar, setSidebar] = useState(() => window.innerWidth > 760);
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
+  const [collapsed, setCollapsed] = useState<string[]>([]);
+  const [changes, setChanges] = useState(false);
+  const [sessionDetails, setSessionDetails] = useState(false);
+  const [sessionDetailsTab, setSessionDetailsTab] = useState('events');
+  const [deleteSession, setDeleteSession] = useState<Session>();
+  const [rollbackMessage, setRollbackMessage] = useState<Message>();
+  const [rollbackCode, setRollbackCode] = useState(false);
+  const [pendingPlan, setPendingPlan] = useState<string>();
+  const [discardPlan, setDiscardPlan] = useState(false);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [progressRevision, setProgressRevision] = useState(0);
+  const [workspaceEditors, setWorkspaceEditors] = useState<Record<string, WorkspaceTabsState>>({});
+  const editorKey = `${server}/${workspace}`;
+  const editorTabs = workspaceEditors[editorKey] || emptyWorkspaceTabs;
+  const [projectDialog, setProjectDialog] = useState<Workspace>();
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [requirementsOpen, setRequirementsOpen] = useState(false);
+  const [terminal, setTerminal] = useState(false);
+  const [gitBranch, setGitBranch] = useState('工作区');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('通用');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menu, setMenu] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>();
+  const [toast, setToast] = useState('');
+  const [rename, setRename] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [sortNewest, setSortNewest] = useState(false);
+  const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const activeRequest = useRef<{ controller: AbortController; requestId: string; session?: Session; stopping?: boolean }>();
+  const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage[]>>({});
+  const queuedRef = useRef(queuedMessages);
+  useEffect(() => { queuedRef.current = queuedMessages; }, [queuedMessages]);
+  // Live sessions for async senders: a resumed turn must find the bubble it is
+  // continuing even while several choice answers are sent back to back.
+  const sessionsRef = useRef(sessions);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+  const [remoteRun, setRemoteRun] = useState<{ id: string; requestId?: string | null } | null>(null);
+  const remoteRunRef = useRef<string | null>(null);
+  const historyRequest = useRef<AbortController>();
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>();
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const scrollArea = useRef<HTMLDivElement>(null);
+  // Legacy Chat.vue scroll state: programmatic follow only while the user has
+  // not scrolled away, and a floating "back to bottom" button otherwise.
+  const userScrolledAway = useRef(false);
+  const lastScrollTop = useRef(0);
+  // Legacy `Chat.vue` virtualWindow offsets, published by the message list so the
+  // thumbnail dock can jump to a message that is currently unmounted.
+  const messageOffsets = useRef<number[]>([]);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const sessionSection = useRef<HTMLDivElement>(null);
+  // Legacy Chat.vue floating log stack (SSE `log`, `copy-success`, `app-notify`).
+  const chatLogs = useChatLogs();
+  const settingsQueue = useRef(Promise.resolve());
+  const session = sessions.find(item => item.id === activeId && !hiddenSessions.includes(item.id));
+  const isHome = !session;
+  // Pending HITL/ask_choice cards drive the composer popup. Read from the live
+  // session messages (not demo history) so mock/offline sessions never pop it.
+  const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
+  const visibleSessions = sessions.filter(item => !hiddenSessions.includes(item.id));
+  const currentWorkspace = workspaces.find(item => item.hash === workspace);
+  const workspaceName = currentWorkspace?.name || '选择工作区';
+  const isDark = preferences.theme === '深色' || (preferences.theme === '跟随系统' && systemDark);
+
+  useLayoutEffect(() => {
+    // Root tokens also reach NextUI menus, modals and tooltips rendered in portals.
+    const root = document.documentElement;
+    root.style.setProperty('--ui-scale', String(preferences.fontScale / 100));
+    return () => { root.style.removeProperty('--ui-scale'); };
+  }, [preferences.fontScale]);
+
+  function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
+  function selectMainTab(path: string | null, hash = workspace) { const key = `${server}/${hash}`; setWorkspaceEditors(current => ({ ...current, [key]: { ...(current[key] || emptyWorkspaceTabs), active: path } })); }
+  function openFile(file: WorkspaceFile) { setWorkspaceEditors(current => ({ ...current, [editorKey]: openWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, file) })); if (narrow) setChanges(false); }
+  function changeFilePath(from: string, to?: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: updateWorkspaceFilePath(current[editorKey] || emptyWorkspaceTabs, from, to) })); }
+  function closeFile(path: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, path) })); }
+  function mutation(task: () => Promise<void>) {
+    const result = settingsQueue.current.then(async () => {
+      if (activeRequest.current) throw new Error('请等待当前回复结束后再修改运行配置');
+      if (backend.status !== 'connected') throw new Error('尚未连接 Loopra');
+      await task();
+    });
+    settingsQueue.current = result.catch(error => { notify(`保存失败：${error instanceof Error ? error.message : error}`); });
+    return result;
+  }
+  function saveOptions(next: ComposerOptions) {
+    // Leaving plan mode discards any submitted plan, so confirm first (legacy togglePlan).
+    if (!next.plan && composerOptions.plan && session) { setDiscardPlan(true); return Promise.resolve(); }
+    return mutation(async () => {
+      const model = getModelCatalog(providers).find(item => item.id === next.modelId);
+      if (!model) throw new Error('请选择有效模型');
+      await api.request('/config', 'PUT', { hitl: permissionValue(next.mode), fastMode: next.fast, terminateOnNoToolCall: next.finishWithoutTools });
+      if (session) {
+        await api.request(sessionRoute(session, '/settings'), 'PUT', { model: model.name, modelChannelId: model.providerId, reasoningEffort: next.effort });
+        if (next.plan !== composerOptions.plan) await api.request('/agent/mode', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, enabled: next.plan });
+      }
+      setComposerOptions(next);
+    }).catch(() => {});
+  }
+  function saveDefaultModel(id: string) {
+    void mutation(async () => {
+      const model = getModelCatalog(providers).find(item => item.id === id);
+      if (!model) throw new Error('请选择有效模型');
+      await api.request('/config', 'PUT', { model: model.name, modelChannelId: model.providerId }); setDefaultModel(id); notify('默认模型已保存到 Loopra');
+    }).catch(() => {});
+  }
+  async function saveProviders(next: Provider[]) {
+    await mutation(async () => {
+      const catalog = getModelCatalog(next);
+      if (!catalog.length) throw new Error('至少保留一个可用模型');
+      const fallback = catalog.find(model => model.id === defaultModel) || catalog[0];
+      await api.request('/config', 'PUT', { modelChannels: providerChannels(next), model: fallback.name, modelChannelId: fallback.providerId });
+      await backend.refresh(); notify('模型渠道已保存到 Loopra');
+    });
+  }
+  async function saveAgentSettings(next: AgentSettings) {
+    if (next.serverUrl !== server) { setServer(serverAddress(next.serverUrl)); setActiveId(null); setWorkspace(''); return; }
+    const changed = <K extends keyof AgentSettings>(key: K) => JSON.stringify(next[key]) !== JSON.stringify(agentSettings[key]);
+    const localOnly = !(['systemPrompt', 'tools', 'validatorModel', 'imageModel'] as const).some(changed);
+    if (localOnly) { setAgentSettings(next); return; }
+    await mutation(async () => {
+      const patch: Record<string, unknown> = {};
+      if (changed('tools')) patch.disabledTools = next.tools.filter(tool => !tool.enabled).map(tool => tool.name);
+      for (const [key, modelKey, channelKey] of [['validatorModel', 'validationModel', 'validationModelChannelId'], ['imageModel', 'imageUnderstandingModel', 'imageUnderstandingModelChannelId']] as const) {
+        if (changed(key)) { const model = getModelCatalog(providers).find(item => item.id === next[key]); patch[modelKey] = model?.name || ''; patch[channelKey] = model?.providerId || ''; }
+      }
+      if (Object.keys(patch).length) await api.request('/config', 'PUT', patch);
+      if (changed('systemPrompt')) await api.request('/loopra-md', 'PUT', next.systemPrompt);
+      setAgentSettings(next); notify('配置已保存到 Loopra');
+    });
+  }
+  async function renameSession() {
+    if (!renameValue.trim()) return;
+    const target = sessions.find(item => item.id === rename); if (!target) return;
+    try { await api.request(sessionRoute(target, '/title'), 'PUT', { title: renameValue.trim() }); setSessions(current => current.map(item => item.id === rename ? { ...item, title: renameValue.trim() } : item)); setRename(null); notify('会话已重命名'); }
+    catch (error) { notify(`重命名失败：${error instanceof Error ? error.message : error}`); }
+  }
+  function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') { selectMainTab(null, nextWorkspace); if (narrow) setSidebar(false); historyRequest.current?.abort(); if (getModelCatalog(providers).some(model => model.id === defaultModel)) setComposerOptions(value => ({ ...value, modelId: defaultModel })); setActiveId(null); setWorkspace(nextWorkspace); setChanges(false); setDraft(''); setComposerContext(emptyContext); setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null); userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false); setTimeout(() => textarea.current?.focus(), 50); }
+  // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
+  function clearChat() { if (generatingId) { notify('生成中无法清空，请先停止生成'); return; } newSession(workspace || workspaces[0]?.hash || ''); notify('已新建空白会话'); }
+  async function selectSession(id: string) {
+    const selected = sessions.find(item => item.id === id); if (!selected) return;
+    selectMainTab(null, selected.workspaceHash || '');
+    if (narrow) setSidebar(false);
+    historyRequest.current?.abort(); const controller = new AbortController(); historyRequest.current = controller;
+    setActiveId(id); setWorkspace(selected.workspaceHash || ''); setMenu(null); setDraft(''); setComposerContext(emptyContext);
+    // Opening a session always jumps to the newest message.
+    userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
+    setLiveSpeed(undefined);
+    if (generatingId === id) return;
+    try {
+      const [history, settings, mode] = await Promise.all([
+        api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(selected)}`, 'GET', undefined, controller.signal),
+        api.request<{ model: string; modelChannelId: string; reasoningEffort: string }>(sessionRoute(selected, '/settings'), 'GET', undefined, controller.signal),
+        api.request<{ mode: string; pendingPlan?: string | null }>(`/agent/mode?${sessionQuery(selected)}`, 'GET', undefined, controller.signal),
+      ]);
+      if (controller.signal.aborted) return;
+      setSessions(current => current.map(item => item.id === id ? { ...item, messages: historyMessages(history) } : item));
+      setComposerOptions(current => ({ ...current, modelId: `${settings.modelChannelId}:${settings.model}`, effort: settings.reasoningEffort || current.effort, plan: mode.mode === 'plan' }));
+      setPendingPlan(mode.pendingPlan || undefined);
+    } catch (error) { if (!controller.signal.aborted) notify(`加载会话失败：${error instanceof Error ? error.message : error}`); }
+  }
+  function toggleMenu(name: string) { setMenu(current => current === name ? null : name); }
+  function openSettings(tab = '通用') { setSettingsTab(tab); setSettingsOpen(true); setMenu(null); }
+  // Legacy Sidebar.vue footer exposed 工具 / 子代理 / 数据面板 / 主题 / 设置; the
+  // theme button flipped light↔dark without touching 跟随系统.
+  function openSessionsManager() { setSessionsOpen(true); setMenu(null); if (narrow) setSidebar(false); }
+  // Legacy Chat.vue onScroll(): only an upward movement counts as leaving the
+  // bottom; being pushed up by streamed content keeps auto-follow active.
+  function onChatScroll() {
+    const element = scrollArea.current;
+    if (!element) return;
+    const next = chatScrollState(element, lastScrollTop.current, userScrolledAway.current);
+    userScrolledAway.current = next.away;
+    setShowScrollBtn(next.showScrollButton);
+    lastScrollTop.current = element.scrollTop;
+  }
+  function scrollToBottom() {
+    userScrolledAway.current = false;
+    const element = scrollArea.current;
+    if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+    setShowScrollBtn(false);
+  }
+  // Legacy collapseAllBlocks(): fold every open block and let mounted blocks reset.
+  function collapseAllBlocks() {
+    window.dispatchEvent(new CustomEvent('loopra:collapse-all-blocks'));
+    requestAnimationFrame(() => {
+      const element = scrollArea.current;
+      if (element && !userScrolledAway.current) element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
+    });
+  }
+  function jumpToMessage(id: string) {
+    const element = scrollArea.current;
+    if (!element) return;
+    const target = element.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
+    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    // The message is outside the virtual window: fall back to its known offset.
+    const list = session ? getSessionMessages(session) : [];
+    const index = list.findIndex(message => message.id === id);
+    const offsets = messageOffsets.current;
+    if (index >= 0 && offsets.length === list.length + 1) element.scrollTo({ top: offsets[index], behavior: 'smooth' });
+  }
+  async function refreshSessionChat(target: Session) {
+    try {
+      const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`, 'GET');
+      setSessions(current => current.map(item => item.id === target.id ? { ...item, messages: historyMessages(history), messageCount: history.length } : item));
+      notify(`${target.title} 已刷新`);
+    } catch (error) { notify(`刷新失败：${error instanceof Error ? error.message : error}`); }
+  }
+  function archiveSession() { if (!activeId) return; setHiddenSessions(current => [...current, activeId]); newSession(); notify('会话已在本机隐藏，可在设置中恢复；后端历史保留'); }
+  async function approvePlan() {
+    if (!session || planBusy || generatingId) return;
+    setPlanBusy(true);
+    try { await sendMessage(undefined, undefined, 'execute_plan'); } finally { setPlanBusy(false); }
+  }
+  async function exitPlanMode() {
+    if (!session || planBusy) return;
+    setPlanBusy(true);
+    try {
+      await api.request('/agent/mode', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, enabled: false });
+      setComposerOptions(current => ({ ...current, plan: false }));
+      setPendingPlan(undefined);
+      notify('已退出计划模式');
+    } catch (error) { notify(`退出计划模式失败：${error instanceof Error ? error.message : error}`); }
+    finally { setPlanBusy(false); }
+  }
+  async function removeSession(target: Session) {
+    await api.request(sessionRoute(target), 'DELETE');
+    if (activeId === target.id) newSession();
+    await backend.refreshSessions(workspaces);
+    notify('会话已从 Loopra 删除');
+  }
+  async function refreshProject(hash: string) {
+    try { await backend.refreshSessions(workspaces); notify(`${workspaces.find(item => item.hash === hash)?.name || '项目'}的会话已刷新`); }
+    catch (error) { notify(`刷新失败：${error instanceof Error ? error.message : error}`); }
+  }
+  // Legacy Sidebar.vue: scroll the current session into view on demand.
+  function locateActiveSession() {
+    const nodes = sessionSection.current?.querySelectorAll<HTMLElement>('[data-session-key]');
+    nodes?.forEach(node => { if (node.dataset.sessionKey === activeId) node.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+  }
+  // Legacy Sidebar.vue drag-reorder: persist the new project order to the backend.
+  function reorderWorkspaces(from: string, to: string) {
+    if (!from || !to || from === to) return;
+    const next = [...workspaces];
+    const source = next.findIndex(item => item.hash === from);
+    const target = next.findIndex(item => item.hash === to);
+    if (source < 0 || target < 0) return;
+    const [moved] = next.splice(source, 1);
+    next.splice(target, 0, moved);
+    void api.request('/workspaces/order', 'PUT', next.map(item => item.hash)).then(() => backend.refresh()).catch(error => notify(`调整项目顺序失败：${error instanceof Error ? error.message : error}`));
+  }
+  function projectMaintained(kind: 'refresh' | 'clear' | 'delete', item: Workspace) {
+    if ((kind === 'clear' || kind === 'delete') && activeId?.startsWith(`${item.hash}/`)) setActiveId(null);
+    if (kind === 'delete' && workspace === item.hash) setWorkspace(workspaces.find(entry => entry.hash !== item.hash)?.hash || '');
+  }
+  function initPet() {
+    // Legacy ran `npx petdex install boba` in a fresh session automatically.
+    // Keep the install explicit: the user confirms the command in the composer.
+    newSession(workspace || workspaces[0]?.hash || '');
+    setDraft('调用 npx petdex@latest install boba 初始化一个宠物');
+    notify('已新建会话，确认后发送即可初始化宠物');
+  }
+  async function autoUpdate() {
+    // Legacy 「更新核心服务」新建会话并把更新指令发给 Agent 执行；这里直接新建会话并发送。
+    if (backend.status !== 'connected' || !backend.ready || !currentWorkspace) { notify('请先连接 Loopra 并选择工作区'); return; }
+    newSession(workspace || workspaces[0]?.hash || '');
+    setSettingsOpen(false);
+    await sendMessage(buildUpdatePrompt(loadUpdateSource()), undefined, undefined, true);
+    notify('已新建更新会话并发送更新指令');
+  }
+  function openTerminal() { setTerminal(true); setMenu(null); }
+  async function openWorkspace(application = preferences.openWith) {
+    setMenu(null);
+    try { await launchWorkspace(api, currentWorkspace?.hash || '', application); }
+    catch (error) { notify(`打开失败：${error instanceof Error ? error.message : error}`); }
+  }
+  function copyPath() { void navigator.clipboard?.writeText(currentWorkspace?.path || ''); setMenu(null); notify('已复制工作区路径'); }
+  async function stopGeneration() {
+    const request = activeRequest.current; if (!request) return;
+    request.stopping = true;
+    try { await api.request('/chat/abort', 'POST', { requestId: request.requestId, workspaceHash: request.session?.workspaceHash || workspace, sessionName: request.session?.name }); request.controller.abort(); }
+    catch (error) { request.stopping = false; notify(`停止失败：${error instanceof Error ? error.message : error}`); }
+  }
+  // Legacy Chat.vue polls /agent/session-status so a reply started elsewhere
+  // (another window, or a reload mid-run) is visible and its history stays fresh.
+  async function syncSessionRun(target: Session, controller: AbortController, observe: { running: boolean }) {
+    const status = await api.request<{ running?: boolean; requestId?: string }>(`/agent/session-status?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
+    if (controller.signal.aborted) return;
+    const running = !!status?.running;
+    remoteRunRef.current = running ? target.id : null;
+    setRemoteRun(running ? { id: target.id, requestId: status?.requestId } : null);
+    if (running || observe.running) {
+      const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
+      if (!controller.signal.aborted && history.length) setSessions(current => current.map(item => item.id === target.id ? { ...item, messages: historyMessages(history) } : item));
+    }
+    if (observe.running && !running) {
+      notifyWorkspaceChanged(target.workspaceHash);
+      if (queuedRef.current[target.id]?.length) void sendQueuedMessage(target.id);
+    }
+    observe.running = running;
+  }
+  async function stopRemoteRun() {
+    if (!session || !remoteRun) return;
+    try { await api.request('/chat/abort', 'POST', { requestId: remoteRun.requestId || undefined, workspaceHash: session.workspaceHash, sessionName: session.name }); notify('已请求停止后台任务'); }
+    catch (error) { notify(`停止失败：${error instanceof Error ? error.message : error}`); }
+  }
+  // Legacy `openStoredDiff`: a message's file list carries the diff saved with
+  // that turn, so show it directly instead of re-reading the live working tree.
+  function openDiff(path: string, storedDiff?: string) { openFile({ path, mode: 'diff', diff: storedDiff }); }
+  function addFileContext(path: string, selection?: string) {
+    selectMainTab(null);
+    setComposerContext(current => ({ ...current, files: [...new Set([...current.files, path])] }));
+    if (selection) setDraft(current => `${current}${current ? '\n\n' : ''}来自 ${path}：\n${selection}`);
+    notify('已加入消息上下文'); requestAnimationFrame(() => textarea.current?.focus());
+  }
+  async function refreshCurrentSession(text?: string) {
+    if (session) await selectSession(session.id);
+    if (text) setDraft(text);
+    setProgressRevision(value => value + 1);
+  }
+  useEffect(() => {
+    setProgressRevision(value => value + 1);
+    if (!generatingId) return;
+    const timer = setInterval(() => setProgressRevision(value => value + 1), 4000);
+    return () => clearInterval(timer);
+  }, [generatingId, activeId]);
+  useEffect(() => {
+    // Only poll while this window is idle: a local stream already owns the history.
+    if (!session || generatingId || backend.status !== 'connected') { remoteRunRef.current = null; setRemoteRun(null); return; }
+    const target = session;
+    const controller = new AbortController();
+    const observe = { running: false };
+    const tick = () => { void syncSessionRun(target, controller, observe).catch(() => {}); };
+    const timer = setInterval(tick, 2500);
+    tick();
+    return () => { controller.abort(); clearInterval(timer); remoteRunRef.current = null; setRemoteRun(null); };
+  }, [api, session?.id, generatingId, backend.status]);
+  async function revertChanges(changes: FileChange[]) { await mutation(async () => { await api.request('/sessions/file-changes/revert', 'POST', { workspaceHash: workspace, changes }); }); }
+  function fillDraft(text: string) { setDraft(text); textarea.current?.focus(); }
+  // Answering a pending choice auto-sends silently: normal choices (HITL 同意/拒绝
+  // and ask_choice) go out as control messages — no user bubble — while sub-agent
+  // approvals post to their own endpoint. Each answer resumes the suspended turn
+  // in place (same bubble, one running timer); the final reload only reconciles it.
+  function submitChoices(answers: ChoiceAnswer[]) {
+    if (!session) return;
+    const key = session.id;
+    setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => message.blocks ? { ...message, blocks: answers.reduce((blocks, answer) => resolveChoiceBlock(blocks, answer.id, answer.label), message.blocks) } : message) } : item));
+    const outgoing: string[] = [];
+    for (const answer of answers) {
+      if (answer.subId) void api.request(`/chat/sub-hitl/${encodeURIComponent(answer.subId)}`, 'POST', { action: answer.value === '/agree' || answer.value === 'approve' ? 'approve' : 'deny' }).then(() => notify('子代理审批已发送')).catch(error => notify(error instanceof Error ? error.message : '审批失败'));
+      else if (answer.value) outgoing.push(answer.value);
+    }
+    if (!outgoing.length) return;
+    void (async () => { for (const value of outgoing) await sendMessage(value, undefined, undefined, false, true); })();
+  }
+  async function branchSession(messageId: string) {
+    if (!session || generatingId) return;
+    const messages = getSessionMessages(session);
+    const index = messages.findIndex(message => message.id === messageId);
+    if (index < 0) return;
+    try {
+      const count = messages[index].historyCount;
+      if (!count) { notify('请重新打开会话后再创建分支'); return; }
+      const result = await api.request<{ sessionName: string }>(`${sessionRoute(session, '/branch')}&messageCount=${count}`, 'POST');
+      const next = { ...session, id: `${session.workspaceHash}/${result.sessionName}`, name: result.sessionName };
+      const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(next)}`);
+      await backend.refreshSessions(workspaces); setSessions(current => current.map(item => item.id === next.id ? { ...item, messages: historyMessages(history) } : item)); setActiveId(next.id); notify('已在 Loopra 创建分支会话');
+    } catch (error) { notify(`创建分支失败：${error instanceof Error ? error.message : error}`); }
+  }
+
+  // Legacy Chat.vue queued messages per session: sending while a reply is
+  // streaming appends to the session queue instead of being dropped.
+  function replaceQueue(next: MessageQueue) { queuedRef.current = next; setQueuedMessages(next); }
+  function queueMessage(): boolean {
+    if (!session) return false;
+    if (!draft.trim() && !composerContext.files.length) return false;
+    replaceQueue(enqueue(queuedRef.current, session.id, { id: crypto.randomUUID(), text: draft.trim(), context: composerContext }));
+    setDraft(''); setComposerContext(emptyContext); setMenu(null);
+    notify('已加入队列，当前回复结束后自动发送');
+    return true;
+  }
+  function removeQueuedMessage(id: string) { if (session) replaceQueue(removeQueued(queuedRef.current, session.id, id)); }
+  async function sendQueuedMessage(key: string) {
+    const next = nextQueued(queuedRef.current, key);
+    if (!next) return;
+    // Wait for the previous run to finish; the poll timer or stream end retries.
+    if (activeRequest.current || remoteRunRef.current === key) return;
+    replaceQueue(removeQueued(queuedRef.current, key, next.id));
+    await sendMessage(next.text, next.context);
+  }
+  function guideQueuedMessage(id: string) {
+    if (!session) return;
+    const key = session.id;
+    replaceQueue(promoteQueued(queuedRef.current, key, id));
+    if (activeRequest.current) void stopGeneration();
+    else void sendQueuedMessage(key);
+  }
+
+  async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false) {
+    if (activeRequest.current || remoteRunRef.current === (session?.id ?? '')) { if (!override && !action) queueMessage(); return; }
+    if (!override && !action && !draft.trim() && !composerContext.files.length) return;
+    if (backend.status !== 'connected' || !backend.ready || !currentWorkspace) { notify('请先连接 Loopra 并选择工作区'); return; }
+    let prompt = override || draft.trim() || (action ? '' : '请查看附件');
+    const titleSource = prompt;
+    const selectedModel = getModelCatalog(providers).find(model => model.id === composerOptions.modelId);
+    if (!selectedModel) { notify('请先选择一个模型'); return; }
+    // Oversized directly-typed bodies are saved into the project and replaced by
+    // a reference block before sending, matching legacy ChatInput.vue. The paste
+    // handler already externalizes clipboard text; this covers typed/edited text.
+    let savedInput: string | undefined;
+    if (!action && currentWorkspace && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
+      try {
+        const saved = await api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: workspace, content: prompt });
+        if (!saved?.path) throw new Error('服务端未返回文件路径');
+        savedInput = largeInputReference(saved.path, Number(saved.chars) || prompt.length);
+        prompt = '';
+      } catch (error) {
+        notify(`大段输入内容保存失败：${error instanceof Error ? error.message : String(error)}，本次未发送`);
+        return;
+      }
+    }
+    const options = { ...composerOptions };
+    if (preferences.sound) prepareCompletionSound();
+    const context = { ...(overrideContext || composerContext) };
+    const text = action ? prompt : composeOutgoing(prompt, context, savedInput);
+    const controller = new AbortController(); const requestId = crypto.randomUUID();
+    activeRequest.current = { controller, requestId, session };
+    setGeneratingId(session?.id || 'creating');
+    setLiveSpeed(undefined);
+    // A fresh send ignores the selected session so the prompt opens a new one.
+    let target = fresh ? undefined : session;
+    // An auto-answered choice resumes the suspended assistant turn in place:
+    // reusing its id lands the resumed stream in the same bubble, so approving
+    // adds no second turn, bubble or timer and reads exactly like a plain run.
+    const source = sessionsRef.current.find(item => item.id === session?.id) || session;
+    const resumed = autoAnswer ? source?.messages.filter(entry => entry.role === 'assistant').at(-1) : undefined;
+    const answerId = resumed?.id || crypto.randomUUID();
+    const now = Date.now();
+    const time = new Date(now).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    // Legacy Chat.vue attached the outgoing images to the local user bubble so
+    // they render before any history reload (which may be skipped on a choice).
+    const message = { id: crypto.randomUUID(), role: 'user' as const, text, time, images: (context.attachments || []).flatMap(file => file.image ? [file.image] : []) };
+    // Structured actions (execute_plan) and automatic choice answers run without a
+    // user bubble — an answer is a control reply, not something the user typed.
+    const silent = !!action || autoAnswer;
+    let completed = false;
+    const assistant: Message = { id: answerId, role: 'assistant', text: '', time, startedAt: now, blocks: [] };
+    let petAnswer = assistant;
+    try {
+      if (!target) {
+        const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
+        target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now }, currentWorkspace);
+        activeRequest.current!.session = target;
+        await api.request(sessionRoute(target, '/title'), 'PUT', { title: target.title }, controller.signal);
+        setSessions(current => [...current, target!]); setActiveId(target.id);
+      }
+      const id = target.id; setGeneratingId(id);
+      await api.request('/config', 'PUT', { hitl: permissionValue(options.mode), fastMode: options.fast, terminateOnNoToolCall: options.finishWithoutTools }, controller.signal);
+      // Approving a plan (execute_plan) must not re-enter plan mode; the agent clears it while executing.
+      if (!action) await api.request('/agent/mode', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name, enabled: options.plan }, controller.signal);
+      // A continued turn already owns its bubble: reopen it (so its timer ticks
+      // again) instead of inserting a second one.
+      if (resumed) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: undefined } : entry) } : item));
+      else setSessions(current => current.map(item => item.id === id ? { ...item, messages: silent ? [...item.messages, assistant] : [...item.messages, message, assistant] } : item));
+      if (!autoAnswer) { setDraft(''); setComposerContext(emptyContext); setMenu(null); }
+      // A new prompt always returns to the newest message (legacy scroll(true)).
+      userScrolledAway.current = false;
+      const scroller = scrollArea.current;
+      if (scroller) scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'auto' });
+      setShowScrollBtn(false);
+      const attachments = context.attachments || [];
+      const documentText = attachments.filter(file => file.text !== undefined).map(file => `附件：${file.name}\n${file.text}`).join('\n\n');
+      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, model: selectedModel.name, modelChannelId: selectedModel.providerId, reasoningEffort: options.effort, fastMode: options.fast, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+        if (event.type === 'plan_submitted') { setPendingPlan(event.plan || undefined); setComposerOptions(current => ({ ...current, plan: true })); return; }
+        if (event.type === 'mode_changed') { setComposerOptions(current => ({ ...current, plan: event.mode === 'plan' })); if (event.mode !== 'plan') setPendingPlan(undefined); return; }
+        if (event.type === 'snapshot' && event.msgId) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, rollbackId: event.msgId, ...(event.hasCodeSnapshot ? { snapshotId: event.msgId } : {}) } : entry) } : item));
+        if (event.type === 'token_speed') { setLiveSpeed({ tokensPerSecond: event.tokensPerSecond, avgTokensPerSecond: event.avgTokensPerSecond, done: !!event.done, completionTokens: event.completionTokens }); return; }
+        // Legacy `log` events only surface as floating INFO/WARN/ERROR bars.
+        if (event.type === 'log') { chatLogs.push({ level: event.level, message: event.message, content: event.content }); return; }
+        // Legacy Chat.vue opened the right panel's command tab when the agent
+        // started a background shell, so the running process is visible.
+        if ((event.type === 'tool_call' || event.type === 'sub_tool_call') && event.name === 'bash_start') window.dispatchEvent(new CustomEvent('loopra:bash-start'));
+        petAnswer = applyEvent(petAnswer, event);
+        setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, event) : entry) } : item));
+      }, controller.signal);
+      completed = true;
+      const preview = petReplyPreview(petAnswer);
+      if (preview) setPetReply({ id: answerId, text: preview });
+      if (preferences.notifications) notify('回复已完成');
+      if (preferences.sound) playCompletionSound();
+    } catch (error) {
+      const content = controller.signal.aborted || activeRequest.current?.stopping ? '> 本次回复已停止。' : `> 请求失败：${error instanceof Error ? error.message : error}`;
+      setPetReply({ id: answerId, text: content.replace(/^> /, ''), activity: controller.signal.aborted || activeRequest.current?.stopping ? 'idle' : 'failed' });
+      setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, { type: 'content', content: `\n\n${content}` }) : entry) } : item));
+      notify(content.replace(/^> /, ''));
+    } finally {
+      if (target) {
+        const id = target.id;
+        notifyWorkspaceChanged(target.workspaceHash);
+        setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: Date.now() } : entry) } : item));
+        try {
+          const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`);
+          // The reload is authoritative: the server folds the whole approval loop
+          // (prompt → approve ×N) into one assistant turn and never stores the
+          // "/agree" command, so this drops the extra bubbles and merges the AI
+          // replies for free. A suspended choice is client-only, so reattach it.
+          if (completed && !controller.signal.aborted && history.length) {
+            const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks));
+            setSessions(current => current.map(item => item.id === id ? { ...item, messages } : item));
+          }
+        } catch { /* Keep the already received stream if history reload fails. */ }
+        if (action === 'execute_plan') { try { const mode = await api.request<{ mode: string; pendingPlan?: string | null }>(`/agent/mode?${sessionQuery(target)}`, 'GET'); setComposerOptions(current => ({ ...current, plan: mode.mode === 'plan' })); setPendingPlan(mode.pendingPlan || undefined); } catch { /* keep the stream-derived state */ } }
+      }
+      activeRequest.current = undefined; setGeneratingId(null);
+      setLiveSpeed(current => current && !current.done ? { ...current, done: true, avgTokensPerSecond: current.avgTokensPerSecond ?? current.tokensPerSecond } : current);
+      if (target && queuedRef.current[target.id]?.length) void sendQueuedMessage(target.id);
+    }
+  }
+
+  useEffect(() => {
+    setGitBranch('工作区'); if (!workspace) return;
+    const controller = new AbortController();
+    void api.request<{ branch: string; initialized: boolean }>(`/git/status?workspaceHash=${encodeURIComponent(workspace)}`, 'GET', undefined, controller.signal).then(data => { if (!controller.signal.aborted) setGitBranch(data.initialized ? data.branch || 'HEAD' : '未初始化'); }).catch(() => {});
+    return () => controller.abort();
+  }, [api, workspace, changes]);
+  useEffect(() => {
+    const config = backend.config; if (!config) return;
+    const modelId = `${config.modelChannelId}:${config.model}`;
+    setDefaultModel(modelId);
+    setComposerOptions(current => ({ ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode, finishWithoutTools: config.terminateOnNoToolCall }));
+    setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '' }));
+    setWorkspace(current => backend.workspaces.some(item => item.hash === current) ? current : backend.workspaces.find(item => item.path === config.workspace)?.hash || backend.workspaces[0]?.hash || '');
+  }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server]);
+  // Switching backends/servers drops the previous run's tokens/s badge so the
+  // home composer never shows a speed from another project.
+  useEffect(() => { setLiveSpeed(undefined); }, [server]);
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setSystemDark(media.matches);
+    media.addEventListener('change', onChange); return () => media.removeEventListener('change', onChange);
+  }, []);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 760px)');
+    const onChange = () => { setNarrow(media.matches); setSidebar(!media.matches); };
+    media.addEventListener('change', onChange); return () => media.removeEventListener('change', onChange);
+  }, []);
+  useEffect(() => { document.documentElement.classList.toggle('dark', isDark); }, [isDark]);
+  useEffect(() => {
+    const catalog = getModelCatalog(providers);
+    if (!catalog.some(model => model.id === composerOptions.modelId) && catalog.length) setComposerOptions(value => ({ ...value, modelId: catalog[0].id }));
+    if (!catalog.some(model => model.id === defaultModel) && catalog.length) setDefaultModel(catalog[0].id);
+  }, [providers, composerOptions.modelId, defaultModel, setComposerOptions, setDefaultModel]);
+  useEffect(() => {
+    const catalog = getModelCatalog(providers);
+    if ((agentSettings.validatorModel && !catalog.some(model => model.id === agentSettings.validatorModel)) || (agentSettings.imageModel && !catalog.some(model => model.id === agentSettings.imageModel && model.imageInput))) {
+      setAgentSettings(current => ({ ...current, validatorModel: catalog.some(model => model.id === current.validatorModel) ? current.validatorModel : '', imageModel: catalog.some(model => model.id === current.imageModel && model.imageInput) ? current.imageModel : '' }));
+    }
+  }, [providers, agentSettings.validatorModel, agentSettings.imageModel, setAgentSettings]);
+  useEffect(() => {
+    const names = ['编程助手', '通用助手', '代码审查助手', ...agentSettings.agents.filter(agent => agent.enabled).map(agent => agent.name)];
+    if (!names.includes(agentSettings.agentName)) setAgentSettings(current => ({ ...current, agentName: '编程助手' }));
+  }, [agentSettings.agents, agentSettings.agentName, setAgentSettings]);
+  useEffect(() => {
+    setComposerContext(current => ({ ...current, skills: current.skills.filter(name => agentSettings.skills.some(skill => skill.name === name && skill.enabled)) }));
+  }, [agentSettings.skills]);
+  // Legacy `scroll()`: follow streaming output unless the user scrolled away.
+  useEffect(() => {
+    const element = scrollArea.current;
+    if (!element || !session?.messages.length) return;
+    if (!userScrolledAway.current || chatNearBottom(element)) element.scrollTo({ top: element.scrollHeight, behavior: 'instant' });
+    setShowScrollBtn(!chatNearBottom(element));
+  }, [session?.messages, session?.id]);
+  useEffect(() => {
+    function onPointer(event: PointerEvent) { if (!(event.target as HTMLElement).closest('[data-popover]')) setMenu(null); }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') { setMenu(null); if (!event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"]')) { setChanges(false); if (narrow) setSidebar(false); } return; }
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key.toLowerCase() === 'k') { event.preventDefault(); setSearchOpen(true); setMenu(null); }
+        if (event.key.toLowerCase() === 'n') { event.preventDefault(); newSession(); }
+        if (event.key.toLowerCase() === 'b') { event.preventDefault(); setSidebar(value => !value); }
+        if (event.key === ',') { event.preventDefault(); openSettings(); }
+      }
+    }
+    document.addEventListener('pointerdown', onPointer); window.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onPointer); window.removeEventListener('keydown', onKey); };
+  });
+  useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
+
+  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+    options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
+    providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !sessionsOpen && !helpOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    history={session ? getSessionMessages(session).map(message => message.text) : []}
+    busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId && generatingId === activeId}
+    // Legacy `continueChat` sent the literal `/continue` command so the backend
+    // resumes from the existing context (and approves pending HITL) without
+    // appending a user message.
+    onSend={() => sendMessage()} onStop={stopGeneration} onContinue={() => sendMessage('/continue')}
+    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openTerminal()} onManage={() => openSettings('模型供应商')}
+    onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
+    onSessions={() => setSessionsOpen(true)}
+    queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
+    remoteRunning={!!session && remoteRun?.id === session.id} onStopRemote={stopRemoteRun}
+    liveSpeed={liveSpeed}
+    onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} /></BackgroundTasks>;
+
+  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${isDesktopWindow() ? ' is-desktop-shell' : ''}`}>
+    {isDesktopWindow() && <DesktopTitleBar />}
+    <div className="app-body">
+      {narrow && sidebar && <button className="sidebar-backdrop" aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
+      {sidebar && <Sidebar english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed} sortNewest={sortNewest} onSortNewest={setSortNewest} sectionRef={sessionSection}
+        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()} onLocate={locateActiveSession}
+        onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
+        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} />}
+      <main className={`main-area ${changes ? 'has-changes' : ''}`}>
+        <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
+          backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
+          gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
+          applications={workspaceApplications} onOpenWorkspace={application => void openWorkspace(application)} onTerminal={() => { setTerminal(true); setMenu(null); }} onCopyPath={copyPath}
+          onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
+          onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
+          onClear={() => { setMenu(null); clearChat(); }}
+          onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
+          onHide={archiveSession} onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
+          onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
+        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
+          <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
+          {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
+          {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
+            onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}>{composer}</HomeView> : <>
+            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
+            <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
+            <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{composer}</div>
+          </>}
+        </div></WorkspaceTabs>
+      </main>
+      {changes && <button className="workbench-backdrop" aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
+      {changes && <ChangesPanel api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+    </div>
+    {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
+    {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
+    {projectDialog && <ProjectSessions api={api} workspace={projectDialog} count={sessions.filter(item => item.workspaceHash === projectDialog.hash).length} onClose={() => setProjectDialog(undefined)} onRefresh={async () => { await backend.refreshWorkspaces(); }} onCompleted={kind => projectMaintained(kind, projectDialog)} onRenamed={(previous, renamed) => { setProjectDialog(renamed); setComposerContext(current => ({ ...current, projects: current.projects.map(name => name === previous.name ? renamed.name : name) })); }} notify={notify} />}
+    {projectsOpen && <ProjectManager api={api} workspaces={workspaces} sessions={sessions} current={workspace} onClose={() => setProjectsOpen(false)} onRefresh={backend.refreshWorkspaces} onAdded={item => { setCollapsed(previous => previous.filter(hash => hash !== item.hash)); newSession(item.hash); }} onDeleted={item => projectMaintained('delete', item)} notify={notify} />}
+    {sessionsOpen && <SessionsManager api={api} sessions={visibleSessions} workspaceHash={workspace} workspaceName={workspaceName} activeId={activeId} onClose={() => setSessionsOpen(false)} onOpen={id => { setSessionsOpen(false); void selectSession(id); }} onNew={() => { setSessionsOpen(false); newSession(); }} onChanged={() => backend.refresh()} notify={notify} />}
+    <Help open={helpOpen} onClose={() => setHelpOpen(false)} server={server} />
+    {requirementsOpen && <RequirementBoard api={api} onClose={() => setRequirementsOpen(false)} notify={notify} />}
+    {rollbackMessage && session && <ConfirmAction title="撤回消息" onClose={() => setRollbackMessage(undefined)} action={async () => {
+      const result = await api.request<{ success: boolean; message: string; rollbackUserText?: string }>(`/snapshots/rollback?${sessionQuery(session)}&${query({ msgId: rollbackMessage.rollbackId, rollbackTimestamp: rollbackMessage.rollbackTimestamp, rollbackCode })}`, 'POST');
+      if (!result.success) throw new Error(result.message);
+      await refreshCurrentSession(result.rollbackUserText);
+    }}><p>撤回这条消息及之后的所有记录？</p>{rollbackMessage.snapshotId && <label><input type="checkbox" checked={rollbackCode} onChange={event => setRollbackCode(event.target.checked)} />同时恢复代码到本条消息之前</label>}</ConfirmAction>}
+    {discardPlan && <ConfirmAction title="退出计划模式" onClose={() => setDiscardPlan(false)} action={exitPlanMode}><p>{pendingPlan ? '待审查计划将被丢弃，且无法恢复。' : '将退出计划模式并恢复全部工具。'}</p></ConfirmAction>}
+    <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={visibleSessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
+    <Settings
+      onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }}
+      onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }}
+      onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}
+      pets={pets}
+      onInitPet={initPet}
+      onAutoUpdate={() => void autoUpdate()}
+      onRefresh={() => backend.refresh()}
+      workspaces={workspaces}
+      server={server}
+      config={agentSettings}
+      onConfig={saveAgentSettings}
+      options={composerOptions}
+      onOptions={saveOptions}
+      defaultModel={defaultModel}
+      onDefaultModel={saveDefaultModel}
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      initialTab={settingsTab}
+      preferences={preferences}
+      onPreferences={setPreferences}
+      providers={providers}
+      onProviders={saveProviders}
+      sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))}
+      onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }}
+      notify={notify}
+    />
+    <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
+    <Toast message={toast}><Check size="1rem" />{toast}</Toast>
+  </div></AppMotion>;
+}
+

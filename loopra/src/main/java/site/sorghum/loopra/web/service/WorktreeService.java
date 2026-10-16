@@ -17,7 +17,11 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -99,6 +103,7 @@ public class WorktreeService {
                 }
             }
         } catch (Exception ignored) {
+            // 目录遍历失败不影响 worktree 移除结果
         }
     }
 
@@ -517,6 +522,7 @@ public class WorktreeService {
                         java.nio.file.StandardOpenOption.APPEND);
             }
         } catch (Exception ignored) {
+            // exclude 标记写入失败不阻断索引清理
         }
         for (File index : indexes) {
             Path link = wt.resolve(index.getName());

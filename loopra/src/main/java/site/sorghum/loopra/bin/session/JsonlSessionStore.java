@@ -3,20 +3,33 @@ package site.sorghum.loopra.bin.session;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
+import site.sorghum.loopra.bin.agent.context.ConversationContext;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.FileChange;
 import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.util.ONodeUtil;
-import site.sorghum.loopra.tool.interact.FinishTool;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -107,20 +120,20 @@ public class JsonlSessionStore implements SessionStore {
     }
 
     public static String serializeMessage(ChatMessage msg) {
-        org.noear.snack4.ONode node = org.noear.snack4.ONode.ofJson("{}");
+        ONode node = ONode.ofJson("{}");
         node.set("role", msg.getRole());
         // 多模态 contentParts 优先序列化为 JSON array（与 OpenAI API 格式一致）
         if (msg.getContentParts() != null && !msg.getContentParts().isEmpty()) {
-            org.noear.snack4.ONode contentArr = node.getOrNew("content").asArray();
+            ONode contentArr = node.getOrNew("content").asArray();
             for (ChatMessage.ContentPart part : msg.getContentParts()) {
-                org.noear.snack4.ONode partNode = contentArr.addNew();
+                ONode partNode = contentArr.addNew();
                 partNode.set("type", part.getType());
                 if ("text".equals(part.getType())) {
                     partNode.set("text", part.getText() != null ? part.getText() : "");
                 } else if ("image_url".equals(part.getType())) {
                     ChatMessage.ContentPart.ImageUrl iu = part.getImageUrl();
                     if (iu != null) {
-                        org.noear.snack4.ONode urlNode = partNode.getOrNew("image_url");
+                        ONode urlNode = partNode.getOrNew("image_url");
                         urlNode.set("url", iu.getUrl() != null ? iu.getUrl() : "");
                         if (iu.getDetail() != null) urlNode.set("detail", iu.getDetail());
                     }
@@ -136,9 +149,9 @@ public class JsonlSessionStore implements SessionStore {
             node.set("response_reasoning", msg.getResponseReasoning());
         }
         if (msg.getFileChanges() != null && !msg.getFileChanges().isEmpty()) {
-            org.noear.snack4.ONode changes = node.getOrNew("file_changes").asArray();
+            ONode changes = node.getOrNew("file_changes").asArray();
             for (FileChange change : msg.getFileChanges()) {
-                org.noear.snack4.ONode item = changes.addNew().asObject();
+                ONode item = changes.addNew().asObject();
                 item.set("path", change.path());
                 item.set("additions", change.additions());
                 item.set("deletions", change.deletions());
@@ -186,12 +199,12 @@ public class JsonlSessionStore implements SessionStore {
             node.set("tool_image_detail", msg.getToolImageDetail());
         }
         if (msg.hasToolCalls()) {
-            org.noear.snack4.ONode tcArr = node.getOrNew("tool_calls").asArray();
+            ONode tcArr = node.getOrNew("tool_calls").asArray();
             for (ToolCallEntry tc : msg.getToolCalls()) {
-                org.noear.snack4.ONode tcn = tcArr.addNew();
+                ONode tcn = tcArr.addNew();
                 tcn.set("id", tc.id() != null ? tc.id() : "unknown");
                 tcn.set("type", "function");
-                org.noear.snack4.ONode func = tcn.getOrNew("function");
+                ONode func = tcn.getOrNew("function");
                 func.set("name", tc.name() != null ? tc.name() : "unknown");
                 Object tcArgs = tc.arguments();
                 String argsStr = "{}";
@@ -199,7 +212,7 @@ public class JsonlSessionStore implements SessionStore {
                     if (tcArgs instanceof String) {
                         argsStr = (String) tcArgs;
                     } else {
-                        argsStr = org.noear.snack4.ONode.serialize(tcArgs);
+                        argsStr = ONode.serialize(tcArgs);
                     }
                 }
                 func.set("arguments", argsStr);
@@ -424,7 +437,7 @@ public class JsonlSessionStore implements SessionStore {
                     }
                 }
                 messages = messages.stream().filter(
-                        it -> !(it.isUser() && Objects.equals(FinishTool.TIPS,it.getContent()))
+                        it -> !(it.isUser() && ConversationContext.isInternalNotice(it.getContent()))
                 ).toList();
                 return messages;
             } finally {
@@ -518,7 +531,7 @@ public class JsonlSessionStore implements SessionStore {
                 if (Files.exists(metaFile)) {
                     try {
                         String metaJson = Files.readString(metaFile);
-                        org.noear.snack4.ONode metaNode = org.noear.snack4.ONode.ofJson(metaJson);
+                        ONode metaNode = ONode.ofJson(metaJson);
                         title = metaNode.get("title").getString();
                         worktreeMode = worktreeModeOf(metaNode);
                     } catch (Exception e) {
@@ -607,7 +620,7 @@ public class JsonlSessionStore implements SessionStore {
             return;
         }
 
-        org.noear.snack4.ONode node = org.noear.snack4.ONode.ofJson("{}").asObject();
+        ONode node = ONode.ofJson("{}").asObject();
         node.set("prompt", prompt);
         node.set("completion", completion);
         node.set("cacheHit", cacheHit);
@@ -623,45 +636,31 @@ public class JsonlSessionStore implements SessionStore {
 
     @Override
     public String getTitle(String name) {
-        org.noear.snack4.ONode meta = readMeta(name);
+        ONode meta = readMeta(name);
         return meta != null ? meta.get("title").getString() : null;
     }
 
     @Override
     public void setPlanMode(String name, boolean enabled) {
-        try {
-            writeMeta(name, node -> node.set("planMode", enabled));
-        } catch (IOException e) {
-            log.warn("[jsonl] 持久化计划模式失败: {}", e.getMessage());
-        }
+        updateMeta(name, "计划模式", node -> node.set("planMode", enabled));
     }
 
     @Override
     public boolean isPlanMode(String name) {
-        org.noear.snack4.ONode meta = readMeta(name);
-        if (meta == null) return false;
-        org.noear.snack4.ONode flag = meta.get("planMode");
-        return flag != null && !flag.isNull() && flag.getBoolean();
+        return metaFlag(readMeta(name), "planMode");
     }
 
     @Override
     public void setPendingPlan(String name, String plan) {
-        try {
-            writeMeta(name, node -> {
-                if (plan == null || plan.isBlank()) {
-                    node.remove("pendingPlan");
-                } else {
-                    node.set("pendingPlan", plan);
-                }
-            });
-        } catch (IOException e) {
-            log.warn("[jsonl] 持久化待审查计划失败: {}", e.getMessage());
-        }
+        updateMeta(name, "待审查计划", node -> {
+            if (plan == null || plan.isBlank()) node.remove("pendingPlan");
+            else node.set("pendingPlan", plan);
+        });
     }
 
     @Override
     public String getPendingPlan(String name) {
-        org.noear.snack4.ONode meta = readMeta(name);
+        ONode meta = readMeta(name);
         if (meta == null) return null;
         String plan = meta.get("pendingPlan").getString();
         return plan == null || plan.isBlank() ? null : plan;
@@ -669,37 +668,22 @@ public class JsonlSessionStore implements SessionStore {
 
     @Override
     public void setWorktreeMode(String name, boolean enabled) {
-        try {
-            writeMeta(name, node -> node.set("worktreeMode", enabled));
-        } catch (IOException e) {
-            log.warn("[jsonl] 持久化隔离分支模式失败: {}", e.getMessage());
-        }
+        updateMeta(name, "隔离分支模式", node -> node.set("worktreeMode", enabled));
     }
 
     @Override
     public boolean isWorktreeMode(String name) {
-        org.noear.snack4.ONode meta = readMeta(name);
-        if (meta == null) return false;
-        org.noear.snack4.ONode flag = meta.get("worktreeMode");
-        return flag != null && !flag.isNull() && flag.getBoolean();
+        return worktreeModeOf(readMeta(name));
     }
 
     @Override
     public void setMergeMode(String name, String mode) {
-        try {
-            if (mode == null || mode.isBlank()) {
-                writeMeta(name, node -> node.remove("mergeMode"));
-            } else {
-                writeMeta(name, node -> node.set("mergeMode", mode.trim()));
-            }
-        } catch (IOException e) {
-            log.warn("[jsonl] 持久化隔离分支合并模式失败: {}", e.getMessage());
-        }
+        updateMeta(name, "隔离分支合并模式", node -> setMetaString(node, "mergeMode", mode));
     }
 
     @Override
     public String getMergeMode(String name) {
-        org.noear.snack4.ONode meta = readMeta(name);
+        ONode meta = readMeta(name);
         if (meta == null) return "manual";
         String mode = meta.get("mergeMode").getString();
         return mode == null || mode.isBlank() ? "manual" : mode;
@@ -707,7 +691,7 @@ public class JsonlSessionStore implements SessionStore {
 
     @Override
     public SessionModelSettings getModelSettings(String name) {
-        org.noear.snack4.ONode meta = readMeta(name);
+        ONode meta = readMeta(name);
         if (meta == null) return new SessionModelSettings(null, null, null);
         return new SessionModelSettings(
                 metaString(meta, "model"),
@@ -718,26 +702,36 @@ public class JsonlSessionStore implements SessionStore {
     @Override
     public void setModelSettings(String name, String model, String modelChannelId,
                                  String reasoningEffort) {
+        updateMeta(name, "会话模型设置", node -> {
+            setMetaString(node, "model", model);
+            setMetaString(node, "modelChannelId", modelChannelId);
+            setMetaString(node, "reasoningEffort", reasoningEffort);
+        });
+    }
+
+    private void updateMeta(String name, String label, java.util.function.Consumer<ONode> update) {
         try {
-            writeMeta(name, node -> {
-                setMetaString(node, "model", model);
-                setMetaString(node, "modelChannelId", modelChannelId);
-                setMetaString(node, "reasoningEffort", reasoningEffort);
-            });
+            writeMeta(name, update);
         } catch (IOException e) {
-            log.warn("[jsonl] 持久化会话模型设置失败: {}", e.getMessage());
+            log.warn("[jsonl] 持久化{}失败: {}", label, e.getMessage());
         }
     }
 
-    private static String metaString(org.noear.snack4.ONode meta, String key) {
+    private static boolean metaFlag(ONode meta, String key) {
+        if (meta == null) return false;
+        ONode flag = meta.get(key);
+        return flag != null && !flag.isNull() && flag.getBoolean();
+    }
+
+    private static String metaString(ONode meta, String key) {
         if (meta == null) return null;
-        org.noear.snack4.ONode valueNode = meta.get(key);
+        ONode valueNode = meta.get(key);
         if (valueNode == null || valueNode.isNull()) return null;
         String value = valueNode.getString();
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private static void setMetaString(org.noear.snack4.ONode meta, String key, String value) {
+    private static void setMetaString(ONode meta, String key, String value) {
         if (value == null || value.isBlank()) {
             meta.remove(key);
         } else {
@@ -746,23 +740,21 @@ public class JsonlSessionStore implements SessionStore {
     }
 
     /** 从已解析的 .meta 节点读取隔离分支模式标记（兼容缺失/非布尔字段）。 */
-    private static boolean worktreeModeOf(org.noear.snack4.ONode meta) {
-        if (meta == null) return false;
-        org.noear.snack4.ONode flag = meta.get("worktreeMode");
-        return flag != null && !flag.isNull() && flag.getBoolean();
+    private static boolean worktreeModeOf(ONode meta) {
+        return metaFlag(meta, "worktreeMode");
     }
 
     /**
      * 读取会话 .meta JSON（不存在或解析失败返回 null）。
      */
-    private org.noear.snack4.ONode readMeta(String name) {
+    private ONode readMeta(String name) {
         Path file = sessionsDir.resolve(sanitize(name) + ".meta");
         if (!Files.exists(file)) return null;
         ReentrantLock metaLock = fileLock(file);
         metaLock.lock();
         try {
             if (!Files.exists(file)) return null;
-            return org.noear.snack4.ONode.ofJson(Files.readString(file));
+            return ONode.ofJson(Files.readString(file));
         } catch (Exception e) {
             log.warn("[jsonl] 读取会话元数据失败: {}", e.getMessage());
             return null;
@@ -774,15 +766,15 @@ public class JsonlSessionStore implements SessionStore {
     /**
      * 读-改-写会话 .meta JSON，保留已有字段（title 与 planMode 共存）。
      */
-    private void writeMeta(String name, java.util.function.Consumer<org.noear.snack4.ONode> modifier) throws IOException {
+    private void writeMeta(String name, java.util.function.Consumer<ONode> modifier) throws IOException {
         Path file = sessionsDir.resolve(sanitize(name) + ".meta");
         ReentrantLock metaLock = fileLock(file);
         metaLock.lock();
         Path temp = null;
         try {
-            org.noear.snack4.ONode node = readMeta(name);
+            ONode node = readMeta(name);
             if (node == null || !node.isObject()) {
-                node = org.noear.snack4.ONode.ofJson("{}").asObject();
+                node = ONode.ofJson("{}").asObject();
             }
             modifier.accept(node);
             temp = Files.createTempFile(sessionsDir, sanitize(name) + "-", ".meta.tmp");
@@ -805,7 +797,7 @@ public class JsonlSessionStore implements SessionStore {
         if (!Files.exists(file)) return new long[]{0, 0, 0, 0, 0};
         try {
             String json = Files.readString(file);
-            org.noear.snack4.ONode node = org.noear.snack4.ONode.ofJson(json);
+            ONode node = ONode.ofJson(json);
             return new long[]{
                     node.get("prompt").getLong(),
                     node.get("completion").getLong(),
@@ -828,10 +820,10 @@ public class JsonlSessionStore implements SessionStore {
             Files.deleteIfExists(file);
             return;
         }
-        org.noear.snack4.ONode root = org.noear.snack4.ONode.ofJson("{}").asObject();
+        ONode root = ONode.ofJson("{}").asObject();
         for (Map.Entry<String, long[]> entry : modelUsage.entrySet()) {
             long[] mu = entry.getValue();
-            org.noear.snack4.ONode arr = root.getOrNew(entry.getKey()).asArray();
+            ONode arr = root.getOrNew(entry.getKey()).asArray();
             arr.clear();
             for (long v : mu) {
                 arr.add(v);
@@ -848,9 +840,9 @@ public class JsonlSessionStore implements SessionStore {
         if (!Files.exists(file)) return result;
         try {
             String json = Files.readString(file);
-            org.noear.snack4.ONode root = org.noear.snack4.ONode.ofJson(json);
-            for (Map.Entry<String, org.noear.snack4.ONode> entry : root.getObject().entrySet()) {
-                org.noear.snack4.ONode arr = entry.getValue();
+            ONode root = ONode.ofJson(json);
+            for (Map.Entry<String, ONode> entry : root.getObject().entrySet()) {
+                ONode arr = entry.getValue();
                 if (arr.isArray() && !arr.getArray().isEmpty()) {
                     long[] mu = new long[Math.min(arr.getArray().size(), 4)];
                     for (int i = 0; i < mu.length; i++) {

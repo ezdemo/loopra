@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">Loopra</title>
+  <desc id="desc">A compact letter L inside a balanced rounded loop.</desc>
+  <defs>
+    <linearGradient id="loopra-ring" x1="20" y1="18" x2="78" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2F80ED"/>
+      <stop offset="1" stop-color="#5B9CF2"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="64" height="64" rx="21"
+        fill="none" stroke="url(#loopra-ring)" stroke-width="8"/>
+  <path d="M41 35v20c0 3.87 3.13 7 7 7h11"
+        fill="none" stroke="#173A70" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"/>
+</svg>

@@ -121,6 +121,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open: (theme) => ipcRenderer.invoke('desktop-chat-header-menu', theme)
   },
 
+  desktopToolMenu: {
+    open: (theme) => ipcRenderer.invoke('desktop-tool-menu', theme)
+  },
+
   desktopTitleBar: {
     setTheme: (theme) => ipcRenderer.invoke('desktop-titlebar-theme', theme)
   },

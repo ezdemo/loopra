@@ -1,6 +1,11 @@
 package site.sorghum.loopra.bin.agent.model;
 
+import org.noear.snack4.ONode;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -32,5 +37,39 @@ public record ToolCallEntry(String id, String name, Object arguments, String res
         m.put("arguments", arguments);
         if (responseReasoning != null) m.put("response_reasoning", responseReasoning);
         return m;
+    }
+
+    public static List<ToolCallEntry> fromToolCalls(ONode toolCalls) {
+        List<ToolCallEntry> tcList = new ArrayList<>();
+        if (toolCalls == null || !toolCalls.isArray()) return tcList;
+        for (ONode tc : toolCalls.getArray()) {
+            String tcId = tc.get("id").getString();
+            ONode func = tc.get("function");
+            String tcName = func.get("name").getString();
+            if (tcName == null || tcName.isEmpty()) continue;
+            String tcArgs = func.get("arguments").getString();
+            if (tcArgs == null) tcArgs = "{}";
+            String responseReasoning = tc.get("response_reasoning").getString();
+            tcList.add(new ToolCallEntry(tcId, tcName, tcArgs, responseReasoning));
+        }
+        return tcList;
+    }
+
+    public static Map<String, Object> parseArguments(Object arguments) {
+        if (arguments instanceof String json) {
+            if (json.isBlank()) return Map.of();
+            try {
+                arguments = ONode.ofJson(json).toBean(Map.class);
+            } catch (RuntimeException ignored) {
+                // 格式错误的参数按空处理。
+                return Map.of();
+            }
+        }
+        if (!(arguments instanceof Map<?, ?> map)) return Map.of();
+        Map<String, Object> result = new HashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            result.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        return result;
     }
 }

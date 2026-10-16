@@ -21,6 +21,7 @@ import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecovery
 import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryPolicyPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionAffinityPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.state.LoopraStateNoticePlugin;
 import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraTokenSpeedPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraUsagePlugin;
@@ -61,7 +62,8 @@ public final class LoopraPluginRuntime {
         LoopraRetryPolicyPlugin.class,
         LoopraSessionPlugin.class,
         LoopraPlanPlugin.class,
-        LoopraToolBatchPlugin.class
+        LoopraToolBatchPlugin.class,
+        LoopraStateNoticePlugin.class
     );
 
     private static final Map<String, Descriptor> CATALOG = new LinkedHashMap<>();

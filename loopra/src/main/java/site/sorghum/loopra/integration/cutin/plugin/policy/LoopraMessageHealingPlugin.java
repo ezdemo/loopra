@@ -8,6 +8,8 @@ import site.sorghum.cutin.core.model.ModelCallRequest;
 import site.sorghum.cutin.core.plugin.AgentPlugin;
 import site.sorghum.cutin.core.plugin.LoopPlugin;
 import site.sorghum.cutin.core.plugin.LoopRegistrar;
+import site.sorghum.cutin.core.tool.ToolCall;
+import site.sorghum.loopra.bin.agent.context.ToolCallMessageHealer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,27 +33,22 @@ public final class LoopraMessageHealingPlugin implements LoopPlugin {
             return InterceptDecision.pass();
         }
 
-        List<Message> healed = null;
-        for (int index = 0; index < request.messages().size(); index++) {
-            Message message = request.messages().get(index);
-            if (!"assistant".equals(message.role())
-                || message.content() != null
-                || message.hasToolCalls()) {
-                continue;
-            }
-            if (healed == null) {
-                healed = new ArrayList<>(request.messages());
-            }
-            healed.set(index, new Message(
-                message.role(),
-                "",
-                message.toolCallId(),
-                message.toolCalls(),
-                message.metadata()
-            ));
+        List<Message> messages = request.messages();
+        if (messages == null || messages.isEmpty()) {
+            return InterceptDecision.pass();
         }
 
-        if (healed == null) {
+        ToolCallMessageHealer.HealResult<Message> result =
+            ToolCallMessageHealer.heal(messages, CUTIN_MESSAGE_ADAPTER);
+        List<Message> healed = new ArrayList<>(result.messages().size());
+        boolean changed = result.changed();
+        for (Message message : result.messages()) {
+            Message current = healEmptyAssistant(message);
+            changed |= current != message;
+            healed.add(current);
+        }
+
+        if (!changed) {
             return InterceptDecision.pass();
         }
         return InterceptDecision.replace(new ModelCallRequest(
@@ -60,5 +57,86 @@ public final class LoopraMessageHealingPlugin implements LoopPlugin {
             request.tools(),
             request.options()
         ));
+    }
+
+    private static final ToolCallMessageHealer.Adapter<Message, ToolCall>
+        CUTIN_MESSAGE_ADAPTER = new ToolCallMessageHealer.Adapter<>() {
+        @Override
+        public String role(Message message) {
+            return message.role();
+        }
+
+        @Override
+        public String content(Message message) {
+            return message.content();
+        }
+
+        @Override
+        public String toolCallId(Message message) {
+            return message.toolCallId();
+        }
+
+        @Override
+        public List<ToolCall> toolCalls(Message message) {
+            return message.toolCalls();
+        }
+
+        @Override
+        public boolean isUsableToolCall(ToolCall call) {
+            return call != null && call.toolId() != null && !call.toolId().isBlank();
+        }
+
+        @Override
+        public String callId(ToolCall call) {
+            return call.id();
+        }
+
+        @Override
+        public ToolCall withToolCallId(ToolCall call, String id) {
+            return new ToolCall(id, call.toolId(), call.arguments(), id);
+        }
+
+        @Override
+        public Message withToolCalls(Message message, List<ToolCall> calls) {
+            return new Message(
+                message.role(),
+                message.content(),
+                message.toolCallId(),
+                calls,
+                message.metadata()
+            );
+        }
+
+        @Override
+        public Message withMessageToolCallId(Message message, String id) {
+            return new Message(
+                message.role(),
+                message.content(),
+                id,
+                message.toolCalls(),
+                message.metadata()
+            );
+        }
+
+        @Override
+        public Message withContent(Message message, String content) {
+            return new Message(
+                message.role(),
+                content,
+                message.toolCallId(),
+                message.toolCalls(),
+                message.metadata()
+            );
+        }
+    };
+
+    /** 兼容部分 provider 拒绝 content=null 的空 assistant 消息。 */
+    private static Message healEmptyAssistant(Message message) {
+        if (!"assistant".equals(message.role())
+            || message.content() != null
+            || message.hasToolCalls()) {
+            return message;
+        }
+        return CUTIN_MESSAGE_ADAPTER.withContent(message, "");
     }
 }

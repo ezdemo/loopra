@@ -2,15 +2,11 @@ package site.sorghum.loopra.tool.solon.common;
 
 import lombok.Getter;
 import lombok.SneakyThrows;
-import org.noear.solon.Solon;
 import org.noear.solon.ai.chat.tool.FunctionTool;
-import org.noear.solon.ai.talents.lsp.LspManager;
-import org.noear.solon.ai.talents.lsp.LspTalent;
 import org.noear.solon.ai.talents.mount.MountDir;
 import org.noear.solon.ai.talents.mount.MountManager;
 import org.noear.solon.ai.talents.mount.MountType;
 import site.sorghum.loopra.tool.SolonToTools;
-import site.sorghum.loopra.tool.solon.lsp.SharedLoopraLspSkill;
 import site.sorghum.loopra.tool.solon.mcp.ProjectMcpSkill;
 
 import java.nio.file.Files;
@@ -22,14 +18,12 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
-/** 基于 Solon MountManager 的 Loopra 技能/终端/LSP 能力提供者。 */
+/** 基于 Solon MountManager 的 Loopra 技能/终端能力提供者。 */
 public class LoopraSkillProvider implements SolonToTools {
     LoopraSkillTalent skillTalent;
     SessionTerminalTalent terminalTalent;
     @Getter
     ProjectMcpSkill projectMcpSkill;
-    @Getter
-    LspTalent lspTalent;
     public static Map<String, LoopraSkillProvider> cliSkillProviderMap = new ConcurrentHashMap<>();
     @Getter
     public MountManager poolManager;
@@ -57,11 +51,6 @@ public class LoopraSkillProvider implements SolonToTools {
         terminalTalent = new SessionTerminalTalent(poolManager, workDir);
         terminalTalent.setSandboxEnabled(false);
         terminalTalent.setBashAsyncEnabled(true);
-        lspTalent = new LspTalent(
-                new LspManager(workDir), workDir
-        );
-        SharedLoopraLspSkill share = Solon.context().getBean(SharedLoopraLspSkill.class);
-        share.copyToLoopra(lspTalent);
         projectMcpSkill = ProjectMcpSkill.load(Paths.get(workDir));
     }
 
@@ -93,7 +82,6 @@ public class LoopraSkillProvider implements SolonToTools {
         return Stream.of(
                 skillTalent,
                 terminalTalent,
-                lspTalent,
                 projectMcpSkill
         ).filter(Objects::nonNull).map(
                 talent -> talent.getTools(null)

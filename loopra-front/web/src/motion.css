@@ -1,0 +1,38 @@
+/* Static shell layout; component transitions are owned by NextUI. */
+.icon-button, .send-button { overflow: hidden; }
+.composer:focus-within { border-color: #2083ff75; box-shadow: 0 0 0 0.1875rem #2083ff0b, var(--shadow); }
+.send-button:not(:disabled):hover { box-shadow: 0 0.1875rem 0.625rem #2083ff26; }
+.content-collapse, .code-preview { overflow: hidden; min-width: 0; }
+.sidebar, .changes-panel, .terminal-panel { overflow: hidden; }
+.disclosure-heading { width: 100%; text-align: left; }
+.loopra-conversation .compacted-summary > .disclosure-heading { font: inherit; }
+.session-item, .settings-nav button, .file-view-toggle button, .segmented > button { position: relative; isolation: isolate; }
+.selection-indicator {
+  position: absolute; inset: 0; border-radius: inherit; background: var(--selected);
+  pointer-events: none; z-index: -1;
+}
+.session-item > .selection-indicator { flex: none; mask-image: none; overflow: visible; }
+.session-item.selected, .settings-nav button.selected, .dark .settings-nav button.selected,
+.segmented > button.selected, .file-view-toggle button.selected { background: transparent; box-shadow: none; }
+.settings-nav .selection-indicator { background: var(--soft); }
+.dark .settings-nav .selection-indicator { background: var(--soft); }
+.segmented .selection-indicator, .file-view-toggle .selection-indicator {
+  background: var(--surface); box-shadow: 0 1px 0.1875rem #00000015;
+}
+.segmented .segment-label { position: relative; }
+.file-view-toggle button > svg { position: relative; }
+.toast-region { position: fixed; left: 50%; top: calc(1rem + env(safe-area-inset-top, 0px)); width: max-content; max-width: calc(100vw - 2rem); transform: translateX(-50%); z-index: 150; pointer-events: none; }
+.toast { animation: none; white-space: normal; overflow-wrap: anywhere; }
+.toast > span { display: flex; align-items: center; min-width: 0; gap: 0.5625rem; }
+.toast svg { flex-shrink: 0; }
+.toast svg { color: var(--blue); }
+@media (max-width: 760px) {
+  .settings-nav button > .selection-indicator { display: block; }
+}
+/* This preference also reaches overlays rendered in a NextUI portal. */
+html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="off"] *::after {
+  animation: none !important; transition: none !important; scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

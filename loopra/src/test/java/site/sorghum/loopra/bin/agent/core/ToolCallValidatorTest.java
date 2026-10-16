@@ -1,6 +1,8 @@
 package site.sorghum.loopra.bin.agent.core;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.noear.snack4.ONode;
 import org.noear.solon.ai.chat.tool.FunctionToolDesc;
 import site.sorghum.loopra.bin.agent.context.ConversationContext;
@@ -26,7 +28,7 @@ class ToolCallValidatorTest {
     void aiApprovalExecutesWithoutOpeningManualHitl() throws Exception {
         AtomicInteger validations = new AtomicInteger();
         AtomicInteger executions = new AtomicInteger();
-        AgentLoop loop = loop("approval", toolCallingModel(toolCalls("bash", "{\"command\":\"mvn test\"}")),
+        AgentLoop loop = loop("auto", toolCallingModel(toolCalls("bash", "{\"command\":\"mvn test\"}")),
                 registryWith(tool("bash", args -> {
                     executions.incrementAndGet();
                     return "executed";
@@ -42,10 +44,10 @@ class ToolCallValidatorTest {
     }
 
     @Test
-    void aiDenialBehavesLikeHumanDenial() throws Exception {
+    void aiDenialDefersToHumanAndExecutesOnlyAfterApproval() throws Exception {
         AtomicInteger validations = new AtomicInteger();
         AtomicInteger executions = new AtomicInteger();
-        AgentLoop loop = loop("approval", toolCallingModel(toolCalls("bash", "{\"command\":\"rm -rf /\"}")),
+        AgentLoop loop = loop("auto", toolCallingModel(toolCalls("bash", "{\"command\":\"rm -rf /\"}")),
                 registryWith(tool("bash", args -> {
                     executions.incrementAndGet();
                     return "executed";
@@ -56,9 +58,14 @@ class ToolCallValidatorTest {
 
         assertEquals(1, validations.get());
         assertEquals(0, executions.get());
-        assertTrue(result.contains("未通过 AI 审批"));
+        assertTrue(result.contains("AI 未批准"));
         assertTrue(result.contains("destructive command"));
-        assertFalse(loop.getHitlManager().hasPendingHITL());
+        assertTrue(loop.getHitlManager().hasPendingHITL());
+        loop.approveHITL();
+        assertEquals("done", loop.run(null));
+        assertEquals(1, executions.get());
+        assertEquals(1, validations.get());
+        assertFalse(loop.hasPendingHITL());
     }
 
     @Test
@@ -80,10 +87,55 @@ class ToolCallValidatorTest {
     }
 
     @Test
+    void approvalModeNeverCallsConfiguredValidatorBeforeOrAfterHumanApproval() throws Exception {
+        AtomicInteger validations = new AtomicInteger();
+        AtomicInteger executions = new AtomicInteger();
+        AgentLoop loop = loop("approval", toolCallingModel(toolCalls("bash", "{\"command\":\"unknown-command\"}")),
+                registryWith(tool("bash", args -> {
+                    executions.incrementAndGet();
+                    return "executed";
+                })), ToolCallValidator.forProvider(reply(validations,
+                        "{\"allow\":true,\"requiresHuman\":false,\"reason\":\"should not be used\"}"), Paths.get(".")));
+        try {
+            loop.run(UserMessage.of("run"));
+            assertTrue(loop.hasPendingHITL());
+            assertEquals(0, validations.get());
+            assertEquals(0, executions.get());
+            loop.approveHITL();
+            assertEquals("done", loop.run(null));
+            assertEquals(0, validations.get());
+            assertEquals(1, executions.get());
+        } finally { loop.disposeCutinPlugins(); }
+    }
+
+    @Test
+    void humanCanRejectACommandThatAiDidNotApprove() throws Exception {
+        AtomicInteger executions = new AtomicInteger();
+        AtomicInteger validations = new AtomicInteger();
+        AgentLoop loop = loop("auto", toolCallingModel(toolCalls("bash", "{\"command\":\"unknown-command\"}")),
+                registryWith(tool("bash", args -> {
+                    executions.incrementAndGet();
+                    return "executed";
+                })), ToolCallValidator.forProvider(reply(validations,
+                        "{\"allow\":false,\"requiresHuman\":false,\"reason\":\"needs human judgment\"}"), Paths.get(".")));
+        try {
+            loop.run(UserMessage.of("run"));
+            assertTrue(loop.hasPendingHITL());
+            loop.denyHITL();
+            assertTrue(loop.run(null).contains("用户拒绝"));
+            assertEquals(0, executions.get());
+            assertEquals(1, validations.get());
+            assertFalse(loop.hasPendingHITL());
+        } finally {
+            loop.disposeCutinPlugins();
+        }
+    }
+
+    @Test
     void sandboxEscapeIsDeferredToMandatoryHumanApproval() throws Exception {
         AtomicInteger validations = new AtomicInteger();
         AtomicInteger executions = new AtomicInteger();
-        AgentLoop loop = loop("approval", toolCallingModel(toolCalls("write", "{\"path\":\"../secret\"}")),
+        AgentLoop loop = loop("auto", toolCallingModel(toolCalls("write", "{\"path\":\"../secret\"}")),
                 registryWith(tool("write", args -> {
                     executions.incrementAndGet();
                     return "executed";
@@ -99,10 +151,11 @@ class ToolCallValidatorTest {
         assertTrue(loop.getHitlManager().hasSandboxPending());
     }
 
-    @Test
-    void missingValidationModelKeepsManualHitl() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"approval", "auto"})
+    void missingValidationModelKeepsManualHitl(String mode) throws Exception {
         AtomicInteger executions = new AtomicInteger();
-        AgentLoop loop = loop("approval", toolCallingModel(toolCalls("bash", "{}")),
+        AgentLoop loop = loop(mode, toolCallingModel(toolCalls("bash", "{}")),
                 registryWith(tool("bash", args -> {
                     executions.incrementAndGet();
                     return "executed";
@@ -117,11 +170,8 @@ class ToolCallValidatorTest {
 
     @Test
     void malformedValidatorResponseFailsClosed() {
-        AgentLoop loop = loop("approval", TestLoopraProvider.builder().build(),
-                registryWith(tool("bash", args -> "executed")),
-                ToolCallValidator.forProvider(reply("probably safe"), Paths.get(".")));
-
-        ToolCallValidator.Decision decision = loop.validateHITLToolCalls(toolCalls("bash", "{}"));
+        ToolCallValidator.Decision decision = ToolCallValidator.forProvider(reply("probably safe"), Paths.get("."))
+                .validate("bash", "{}");
 
         assertFalse(decision.allowed());
         assertTrue(decision.reason().contains("无法解析校验模型结果"));
@@ -129,11 +179,9 @@ class ToolCallValidatorTest {
 
     @Test
     void nonBooleanAllowValueFailsClosed() {
-        AgentLoop loop = loop("approval", TestLoopraProvider.builder().build(),
-                registryWith(tool("bash", args -> "executed")),
-                ToolCallValidator.forProvider(reply("{\"allow\":\"true\",\"requiresHuman\":false,\"reason\":\"wrong type\"}"), Paths.get(".")));
-
-        ToolCallValidator.Decision decision = loop.validateHITLToolCalls(toolCalls("bash", "{}"));
+        ToolCallValidator.Decision decision = ToolCallValidator.forProvider(
+                reply("{\"allow\":\"true\",\"requiresHuman\":false,\"reason\":\"wrong type\"}"), Paths.get("."))
+                .validate("bash", "{}");
 
         assertFalse(decision.allowed());
         assertTrue(decision.reason().contains("allow 字段不是布尔值"));
@@ -142,7 +190,7 @@ class ToolCallValidatorTest {
     @Test
     void validationModelFailureFallsBackToManualHitl() throws Exception {
         AtomicInteger executions = new AtomicInteger();
-        AgentLoop loop = loop("approval", toolCallingModel(toolCalls("bash", "{\"command\":\"mvn test\"}")),
+        AgentLoop loop = loop("auto", toolCallingModel(toolCalls("bash", "{\"command\":\"mvn test\"}")),
                 registryWith(tool("bash", args -> {
                     executions.incrementAndGet();
                     return "executed";
@@ -150,13 +198,14 @@ class ToolCallValidatorTest {
 
         String result = loop.run(UserMessage.of("run tests"));
 
-        // 校验失败原因只写入日志，HITL 提示文本不含该信息。
+        // 校验失败时展示原因并等待人工决定。
         assertTrue(result.contains("HITL"), result);
         assertTrue(loop.getHitlManager().hasPendingHITL());
         assertEquals(0, executions.get());
 
         // 决策层面：failed 状态且携带校验失败原因
-        ToolCallValidator.Decision decision = loop.validateHITLToolCalls(toolCalls("bash", "{}"));
+        ToolCallValidator.Decision decision = ToolCallValidator.forProvider(
+                failingClient(new IllegalStateException("timeout")), Paths.get(".")).validate("bash", "{}");
         assertTrue(decision.failed());
         assertTrue(decision.reason().contains("校验模型调用失败"));
         assertTrue(decision.reason().contains("timeout"));

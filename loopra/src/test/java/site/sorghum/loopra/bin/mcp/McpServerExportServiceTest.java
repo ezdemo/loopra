@@ -1,6 +1,7 @@
 package site.sorghum.loopra.bin.mcp;
 
 import org.junit.jupiter.api.Test;
+import site.sorghum.loopra.bin.agent.model.ImageToolResult;
 import org.noear.solon.ai.chat.tool.FunctionToolDesc;
 import org.noear.solon.ai.mcp.server.McpServerEndpointProvider;
 import org.noear.solon.ai.mcp.server.manager.StatefulMcpServerHost;
@@ -25,6 +26,25 @@ class McpServerExportServiceTest {
     void fallsBackForMissingNames() {
         assertEquals("Loopra Tool", McpServerExportService.readableToolTitle(null));
         assertEquals("Loopra Tool", McpServerExportService.readableToolTitle("  "));
+    }
+
+    @Test
+    void convertsInternalBrowserImageProtocolToMcpContent() {
+        var result = McpServerExportService.toMcpImageResult(new ImageToolResult.ImageResult(
+                "page summary", "data:image/png;base64,AAAA", "auto"));
+
+        assertNotNull(result);
+        assertEquals(2, result.getBlocks().size());
+        assertTrue(result.getBlocks().stream()
+                .anyMatch(block -> block instanceof org.noear.solon.ai.chat.content.ImageBlock));
+    }
+
+    @Test
+    void recognizesStructuredBrowserFailures() {
+        String failure = "{\"success\":false,\"error\":{\"code\":\"STALE_SNAPSHOT\",\"message\":\"refresh\"}}";
+
+        assertTrue(McpServerExportService.isBrowserFailure(failure));
+        assertEquals("STALE_SNAPSHOT: refresh", McpServerExportService.browserFailureMessage(failure));
     }
 
     @Test

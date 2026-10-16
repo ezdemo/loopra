@@ -19,7 +19,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -47,6 +46,7 @@ public class ProjectRegistry {
 
 
     private static final Map<String, ProjectRegistry> PROJECT_REGISTRIES = new ConcurrentHashMap<>();
+    private static final Object PROJECT_CONFIG_LOCK = new Object();
 
     /**
      * 当前项目路径。
@@ -61,32 +61,6 @@ public class ProjectRegistry {
         } catch (IOException e) {
             log.error("[project] 创建项目目录失败: {}", e.getMessage());
         }
-    }
-
-    /**
-     * 判断路径是否为 JUnit 测试临时目录：位于系统临时目录下，且路径中某一段目录名以 junit 开头。
-     * <p>
-     * JUnit 5 {@code @TempDir} 生成的目录名为 {@code junit{随机数字}}，测试结束目录会被删除，
-     * 但注册表记录不会清理，导致桌面端首页项目列表堆积无用的测试项目。
-     * 命中此类路径时跳过注册（不写 workspace.json），目录结构仍创建以保证 Goal/Checklist 等存储可用。
-     * </p>
-     */
-    static boolean isJunitTempPath(String projectPath) {
-        if (projectPath == null || projectPath.isBlank()) {
-            return false;
-        }
-        Path path = Paths.get(projectPath).toAbsolutePath().normalize();
-        Path tmpDir = Paths.get(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
-        if (!path.startsWith(tmpDir)) {
-            return false;
-        }
-        for (Path part : tmpDir.relativize(path)) {
-            String name = part.getFileName().toString().toLowerCase(Locale.ROOT);
-            if (name.startsWith("junit")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -182,13 +156,6 @@ public class ProjectRegistry {
         Files.createDirectories(projectDir);
         Files.createDirectories(sessionsDir);
 
-        // 测试临时目录（JUnit @TempDir）不写入注册表，避免污染桌面端首页项目列表；
-        // 目录结构已创建，Goal/Checklist/会话存储仍可用，listProjects() 会跳过无配置的目录。
-        if (isJunitTempPath(projectPath)) {
-            log.info("[project] 跳过测试临时目录注册: {}", projectPath);
-            return;
-        }
-
         // 如果配置文件不存在，创建默认配置
         if (!Files.exists(configPath)) {
             createDefaultConfig(projectPath, configPath);
@@ -245,7 +212,9 @@ public class ProjectRegistry {
                     org.noear.snack4.ONode config = org.noear.snack4.ONode.ofJson(json);
 
                     String path = config.get("path").getString();
-                    String name = extractProjectName(path);
+                    String displayName = config.get("displayName").getString();
+                    if (displayName != null && displayName.isBlank()) displayName = null;
+                    String name = displayName == null ? extractProjectName(path) : displayName;
                     long createdAt = config.get("createdAt").getLong();
                     long lastAccessedAt = config.get("lastAccessedAt").getLong();
 
@@ -263,7 +232,7 @@ public class ProjectRegistry {
                     String hash = dir.getFileName().toString();
 
                     projects.add(new ProjectInfo(hash, name, path,
-                            createdAt, lastAccessedAt, sessionCount));
+                            createdAt, lastAccessedAt, sessionCount, displayName));
                 } catch (Exception e) {
                     log.error("[project] 读取项目配置失败: {} - {}", dir, e.getMessage());
                 }
@@ -299,13 +268,34 @@ public class ProjectRegistry {
      * 更新项目最后访问时间
      */
     public void updateLastAccessed(String projectPath) throws IOException {
-        Path configPath = getProjectConfigPath(projectPath);
-        if (!Files.exists(configPath)) return;
+        synchronized (PROJECT_CONFIG_LOCK) {
+            Path configPath = getProjectConfigPath(projectPath);
+            if (!Files.exists(configPath)) return;
 
-        String json = Files.readString(configPath);
-        org.noear.snack4.ONode config = org.noear.snack4.ONode.ofJson(json);
-        config.set("lastAccessedAt", System.currentTimeMillis());
-        Files.writeString(configPath, config.toJson());
+            String json = Files.readString(configPath);
+            org.noear.snack4.ONode config = org.noear.snack4.ONode.ofJson(json);
+            config.set("lastAccessedAt", System.currentTimeMillis());
+            Files.writeString(configPath, config.toJson());
+        }
+    }
+
+    /** 保存项目展示名称；空字符串恢复文件夹名称，路径与会话标识保持不变。 */
+    public void renameProject(String hash, String displayName) throws IOException {
+        if (hash == null || !hash.matches("[a-f0-9]{12}")) {
+            throw new IllegalArgumentException("无效的项目 hash");
+        }
+        if (displayName == null) throw new IllegalArgumentException("展示名称不能为空值");
+        String name = displayName.strip();
+        if (name.length() > 80 || name.codePoints().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("展示名称最多 80 个字符，且不能包含换行或控制字符");
+        }
+        synchronized (PROJECT_CONFIG_LOCK) {
+            Path configPath = WORKSPACES_DIR.resolve(hash).resolve("workspace.json");
+            if (!Files.isRegularFile(configPath)) throw new IllegalArgumentException("项目不存在");
+            org.noear.snack4.ONode config = org.noear.snack4.ONode.ofJson(Files.readString(configPath));
+            config.set("displayName", name);
+            Files.writeString(configPath, config.toJson());
+        }
     }
 
     /**
@@ -357,6 +347,9 @@ public class ProjectRegistry {
      * 项目信息
      */
     public record ProjectInfo(String hash, String name, String path, long createdAt, long lastAccessedAt,
-                              int sessionCount) {
+                              int sessionCount, String displayName) {
+        public ProjectInfo(String hash, String name, String path, long createdAt, long lastAccessedAt, int sessionCount) {
+            this(hash, name, path, createdAt, lastAccessedAt, sessionCount, null);
+        }
     }
 }

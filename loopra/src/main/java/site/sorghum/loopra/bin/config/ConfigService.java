@@ -9,10 +9,18 @@ import org.noear.solon.annotation.Init;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 配置服务 —— 统一管理 config.json 的读写。
@@ -81,10 +89,10 @@ public class ConfigService {
         try {
             config.updateAndSave(Map.of("disabledTools",
                     toolNames != null ? new ArrayList<>(toolNames) : Collections.emptyList()));
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新禁用工具列表，共 {} 个工具", toolNames != null ? toolNames.size() : 0);
         } catch (IOException e) {
-            log.error("[config] 更新禁用工具列表失败", e);
+            throw new UncheckedIOException("更新禁用工具列表失败", e);
         }
     }
 
@@ -116,7 +124,7 @@ public class ConfigService {
             ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新禁用插件列表，共 {} 个插件", pluginIds != null ? pluginIds.size() : 0);
         } catch (IOException e) {
-            throw new IllegalStateException("保存插件配置失败", e);
+            throw new UncheckedIOException("保存插件配置失败", e);
         }
     }
 
@@ -139,10 +147,10 @@ public class ConfigService {
         }
         try {
             config.updateAndSave(Map.of("toolReadOnlyOverrides", current));
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新工具只读分类: tool={}, readOnly={}", toolName, readOnly);
         } catch (IOException e) {
-            log.error("[config] 更新工具只读分类失败: tool={}", toolName, e);
+            throw new UncheckedIOException("更新工具只读分类失败", e);
         }
     }
 
@@ -162,10 +170,10 @@ public class ConfigService {
         try {
             config.updateAndSave(Map.of("autoWhitelist",
                     toolNames != null ? new ArrayList<>(toolNames) : Collections.emptyList()));
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新自动放行白名单，共 {} 个工具", toolNames != null ? toolNames.size() : 0);
         } catch (IOException e) {
-            log.error("[config] 更新自动放行白名单失败", e);
+            throw new UncheckedIOException("更新自动放行白名单失败", e);
         }
     }
 
@@ -225,10 +233,10 @@ public class ConfigService {
     public static synchronized void updateConfig(Map<String, Object> updates) {
         try {
             config.updateAndSave(updates);
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.debug("[config] 已更新配置项: {}", updates.keySet());
         } catch (IOException e) {
-            log.error("[config] 更新配置失败", e);
+            throw new UncheckedIOException("更新配置失败", e);
         }
     }
 
@@ -240,10 +248,10 @@ public class ConfigService {
     public static synchronized void removeConfigKey(String key) {
         try {
             config.removeAndSave(key);
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.debug("[config] 已移除配置项: {}", key);
         } catch (IOException e) {
-            log.error("[config] 移除配置项失败: {}", key, e);
+            throw new UncheckedIOException("移除配置项失败", e);
         }
     }
 }

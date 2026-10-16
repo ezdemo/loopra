@@ -78,6 +78,7 @@ public final class ProjectMcpSkill extends LoopraMcpSkill implements AutoCloseab
                         try {
                             provider.close();
                         } catch (Exception ignored) {
+                            // provider 关闭失败不影响原始异常传播
                         }
                     }
                     log.warn("[mcp-project] 加载项目 MCP 服务器失败: {} - {}", entry.getKey(), e.getMessage());

@@ -4,11 +4,22 @@ import org.noear.snack4.ONode;
 import site.sorghum.cutin.core.context.Message;
 import site.sorghum.cutin.core.context.Usage;
 import site.sorghum.cutin.core.json.JsonSupport;
-import site.sorghum.cutin.core.model.*;
+import site.sorghum.cutin.core.model.ModelCallRequest;
+import site.sorghum.cutin.core.model.ModelCapabilities;
+import site.sorghum.cutin.core.model.ModelHttpExchange;
+import site.sorghum.cutin.core.model.ModelProvider;
+import site.sorghum.cutin.core.model.ModelResponse;
+import site.sorghum.cutin.core.model.ModelStreamPhase;
+import site.sorghum.cutin.core.model.StreamChunk;
 import site.sorghum.cutin.core.tool.ToolCall;
 import site.sorghum.cutin.core.tool.ToolDefinition;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -18,20 +29,17 @@ import java.util.stream.Stream;
  * tool_use 与 tool_result、用量统计；消息转换时会合并连续的 user 内容块，
  * 以满足 Anthropic 相邻 user 消息需要合并的协议要求。</p>
  */
-public final class AnthropicMessagesProvider implements ModelProvider {
+public final class AnthropicMessagesProvider
+    extends AbstractModelProvider<AnthropicMessagesProvider.Accumulator> {
 
     /** Anthropic API 版本头。 */
     private static final String ANTHROPIC_VERSION = "2023-06-01";
-    /** Provider 配置。 */
-    private final ModelProviderConfig config;
-    /** HTTP 传输层。 */
-    private final HttpModelTransport transport;
 
     /** 按配置创建 Provider；请求头在发送前由拦截器生成。 */
     public AnthropicMessagesProvider(ModelProviderConfig config) {
-        this.config = config;
-        this.transport = new HttpModelTransport(
-            config.endpoint("/v1/messages"),
+        super(
+            config,
+            "/v1/messages",
             Map.of(
                 "x-api-key", config.apiKey(),
                 "api-key", config.apiKey(),
@@ -40,55 +48,19 @@ public final class AnthropicMessagesProvider implements ModelProvider {
         );
     }
 
-    /** {@inheritDoc} */
     @Override
-    public String id() {
-        return config.id();
+    protected Message parseSyncMessage(ONode response) {
+        return parseMessage(JsonSupport.child(response, "content"));
     }
 
     @Override
-    public Map<String, Object> options() {
-        return config.options();
+    protected Usage parseSyncUsage(ONode response) {
+        return parseUsage(JsonSupport.child(response, "usage"));
     }
 
-    /** 同步调用：解析内容块（text、thinking、tool_use）与用量，并附带原始请求与响应体。 */
     @Override
-    public ModelResponse call(ModelCallRequest request) {
-        ONode body = _buildBody(request, false);
-        Map<String, String> headers = requestHeaders(request);
-        String raw = transport.postRaw(body, headers);
-        ONode response = JsonSupport.read(raw);
-        return new ModelResponse(
-            parseMessage(JsonSupport.child(response, "content")),
-            parseUsage(JsonSupport.child(response, "usage")),
-            true,
-            raw,
-            transport.exchangeFor(body, headers)
-        );
-    }
-
-    /** 流式调用：按 Anthropic SSE 事件转换为 StreamChunk，并在流尾聚合工具与 thinking。 */
-    @Override
-    public Stream<StreamChunk> stream(ModelCallRequest request) {
-        ONode body = _buildBody(request, true);
-        Map<String, String> headers = requestHeaders(request);
-        site.sorghum.cutin.core.model.ModelHttpExchange exchange = transport.exchangeFor(body, headers);
-        Accumulator accumulator = new Accumulator(exchange);
-        Stream<StreamChunk> chunks = transport.postSse(body, headers)
-            .map(chunk -> {
-                String raw = chunk.toJson();
-                accumulator.raw.append(raw).append('\n');
-                return chunk;
-            })
-            .flatMap(chunk -> parseChunk(chunk, accumulator));
-        return Stream.concat(chunks, Stream.of(accumulator).flatMap(Accumulator::finalStream))
-            .onClose(chunks::close);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public ModelCapabilities capabilities() {
-        return new ModelCapabilities(Set.of(config.model()), true, true);
+    protected Accumulator newAccumulator(ModelHttpExchange exchange) {
+        return new Accumulator(exchange);
     }
 
     /** {@inheritDoc} 构建 Messages 基础请求体：模型、system、消息、工具与流标记。 */
@@ -332,7 +304,8 @@ public final class AnthropicMessagesProvider implements ModelProvider {
     }
 
     /** 把单个 SSE 事件转换为 StreamChunk，并按事件类型累加 thinking、工具与用量。 */
-    private Stream<StreamChunk> parseChunk(ONode chunk, Accumulator state) {
+    @Override
+    protected Stream<StreamChunk> parseChunk(ONode chunk, Accumulator state) {
         Stream.Builder<StreamChunk> builder = Stream.builder();
         String type = JsonSupport.text(chunk, "", "type");
         switch (type) {
@@ -418,34 +391,6 @@ public final class AnthropicMessagesProvider implements ModelProvider {
         return builder.build();
     }
 
-    /** 取请求模型 id，为空时回退到配置中的默认模型。 */
-    private String model(ModelCallRequest request) {
-        return request.modelId() == null || request.modelId().isBlank()
-            ? config.model()
-            : request.modelId();
-    }
-
-    /** 生成本次请求的最终请求头，保证会话级插件看到最新请求选项。 */
-    @Override
-    public Map<String, String> requestHeaders(ModelCallRequest request) {
-        return ProviderInterceptor.runHeaders(
-            this,
-            model(request),
-            request,
-            Map.of(
-                "x-api-key", config.apiKey(),
-                "api-key", config.apiKey(),
-                "anthropic-version", ANTHROPIC_VERSION
-            )
-        );
-    }
-
-    /** 读取请求选项中的字符串值。 */
-    private String option(ModelCallRequest request, String key) {
-        Object value = request.options().get(key);
-        return value == null ? null : String.valueOf(value);
-    }
-
     /** 若内容数组只有一个 text 块，则简化为纯文本字符串，符合 Anthropic 格式。 */
     private static void finalizeContent(ONode message) {
         ONode content = JsonSupport.child(message, "content");
@@ -458,28 +403,19 @@ public final class AnthropicMessagesProvider implements ModelProvider {
     /**
      * 流式累加器：按内容块 index 记录 thinking 与 tool_use，并在流尾生成完整结果。
      */
-    private final class Accumulator {
+    final class Accumulator extends StreamAccumulator {
 
-        /** 流中出现的错误原文。 */
-        private String error;
-        /** 已累计的用量。 */
-        private Usage usage = Usage.ZERO;
         /** 消息是否已完成。 */
         private boolean completed;
         /** 用量是否已通过增量块交付过。 */
         private boolean usageDelivered;
         /** message_start 中的输入用量。 */
         private ONode inputUsage;
-        /** 全部原始 SSE 数据行。 */
-        private final StringBuilder raw = new StringBuilder();
-        private final site.sorghum.cutin.core.model.ModelHttpExchange exchange;
         /** 正在累积的 thinking 块。 */
         private ONode activeThinkingBlock;
-        /** 是否已发出本次响应的推理开始阶段。 */
-        private boolean reasoningStarted;
 
-        private Accumulator(site.sorghum.cutin.core.model.ModelHttpExchange exchange) {
-            this.exchange = exchange;
+        Accumulator(ModelHttpExchange exchange) {
+            super(exchange);
         }
         /** 已完成的 thinking 块列表。 */
         private final List<String> thinkingBlocks = new ArrayList<>();
@@ -523,12 +459,6 @@ public final class AnthropicMessagesProvider implements ModelProvider {
                 builder.name = name;
             }
             return false;
-        }
-
-        private boolean markReasoningStarted() {
-            if (reasoningStarted) return false;
-            reasoningStarted = true;
-            return true;
         }
 
         /** 追加 thinking 增量文本。 */
@@ -591,7 +521,8 @@ public final class AnthropicMessagesProvider implements ModelProvider {
         }
 
         /** 流结束时输出聚合出的工具调用、thinking 块与未交付的用量。 */
-        private Stream<StreamChunk> finalStream() {
+        @Override
+        protected Stream<StreamChunk> finalStream() {
             if (error != null) {
                 return Stream.empty();
             }
@@ -611,35 +542,6 @@ public final class AnthropicMessagesProvider implements ModelProvider {
                 metadata,
                 true
             ));
-        }
-
-        /** 构造携带错误原文的终止块。 */
-        private StreamChunk errorChunk() {
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("error", error);
-            return new StreamChunk("", null, List.of(), List.of(), usage, metadata, true);
-        }
-
-        /** 单个 tool_use 调用的增量构建器。 */
-        private final class ToolCallBuilder {
-
-            /** 工具调用 id。 */
-            private String id = "";
-            /** 工具名称。 */
-            private String name = "";
-            /** 参数 JSON 增量片段。 */
-            private final StringBuilder arguments = new StringBuilder();
-
-            /** 把累计片段解析为完整 ToolCall。 */
-            private ToolCall toToolCall() {
-                Map<String, Object> input;
-                try {
-                    input = JsonSupport.parseObject(arguments.toString());
-                } catch (RuntimeException exception) {
-                    input = Map.of();
-                }
-                return new ToolCall(id, name, input, id);
-            }
         }
     }
 }

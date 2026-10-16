@@ -89,7 +89,7 @@ public interface AgentConfig {
         return null;
     }
 
-    /** HITL auto 模式的白名单工具列表。 */
+    /** 旧版 HITL 白名单配置；当前审核链不使用此列表绕过本地及 AI 审核。 */
     List<String> autoWhitelist();
 
     /** 全局禁用的 Loop 插件 ID；默认全部启用。 */

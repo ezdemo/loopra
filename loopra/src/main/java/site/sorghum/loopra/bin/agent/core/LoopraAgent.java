@@ -378,6 +378,11 @@ public class LoopraAgent {
         return loop != null ? loop.estimateCurrentContext() : null;
     }
 
+    /** 当前会话实际生效的完整系统提示词（切片聚合结果）。 */
+    public String effectiveSystemPrompt() {
+        return loop != null ? loop.effectiveSystemPrompt() : "";
+    }
+
     /**
      * /retry 撤回最后一条消息并重试
      */

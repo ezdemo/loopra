@@ -1,9 +1,10 @@
-const { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeTheme, shell, Notification } = require('electron')
+const { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Notification } = require('electron')
 const http = require('http')
 const https = require('https')
 const path = require('path')
 const { spawn, execFile, execSync } = require('child_process')
 const { promisify } = require('util')
+const { randomUUID } = require('crypto')
 const { compareVersions } = require('./version.cjs')
 const { registerTerminalIpc, killAllTerminals } = require('./terminal.cjs')
 const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
@@ -55,7 +56,7 @@ if (handleSquirrelEvent()) {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const isWin = process.platform === 'win32'
 const shouldOpenDevTools = process.env.LOOPRA_OPEN_DEVTOOLS === '1'
-const DESKTOP_CHAT_DEV_RENDERER_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:3000']
+const DESKTOP_CHAT_DEV_RENDERER_ORIGINS = ['http://127.0.0.1:3000', 'http://localhost:3000']
 const DESKTOP_CHAT_LOAD_ATTEMPTS = DESKTOP_CHAT_DEV_RENDERER_ORIGINS.length
 const DESKTOP_CHAT_LOAD_RETRY_DELAY_MS = 200
 const DESKTOP_CHAT_LOAD_TIMEOUT_MS = 10000
@@ -76,6 +77,7 @@ let elementInspectorPendingUrl = ''
 let requirementBoardWindow = null
 let aiBrowserWindow = null
 let aiBrowserActiveTabId = null
+let aiBrowserActiveSessionId = 'desktop'
 let aiBrowserNextTabId = 1
 let aiBrowserBridge = null
 let aiBrowserBridgeReady = null
@@ -84,8 +86,13 @@ let aiBrowserActivity = { state: 'idle', message: '等待 AI 操作', timestamp:
 let desktopPetWindow = null
 let pendingDesktopPetReply = null
 const aiBrowserTabs = new Map()
+const aiBrowserSessions = new Map()
 const AI_BROWSER_SCREENSHOT_MAX_BYTES = 5 * 1024 * 1024
 const AI_BROWSER_SCREENSHOT_MAX_WIDTH = 1600
+const AI_BROWSER_RENDERED_HTML_MAX_CHARS = 320 * 1024
+const AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS = 768 * 1024
+const AI_BROWSER_RENDERED_HTML_TIMEOUT_MS = 3_000
+const AI_BROWSER_RENDERED_HTML_TOTAL_TIMEOUT_MS = 5_000
 const desktopChatTabs = new Map()
 const fileExplorerWatchers = new Map()
 let desktopChatActiveTabId = null
@@ -93,6 +100,9 @@ let desktopChatLoadingRequestId = 0
 const AI_BROWSER_BRIDGE_PREFERRED_PORT = Number(process.env.LOOPRA_BROWSER_BRIDGE_PORT || 0)
 const AI_BROWSER_TAB_CLEANUP_THRESHOLD = 16
 const AI_BROWSER_MAX_TABS = 20
+const AI_BROWSER_DEFAULT_SESSION_ID = 'desktop'
+const AI_BROWSER_SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000
+const AI_BROWSER_SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const execFileAsync = promisify(execFile)
 const appIconPath = path.join(__dirname, 'favicon.png')
 const desktopOverlayManager = new DesktopNativeOverlayManager({
@@ -349,6 +359,15 @@ function readLoopraGuiVersion() {
   const { versionPath } = getLoopraPaths()
   try {
     return fs.readFileSync(versionPath, 'utf8').trim().replace(/^v/i, '')
+  } catch {
+    return ''
+  }
+}
+
+// 安装包内置核心运行时版本（resources/loopra-core/bin/version.txt；未嵌入时返回空）
+function readBundledCoreVersion() {
+  try {
+    return fs.readFileSync(path.join(getLoopraCoreDir(), 'bin', 'version.txt'), 'utf8').trim().replace(/^v/i, '')
   } catch {
     return ''
   }
@@ -767,7 +786,7 @@ function createSplashWindow(options = {}) {
   const query = { desktopSplash: '1' }
   if (from) query.from = from
   if (isDev) {
-    const url = new URL('http://localhost:3000/')
+    const url = new URL('http://127.0.0.1:3000/')
     url.searchParams.set('desktopSplash', '1')
     if (from) url.searchParams.set('from', from)
     splashWindow.loadURL(url.toString())
@@ -808,7 +827,7 @@ function openOnboardingWindow() {
   onboardingWindow.on('closed', () => { onboardingWindow = null })
 
   if (isDev) {
-    onboardingWindow.loadURL('http://localhost:3000/?desktopOnboarding=1')
+    onboardingWindow.loadURL('http://127.0.0.1:3000/?desktopOnboarding=1')
   } else {
     onboardingWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { desktopOnboarding: '1' } })
   }
@@ -862,15 +881,8 @@ function setTitleBarOverlayDimmed(dimmed) {
 }
 
 function createWindow() {
-  const titleBarOptions = process.platform === 'win32'
-    ? {
-      frame: false,
-      titleBarStyle: 'hidden',
-      titleBarOverlay: nativeTitleBarOverlay(nativeTitleBarTheme === 'dark')
-    }
-    : process.platform === 'darwin'
-      ? { frame: false, titleBarStyle: 'hiddenInset' }
-      : { frame: true }
+  // React supplies the drag region and window controls on every platform.
+  const titleBarOptions = { frame: false }
   mainWindow = new BrowserWindow({
     width: 1200, height: 800,
     minWidth: 800, minHeight: 600,
@@ -886,7 +898,7 @@ function createWindow() {
 
   // 开发模式：加载 Vite dev server；生产模式：加载打包后的 renderer
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000/?desktopShell=1')
+    mainWindow.loadURL('http://127.0.0.1:3000/?desktopShell=1')
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { desktopShell: '1' } })
   }
@@ -1080,22 +1092,33 @@ function openDesktopPetWindow() {
   desktopPetWindow.webContents.on('did-finish-load', sendPendingDesktopPetReply)
 
   if (isDev) {
-    desktopPetWindow.loadURL('http://localhost:3000/?desktopPet=1')
+    desktopPetWindow.loadURL('http://127.0.0.1:3000/?desktopPet=1')
   } else {
     desktopPetWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { desktopPet: '1' } })
   }
   return desktopPetWindow
 }
 
-app.whenReady().then(() => {
+async function openDesktopWorkspace() {
+  // A healthy existing core can open the workspace immediately. Installation
+  // and service startup remain available through the dedicated setup window.
+  if (await healthCheck(currentPort || 4567)) {
+    currentPort = currentPort || 4567
+    createWindow()
+  } else {
+    createSplashWindow()
+  }
+}
+
+app.whenReady().then(async () => {
   // The renderer provides its own toolbar; do not expose Electron's default menu bar.
   Menu.setApplicationMenu(null)
   startAiBrowserBridge().catch((error) => console.error('[ai-browser] failed to start bridge:', error.message))
-  createSplashWindow()
+  await openDesktopWorkspace()
   if (isDesktopPetEnabled()) openDesktopPetWindow()
   app.on('activate', () => {
     // macOS dock 点击时无窗口则重新走启动窗口流程（服务已就绪时快速通过）
-    if (BrowserWindow.getAllWindows().length === 0) createSplashWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void openDesktopWorkspace()
   })
 })
 
@@ -1294,7 +1317,10 @@ ipcMain.handle('system-fonts-list', async (event) => {
   return systemFontsCache
 })
 
-ipcMain.handle('get_loopra_web_port', async () => currentPort)
+ipcMain.handle('get_loopra_web_port', async () => {
+  if (!currentPort && await healthCheck(4567)) currentPort = 4567
+  return currentPort
+})
 
 ipcMain.handle('get_electron_version', async () => {
   return app.getVersion()
@@ -1308,6 +1334,7 @@ ipcMain.handle('get_loopra_web_status', async () => {
     install_dir: runtimeDir,
     config_dir: path.join(app.getPath('home'), '.loopra'),
     bundled_core: isLoopraCoreBundled(),
+    bundled_version: readBundledCoreVersion(),
     runtime_version: readLoopraGuiVersion(),
     desktop_version: app.getVersion().replace(/^v/i, '')
   }
@@ -1737,6 +1764,39 @@ ipcMain.handle('desktop-chat-header-menu', (event, rawTheme) => {
   })
 })
 
+// 右侧工具标签选择使用原生菜单，保证它显示在原生 WebContentsView 浏览器之上。
+ipcMain.handle('desktop-tool-menu', (event, rawTheme) => {
+  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized desktop tool menu request')
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  applyNativeMenuTheme(rawTheme)
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (action) => {
+      if (settled) return
+      settled = true
+      resolve(action)
+    }
+    const menu = Menu.buildFromTemplate([
+      {label: '审查', accelerator: 'CommandOrControl+Shift+G', click: () => finish('review')},
+      {label: '终端', click: () => finish('terminal')},
+      {label: '浏览器', accelerator: 'CommandOrControl+T', click: () => finish('browser')},
+      {label: '文件', accelerator: 'CommandOrControl+P', click: () => finish('files')},
+      {label: '环境信息', click: () => finish('environment')},
+      {label: '子代理', click: () => finish('sub-agents')},
+      {label: '项目能力', click: () => finish('project-capabilities')},
+      {label: '定时任务', click: () => finish('schedule')},
+      {label: '后台进程', click: () => finish('bash')},
+      {type: 'separator'},
+      {label: '引导', click: () => finish('onboarding')}
+    ])
+    menu.popup({
+      window: mainWindow,
+      callback: () => finish(null)
+    })
+  })
+})
+
 ipcMain.handle('desktop-session-context-menu', (event, rawPayload = {}) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop session menu request')
   if (!mainWindow || mainWindow.isDestroyed()) return null
@@ -1933,11 +1993,15 @@ ipcMain.handle('desktop-pet-reply', (event, rawReply) => {
 
 ipcMain.handle('pick_loopra_workspace_folder', async (event) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized folder picker request')
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: '选择项目文件夹',
-    properties: ['openDirectory', 'createDirectory']
+  const response = await fetch(`http://127.0.0.1:${currentPort || 4567}/api/system/pick-directory`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '' }),
+    signal: AbortSignal.timeout(130000)
   })
-  return result.canceled ? '' : (result.filePaths[0] || '')
+  const result = await response.json()
+  if (!response.ok || !result.success) throw new Error(result.error || '选择项目文件夹失败')
+  return result.data || ''
 })
 
 ipcMain.handle('pick_jar_file', async (event) => {
@@ -2079,7 +2143,7 @@ function ensureDesktopMessageWindow() {
   messageWindow.webContents.setWindowOpenHandler(() => ({action: 'deny'}))
 
   if (isDev) {
-    messageWindow.loadURL('http://localhost:3000/?desktopMessage=1')
+    messageWindow.loadURL('http://127.0.0.1:3000/?desktopMessage=1')
   } else {
     messageWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {query: {desktopMessage: '1'}})
   }
@@ -2590,6 +2654,7 @@ ipcMain.handle('desktop-chat-tab-show', async (event, tabId, rawBounds) => {
   tab.view.setVisible(true)
   tab.view.webContents.focus()
   sendDesktopChatTabEvent(tab, 'desktop-chat-tab-focus-composer')
+  sendDesktopChatTabEvent(tab, 'desktop-chat-tab-visibility', true)
   tab.visible = true
   hideDesktopChatViews(tab.id)
   desktopChatActiveTabId = tab.id
@@ -2832,6 +2897,7 @@ function waitForDesktopChatLoadingPaint(tab, requestId, timeoutMs = 2_000) {
 
 function destroyDesktopChatTab(tab) {
   if (!tab) return
+  hideAiBrowserViews(tab.view?.webContents)
   for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
   for (const resolve of tab.loadingWaiters.values()) resolve(false)
   tab.loadingWaiters.clear()
@@ -2848,6 +2914,8 @@ function destroyDesktopChatTab(tab) {
 function hideDesktopChatViews(exceptTabId = null) {
   const targets = [...desktopChatTabs.values()].filter((tab) => tab.id !== exceptTabId && tab.visible)
   for (const tab of targets) {
+    sendDesktopChatTabEvent(tab, 'desktop-chat-tab-visibility', false)
+    hideAiBrowserViews(tab.view.webContents)
     tab.view.setVisible(false)
     tab.visible = false
   }
@@ -3044,10 +3112,98 @@ async function closeOtherLoopraJavaProcesses(keepPort) {
   }
 }
 
+function normalizeAiBrowserSessionId(rawSessionId, fallback = AI_BROWSER_DEFAULT_SESSION_ID) {
+  const value = String(rawSessionId || '').trim() || fallback
+  if (!AI_BROWSER_SESSION_ID_PATTERN.test(value)) {
+    throw new Error(`INVALID_BROWSER_SESSION: ${value || '(empty)'}`)
+  }
+  return value
+}
+
+function getAiBrowserSession(rawSessionId, create = true) {
+  const sessionId = normalizeAiBrowserSessionId(rawSessionId)
+  let session = aiBrowserSessions.get(sessionId)
+  if (!session && create) {
+    session = {
+      id: sessionId,
+      tabs: new Set(),
+      activeTabId: null,
+      managed: sessionId !== AI_BROWSER_DEFAULT_SESSION_ID,
+      createdAt: Date.now(),
+      lastAccessed: Date.now()
+    }
+    aiBrowserSessions.set(sessionId, session)
+  }
+  if (session) session.lastAccessed = Date.now()
+  return session || null
+}
+
+function touchAiBrowserTab(tab) {
+  if (!tab) return
+  tab.lastAccessed = Date.now()
+  const session = aiBrowserSessions.get(tab.sessionId)
+  if (session) session.lastAccessed = tab.lastAccessed
+}
+
+function invalidateAiBrowserSnapshot(tab) {
+  if (tab) tab.snapshotId = null
+}
+
+function enqueueAiBrowserTabOperation(tab, operation) {
+  const previous = tab.operationQueue || Promise.resolve()
+  const current = previous.catch(() => {}).then(async () => {
+    touchAiBrowserTab(tab)
+    return operation()
+  })
+  // Keep the queue alive after a failed operation, while returning the original
+  // rejection to the caller that owns this operation.
+  tab.operationQueue = current.catch(() => {})
+  return current
+}
+
+function sessionTabIds(session) {
+  if (!session) return []
+  const ids = []
+  for (const id of session.tabs) {
+    if (aiBrowserTabs.has(id)) ids.push(id)
+    else session.tabs.delete(id)
+  }
+  return ids
+}
+
+function setAiBrowserActiveTab(tab) {
+  if (!tab) {
+    aiBrowserActiveTabId = null
+    aiBrowserActiveSessionId = AI_BROWSER_DEFAULT_SESSION_ID
+    return
+  }
+  const session = getAiBrowserSession(tab.sessionId)
+  session.activeTabId = tab.id
+  aiBrowserActiveTabId = tab.id
+  aiBrowserActiveSessionId = session.id
+  touchAiBrowserTab(tab)
+}
+
+function resolveAiBrowserTab(tabId, rawSessionId) {
+  const session = getAiBrowserSession(rawSessionId, false)
+  if (!session) throw new Error(`BROWSER_SESSION_NOT_FOUND: ${normalizeAiBrowserSessionId(rawSessionId)}`)
+  const requestedId = String(tabId || '').trim()
+  const resolvedId = requestedId || session.activeTabId
+  if (!resolvedId) throw new Error(`BROWSER_NO_ACTIVE_TAB: session ${session.id} has no active tab`)
+  const tab = aiBrowserTabs.get(resolvedId)
+  if (!tab) throw new Error(`BROWSER_TAB_NOT_FOUND: ${resolvedId}`)
+  if (tab.sessionId !== session.id) {
+    throw new Error(`BROWSER_TAB_NOT_IN_SESSION: ${resolvedId} belongs to ${tab.sessionId}`)
+  }
+  touchAiBrowserTab(tab)
+  return tab
+}
+
 function aiBrowserTabSummary(tab) {
   const contents = tab.view.webContents
   return {
     id: tab.id,
+    sessionId: tab.sessionId,
     url: contents.isDestroyed() ? tab.url : (contents.getURL() || tab.url),
     title: tab.title || '新标签页',
     favicon: tab.favicon || null,
@@ -3058,48 +3214,115 @@ function aiBrowserTabSummary(tab) {
 }
 
 function sendAiBrowserState() {
-  if (!aiBrowserWindow || aiBrowserWindow.isDestroyed()) return
-  aiBrowserWindow.webContents.send('ai-browser-state', {
+  const payload = {
+    activeSessionId: aiBrowserActiveSessionId,
     activeTabId: aiBrowserActiveTabId,
-    tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary)
-  })
+    tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary),
+    sessions: [...aiBrowserSessions.values()].map((session) => ({
+      id: session.id,
+      activeTabId: session.activeTabId,
+      tabCount: sessionTabIds(session).length,
+      managed: session.managed
+    }))
+  }
+  if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('ai-browser-state', payload)
+  for (const desktopTab of desktopChatTabs.values()) {
+    if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
+      desktopTab.view.webContents.send('ai-browser-state', payload)
+    }
+  }
 }
 
 function sendAiBrowserActivity(state, message, details = {}) {
   aiBrowserActivity = { state, message, timestamp: Date.now(), ...details }
-  if (!aiBrowserWindow || aiBrowserWindow.isDestroyed()) return
-  aiBrowserWindow.webContents.send('ai-browser-activity', aiBrowserActivity)
+  if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('ai-browser-activity', aiBrowserActivity)
+  for (const desktopTab of desktopChatTabs.values()) {
+    if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
+      desktopTab.view.webContents.send('ai-browser-activity', aiBrowserActivity)
+    }
+  }
 }
 
-function hideAiBrowserViews() {
-  for (const tab of aiBrowserTabs.values()) tab.view.setVisible(false)
+function hideAiBrowserViews(controller = null) {
+  for (const tab of aiBrowserTabs.values()) {
+    if (!controller || tab.controller === controller) tab.view.setVisible(false)
+  }
+}
+
+function detachAiBrowserView(tab) {
+  if (!tab?.hostWindow || tab.hostWindow.isDestroyed()) {
+    if (tab) tab.hostWindow = null
+    return
+  }
+  try { tab.hostWindow.contentView.removeChildView(tab.view) } catch { /* window may be closing */ }
+  tab.hostWindow = null
+}
+
+function resolveAiBrowserHost(sender) {
+  if (sender === aiBrowserWindow?.webContents && aiBrowserWindow && !aiBrowserWindow.isDestroyed()) {
+    return {window: aiBrowserWindow, offset: {x: 0, y: 0}, desktopTab: null}
+  }
+  const desktopTab = [...desktopChatTabs.values()].find((item) => item.view.webContents === sender)
+  if (!desktopTab || !mainWindow || mainWindow.isDestroyed()) return null
+  const bounds = desktopTab.view.getBounds()
+  return {window: mainWindow, offset: {x: bounds.x, y: bounds.y}, desktopTab}
+}
+
+function isAiBrowserUiSender(sender) {
+  return Boolean(resolveAiBrowserHost(sender))
 }
 
 function closeAiBrowserTab(tabId) {
-  const tab = aiBrowserTabs.get(tabId)
+  const id = String(tabId || '')
+  const tab = aiBrowserTabs.get(id)
   if (!tab) return false
+  const session = aiBrowserSessions.get(tab.sessionId)
   tab.view.setVisible(false)
+  detachAiBrowserView(tab)
   if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
-  aiBrowserTabs.delete(tabId)
-  if (aiBrowserActiveTabId === tabId) aiBrowserActiveTabId = aiBrowserTabs.keys().next().value || null
+  aiBrowserTabs.delete(id)
+  session?.tabs.delete(id)
+  if (session?.activeTabId === id) session.activeTabId = sessionTabIds(session)[0] || null
+  if (aiBrowserActiveTabId === id) {
+    const activeSession = getAiBrowserSession(aiBrowserActiveSessionId, false)
+    const activeId = activeSession?.activeTabId
+    if (activeId && aiBrowserTabs.has(activeId)) {
+      aiBrowserActiveTabId = activeId
+    } else {
+      const fallbackSession = getAiBrowserSession(AI_BROWSER_DEFAULT_SESSION_ID, false)
+      const fallbackId = fallbackSession?.activeTabId || sessionTabIds(fallbackSession)[0] || null
+      const fallbackTab = fallbackId ? aiBrowserTabs.get(fallbackId) : null
+      setAiBrowserActiveTab(fallbackTab)
+    }
+  }
+  if (session && session.managed && session.tabs.size === 0) aiBrowserSessions.delete(session.id)
+  sendAiBrowserState()
   return true
 }
 
 function destroyAiBrowserTabs() {
   for (const id of [...aiBrowserTabs.keys()]) closeAiBrowserTab(id)
+  aiBrowserSessions.clear()
   aiBrowserActiveTabId = null
+  aiBrowserActiveSessionId = AI_BROWSER_DEFAULT_SESSION_ID
 }
 
-function getAiBrowserTab(tabId) {
+function getAiBrowserTab(tabId, rawSessionId = null) {
   const tab = aiBrowserTabs.get(String(tabId || ''))
-  if (!tab) throw new Error(`Unknown browser tab: ${tabId}`)
+  if (!tab) throw new Error(`BROWSER_TAB_NOT_FOUND: ${tabId}`)
+  if (rawSessionId != null && String(rawSessionId).trim() !== ''
+    && tab.sessionId !== normalizeAiBrowserSessionId(rawSessionId)) {
+    throw new Error(`BROWSER_TAB_NOT_IN_SESSION: ${tab.id} belongs to ${tab.sessionId}`)
+  }
+  touchAiBrowserTab(tab)
   return tab
 }
 
-async function createAiBrowserTab(rawUrl = 'about:blank') {
+async function createAiBrowserTab(rawUrl = 'about:blank', rawSessionId = AI_BROWSER_DEFAULT_SESSION_ID) {
   if (aiBrowserTabs.size >= AI_BROWSER_MAX_TABS) {
     throw new Error(`BROWSER_TAB_LIMIT: 已达到 ${AI_BROWSER_MAX_TABS} 个标签页硬上限。请先调用 browser_tabs，关闭不再需要的非活动标签页，再创建新标签页。`)
   }
+  const session = getAiBrowserSession(rawSessionId)
   const url = normalizeAiBrowserUrl(rawUrl, true)
   const id = `tab-${aiBrowserNextTabId++}`
   const view = new WebContentsView({
@@ -3110,11 +3333,28 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
       sandbox: true
     }
   })
-  const tab = { id, url, title: '新标签页', favicon: null, loading: false, lastLoadError: null, snapshotVersion: 0, snapshotId: null, view, attached: false }
+  const tab = {
+    id,
+    sessionId: session.id,
+    url,
+    title: '新标签页',
+    favicon: null,
+    loading: false,
+    lastLoadError: null,
+    snapshotVersion: 0,
+    snapshotId: null,
+    operationQueue: Promise.resolve(),
+    lastAccessed: Date.now(),
+    view,
+    attached: false,
+    hostWindow: null,
+    controller: null
+  }
   aiBrowserTabs.set(id, tab)
+  session.tabs.add(id)
   view.setVisible(false)
   view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
-    createAiBrowserTab(targetUrl)
+    createAiBrowserTab(targetUrl, tab.sessionId)
       .then((newTab) => activateAiBrowserTab(newTab.id))
       .catch((error) => sendAiBrowserActivity('failed', `无法打开新标签页：${error.message}`))
     return { action: 'deny' }
@@ -3133,6 +3373,7 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
   })
   view.webContents.on('did-start-loading', () => {
     tab.loading = true
+    invalidateAiBrowserSnapshot(tab)
     sendAiBrowserState()
   })
   view.webContents.on('did-start-navigation', (event, targetUrl, isInPlace, isMainFrame) => {
@@ -3141,6 +3382,7 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
     tab.lastLoadError = null
     tab.favicon = null
     tab.url = targetUrl || tab.url
+    invalidateAiBrowserSnapshot(tab)
     sendAiBrowserState()
   })
   view.webContents.on('did-finish-load', () => {
@@ -3162,38 +3404,43 @@ async function createAiBrowserTab(rawUrl = 'about:blank') {
   })
   view.webContents.on('did-navigate', (event, targetUrl) => {
     tab.url = targetUrl
+    invalidateAiBrowserSnapshot(tab)
     sendAiBrowserState()
   })
   view.webContents.on('did-navigate-in-page', (event, targetUrl) => {
     tab.url = targetUrl
+    invalidateAiBrowserSnapshot(tab)
     sendAiBrowserState()
   })
   view.webContents.on('destroyed', () => {
     aiBrowserTabs.delete(id)
-    if (aiBrowserActiveTabId === id) aiBrowserActiveTabId = aiBrowserTabs.keys().next().value || null
+    session.tabs.delete(id)
+    if (session.activeTabId === id) session.activeTabId = sessionTabIds(session)[0] || null
+    if (aiBrowserActiveTabId === id) setAiBrowserActiveTab(aiBrowserTabs.get(session.activeTabId))
+    if (session.managed && session.tabs.size === 0) aiBrowserSessions.delete(session.id)
     sendAiBrowserState()
   })
-  aiBrowserActiveTabId = id
+  setAiBrowserActiveTab(tab)
   sendAiBrowserState()
-  if (url !== 'about:blank') {
-    try {
-      await view.webContents.loadURL(url)
-    } catch (error) {
-      tab.loading = false
-      tab.title = '页面加载失败'
-      sendAiBrowserState()
-      throw error
-    }
+  try {
+    // 先完成 about:blank，再导航到目标 URL，避免把初始空文档当成目标页面。
+    await view.webContents.loadURL('about:blank')
+    if (url !== 'about:blank') await view.webContents.loadURL(url)
+  } catch (error) {
+    tab.loading = false
+    tab.title = '页面加载失败'
+    closeAiBrowserTab(id)
+    throw error
   }
   return aiBrowserTabSummary(tab)
 }
 
 function activateAiBrowserTab(tabId) {
   getAiBrowserTab(tabId)
-  aiBrowserActiveTabId = tabId
+  setAiBrowserActiveTab(getAiBrowserTab(tabId))
   hideAiBrowserViews()
   sendAiBrowserState()
-  return { activeTabId: aiBrowserActiveTabId }
+  return { activeSessionId: aiBrowserActiveSessionId, activeTabId: aiBrowserActiveTabId }
 }
 
 function openAiBrowserWindow() {
@@ -3217,8 +3464,15 @@ function openAiBrowserWindow() {
     }
   })
   aiBrowserWindow.on('closed', () => {
-    destroyAiBrowserTabs()
+    // 关闭独立浏览器窗口只应解除视图挂载，不能销毁 Agent/MCP 会话中的 tab。
+    for (const tab of aiBrowserTabs.values()) {
+      if (tab.hostWindow === aiBrowserWindow) {
+        tab.view.setVisible(false)
+        detachAiBrowserView(tab)
+      }
+    }
     aiBrowserWindow = null
+    sendAiBrowserState()
   })
   aiBrowserWindow.webContents.on('did-finish-load', async () => {
     if (!aiBrowserTabs.size) {
@@ -3232,19 +3486,20 @@ function openAiBrowserWindow() {
     aiBrowserWindow?.webContents.send('ai-browser-activity', aiBrowserActivity)
   })
   if (isDev) {
-    aiBrowserWindow.loadURL('http://localhost:3000/?aiBrowser=1')
+    aiBrowserWindow.loadURL('http://127.0.0.1:3000/?aiBrowser=1')
   } else {
     aiBrowserWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { aiBrowser: '1' } })
   }
   return aiBrowserWindow
 }
 
-async function aiBrowserNewTab(rawUrl) {
-  if (!aiBrowserWindow || aiBrowserWindow.isDestroyed()) openAiBrowserWindow()
-  const tab = await createAiBrowserTab(rawUrl || 'about:blank')
-  const tabCount = aiBrowserTabs.size
+async function aiBrowserNewTab(rawUrl, rawSessionId = AI_BROWSER_DEFAULT_SESSION_ID) {
+  const session = getAiBrowserSession(rawSessionId)
+  const tab = await createAiBrowserTab(rawUrl || 'about:blank', session.id)
+  const tabCount = sessionTabIds(session).length
   const cleanupRecommended = tabCount > AI_BROWSER_TAB_CLEANUP_THRESHOLD
   return {
+    sessionId: session.id,
     tab,
     activeTabId: aiBrowserActiveTabId,
     tabCount,
@@ -3255,42 +3510,59 @@ async function aiBrowserNewTab(rawUrl) {
   }
 }
 
-async function aiBrowserNavigate(tabId, rawUrl) {
-  const tab = getAiBrowserTab(tabId)
+async function aiBrowserNavigate(tabId, rawUrl, rawSessionId = null) {
+  const tab = rawSessionId == null
+    ? getAiBrowserTab(tabId)
+    : resolveAiBrowserTab(tabId, rawSessionId)
   const url = normalizeAiBrowserUrl(rawUrl)
-  tab.loading = true
-  sendAiBrowserState()
-  await tab.view.webContents.loadURL(url)
-  tab.url = tab.view.webContents.getURL() || url
-  return aiBrowserTabSummary(tab)
+  return enqueueAiBrowserTabOperation(tab, async () => {
+    invalidateAiBrowserSnapshot(tab)
+    tab.loading = true
+    sendAiBrowserState()
+    await tab.view.webContents.loadURL(url)
+    tab.url = tab.view.webContents.getURL() || url
+    setAiBrowserActiveTab(tab)
+    return aiBrowserTabSummary(tab)
+  })
 }
 
-function aiBrowserHistory(tabId, action) {
-  const tab = getAiBrowserTab(tabId)
+function aiBrowserHistory(tabId, action, rawSessionId = null) {
+  const tab = rawSessionId == null
+    ? getAiBrowserTab(tabId)
+    : resolveAiBrowserTab(tabId, rawSessionId)
   const contents = tab.view.webContents
+  invalidateAiBrowserSnapshot(tab)
   if (action === 'back' && contents.canGoBack()) contents.goBack()
   else if (action === 'forward' && contents.canGoForward()) contents.goForward()
   else if (action === 'reload') contents.reload()
+  setAiBrowserActiveTab(tab)
   return aiBrowserTabSummary(tab)
 }
 
-function normalizeAiBrowserBounds(rawBounds) {
-  if (!aiBrowserWindow || !rawBounds || typeof rawBounds !== 'object') throw new Error('Invalid native view bounds')
-  const contentBounds = aiBrowserWindow.getContentBounds()
+function normalizeAiBrowserBounds(rawBounds, host) {
+  if (!host?.window || !rawBounds || typeof rawBounds !== 'object') throw new Error('Invalid native view bounds')
+  const contentBounds = host.window.getContentBounds()
   const values = ['x', 'y', 'width', 'height'].map((key) => Math.round(Number(rawBounds[key])))
   if (!values.every(Number.isFinite) || values[2] < 1 || values[3] < 1) throw new Error('Invalid native view bounds')
-  const x = Math.max(0, Math.min(values[0], contentBounds.width - 1))
-  const y = Math.max(0, Math.min(values[1], contentBounds.height - 1))
+  const x = Math.max(0, Math.min(values[0] + host.offset.x, contentBounds.width - 1))
+  const y = Math.max(0, Math.min(values[1] + host.offset.y, contentBounds.height - 1))
   return { x, y, width: Math.max(1, Math.min(values[2], contentBounds.width - x)), height: Math.max(1, Math.min(values[3], contentBounds.height - y)) }
 }
 
-function waitForAiBrowserPageLoad(tab, timeoutMs = 30_000) {
+async function waitForAiBrowserPageLoad(tab, timeoutMs = 8_000) {
   const contents = tab.view.webContents
-  if (contents.isDestroyed()) return Promise.reject(new Error('Browser tab was closed while loading'))
-  if (tab.lastLoadError) {
-    return Promise.reject(new Error(`Page load failed: ${tab.lastLoadError.errorDescription} (${tab.lastLoadError.errorCode})`))
+  if (contents.isDestroyed()) throw new Error('Browser tab was closed while loading')
+  if (tab.lastLoadError) throw new Error(`Page load failed: ${tab.lastLoadError.errorDescription} (${tab.lastLoadError.errorCode})`)
+  if (!tab.loading && !contents.isLoadingMainFrame()) return true
+
+  // SAP/UI5 以及很多文档站会在主文档已经可交互后继续保持 loading 状态。
+  // 先看 DOM readyState，避免把“已经能读的页面”卡在 did-finish-load 事件上。
+  try {
+    const readyState = await contents.executeJavaScript('document.readyState', true)
+    if (readyState === 'interactive' || readyState === 'complete') return true
+  } catch {
+    // 页面正在切换，继续等待下面的导航事件。
   }
-  if (!tab.loading && !contents.isLoadingMainFrame()) return Promise.resolve()
 
   return new Promise((resolve, reject) => {
     const cleanup = () => {
@@ -3301,7 +3573,7 @@ function waitForAiBrowserPageLoad(tab, timeoutMs = 30_000) {
     }
     const handleFinish = () => {
       cleanup()
-      resolve()
+      resolve(true)
     }
     const handleFailure = (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame || errorCode === -3) return
@@ -3314,7 +3586,9 @@ function waitForAiBrowserPageLoad(tab, timeoutMs = 30_000) {
     }
     const timeout = setTimeout(() => {
       cleanup()
-      reject(new Error(`Page load timed out after ${Math.round(timeoutMs / 1000)} seconds`))
+      // 页面已有可见内容时，超时不应让 browser_screenshot 永久卡住；
+      // 调用方会继续读取当前 DOM，并在结果中标记仍可能处于加载中。
+      resolve(false)
     }, timeoutMs)
     contents.once('did-finish-load', handleFinish)
     contents.on('did-fail-load', handleFailure)
@@ -3323,7 +3597,21 @@ function waitForAiBrowserPageLoad(tab, timeoutMs = 30_000) {
 }
 
 async function captureAiBrowserScreenshot(tab) {
-  let image = await tab.view.webContents.capturePage()
+  let image
+  try {
+    // CDP 的 Page.captureScreenshot 不依赖 WebContentsView 当前是否可见/挂载，
+    // 对 SAP/UI5 这类原生嵌入页比 capturePage 更稳定。
+    const captured = await withAiBrowserDebugger(tab, (sendCommand) => sendCommand('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      captureBeyondViewport: false
+    }))
+    if (!captured?.data) throw new Error('CDP returned an empty screenshot')
+    image = nativeImage.createFromBuffer(Buffer.from(captured.data, 'base64'))
+  } catch {
+    // 某些 Electron/DevTools 状态下 debugger 可能已被占用，保留原生后备路径。
+    image = await tab.view.webContents.capturePage()
+  }
   if (image.getSize().width > AI_BROWSER_SCREENSHOT_MAX_WIDTH) {
     image = image.resize({ width: AI_BROWSER_SCREENSHOT_MAX_WIDTH })
   }
@@ -3340,59 +3628,386 @@ async function captureAiBrowserScreenshot(tab) {
   return `data:image/png;base64,${png.toString('base64')}`
 }
 
-async function aiBrowserSnapshot(tabId) {
-  const tab = getAiBrowserTab(tabId)
+const AI_BROWSER_RENDERED_HTML_SCRIPT = `
+  (() => {
+    const maxHtmlChars = ${AI_BROWSER_RENDERED_HTML_MAX_CHARS};
+    const root = document.documentElement?.cloneNode(true);
+    if (!root) return { title: document.title || '', url: location.href, html: '', htmlTruncated: false, visibleText: '' };
+    root.querySelectorAll('[id^="__loopra_ai_"],[data-loopra-ai-active]').forEach((element) => element.remove());
+    const isInput = (element) => element.tagName === 'INPUT' || element.tagName === 'TEXTAREA';
+    const isSensitive = (element) => {
+      if (!isInput(element)) return false;
+      const hint = [element.tagName === 'INPUT' ? element.type : '', element.name, element.id, element.autocomplete, element.getAttribute('aria-label') || '', element.getAttribute('placeholder') || ''].join(' ').toLowerCase();
+      return (element.tagName === 'INPUT' && element.type === 'password') || /(captcha|verification|verify|otp|one-time|passcode|password|token|secret)/.test(hint);
+    };
+    root.querySelectorAll('input,textarea').forEach((element) => {
+      if (!isSensitive(element)) return;
+      element.removeAttribute('value');
+      if (element.tagName === 'TEXTAREA') element.textContent = '';
+    });
+    const html = root.outerHTML || '';
+    return {
+      title: String(document.title || '').slice(0, 160),
+      url: location.href,
+      readyState: document.readyState,
+      html: html.slice(0, maxHtmlChars),
+      htmlTruncated: html.length > maxHtmlChars,
+      visibleText: String(document.body?.innerText || '').slice(0, 12000)
+    };
+  })()
+`
+
+async function executeAiBrowserFrameJavaScript(frame, code, timeoutMs = AI_BROWSER_RENDERED_HTML_TIMEOUT_MS) {
+  if (!frame || frame.isDestroyed?.() || frame.detached) throw new Error('Browser frame is no longer available')
+  let timer
+  try {
+    return await Promise.race([
+      frame.executeJavaScript(code, false),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Browser frame HTML extraction timed out')), timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function captureAiBrowserRenderedHtml(tab) {
+  const mainFrame = tab.view.webContents.mainFrame
+  const allFrames = mainFrame && !mainFrame.isDestroyed?.()
+    ? Array.from(mainFrame.framesInSubtree || [mainFrame])
+    : []
+  const frames = allFrames.slice(0, 16)
+  const documents = []
+  const textParts = []
+  let totalChars = 0
+  let truncated = allFrames.length > frames.length
+  const deadline = Date.now() + AI_BROWSER_RENDERED_HTML_TOTAL_TIMEOUT_MS
+
+  for (let index = 0; index < frames.length; index++) {
+    const frame = frames[index]
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
+      truncated = true
+      break
+    }
+    let result
+    try {
+      result = await executeAiBrowserFrameJavaScript(frame, AI_BROWSER_RENDERED_HTML_SCRIPT, Math.min(AI_BROWSER_RENDERED_HTML_TIMEOUT_MS, remainingMs))
+    } catch (error) {
+      documents.push({
+        kind: index === 0 ? 'main' : 'iframe',
+        frameId: String(frame.frameTreeNodeId ?? index),
+        parentFrameId: frame.parent ? String(frame.parent.frameTreeNodeId ?? '') : null,
+        url: String(frame.url || ''),
+        accessible: false,
+        error: String(error?.message || 'FRAME_HTML_UNAVAILABLE').slice(0, 240)
+      })
+      continue
+    }
+
+    const rawHtml = String(result?.html || '')
+    const remaining = Math.max(0, AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS - totalChars)
+    const html = rawHtml.slice(0, Math.min(AI_BROWSER_RENDERED_HTML_MAX_CHARS, remaining))
+    totalChars += html.length
+    if (html.length < rawHtml.length || totalChars >= AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS) truncated = true
+    const visibleText = String(result?.visibleText || '').trim()
+    if (visibleText) textParts.push(visibleText)
+    documents.push({
+      kind: index === 0 ? 'main' : 'iframe',
+      frameId: String(frame.frameTreeNodeId ?? index),
+      parentFrameId: frame.parent ? String(frame.parent.frameTreeNodeId ?? '') : null,
+      url: String(result?.url || frame.url || ''),
+      title: String(result?.title || '').slice(0, 160),
+      origin: String(frame.origin || ''),
+      readyState: String(result?.readyState || ''),
+      accessible: true,
+      html,
+      htmlTruncated: html.length < rawHtml.length
+    })
+    if (totalChars >= AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS) break
+  }
+
+  return {
+    truncated,
+    totalChars,
+    documents,
+    visibleText: textParts.join('\n').slice(0, 7000)
+  }
+}
+
+async function resolveAiBrowserTarget(tab, targetId) {
+  const normalizedTargetId = String(targetId || '').trim().toLowerCase()
+  const result = await tab.view.webContents.executeJavaScript(`
+    (() => {
+      const id = ${JSON.stringify(normalizedTargetId)};
+      const el = window.__loopraAiSnapshotTargets?.get(id);
+      if (!el || !el.isConnected) return { error: 'Target no longer exists. Call browser_screenshot again.' };
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = window.__loopraAiSnapshotRect?.(el) || el.getBoundingClientRect();
+      if (!Number.isFinite(rect.left) || !Number.isFinite(rect.top) || rect.width < 1 || rect.height < 1) {
+        return { error: 'Target is not visible. Call browser_screenshot again.' };
+      }
+      return {
+        tag: el.tagName.toLowerCase(),
+        text: String(el.innerText || el.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().slice(0, 120),
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        width: rect.width,
+        height: rect.height
+      };
+    })()
+  `, true)
+  if (!result || result.error) throw new Error(result?.error || 'Target no longer exists. Call browser_screenshot again.')
+  return result
+}
+
+async function withAiBrowserDebugger(tab, operation) {
+  const debuggerApi = tab.view.webContents.debugger
+  let attachedByUs = false
+  if (!debuggerApi.isAttached()) {
+    debuggerApi.attach('1.3')
+    attachedByUs = true
+  }
+  try {
+    return await operation((method, params = {}) => debuggerApi.sendCommand(method, params))
+  } finally {
+    if (attachedByUs && debuggerApi.isAttached()) {
+      try { debuggerApi.detach() } catch { /* the tab may be closing */ }
+    }
+  }
+}
+
+async function aiBrowserClickAt(tab, targetId) {
+  const coordinate = await resolveAiBrowserTarget(tab, targetId)
+  await withAiBrowserDebugger(tab, async (sendCommand) => {
+    await sendCommand('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: coordinate.x,
+      y: coordinate.y,
+      button: 'left',
+      clickCount: 1
+    })
+    await sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: coordinate.x,
+      y: coordinate.y,
+      button: 'left',
+      clickCount: 1
+    })
+  })
+  return { action: 'click_at', targetId, tag: coordinate.tag, text: coordinate.text }
+}
+
+async function aiBrowserScrollPage(tab, direction, amount) {
+  const normalizedDirection = String(direction || 'down').trim().toLowerCase()
+  if (!['up', 'down', 'top', 'bottom'].includes(normalizedDirection)) {
+    throw new Error(`INVALID_SCROLL_DIRECTION: ${direction || '(empty)'}`)
+  }
+  const normalizedAmount = Math.max(50, Math.min(5000, Math.round(Number(amount) || 800)))
+  const viewport = await tab.view.webContents.executeJavaScript(`
+    (() => {
+      const direction = ${JSON.stringify(normalizedDirection)};
+      const amount = ${normalizedAmount};
+      const scrollableRange = (scroller, view) => Math.max(0, scroller.scrollHeight - view.innerHeight);
+      const candidates = [];
+      const topScroller = document.scrollingElement || document.documentElement;
+      candidates.push({
+        scroller: topScroller,
+        view: window,
+        frame: null,
+        range: scrollableRange(topScroller, window),
+        visible: true
+      });
+      // 文档站和 SAP 容器常把真正页面放在同源 iframe 里。优先选择当前
+      // 可见且滚动范围最大的内容文档，否则 browser_scroll 只会滚动外壳。
+      for (const frame of Array.from(document.querySelectorAll('iframe'))) {
+        try {
+          const frameDocument = frame.contentDocument;
+          const frameView = frameDocument?.defaultView;
+          const scroller = frameDocument?.scrollingElement;
+          const rect = frame.getBoundingClientRect();
+          if (!frameDocument || !frameView || !scroller || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
+          candidates.push({
+            scroller,
+            view: frameView,
+            frame,
+            range: scrollableRange(scroller, frameView),
+            visible: true
+          });
+        } catch (_) {
+          // 跨源 iframe 无法由父文档控制，交给 frames.sameOrigin 提示调用方。
+        }
+      }
+      const target = candidates.sort((a, b) => Number(b.visible) - Number(a.visible) || b.range - a.range)[0];
+      if (target.range > 0) {
+        const current = target.view.scrollY || target.scroller.scrollTop || 0;
+        const top = direction === 'top'
+          ? 0
+          : direction === 'bottom'
+            ? target.range
+            : Math.max(0, Math.min(target.range, current + (direction === 'up' ? -amount : amount)));
+        target.view.scrollTo({ top, behavior: 'auto' });
+      } else if (direction === 'top') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
+      return {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        scrollX: Math.round(window.scrollX),
+        scrollY: Math.round(window.scrollY),
+        documentWidth: Math.round(document.documentElement.scrollWidth),
+        documentHeight: Math.round(document.documentElement.scrollHeight),
+        scrollTarget: target.frame ? 'same-origin-iframe' : 'document',
+        nestedScrollY: Math.round(target.view.scrollY || target.scroller.scrollTop || 0),
+        nestedScrollHeight: Math.round(target.scroller.scrollHeight)
+      };
+    })()
+  `, true)
+  await new Promise((resolve) => setTimeout(resolve, 800))
+  invalidateAiBrowserSnapshot(tab)
+  return { sessionId: tab.sessionId, tabId: tab.id, direction: normalizedDirection, amount: normalizedAmount, viewport }
+}
+
+function cleanupIdleAiBrowserTabs() {
+  const now = Date.now()
+  for (const session of [...aiBrowserSessions.values()]) {
+    if (!session.managed || now - session.lastAccessed < AI_BROWSER_SESSION_IDLE_TIMEOUT_MS) continue
+    for (const id of sessionTabIds(session)) {
+      const tab = aiBrowserTabs.get(id)
+      if (tab && now - tab.lastAccessed >= AI_BROWSER_SESSION_IDLE_TIMEOUT_MS) closeAiBrowserTab(id)
+    }
+    if (session.tabs.size === 0) aiBrowserSessions.delete(session.id)
+  }
+}
+
+async function aiBrowserSnapshot(tabId, rawSessionId = null) {
+  const tab = rawSessionId == null
+    ? getAiBrowserTab(tabId)
+    : resolveAiBrowserTab(tabId, rawSessionId)
+  return enqueueAiBrowserTabOperation(tab, () => aiBrowserSnapshotNow(tab))
+}
+
+async function aiBrowserSnapshotNow(tab) {
   if (tab.loading || tab.view.webContents.isLoadingMainFrame()) {
     sendAiBrowserActivity('running', 'AI 正在等待页面加载完成', { method: 'screenshot', tabId: tab.id })
   }
-  await waitForAiBrowserPageLoad(tab)
-  await tab.view.webContents.executeJavaScript(`
-    new Promise((resolve) => {
-      const afterPaint = () => requestAnimationFrame(() => requestAnimationFrame(resolve));
-      if (document.readyState === 'complete') afterPaint();
-      else window.addEventListener('load', afterPaint, { once: true });
-    })
-  `, true)
-  await tab.view.webContents.executeJavaScript(`
-    new Promise((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        observer.disconnect();
-        clearTimeout(maxWait);
-        clearTimeout(quietWait);
-        resolve();
-      };
-      const observer = new MutationObserver(() => {
-        clearTimeout(quietWait);
-        quietWait = setTimeout(finish, 250);
-      });
-      let quietWait = setTimeout(finish, 250);
-      const maxWait = setTimeout(finish, 1500);
-      observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-    })
-  `, true)
+  const pageReady = await waitForAiBrowserPageLoad(tab)
+  if (!pageReady) {
+    sendAiBrowserActivity('running', '页面仍在加载，先读取当前已渲染内容', { method: 'screenshot', tabId: tab.id })
+  }
+  // 不在页面里安装全量 MutationObserver：SAP/UI5 等应用会持续更新 DOM，
+  // 这会让快照调用长期占用 renderer。短暂的主进程等待足够覆盖首屏绘制。
+  await new Promise((resolve) => setTimeout(resolve, 280))
   const snapshot = await tab.view.webContents.executeJavaScript(`
-    (() => {
-      const MAX_NODES = 180;
-      const MAX_DEPTH = 7;
+    (async () => {
+      const MAX_NODES = 260;
+      // DOM 原始深度只负责防止恶意/异常页面无限嵌套；透明布局节点不消耗
+      // 语义深度，因此 SAP/UI5 的深层 wrapper 不会把真正正文提前截掉。
+      const MAX_RAW_DEPTH = 32;
+      const MAX_LOGICAL_DEPTH = 12;
       const MAX_ELEMENTS = 120;
+      const MAX_SCAN_ELEMENTS = 3500;
+      const scanDeadline = performance.now() + 1200;
+      let scanTruncated = false;
+      const hasScanTime = () => performance.now() < scanDeadline;
+      const yieldToPage = () => new Promise((resolve) => setTimeout(resolve, 0));
       let count = 0;
       let targetIndex = 0;
       const targetIds = new WeakMap();
+      // ID 映射只保存在页面内存中，不向 SAP/UI5 DOM 写入自定义属性，避免触发
+      // 框架重渲染或 MutationObserver 副作用。
+      try { window.__loopraAiSnapshotCleanup?.() } catch (_) { /* 页面可能覆盖了旧清理函数 */ }
+      const targetMap = new Map();
+      const frameHostByDocument = new WeakMap();
+      const frameDocuments = new Set([document]);
+      window.__loopraAiSnapshotTargets = targetMap;
+      const invalidateTargetMap = () => { window.__loopraAiSnapshotTargets = null; };
+      const guardedEvents = ['click', 'input', 'change', 'submit', 'popstate', 'hashchange'];
+      const guardedEventTargets = new Set([window]);
+      guardedEvents.forEach((type) => window.addEventListener(type, invalidateTargetMap, true));
+      window.__loopraAiSnapshotCleanup = () => {
+        for (const eventTarget of guardedEventTargets) {
+          guardedEvents.forEach((type) => eventTarget.removeEventListener(type, invalidateTargetMap, true));
+        }
+      };
       const clean = (value, max = 240) => String(value || '').replace(/\\s+/g, ' ').trim().slice(0, max);
+      const cleanLines = (value, max = 7000) => {
+        const lines = String(value || '').slice(0, max * 4).split(/\\r?\\n/)
+          .map((line) => clean(line, 360))
+          .filter(Boolean);
+        const kept = [];
+        let length = 0;
+        for (const line of lines) {
+          if (line === kept[kept.length - 1]) continue;
+          if (length + line.length + 1 > max) break;
+          kept.push(line);
+          length += line.length + 1;
+        }
+        return kept.join('\\n');
+      };
       const styleCache = new WeakMap();
       const hiddenCache = new WeakMap();
       const styleOf = (el) => {
         let style = styleCache.get(el);
         if (!style) {
-          style = getComputedStyle(el);
+          const view = el.ownerDocument?.defaultView || window;
+          style = view.getComputedStyle(el);
           styleCache.set(el, style);
         }
         return style;
       };
-      const parentOf = (el) => el.parentElement || el.getRootNode?.().host || null;
+      const parentOf = (el) => el?.parentElement || frameHostByDocument.get(el?.ownerDocument) || el?.getRootNode?.().host || null;
+      const registerFrameDocument = (frame) => {
+        if (!frame || frame.tagName !== 'IFRAME') return null;
+        try {
+          const frameDocument = frame.contentDocument;
+          if (!frameDocument?.body) return null;
+          frameHostByDocument.set(frameDocument, frame);
+          frameDocuments.add(frameDocument);
+          const frameWindow = frameDocument.defaultView;
+          if (frameWindow && !guardedEventTargets.has(frameWindow)) {
+            guardedEventTargets.add(frameWindow);
+            guardedEvents.forEach((type) => frameWindow.addEventListener(type, invalidateTargetMap, true));
+          }
+          return frameDocument;
+        } catch (_) {
+          // 跨源 iframe 受浏览器同源策略保护，不能从父文档读取其 DOM。
+          return null;
+        }
+      };
+      const childrenOf = (el) => {
+        const children = Array.from(el?.children || []);
+        if (el?.shadowRoot) children.push(...Array.from(el.shadowRoot.children || []));
+        const frameDocument = el?.tagName === 'IFRAME' ? registerFrameDocument(el) : null;
+        if (frameDocument?.body) children.push(...Array.from(frameDocument.body.children || []));
+        return children;
+      };
+      const topRectOf = (el) => {
+        const local = el.getBoundingClientRect();
+        let left = local.left;
+        let top = local.top;
+        let ownerDocument = el.ownerDocument;
+        while (ownerDocument && ownerDocument !== document) {
+          const frameHost = frameHostByDocument.get(ownerDocument);
+          if (!frameHost) break;
+          const frameRect = frameHost.getBoundingClientRect();
+          left += frameRect.left + frameHost.clientLeft;
+          top += frameRect.top + frameHost.clientTop;
+          ownerDocument = frameHost.ownerDocument;
+        }
+        return {
+          left,
+          top,
+          right: left + local.width,
+          bottom: top + local.height,
+          width: local.width,
+          height: local.height
+        };
+      };
+      // browser_act/click_at 在快照之后执行，需要和快照使用同一套 iframe
+      // 坐标换算；函数只暴露给本次快照的内部操作，不暴露页面数据。
+      window.__loopraAiSnapshotRect = topRectOf;
       const hidden = (el) => {
         if (hiddenCache.has(el)) return hiddenCache.get(el);
         let result = false;
@@ -3407,19 +4022,51 @@ async function aiBrowserSnapshot(tabId) {
         return result;
       };
       const ignored = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'META', 'LINK', 'HEAD', 'SVG', 'PATH']);
-      const textEditable = (el) => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable;
-      const structuralInteractive = (el) => textEditable(el) || el.matches('a[href],button,select,summary,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="option"],[role="combobox"],[role="textbox"],[role="slider"],[role="treeitem"],[onclick],[aria-expanded],[aria-haspopup],[tabindex]:not([tabindex="-1"])');
+      // 不使用父窗口的 instanceof 判断：同源 iframe 中的元素属于 iframe
+      // 自己的 JS realm，tagName 判断才能同时覆盖父文档和嵌套文档。
+      const isInput = (el) => el?.tagName === 'INPUT';
+      const isTextArea = (el) => el?.tagName === 'TEXTAREA';
+      const isSelect = (el) => el?.tagName === 'SELECT';
+      const textEditable = (el) => {
+        if (isTextArea(el) || el.isContentEditable) return true;
+        if (!isInput(el)) return false;
+        return !['checkbox', 'radio', 'file', 'hidden', 'button', 'submit', 'reset', 'image', 'range', 'color'].includes(el.type);
+      };
+      const sensitiveInput = (el) => {
+        if (!(isInput(el) || isTextArea(el))) return false;
+        const hint = [isInput(el) ? el.type : '', el.name, el.id, el.autocomplete, el.getAttribute('aria-label') || '', el.getAttribute('placeholder') || ''].join(' ').toLowerCase();
+        return (isInput(el) && el.type === 'password') || /(captcha|verification|verify|otp|one-time|passcode|password|token|secret)/.test(hint);
+      };
+      const structuralInteractive = (el) => textEditable(el) || el.matches('a[href],button,select,input[type="checkbox"],input[type="radio"],input[type="file"],input[type="button"],input[type="submit"],input[type="reset"],summary,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="option"],[role="combobox"],[role="textbox"],[role="slider"],[role="treeitem"],[onclick],[aria-expanded],[aria-haspopup],[tabindex]:not([tabindex="-1"])');
       const interactive = (el) => structuralInteractive(el) || styleOf(el).cursor === 'pointer';
-      const collectElements = (root, result = []) => {
-        for (const el of root.querySelectorAll('*')) {
+      // 不能对 SAP/UI5 这类大型应用直接执行多次 querySelectorAll('*')。
+      // 使用有预算的迭代遍历，超出预算时返回截断快照而不是阻塞 renderer。
+      const collectElements = async (root, result = []) => {
+        const stack = [];
+        const children = root?.children || [];
+        for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+        let visited = 0;
+        while (stack.length) {
+          if (result.length >= MAX_SCAN_ELEMENTS || !hasScanTime()) {
+            scanTruncated = true;
+            break;
+          }
+          const el = stack.pop();
           result.push(el);
-          if (el.shadowRoot) collectElements(el.shadowRoot, result);
+          if (++visited % 80 === 0) await yieldToPage();
+          if (ignored.has(el.tagName)) continue;
+          const elementChildren = childrenOf(el);
+          for (let i = elementChildren.length - 1; i >= 0; i--) stack.push(elementChildren[i]);
         }
         return result;
       };
-      const allElements = collectElements(document);
+      const allElements = await collectElements(document);
+      // 元素遍历和候选控件筛选使用独立预算。之前共用 scanDeadline，
+      // SAP 页面一旦遍历稍慢，后续候选和 DOM 树就会被直接截断。
+      const candidateDeadline = performance.now() + 900;
+      const hasCandidateTime = () => performance.now() < candidateDeadline;
       const labelledBy = (el) => clean(String(el.getAttribute('aria-labelledby') || '').split(/\\s+/)
-        .map((id) => document.getElementById(id)?.innerText || '')
+        .map((id) => el.ownerDocument?.getElementById(id)?.innerText || '')
         .join(' '), 180);
       const labelText = (el) => clean([
         el.getAttribute('aria-label'),
@@ -3436,7 +4083,7 @@ async function aiBrowserSnapshot(tabId) {
           const value = clean(el.getAttribute(name), 180);
           if (value) out[name] = value;
         }
-        if (el instanceof HTMLInputElement && el.type !== 'password' && el.value) out.value = clean(el.value, 120);
+        if (isInput(el) && !sensitiveInput(el) && el.value) out.value = clean(el.value, 120);
         return out;
       };
       const textOf = (el, max = 180) => clean(labelText(el) || el.innerText || el.getAttribute('alt') || el.getAttribute('title'), max);
@@ -3444,9 +4091,9 @@ async function aiBrowserSnapshot(tabId) {
         .filter((node) => node.nodeType === Node.TEXT_NODE)
         .map((node) => node.textContent)
         .join(' '), 180);
-      const actionsFor = (el) => textEditable(el)
+      const actionsFor = (el) => sensitiveInput(el) ? ['scroll'] : (textEditable(el)
         ? ['fill', 'press', 'scroll']
-        : (el.matches('select') ? ['select', 'scroll'] : ['click', 'scroll']);
+        : (el.matches('select') ? ['select', 'scroll'] : ['click', 'click_at', 'scroll']));
       const stateFor = (el) => {
         const state = {};
         const name = labelText(el);
@@ -3459,14 +4106,14 @@ async function aiBrowserSnapshot(tabId) {
         if (el.isContentEditable) state.contentEditable = true;
         if ('disabled' in el) state.disabled = Boolean(el.disabled);
         if ('required' in el && el.required) state.required = true;
-        if (el instanceof HTMLInputElement) {
+        if (isInput(el)) {
           state.inputType = el.type;
           if (el.type === 'checkbox' || el.type === 'radio') state.checked = el.checked;
-          if (el.type === 'password') state.sensitive = true;
+          if (sensitiveInput(el)) state.sensitive = true;
           else if (el.value) state.value = clean(el.value, 120);
-        } else if (el instanceof HTMLTextAreaElement && el.value) {
+        } else if (isTextArea(el) && !sensitiveInput(el) && el.value) {
           state.value = clean(el.value, 120);
-        } else if (el instanceof HTMLSelectElement) {
+        } else if (isSelect(el)) {
           state.value = clean(el.value, 120);
           state.selectedText = clean(el.selectedOptions[0]?.text, 120);
           state.options = Array.from(el.options).slice(0, 30).map((option) => ({ value: clean(option.value, 120), text: clean(option.text, 120), selected: option.selected }));
@@ -3484,12 +4131,21 @@ async function aiBrowserSnapshot(tabId) {
         for (let node = el; node && node !== document.body; node = parentOf(node)) if (overlayRole(node)) return node;
         return null;
       };
-      const visibleInViewport = (rect) => rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+      const visibleInViewport = (rect) => {
+        if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= window.innerHeight || rect.left >= window.innerWidth) return false;
+        const visibleWidth = Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
+        const visibleHeight = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+        // 仅与视口擦过 1px 的响应式菜单项不算“可见”；大 iframe/大容器
+        // 只要有足够可操作面积仍然算可见。
+        return visibleWidth >= Math.min(8, rect.width) && visibleHeight >= Math.min(8, rect.height);
+      };
       const occluded = (el, rect) => {
         if (!visibleInViewport(rect)) return false;
-        const x = Math.max(0, Math.min(window.innerWidth - 1, rect.left + Math.min(rect.width / 2, 12)));
-        const y = Math.max(0, Math.min(window.innerHeight - 1, rect.top + Math.min(rect.height / 2, 12)));
-        const hit = document.elementFromPoint(x, y);
+        const localRect = el.getBoundingClientRect();
+        const view = el.ownerDocument?.defaultView || window;
+        const x = Math.max(0, Math.min(view.innerWidth - 1, localRect.left + Math.min(localRect.width / 2, 12)));
+        const y = Math.max(0, Math.min(view.innerHeight - 1, localRect.top + Math.min(localRect.height / 2, 12)));
+        const hit = el.ownerDocument?.elementFromPoint(x, y);
         return Boolean(hit && hit !== el && !el.contains(hit) && !hit.contains(el));
       };
       const targetIdFor = (el) => {
@@ -3497,23 +4153,27 @@ async function aiBrowserSnapshot(tabId) {
         if (!id) {
           id = 'e' + (++targetIndex);
           targetIds.set(el, id);
-          el.setAttribute('data-loopra-ai-id', id);
+          targetMap.set(id, el);
         }
         return id;
       };
-      // IDs are a snapshot-scoped contract. Remove stale IDs before assigning the next set.
-      allElements.filter((el) => el.hasAttribute('data-loopra-ai-id')).forEach((el) => el.removeAttribute('data-loopra-ai-id'));
       const depthOf = (el) => {
         let depth = 0;
         for (let node = parentOf(el); node; node = parentOf(node)) depth++;
         return depth;
       };
       const candidateByTarget = new Map();
-      for (const source of allElements) {
+      for (let sourceIndex = 0; sourceIndex < allElements.length; sourceIndex++) {
+        if (sourceIndex > 0 && sourceIndex % 80 === 0) await yieldToPage();
+        const source = allElements[sourceIndex];
+        if (!hasCandidateTime()) {
+          scanTruncated = true;
+          break;
+        }
         if (ignored.has(source.tagName) || hidden(source) || (!interactive(source) && source.children.length > 0)) continue;
         const target = closestActionTarget(source);
         if (!target) continue;
-        const rect = target.getBoundingClientRect();
+        const rect = topRectOf(target);
         const text = textOf(source) || textOf(target) || (textEditable(target) ? '可编辑区域' : '');
         if (rect.width < 2 || rect.height < 2 || (!text && !textEditable(target) && !target.matches('select'))) continue;
         const candidate = { el: target, rect, text, overlay: overlayOf(target) };
@@ -3534,7 +4194,13 @@ async function aiBrowserSnapshot(tabId) {
           return a.rect.top - b.rect.top || a.rect.left - b.rect.left;
         });
       const selectedTargets = [];
-      for (const item of candidateElements) {
+      for (let itemIndex = 0; itemIndex < candidateElements.length; itemIndex++) {
+        if (itemIndex > 0 && itemIndex % 40 === 0) await yieldToPage();
+        const item = candidateElements[itemIndex];
+        if (!hasCandidateTime()) {
+          scanTruncated = true;
+          break;
+        }
         if (selectedTargets.length >= MAX_ELEMENTS) break;
         // The list is leaf-first. Keep the specific child control and skip its broader wrapper.
         if (selectedTargets.some((existing) => existing.text === item.text && item.el.contains(existing.el))) continue;
@@ -3555,20 +4221,40 @@ async function aiBrowserSnapshot(tabId) {
           width: Math.round(rect.width), height: Math.round(rect.height)
         }
       }));
-      const build = (el, depth) => {
-        if (!el || count >= MAX_NODES || depth > MAX_DEPTH || ignored.has(el.tagName) || hidden(el)) return null;
-        const children = [];
-        for (const child of el.children) {
-          const item = build(child, depth + 1);
-          if (item) children.push(item);
-          if (count >= MAX_NODES) break;
-        }
+      const MAX_TREE_VISITS = 1800;
+      const treeDeadline = performance.now() + 1400;
+      const hasTreeTime = () => performance.now() < treeDeadline;
+      let buildVisited = 0;
+      let buildYieldCounter = 0;
+      let treeTruncated = false;
+      const semanticTag = (el) => /^(H[1-6]|P|LI|MAIN|ARTICLE|SECTION|NAV|HEADER|FOOTER|FORM|BUTTON|A|SUMMARY|IMG|LABEL|TABLE|TR|TD|TH|DL|DT|DD)$/.test(el.tagName);
+      const hasSemanticAttrs = (el) => Boolean(
+        targetIds.get(el) ||
+        el.getAttribute('role') ||
+        el.getAttribute('aria-label') ||
+        el.getAttribute('aria-labelledby') ||
+        el.getAttribute('title') ||
+        el.getAttribute('alt')
+      );
+      const hardInvalid = (el) => {
+        if (!el || ignored.has(el.tagName) || hidden(el)) return true;
+        if (el.matches('input[type="hidden"]')) return true;
+        const rect = el.getBoundingClientRect();
+        // 垂直离开视口可能只是页面下方的正常内容；横向 -9999px 这类
+        // visually-hidden 控件则通常是无效副本，不应污染快照。
+        if (rect.right < -1024 || rect.left > window.innerWidth + 1024) return true;
+        // 没有 alt/label/交互语义的图片只是装饰，不进入结构树。
+        if (el.tagName === 'IMG' && !labelText(el) && !targetIds.get(el) && !el.getAttribute('role')) return true;
+        return false;
+      };
+      const makeTreeNode = (el, children) => {
         const id = targetIds.get(el);
-        const text = children.length ? directText(el) : textOf(el, 240);
-        const semantic = /^(H[1-6]|P|LI|MAIN|ARTICLE|SECTION|NAV|IMG|LABEL|TABLE|TR|TD|TH)$/.test(el.tagName);
-        const meaningful = Boolean(id) || children.length > 0 || semantic;
-        if (!meaningful || (!text && !id && children.length === 0)) return null;
-        if (!id && !semantic && !text && children.length === 1) return children[0];
+        const ownText = directText(el);
+        const text = children.length ? ownText : textOf(el, 240);
+        const semantic = semanticTag(el);
+        const meaningful = Boolean(id || semantic || hasSemanticAttrs(el) || text || children.length);
+        if (!meaningful) return null;
+
         const node = { tag: el.tagName.toLowerCase() };
         if (text) node.text = text;
         const nodeAttrs = attrs(el);
@@ -3578,27 +4264,100 @@ async function aiBrowserSnapshot(tabId) {
           node.actions = actionsFor(el);
         }
         if (children.length) node.children = children;
-        count++;
         return node;
       };
-      const body = build(document.body, 0);
+      // 返回 Node[] 而非单个 Node：无意义 wrapper 可以被安全地折叠/展开，
+      // 这样输出的是“语义深度”而不是原始 div 套 div 的深度。
+      const build = async (el, rawDepth, logicalDepth) => {
+        if (!el) return [];
+        if (count >= MAX_NODES || buildVisited >= MAX_TREE_VISITS || !hasTreeTime()) {
+          treeTruncated = true;
+          return [];
+        }
+        if (rawDepth > MAX_RAW_DEPTH) {
+          treeTruncated = true;
+          return [];
+        }
+        if (hardInvalid(el)) return [];
+        buildVisited++;
+
+        const ownText = directText(el);
+        const ownMeaningful = Boolean(targetIds.get(el) || semanticTag(el) || hasSemanticAttrs(el) || ownText);
+        const children = [];
+        const childNodes = childrenOf(el);
+
+        // 达到逻辑深度后，仍允许继续穿过透明 wrapper；只有遇到新的语义节点
+        // 才停止向下展开，避免深层布局壳把标题/表格内容截断。
+        const canDescend = (rawDepth < MAX_RAW_DEPTH && logicalDepth < MAX_LOGICAL_DEPTH) || !ownMeaningful;
+        if (canDescend) {
+          for (const child of childNodes) {
+            if (++buildYieldCounter % 40 === 0) await yieldToPage();
+            if (!hasTreeTime()) {
+              treeTruncated = true;
+              break;
+            }
+            const items = await build(child, rawDepth + 1, logicalDepth + (ownMeaningful ? 1 : 0));
+            if (items.length) children.push(...items);
+            if (count >= MAX_NODES) {
+              treeTruncated = true;
+              break;
+            }
+          }
+        } else if (childNodes.length) {
+          treeTruncated = true;
+        }
+
+        // 空布局节点直接丢弃；一个有效子节点的包装层返回该子节点；
+        // 多个有效子节点的包装层展开，避免无意义的 div 污染模型上下文。
+        const node = makeTreeNode(el, children);
+        if (!node) return children;
+        if (!ownMeaningful && !semanticTag(el) && !hasSemanticAttrs(el)) return children;
+        if (count >= MAX_NODES) {
+          treeTruncated = true;
+          return children;
+        }
+        count++;
+        return [node];
+      };
+      const bodyItems = await build(document.body, 0, 0);
+      const body = { tag: 'body' };
+      if (bodyItems.length) body.children = bodyItems;
+      else body.text = clean(document.body && document.body.innerText, 240);
       const overlays = allElements.filter((el) => !hidden(el) && overlayRole(el)).slice(0, 8).map((el) => {
-        const rect = el.getBoundingClientRect();
+        const rect = topRectOf(el);
         return { role: el.getAttribute('role') || el.tagName.toLowerCase(), text: textOf(el, 220), inViewport: visibleInViewport(rect) };
       });
       const notices = allElements.filter((el) => !hidden(el) && (el.getAttribute('role') === 'alert' || el.hasAttribute('aria-live')))
         .slice(0, 8).map((el) => ({ text: textOf(el, 220), level: el.getAttribute('aria-live') || 'alert' })).filter((notice) => notice.text);
-      const sensitiveInputs = allElements.filter((el) => {
-        if (!(el instanceof HTMLInputElement)) return false;
-        const hint = [el.type, el.name, el.id, el.autocomplete, el.getAttribute('aria-label') || ''].join(' ').toLowerCase();
-        return el.type === 'password' || /(captcha|verification|verify|otp|one-time|passcode|password)/.test(hint);
+      const sensitiveInputs = allElements.filter(sensitiveInput);
+      const visibleText = cleanLines(Array.from(frameDocuments)
+        .map((frameDocument) => {
+          const frameHost = frameHostByDocument.get(frameDocument);
+          if (frameHost && hidden(frameHost)) return '';
+          return frameDocument.body && frameDocument.body.innerText;
+        })
+        .filter(Boolean)
+        .join('\\n'), 7000);
+      const frames = allElements.filter((el) => el.tagName === 'IFRAME').slice(0, 12).map((frame) => {
+        const frameDocument = registerFrameDocument(frame);
+        const rect = topRectOf(frame);
+        return {
+          title: clean(frameDocument?.title, 160),
+          sameOrigin: Boolean(frameDocument),
+          inViewport: visibleInViewport(rect),
+          rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
+        };
       });
       return {
         title: clean(document.title, 160),
         url: location.href,
-        truncated: count >= MAX_NODES,
+        truncated: count >= MAX_NODES || scanTruncated || treeTruncated,
         nodeCount: count,
         viewport: { width: window.innerWidth, height: window.innerHeight, scrollX: Math.round(window.scrollX), scrollY: Math.round(window.scrollY), documentWidth: Math.round(document.documentElement.scrollWidth), documentHeight: Math.round(document.documentElement.scrollHeight) },
+        // elements/html 用于定位和操作；visibleText 用于补齐 SPA、SAP/UI5 等
+        // “正文已渲染但语义树很深”的页面内容。
+        visibleText,
+        frames,
         overlays,
         notices,
         userActionRequired: sensitiveInputs.length ? { recommended: true, reason: '检测到登录或验证相关输入框，请调用 browser_request_user_action 让用户手动完成。' } : undefined,
@@ -3607,87 +4366,136 @@ async function aiBrowserSnapshot(tabId) {
       };
     })()
   `, true)
+  let renderedHtml
+  try {
+    renderedHtml = await captureAiBrowserRenderedHtml(tab)
+    if (renderedHtml.visibleText) snapshot.visibleText = renderedHtml.visibleText
+  } catch (error) {
+    renderedHtml = {
+      truncated: false,
+      totalChars: 0,
+      documents: [],
+      visibleText: '',
+      error: String(error?.message || 'RENDERED_HTML_UNAVAILABLE').slice(0, 240)
+    }
+  }
+  snapshot.renderedHtml = renderedHtml
   const imageUrl = await captureAiBrowserScreenshot(tab)
   tab.snapshotId = `${tab.id}-s${++tab.snapshotVersion}`
-  return { tabId: tab.id, snapshotId: tab.snapshotId, imageUrl, imageDetail: 'auto', ...snapshot }
+  return { tabId: tab.id, snapshotId: tab.snapshotId, imageUrl, imageDetail: 'auto', pageReady, ...snapshot }
 }
 
-async function aiBrowserAct(tabId, targetId, action, value, snapshotId) {
-  const tab = getAiBrowserTab(tabId)
+async function aiBrowserAct(tabId, targetId, action, value, snapshotId, rawSessionId = null) {
+  const tab = rawSessionId == null
+    ? getAiBrowserTab(tabId)
+    : resolveAiBrowserTab(tabId, rawSessionId)
   const normalizedTargetId = String(targetId || '').trim().toLowerCase()
   const normalizedAction = String(action || '').trim().toLowerCase()
-  if (!/^e\d+$/.test(normalizedTargetId)) throw new Error(`Invalid browser target id: ${targetId || '(empty)'}`)
-  if (snapshotId && snapshotId !== tab.snapshotId) throw new Error('Snapshot is stale. Call browser_screenshot again.')
-  if (!['click', 'fill', 'select', 'press', 'scroll'].includes(normalizedAction)) throw new Error('Unsupported browser action')
-  const result = await tab.view.webContents.executeJavaScript(`
-    (() => {
-      const id = ${JSON.stringify(normalizedTargetId)};
-      const action = ${JSON.stringify(normalizedAction)};
-      const value = ${JSON.stringify(value == null ? '' : String(value))};
-      const el = document.querySelector('[data-loopra-ai-id="' + id + '"]');
-      if (!el) throw new Error('Target no longer exists. Call browser_screenshot again.');
-      let style = document.getElementById('__loopra_ai_action_style');
-      if (!style) {
-        style = document.createElement('style');
-        style.id = '__loopra_ai_action_style';
-        style.textContent = '[data-loopra-ai-active="true"]{outline:3px solid #0d9488!important;outline-offset:3px!important;box-shadow:0 0 0 6px rgba(13,148,136,.18)!important}#__loopra_ai_action_badge{position:fixed;z-index:2147483647;padding:5px 9px;border-radius:5px;background:#0f766e;color:#fff;font:600 12px system-ui;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}';
-        document.documentElement.appendChild(style);
-      }
-      document.querySelectorAll('[data-loopra-ai-active="true"]').forEach((node) => node.removeAttribute('data-loopra-ai-active'));
-      document.getElementById('__loopra_ai_action_badge')?.remove();
-      el.setAttribute('data-loopra-ai-active', 'true');
-      const rect = el.getBoundingClientRect();
-      const badge = document.createElement('div');
-      badge.id = '__loopra_ai_action_badge';
-      badge.textContent = ({ click: 'AI 点击', fill: 'AI 输入', select: 'AI 选择', press: 'AI 按键', scroll: 'AI 定位' })[action] || 'AI 操作';
-      badge.style.left = Math.max(8, Math.min(window.innerWidth - 90, rect.left)) + 'px';
-      badge.style.top = Math.max(8, rect.top - 32) + 'px';
-      document.documentElement.appendChild(badge);
-      setTimeout(() => {
-        el.removeAttribute('data-loopra-ai-active');
-        badge.remove();
-      }, 1600);
-      el.scrollIntoView({ block: 'center', inline: 'nearest' });
-      if (action === 'scroll') return { action, targetId: id };
-      if (action === 'click') { el.click(); return { action, targetId: id }; }
-      if (action === 'fill') {
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable)) throw new Error('Target cannot accept text');
-        el.focus();
-        if (el.isContentEditable) el.textContent = value;
-        else {
-          const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set;
-          setter.call(el, value);
-        }
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { action, targetId: id };
-      }
-      if (action === 'select') {
-        if (!(el instanceof HTMLSelectElement)) throw new Error('Target is not a select element');
-        el.value = value;
-        if (el.value !== value) throw new Error('Option not found');
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { action, targetId: id };
-      }
-      el.focus();
-      el.dispatchEvent(new KeyboardEvent('keydown', { key: value || 'Enter', bubbles: true }));
-      el.dispatchEvent(new KeyboardEvent('keyup', { key: value || 'Enter', bubbles: true }));
-      return { action, targetId: id };
-    })()
-  `, true)
-  return result
+  if (!/^e\d+$/.test(normalizedTargetId)) throw new Error(`INVALID_BROWSER_TARGET: ${targetId || '(empty)'}`)
+  if (!snapshotId) throw new Error('SNAPSHOT_REQUIRED: Call browser_screenshot before browser_act.')
+  if (snapshotId !== tab.snapshotId) throw new Error('STALE_SNAPSHOT: Call browser_screenshot again.')
+  if (!['click', 'click_at', 'fill', 'select', 'press', 'scroll'].includes(normalizedAction)) throw new Error('UNSUPPORTED_BROWSER_ACTION: ' + normalizedAction)
+
+  return enqueueAiBrowserTabOperation(tab, async () => {
+    try {
+      // 并发请求可能在入队前都读到同一个 snapshotId；必须在串行队列中再次校验，
+      // 防止前一个导航/操作已经让这次操作变成过期快照。
+      if (!snapshotId) throw new Error('SNAPSHOT_REQUIRED: Call browser_screenshot before browser_act.')
+      if (snapshotId !== tab.snapshotId) throw new Error('STALE_SNAPSHOT: Call browser_screenshot again.')
+      if (normalizedAction === 'click_at') return await aiBrowserClickAt(tab, normalizedTargetId)
+      return await tab.view.webContents.executeJavaScript(`
+        (() => {
+          const id = ${JSON.stringify(normalizedTargetId)};
+          const action = ${JSON.stringify(normalizedAction)};
+          const value = ${JSON.stringify(value == null ? '' : String(value))};
+          const el = window.__loopraAiSnapshotTargets?.get(id);
+          if (!el || !el.isConnected) throw new Error('TARGET_NOT_FOUND: Target no longer exists. Call browser_screenshot again.');
+          const isInput = el.tagName === 'INPUT';
+          const isTextArea = el.tagName === 'TEXTAREA';
+          const isSelect = el.tagName === 'SELECT';
+          const ownerDocument = el.ownerDocument || document;
+          const ownerWindow = ownerDocument.defaultView || window;
+          const hint = [el.type, el.name, el.id, el.autocomplete, el.getAttribute('aria-label') || '', el.getAttribute('placeholder') || ''].join(' ').toLowerCase();
+          const sensitive = (isInput || isTextArea)
+            && ((isInput && el.type === 'password') || /(captcha|verification|verify|otp|one-time|passcode|password|token|secret)/.test(hint));
+          if (action === 'fill' && sensitive) throw new Error('SENSITIVE_INPUT_REQUIRES_USER_ACTION: Password, verification, OTP, token, and captcha fields must be completed by the user.');
+          let style = ownerDocument.getElementById('__loopra_ai_action_style');
+          if (!style) {
+            style = ownerDocument.createElement('style');
+            style.id = '__loopra_ai_action_style';
+            style.textContent = '[data-loopra-ai-active="true"]{outline:3px solid #0d9488!important;outline-offset:3px!important;box-shadow:0 0 0 6px rgba(13,148,136,.18)!important}#__loopra_ai_action_badge{position:fixed;z-index:2147483647;padding:5px 9px;border-radius:5px;background:#0f766e;color:#fff;font:600 12px system-ui;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}';
+            ownerDocument.documentElement.appendChild(style);
+          }
+          ownerDocument.querySelectorAll('[data-loopra-ai-active="true"]').forEach((node) => node.removeAttribute('data-loopra-ai-active'));
+          document.getElementById('__loopra_ai_action_badge')?.remove();
+          el.setAttribute('data-loopra-ai-active', 'true');
+          el.scrollIntoView({ block: 'center', inline: 'nearest' });
+          const rect = window.__loopraAiSnapshotRect?.(el) || el.getBoundingClientRect();
+          const badge = document.createElement('div');
+          badge.id = '__loopra_ai_action_badge';
+          badge.textContent = ({ click: 'AI 点击', fill: 'AI 输入', select: 'AI 选择', press: 'AI 按键', scroll: 'AI 定位' })[action] || 'AI 操作';
+          badge.style.left = Math.max(8, Math.min(window.innerWidth - 90, rect.left)) + 'px';
+          badge.style.top = Math.max(8, rect.top - 32) + 'px';
+          document.documentElement.appendChild(badge);
+          setTimeout(() => {
+            el.removeAttribute('data-loopra-ai-active');
+            badge.remove();
+          }, 1600);
+          if (action === 'scroll') return { action, targetId: id };
+          if (action === 'click') { el.click(); return { action, targetId: id }; }
+          if (action === 'fill') {
+            if (!((isInput || isTextArea) || el.isContentEditable)) throw new Error('TARGET_NOT_EDITABLE: Target cannot accept text');
+            el.focus();
+            if (el.isContentEditable) el.textContent = value;
+            else {
+              const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+              if (!setter) throw new Error('TARGET_NOT_EDITABLE: Target value cannot be set');
+              setter.call(el, value);
+            }
+            const InputEventCtor = ownerWindow.InputEvent || window.InputEvent;
+            const EventCtor = ownerWindow.Event || window.Event;
+            el.dispatchEvent(new InputEventCtor('input', { bubbles: true, inputType: 'insertText', data: value }));
+            el.dispatchEvent(new EventCtor('change', { bubbles: true }));
+            return { action, targetId: id };
+          }
+          if (action === 'select') {
+            if (!isSelect) throw new Error('TARGET_NOT_SELECT: Target is not a select element');
+            el.value = value;
+            if (el.value !== value) throw new Error('OPTION_NOT_FOUND: Option not found');
+            const EventCtor = ownerWindow.Event || window.Event;
+            el.dispatchEvent(new EventCtor('input', { bubbles: true }));
+            el.dispatchEvent(new EventCtor('change', { bubbles: true }));
+            return { action, targetId: id };
+          }
+          el.focus();
+          const KeyboardEventCtor = ownerWindow.KeyboardEvent || window.KeyboardEvent;
+          el.dispatchEvent(new KeyboardEventCtor('keydown', { key: value || 'Enter', bubbles: true }));
+          el.dispatchEvent(new KeyboardEventCtor('keyup', { key: value || 'Enter', bubbles: true }));
+          return { action, targetId: id };
+        })()
+      `, true)
+    } finally {
+      // 任何操作都会改变焦点、页面或表单状态，旧快照不能再次使用。
+      invalidateAiBrowserSnapshot(tab)
+    }
+  })
 }
 
 function readBridgeBody(request) {
   return new Promise((resolve, reject) => {
     let body = ''
+    let rejected = false
     request.setEncoding('utf8')
     request.on('data', (chunk) => {
+      if (rejected) return
       body += chunk
-      if (body.length > 128 * 1024) reject(new Error('Request body too large'))
+      if (body.length > 128 * 1024) {
+        rejected = true
+        reject(new Error('REQUEST_BODY_TOO_LARGE: Request body exceeds 128 KiB'))
+      }
     })
     request.on('end', () => {
+      if (rejected) return
       try { resolve(body ? JSON.parse(body) : {}) } catch { reject(new Error('Invalid JSON body')) }
     })
     request.on('error', reject)
@@ -3699,91 +4507,146 @@ function writeBridgeResponse(response, status, payload) {
   response.end(JSON.stringify(payload))
 }
 
+function browserBridgeError(error) {
+  const rawMessage = String(error?.message || error || 'Browser request failed')
+  const match = rawMessage.match(/^([A-Z][A-Z0-9_]*):\s*(.*)$/)
+  const code = String(error?.code || (match ? match[1] : 'BROWSER_OPERATION_FAILED'))
+  const message = match ? match[2] : rawMessage
+  return {
+    code,
+    message,
+    retryable: ['STALE_SNAPSHOT', 'TARGET_NOT_FOUND', 'BROWSER_TAB_NOT_FOUND', 'BROWSER_TAB_NOT_IN_SESSION', 'BROWSER_SESSION_NOT_FOUND'].includes(code)
+  }
+}
+
 function startAiBrowserBridge() {
   if (aiBrowserBridgeReady) return aiBrowserBridgeReady
   aiBrowserBridgeReady = new Promise((resolve, reject) => {
     aiBrowserBridge = http.createServer(async (request, response) => {
-    if (request.socket.remoteAddress && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress)) {
-      writeBridgeResponse(response, 403, { success: false, error: 'Local requests only' })
-      return
-    }
-    if (request.method === 'GET' && request.url === '/health') {
-      writeBridgeResponse(response, 200, { success: true, data: { service: 'loopra-ai-browser' } })
-      return
-    }
-    if (request.method !== 'POST' || !request.url?.startsWith('/browser/')) {
-      writeBridgeResponse(response, 404, { success: false, error: 'Not found' })
-      return
-    }
-    try {
-      const parsedPayload = await readBridgeBody(request)
-      // 兼容空请求体或历史客户端发送的 JSON null，避免后续读取 payload.tabId 崩溃。
-      const payload = parsedPayload && typeof parsedPayload === 'object' && !Array.isArray(parsedPayload)
-        ? parsedPayload
-        : {}
-      const method = request.url.slice('/browser/'.length).split('?')[0]
-      const targetTabId = String(payload.tabId || aiBrowserActiveTabId || '')
-      const actionLabels = { click: '点击元素', fill: '输入内容', select: '选择选项', press: '发送按键', scroll: '定位元素' }
-      const runningMessages = {
-        'new-tab': 'AI 正在打开新标签页',
-        tabs: 'AI 正在查看标签页',
-        navigate: 'AI 正在跳转页面',
-        screenshot: 'AI 正在捕获页面快照',
-        act: `AI 正在${actionLabels[payload.action] || '操作页面'}`,
-        'request-user-action': 'AI 正在请求你手动完成浏览器操作',
-        'close-tab': 'AI 正在关闭标签页'
+      if (request.socket.remoteAddress && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress)) {
+        writeBridgeResponse(response, 403, { success: false, error: browserBridgeError(new Error('LOCAL_REQUESTS_ONLY: Local requests only')) })
+        return
       }
-      if (targetTabId && ['navigate', 'screenshot', 'act', 'request-user-action', 'close-tab'].includes(method) && aiBrowserTabs.has(targetTabId)) {
-        activateAiBrowserTab(targetTabId)
+      if (request.method === 'GET' && request.url === '/health') {
+        writeBridgeResponse(response, 200, {
+          success: true,
+          data: {
+            service: 'loopra-ai-browser',
+            sessions: aiBrowserSessions.size,
+            tabs: aiBrowserTabs.size
+          }
+        })
+        return
       }
-      if (method === 'request-user-action') {
-        const browserWindow = openAiBrowserWindow()
-        if (browserWindow.isMinimized()) browserWindow.restore()
-        browserWindow.show()
-        browserWindow.focus()
+      if (request.method !== 'POST' || !request.url?.startsWith('/browser/')) {
+        writeBridgeResponse(response, 404, { success: false, error: browserBridgeError(new Error('NOT_FOUND: Not found')) })
+        return
       }
-      sendAiBrowserActivity('running', runningMessages[method] || 'AI 正在操作浏览器', {
-        method,
-        tabId: targetTabId || null,
-        targetId: payload.targetId || null,
-        action: payload.action || null
-      })
-      let data
-      if (method === 'new-tab') data = await aiBrowserNewTab(payload.url)
-      else if (method === 'tabs') data = { activeTabId: aiBrowserActiveTabId, tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary) }
-      else if (method === 'navigate') data = await aiBrowserNavigate(payload.tabId, payload.url)
-      else if (method === 'screenshot') data = await aiBrowserSnapshot(payload.tabId || aiBrowserActiveTabId)
-      else if (method === 'act') data = await aiBrowserAct(payload.tabId || aiBrowserActiveTabId, payload.targetId, payload.action, payload.value, payload.snapshotId)
-      else if (method === 'request-user-action') {
-        data = { activeTabId: aiBrowserActiveTabId }
+      try {
+        cleanupIdleAiBrowserTabs()
+        const parsedPayload = await readBridgeBody(request)
+        // 兼容空请求体或历史客户端发送的 JSON null，避免后续读取 payload.tabId 崩溃。
+        const payload = parsedPayload && typeof parsedPayload === 'object' && !Array.isArray(parsedPayload)
+          ? parsedPayload
+          : {}
+        const parsedUrl = new URL(request.url, 'http://127.0.0.1')
+        const method = parsedUrl.pathname.slice('/browser/'.length)
+        const requestId = String(payload.requestId || randomUUID()).slice(0, 128)
+        const sessionId = normalizeAiBrowserSessionId(payload.sessionId)
+        // 只有创建新标签时才隐式创建显式会话；避免任意本地请求通过 browser_tabs
+        // 制造无限空会话。未携带 sessionId 的旧客户端仍使用桌面默认会话。
+        const session = getAiBrowserSession(sessionId, method === 'new-tab' || !payload.sessionId)
+        if (!session) throw new Error(`BROWSER_SESSION_NOT_FOUND: ${sessionId}`)
+        const targetTabId = String(payload.tabId || session.activeTabId || '')
+        const actionLabels = { click: '点击元素', click_at: '真实点击元素', fill: '输入内容', select: '选择选项', press: '发送按键', scroll: '定位元素' }
+        const runningMessages = {
+          'new-tab': 'AI 正在打开新标签页',
+          tabs: 'AI 正在查看标签页',
+          navigate: 'AI 正在跳转页面',
+          screenshot: 'AI 正在捕获页面快照',
+          scroll: 'AI 正在滚动页面',
+          act: `AI 正在${actionLabels[payload.action] || '操作页面'}`,
+          'request-user-action': 'AI 正在请求你手动完成浏览器操作',
+          'close-tab': 'AI 正在关闭标签页'
+        }
+        if (targetTabId && ['navigate', 'screenshot', 'act', 'scroll', 'request-user-action', 'close-tab'].includes(method)) {
+          const target = resolveAiBrowserTab(targetTabId, session.id)
+          setAiBrowserActiveTab(target)
+          hideAiBrowserViews()
+          // hideAiBrowserViews 会暂时隐藏原生 WebContentsView；必须立即广播状态，
+          // 让 AIBrowser 的 scheduleNativeView 把当前标签重新挂载并显示。
+          sendAiBrowserState()
+        }
+        if (method === 'request-user-action') {
+          const target = resolveAiBrowserTab(targetTabId, session.id)
+          setAiBrowserActiveTab(target)
+          const browserWindow = openAiBrowserWindow()
+          if (browserWindow.isMinimized()) browserWindow.restore()
+          browserWindow.show()
+          browserWindow.focus()
+        }
+        sendAiBrowserActivity('running', runningMessages[method] || 'AI 正在操作浏览器', {
+          method,
+          sessionId: session.id,
+          requestId,
+          tabId: targetTabId || null,
+          targetId: payload.targetId || null,
+          action: payload.action || null
+        })
+        let data
+        if (method === 'new-tab') data = await aiBrowserNewTab(payload.url, session.id)
+        else if (method === 'tabs') data = {
+          sessionId: session.id,
+          activeTabId: session.activeTabId,
+          tabs: sessionTabIds(session).map((id) => aiBrowserTabSummary(aiBrowserTabs.get(id)))
+        }
+        else if (method === 'navigate') data = await aiBrowserNavigate(payload.tabId, payload.url, session.id)
+        else if (method === 'screenshot') data = await aiBrowserSnapshot(payload.tabId, session.id)
+        else if (method === 'scroll') {
+          const target = resolveAiBrowserTab(payload.tabId, session.id)
+          data = await enqueueAiBrowserTabOperation(target, () => aiBrowserScrollPage(target, payload.direction, payload.amount))
+        }
+        else if (method === 'act') data = await aiBrowserAct(payload.tabId, payload.targetId, payload.action, payload.value, payload.snapshotId, session.id)
+        else if (method === 'request-user-action') {
+          data = {
+            sessionId: session.id,
+            tabId: targetTabId,
+            activeTabId: session.activeTabId,
+            actionRequired: true,
+            message: String(payload.message || '请在 Electron 浏览器中完成操作').slice(0, 500)
+          }
+        }
+        else if (method === 'close-tab') {
+          const target = resolveAiBrowserTab(payload.tabId, session.id)
+          const closed = closeAiBrowserTab(target.id)
+          data = { sessionId: session.id, closed, activeTabId: session.activeTabId }
+        } else throw new Error(`UNKNOWN_BROWSER_METHOD: ${method}`)
+        const completedMessages = {
+          'new-tab': 'AI 已打开新标签页',
+          tabs: 'AI 已读取标签页列表',
+          navigate: 'AI 已完成页面跳转',
+          screenshot: 'AI 已捕获页面快照',
+          scroll: 'AI 已完成页面滚动',
+          act: `AI 已完成${actionLabels[payload.action] || '页面操作'}`,
+          'close-tab': 'AI 已关闭标签页'
+        }
+        const isUserTakeover = method === 'request-user-action'
+        sendAiBrowserActivity(isUserTakeover ? 'waiting' : 'completed', isUserTakeover
+          ? `等待你手动完成：${String(payload.message || '请在浏览器中完成操作').slice(0, 180)}`
+          : (completedMessages[method] || 'AI 操作已完成'), {
+          method,
+          sessionId: session.id,
+          requestId,
+          tabId: data?.tabId || targetTabId || session.activeTabId,
+          targetId: payload.targetId || null,
+          action: payload.action || null
+        })
+        writeBridgeResponse(response, 200, { success: true, requestId, data })
+      } catch (error) {
+        const details = browserBridgeError(error)
+        sendAiBrowserActivity('failed', `AI 操作失败：${details.message}`, { errorCode: details.code })
+        writeBridgeResponse(response, 400, { success: false, error: details })
       }
-      else if (method === 'close-tab') {
-        const closed = closeAiBrowserTab(String(payload.tabId || aiBrowserActiveTabId || ''))
-        sendAiBrowserState()
-        data = { closed, activeTabId: aiBrowserActiveTabId }
-      } else throw new Error('Unknown browser method')
-      const completedMessages = {
-        'new-tab': 'AI 已打开新标签页',
-        tabs: 'AI 已读取标签页列表',
-        navigate: 'AI 已完成页面跳转',
-        screenshot: 'AI 已捕获页面快照',
-        act: `AI 已完成${actionLabels[payload.action] || '页面操作'}`,
-        'close-tab': 'AI 已关闭标签页'
-      }
-      const isUserTakeover = method === 'request-user-action'
-      sendAiBrowserActivity(isUserTakeover ? 'waiting' : 'completed', isUserTakeover
-        ? `等待你手动完成：${String(payload.message || '请在浏览器中完成操作').slice(0, 180)}`
-        : (completedMessages[method] || 'AI 操作已完成'), {
-        method,
-        tabId: targetTabId || aiBrowserActiveTabId,
-        targetId: payload.targetId || null,
-        action: payload.action || null
-      })
-      writeBridgeResponse(response, 200, { success: true, data })
-    } catch (error) {
-      sendAiBrowserActivity('failed', `AI 操作失败：${error.message || '未知错误'}`)
-      writeBridgeResponse(response, 400, { success: false, error: error.message || 'Browser request failed' })
-    }
     })
 
     const listen = (port) => {
@@ -3837,53 +4700,66 @@ ipcMain.handle('get-ai-browser-bridge-address', async (event) => {
 })
 
 ipcMain.handle('ai-browser-new-tab', async (event, rawUrl) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return aiBrowserNewTab(rawUrl)
 })
 
 ipcMain.handle('ai-browser-navigate', async (event, tabId, rawUrl) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return aiBrowserNavigate(tabId, rawUrl)
 })
 
 ipcMain.handle('ai-browser-history', (event, tabId, action) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return aiBrowserHistory(tabId, action)
 })
 
 ipcMain.handle('ai-browser-activate-tab', (event, tabId) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   return activateAiBrowserTab(tabId)
 })
 
 ipcMain.handle('ai-browser-close-tab', (event, tabId) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
   const closed = closeAiBrowserTab(tabId)
   sendAiBrowserState()
-  return { closed, activeTabId: aiBrowserActiveTabId }
+  return { closed, activeSessionId: aiBrowserActiveSessionId, activeTabId: aiBrowserActiveTabId }
 })
 
 ipcMain.handle('ai-browser-get-state', (event) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
-  return { activeTabId: aiBrowserActiveTabId, tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary) }
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
+  return {
+    activeSessionId: aiBrowserActiveSessionId,
+    activeTabId: aiBrowserActiveTabId,
+    tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary),
+    sessions: [...aiBrowserSessions.values()].map((session) => ({
+      id: session.id,
+      activeTabId: session.activeTabId,
+      tabCount: sessionTabIds(session).length,
+      managed: session.managed
+    }))
+  }
 })
 
 ipcMain.handle('ai-browser-view-show', (event, tabId, rawBounds) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
+  const host = resolveAiBrowserHost(event.sender)
+  if (!host) throw new Error('Unauthorized browser request')
   const tab = getAiBrowserTab(tabId)
-  if (!tab.attached) {
-    aiBrowserWindow.contentView.addChildView(tab.view)
-    tab.attached = true
+  if (tab.hostWindow !== host.window) {
+    detachAiBrowserView(tab)
+    host.window.contentView.addChildView(tab.view)
+    tab.hostWindow = host.window
   }
   hideAiBrowserViews()
-  tab.view.setBounds(normalizeAiBrowserBounds(rawBounds))
+  tab.controller = event.sender
+  tab.view.setBounds(normalizeAiBrowserBounds(rawBounds, host))
   tab.view.setVisible(true)
   return { success: true }
 })
 
 ipcMain.handle('ai-browser-view-hide', (event) => {
-  if (event.sender !== aiBrowserWindow?.webContents) throw new Error('Unauthorized browser request')
-  hideAiBrowserViews()
+  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
+  hideAiBrowserViews(event.sender)
   return { success: true }
 })
 
@@ -3925,7 +4801,7 @@ function openElementInspectorWindow(initialUrl = '') {
     elementInspectorPendingUrl = ''
   })
   if (isDev) {
-    elementInspectorWindow.loadURL('http://localhost:3000/?elementInspector=1')
+    elementInspectorWindow.loadURL('http://127.0.0.1:3000/?elementInspector=1')
   } else {
     elementInspectorWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { elementInspector: '1' } })
   }
@@ -3967,7 +4843,7 @@ function openRequirementBoardWindow() {
     requirementBoardWindow = null
   })
   if (isDev) {
-    requirementBoardWindow.loadURL('http://localhost:3000/?requirementBoard=1')
+    requirementBoardWindow.loadURL('http://127.0.0.1:3000/?requirementBoard=1')
   } else {
     requirementBoardWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { requirementBoard: '1' } })
   }
@@ -3992,7 +4868,7 @@ ipcMain.on('element-inspector-ready', (event) => {
 
 ipcMain.on('element-inspector-send', (event, payload) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
   if ((!isElementWindow && !isAiBrowserSender) || !payload || typeof payload !== 'object') return
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (mainWindow?.isMinimized()) mainWindow.restore()
@@ -4083,7 +4959,14 @@ ipcMain.on('element-inspected', (event, payload) => {
     return
   }
   const isAiBrowserTab = [...aiBrowserTabs.values()].some((tab) => tab.view.webContents === event.sender)
-  if (isAiBrowserTab) aiBrowserWindow?.webContents.send('element-inspected', payload)
+  if (isAiBrowserTab) {
+    if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('element-inspected', payload)
+    for (const desktopTab of desktopChatTabs.values()) {
+      if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
+        desktopTab.view.webContents.send('element-inspected', payload)
+      }
+    }
+  }
 })
 
 /** 在主窗口的 child frame 中寻找 ElementPanel 的 iframe */
@@ -4109,7 +4992,7 @@ function findIframeFrame(frame) {
  */
 ipcMain.handle('inspector-inject', async (event) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
   if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
   let inspectorTarget = null
   if (isAiBrowserSender) {
@@ -4322,7 +5205,7 @@ ipcMain.handle('inspector-inject', async (event) => {
 /** 移除 iframe 中的检测脚本 */
 ipcMain.handle('inspector-remove', async (event) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = event.sender === aiBrowserWindow?.webContents
+  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
   if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
   let inspectorTarget = null
   if (isAiBrowserSender) {

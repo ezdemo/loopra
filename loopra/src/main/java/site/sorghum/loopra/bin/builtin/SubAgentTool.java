@@ -105,6 +105,10 @@ public class SubAgentTool extends AbsToolProvider implements SolonToTools {
             StringBuilder systemPromptBuilder = new StringBuilder(
                     "## 角色设定\n\n你的名字是「" + name.trim() + "」，请以该身份与用户协作，并在需要自我介绍时使用这个名字。\n\n"
                             + selectedProfile.buildSystemPrompt(task, instructions));
+            // 子代理不走 PromptRegistry，主循环那套通用准则它读不到；
+            // 这段 notes 与 Claude Code 给子代理的完全一致（绝对路径、汇报格式、不要表情、工具调用前不加冒号）
+            systemPromptBuilder.append("\n\n").append(
+                    site.sorghum.loopra.bin.agent.prompt.ClaudeCodePrompt.AGENT_NOTES);
             if (registry.getEnvironment() != null
                     && registry.getEnvironment().executionRoot() != null) {
                 systemPromptBuilder.append("\n\n## 运行环境\n\n工作目录: `")
@@ -125,7 +129,7 @@ public class SubAgentTool extends AbsToolProvider implements SolonToTools {
                     || parentController.terminateOnNoToolCall();
             systemPromptBuilder.append(terminateOnNoToolCall
                     ? "无工具调用时，模型的纯文本回复会结束对话。"
-                    : "结束对话必须调用 `finish`，纯文本回复不会退出循环。");
+                    : "结束对话时直接给出最终回答；连续三轮没有工具调用时本轮会兜底结束。");
             String systemPrompt = systemPromptBuilder.toString();
 
             // 获取父级 AgentLoopController，传播中断信号到子代理

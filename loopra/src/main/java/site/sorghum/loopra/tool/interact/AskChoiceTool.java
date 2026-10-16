@@ -6,7 +6,11 @@ import org.noear.solon.ai.chat.tool.AbsToolProvider;
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Param;
-import site.sorghum.loopra.tool.*;
+import site.sorghum.loopra.tool.AgentLoopController;
+import site.sorghum.loopra.tool.AgentOutput;
+import site.sorghum.loopra.tool.ErrorCodes;
+import site.sorghum.loopra.tool.SolonToTools;
+import site.sorghum.loopra.tool.ToolContext;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -91,5 +95,4 @@ public class AskChoiceTool extends AbsToolProvider implements SolonToTools {
     }
 
 }
-
 

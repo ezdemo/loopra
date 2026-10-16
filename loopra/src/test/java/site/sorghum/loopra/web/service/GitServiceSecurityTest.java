@@ -55,9 +55,13 @@ class GitServiceSecurityTest {
         Method runGit = GitService.class.getDeclaredMethod("runGit", File.class, String[].class);
         runGit.setAccessible(true);
 
-        String script = "$errorText = 'e' * 131072; [Console]::Error.Write($errorText); [Console]::Out.Write('ok')";
+        String[] command = System.getProperty("os.name").toLowerCase().contains("win")
+                ? new String[]{"powershell", "-NoProfile", "-Command",
+                        "$errorText = 'e' * 131072; [Console]::Error.Write($errorText); [Console]::Out.Write('ok')"}
+                : new String[]{"sh", "-c",
+                        "head -c 131072 /dev/zero | tr '\\0' 'e' >&2; printf ok"};
         ProcessResult result = (ProcessResult) runGit.invoke(
-                service, workspace.toFile(), (Object) new String[]{"powershell", "-NoProfile", "-Command", script});
+                service, workspace.toFile(), (Object) command);
 
         assertEquals(0, result.exitCode);
         assertEquals("ok", result.stdout);

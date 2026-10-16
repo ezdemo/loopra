@@ -9,9 +9,24 @@ import org.noear.snack4.json.JsonWriter;
 import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -27,7 +42,7 @@ public class LoopraConfig implements AgentConfig {
     public static final int DEFAULT_MAX_TOKENS = AgentConfig.DEFAULT_MAX_TOKENS;
     private static volatile LoopraConfig INSTANCE;
 
-    private final ONode root;
+    private volatile ONode root;
 
     private LoopraConfig(ONode root) {
         this.root = root;
@@ -131,7 +146,7 @@ public class LoopraConfig implements AgentConfig {
                   "hitl": "free",
                   "autoWhitelist": [
                     "resolve-library-id", "query-docs", "skillrefresh", "mcprefresh", "skilllist",
-                    "read", "glob", "write", "ls", "grep", "edit", "finish",
+                    "read", "glob", "write", "ls", "grep", "edit",
                     "java_source", "checklist_step", "workspace_read", "webfetch",
                     "codesearch", "ask_choice", "browser_request_user_action", "workspace_list", "workspace_write",
                     "call_api", "checklist_start", "sub_agent", "checklist_status",
@@ -167,7 +182,7 @@ public class LoopraConfig implements AgentConfig {
                     "deepseek-v4-flash": { "input": "1", "cache": "0.02", "output": "2" },
                     "deepseek-v4-pro": { "input": "3", "cache": "0.025", "output": "6" }
                   },
-                  "disabledTools": ["lsp"],
+                  "disabledTools": [],
                   "blockedPaths": [],
                   "availableModels": ["deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.5", "mimo-v2.5-pro"]
                 }""";
@@ -653,8 +668,8 @@ public class LoopraConfig implements AgentConfig {
      * 获取 HITL（Human-In-The-Loop）模式。
      * <ul>
      *   <li>{@code "free"} — 自由模式，所有工具直接执行，无需审批</li>
-     *   <li>{@code "approval"} — 审批模式，非只读工具执行前需用户审批</li>
-     *   <li>{@code "auto"} — 自动模式，自动批准所有工具调用</li>
+     *   <li>{@code "approval"} — 按需审批，普通工作区读写自动放行，越界及无法确认范围的操作需审批</li>
+     *   <li>{@code "auto"} — 自动审批，按需审批规则后追加 AI 审核，不通过时转人工</li>
      * </ul>
      * <p>向后兼容旧的 boolean 配置：{@code true → "approval"}，{@code false → "free"}。</p>
      * 未配置时默认 {@code "free"}。
@@ -671,18 +686,8 @@ public class LoopraConfig implements AgentConfig {
     }
 
     /**
-     * 获取 HITL 自动模式的工具白名单。
-     * <p>
-     * 仅在 hitl 模式为 {@code "auto"} 时生效。
-     * 工具名称匹配白名单中的任一规则时自动放行，否则需走审批流程。
-     * 支持 glob 通配符：{@code *} 匹配任意字符序列。
-     * </p>
-     * <ul>
-     *   <li>{@code "*"} — 匹配所有工具（等同于旧版 auto 行为）</li>
-     *   <li>{@code "read_*"} — 匹配以 "read_" 开头的工具</li>
-     *   <li>{@code "finish"} — 精确匹配 "finish" 工具</li>
-     * </ul>
-     * <p>未配置或为空时返回空列表，auto 模式下所有非免审工具需走审批。</p>
+     * 读取旧版 HITL 工具白名单，保留配置兼容性。
+     * 当前自动审批使用按需审批规则 + AI 审核，此列表不再绕过审核链。
      */
     public List<String> autoWhitelist() {
         ONode arr = root.select("$.autoWhitelist");
@@ -824,6 +829,7 @@ public class LoopraConfig implements AgentConfig {
                 try {
                     rates.put(field, Double.parseDouble(value.getString()));
                 } catch (NumberFormatException ignored) {
+                    // 非数值配置项跳过
                 }
             }
         }
@@ -911,7 +917,8 @@ public class LoopraConfig implements AgentConfig {
 
     /**
      * 无工具调用时是否将模型文本作为最终回答。
-     * false 时追加 FinishTool.TIPS 并要求模型继续调用 finish（连续三次无工具调用后兜底结束）。
+     * false 时追加 ConversationContext.NO_TOOL_CALL_NOTICE 提醒模型继续推理，
+     * 并在连续三次无工具调用后兜底结束。
      */
     public boolean terminateOnNoToolCall() {
         ONode n = root.select("$.terminateOnNoToolCall");
@@ -1012,7 +1019,13 @@ public class LoopraConfig implements AgentConfig {
      * 合并更新配置（只更新非空字段）。
      * 更新后自动保存到 config.json。
      */
-    public void updateAndSave(Map<String, Object> updates) throws IOException {
+    public synchronized void updateAndSave(Map<String, Object> updates) throws IOException {
+        LoopraConfig staged = new LoopraConfig(ONode.ofJson(root.toJson()));
+        staged.applyUpdatesAndSave(updates);
+        root = staged.root;
+    }
+
+    private void applyUpdatesAndSave(Map<String, Object> updates) throws IOException {
         if (updates == null || updates.isEmpty()) return;
 
         for (Map.Entry<String, Object> entry : updates.entrySet()) {
@@ -1283,6 +1296,7 @@ public class LoopraConfig implements AgentConfig {
             try {
                 result.put(field, raw instanceof Number number ? number.doubleValue() : Double.parseDouble(raw.toString()));
             } catch (NumberFormatException ignored) {
+                // 非数值字段跳过
             }
         }
         return result;
@@ -1293,17 +1307,19 @@ public class LoopraConfig implements AgentConfig {
      *
      * @param key 要移除的配置键
      */
-    public void removeAndSave(String key) throws IOException {
+    public synchronized void removeAndSave(String key) throws IOException {
         if (key == null || key.isEmpty()) return;
-        root.remove(key);
-        save();
+        LoopraConfig staged = new LoopraConfig(ONode.ofJson(root.toJson()));
+        staged.root.remove(key);
+        staged.save();
+        root = staged.root;
     }
 
     /**
      * 保存配置到文件。
      * 保存前自动补充默认配置中缺失的字段，确保新版本新增的配置项自动出现。
      */
-    public void save() throws IOException {
+    public synchronized void save() throws IOException {
         removeDeprecatedGlobalFields(root);
         // 保存前补充默认配置中缺失的字段
         mergeDefaults(root, defaultConfigNode());
@@ -1311,7 +1327,18 @@ public class LoopraConfig implements AgentConfig {
         migrateRenamedTool(root, "goal_mark_step", "goal_update_step");
         Path configPath = getConfigPath();
         String json = JsonWriter.write(root, Options.of(Feature.Write_PrettyFormat));
-        Files.writeString(configPath, json);
+        Path temporary = Files.createTempFile(configPath.getParent(), "config-", ".tmp");
+        try {
+            Files.writeString(temporary, json);
+            try {
+                Files.move(temporary, configPath, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, configPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     @Override

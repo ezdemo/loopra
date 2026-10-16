@@ -3,8 +3,26 @@ package site.sorghum.loopra.web.controller;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
-import org.noear.solon.annotation.*;
-import site.sorghum.loopra.web.model.*;
+import org.noear.solon.annotation.Body;
+import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Inject;
+import org.noear.solon.annotation.Mapping;
+import org.noear.solon.annotation.Param;
+import org.noear.solon.annotation.Post;
+import site.sorghum.loopra.web.model.ApiResponse;
+import site.sorghum.loopra.web.model.EnvironmentStatusDTO;
+import site.sorghum.loopra.web.model.GitBranchDTO;
+import site.sorghum.loopra.web.model.GitCommitDTO;
+import site.sorghum.loopra.web.model.GitCommitResultDTO;
+import site.sorghum.loopra.web.model.GitDiffContentDTO;
+import site.sorghum.loopra.web.model.GitDiffDTO;
+import site.sorghum.loopra.web.model.GitFileContentDTO;
+import site.sorghum.loopra.web.model.GitGenerateMessageDTO;
+import site.sorghum.loopra.web.model.GitStatusDTO;
+import site.sorghum.loopra.web.model.WorkingFileContentDTO;
+import site.sorghum.loopra.web.model.WorktreeRequest;
+import site.sorghum.loopra.web.model.WorktreeStatusDTO;
 import site.sorghum.loopra.web.service.GitService;
 import site.sorghum.loopra.web.service.WorktreeService;
 
@@ -125,7 +143,7 @@ public class GitController {
         return ApiResponse.ok(gitService.commit(workspaceHash, body));
     }
 
-    @ApiOperation(value = "切换文件状态", notes = "未追踪文件变为变更状态，或变更文件变为未追踪状态")
+    @ApiOperation(value = "暂存或取消暂存文件及目录", notes = "path 为项目内相对路径；staged=true 暂存全部改动，false 取消暂存。省略 staged 时兼容旧版切换操作")
     @Post
     @Mapping("/toggle")
     public ApiResponse<Map<String, Object>> toggle(

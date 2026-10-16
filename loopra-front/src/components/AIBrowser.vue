@@ -1,7 +1,7 @@
  <template>
    <main class="ai-browser-shell">
      <!-- 标签栏（Chrome 风格） -->
-     <header class="ai-browser-tabstrip">
+     <header v-if="!hideTabStrip" class="ai-browser-tabstrip">
       <nav ref="tabStripRef" class="ai-browser-tabs" aria-label="浏览器标签页">
          <button
            v-for="tab in state.tabs"
@@ -182,6 +182,17 @@
  
  <script setup>
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+
+const props = defineProps({
+  // 独立浏览器窗口默认始终激活；嵌入会话侧边栏时由父组件显式控制。
+  active: {type: Boolean, default: true},
+  // 桌面会话将浏览器标签提升到右侧工具栏，这里只保留地址栏和页面视图。
+  hideTabStrip: {type: Boolean, default: false},
+  // “审查”入口复用同一套多标签浏览器，并直接展开元素拾取能力。
+  inspectMode: {type: Boolean, default: false}
+})
+
+const emit = defineEmits(['state-change'])
  
 const nativeHostRef = ref(null)
 const tabStripRef = ref(null)
@@ -377,6 +388,9 @@ const activity = ref({ state: 'idle', message: '等待 AI 操作', targetId: nul
  }
  
  function onKeydown(event) {
+   // 桌面会话的每个标签都可能保活一个浏览器组件；只有当前可见实例处理快捷键，
+   // 避免一次 Ctrl+T 被多个会话重复创建浏览器标签。
+   if (!props.active || !hostVisible.value) return
    const mod = event.ctrlKey || event.metaKey
    const key = event.key.toLowerCase()
    if (mod && key === 'l') {
@@ -540,14 +554,20 @@ function onTabStripWheel(event) {
  })
 let removeStateListener = null
  let removeActivityListener = null
+ let removeHostVisibilityListener = null
  let resizeObserver = null
  let boundsFrame = 0
+ const hostVisible = ref(true)
  
  function scheduleNativeView() {
    cancelAnimationFrame(boundsFrame)
    boundsFrame = requestAnimationFrame(async () => {
      const host = nativeHostRef.value
      if (!host || !window.electronAPI?.aiBrowser) return
+     if (!props.active || !hostVisible.value) {
+       try { await window.electronAPI.aiBrowser.hideView() } catch { /* ignore */ }
+       return
+     }
      // 新标签页/空白页：隐藏原生视图，展示内置的新标签页 UI
      if (!activeTab.value || isBlankTab.value) {
        try {
@@ -583,11 +603,15 @@ let removeStateListener = null
      }
      return { ...tab }
    })
-   state.value = {
-     activeTabId: nextState?.activeTabId || null,
-     tabs: nextTabs
-   }
-  syncAddress()
+  state.value = {
+      activeTabId: nextState?.activeTabId || null,
+      tabs: nextTabs
+    }
+   emit('state-change', {
+     activeTabId: state.value.activeTabId,
+     tabs: state.value.tabs.map((tab) => ({...tab}))
+   })
+   syncAddress()
   await nextTick()
   tabStripRef.value?.querySelector('.ai-browser-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   scheduleNativeView()
@@ -601,6 +625,10 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   tabStripRef.value?.addEventListener('wheel', onTabStripWheel, { passive: false })
   removeStateListener = window.electronAPI.events.listen('ai-browser-state', applyState)
+  removeHostVisibilityListener = window.electronAPI.events.listen('desktop-chat-tab-visibility', (visible) => {
+    hostVisible.value = visible !== false
+    scheduleNativeView()
+  })
   removeElementInspectedListener = window.electronAPI.events.listen('element-inspected', selectInspectedElement)
    removeActivityListener = window.electronAPI.events.listen('ai-browser-activity', (nextActivity) => {
      activity.value = nextActivity || { state: 'idle', message: '等待 AI 操作', targetId: null }
@@ -608,30 +636,51 @@ onMounted(async () => {
    try {
      const initialState = await window.electronAPI.aiBrowser.getState()
      await applyState(initialState)
+     if (props.inspectMode) await toggleElementMode(true)
    } catch (error) {
      showBrowserError('浏览器初始化失败', error)
    }
    resizeObserver = new ResizeObserver(scheduleNativeView)
    if (nativeHostRef.value) resizeObserver.observe(nativeHostRef.value)
  })
+
+watch(() => props.active, () => {
+  scheduleNativeView()
+})
+
+watch(() => props.inspectMode, (enabled) => {
+  void toggleElementMode(enabled)
+})
  
-onBeforeUnmount(() => {
+ onBeforeUnmount(() => {
   cancelAnimationFrame(boundsFrame)
   window.removeEventListener('keydown', onKeydown)
   tabStripRef.value?.removeEventListener('wheel', onTabStripWheel)
   resizeObserver?.disconnect()
    removeStateListener?.()
+  removeHostVisibilityListener?.()
   removeElementInspectedListener?.()
   clearTimeout(inspectReinjectTimer)
   void stopPick()
    removeActivityListener?.()
-   window.electronAPI?.aiBrowser?.hideView?.()
+    window.electronAPI?.aiBrowser?.hideView?.()
+  })
+
+ defineExpose({
+   refreshState,
+   newTab,
+   activate,
+   closeTab,
+   navigateTo,
+   history,
+   toggleElementMode
  })
  </script>
  
  <style scoped>
  .ai-browser-shell {
-   height: 100vh;
+   width: 100%;
+   height: 100%;
    display: flex;
    flex-direction: column;
    color: var(--fg);

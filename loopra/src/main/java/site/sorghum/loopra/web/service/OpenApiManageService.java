@@ -18,7 +18,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -107,6 +112,7 @@ public class OpenApiManageService implements EventListener<AppLoadEndEvent> {
         try {
             openApiSkill.removeApi(docUrl);
         } catch (Exception ignored) {
+            // 旧源不存在或移除失败时忽略，直接重建
         }
         return addSource(docUrl, headers, authType, authConfig);
     }

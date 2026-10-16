@@ -48,7 +48,7 @@ public final class ToolContract {
                 %s
                 """.formatted(terminateOnNoToolCall
                 ? "- 无工具调用时，模型的纯文本回复会结束对话"
-                : "- 结束对话**必须**调用 `finish`，纯文本回复不会退出循环");
+                : "- 结束对话时直接给出最终回答；纯文本回复不会立即收尾，连续三轮没有工具调用后兜底结束（未关闭的 Goal 会改变收尾时机）");
         if (dynamicTail == null || dynamicTail.isBlank()) {
             return body;
         }

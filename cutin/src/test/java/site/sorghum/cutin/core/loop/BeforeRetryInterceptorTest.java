@@ -4,7 +4,12 @@ import org.junit.jupiter.api.Test;
 import org.noear.snack4.ONode;
 import site.sorghum.cutin.core.context.Message;
 import site.sorghum.cutin.core.context.Usage;
-import site.sorghum.cutin.core.model.*;
+import site.sorghum.cutin.core.model.ModelCallError;
+import site.sorghum.cutin.core.model.ModelCallRequest;
+import site.sorghum.cutin.core.model.ModelCapabilities;
+import site.sorghum.cutin.core.model.ModelProvider;
+import site.sorghum.cutin.core.model.ModelResponse;
+import site.sorghum.cutin.core.model.StreamChunk;
 
 import java.util.List;
 import java.util.Map;

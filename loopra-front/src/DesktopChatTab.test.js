@@ -64,7 +64,16 @@ function mountTab() {
           methods: {refresh: subPanelRefreshSpy}
         },
         EnvironmentPanel: true,
-        RightPanel: true,
+        DesktopToolPanel: {
+          name: 'DesktopToolPanel',
+          template: '<div class="desktop-tool-panel-stub" />',
+          methods: {
+            refreshSubAgents: subPanelRefreshSpy,
+            refreshCapabilities: vi.fn(),
+            refreshEnvironment: vi.fn(),
+            refreshFiles: vi.fn()
+          }
+        },
         TerminalView: true,
         FileExplorer: true,
         ProjectCapabilitiesPanel: true,
@@ -140,7 +149,7 @@ describe('DesktopChatTab 子代理回放标签', () => {
     window.history.replaceState({}, '', originalHref)
   })
 
-  it('renders Codex-style chat header toolbar with existing tool actions', async () => {
+  it('renders a Codex-style chat header with only terminal and sidebar actions', async () => {
     const wrapper = mountTab()
     await flushPromises()
 
@@ -149,18 +158,14 @@ describe('DesktopChatTab 子代理回放标签', () => {
     expect(wrapper.find('.desktop-activity-bar').exists()).toBe(false)
     expect(wrapper.find('.desktop-right-activity-bar').exists()).toBe(false)
     expect(wrapper.find('.desktop-chat-header-actions').exists()).toBe(true)
-    expect(wrapper.findAll('.desktop-chat-header-action')).toHaveLength(9)
+    expect(wrapper.findAll('.desktop-chat-header-action')).toHaveLength(2)
+    expect(wrapper.find('.desktop-chat-header-action[aria-label="终端"]').exists()).toBe(true)
+    await wrapper.find('.desktop-chat-header-action[aria-label="侧边栏"]').trigger('click')
+    expect(wrapper.vm.rightPanelOpen).toBe(true)
+    expect(wrapper.vm.rightPanelTab).toBe('launcher')
 
-    await wrapper.find('.desktop-chat-header-action[aria-label="审查"]').trigger('click')
-    await wrapper.find('.desktop-chat-header-action[aria-label="浏览器"]').trigger('click')
-    await wrapper.find('.desktop-chat-header-action[aria-label="引导"]').trigger('click')
-    expect(window.electronAPI.elementInspectorWindow.open).toHaveBeenCalled()
-    expect(window.electronAPI.aiBrowserWindow.open).toHaveBeenCalled()
-    expect(window.electronAPI.onboarding.open).toHaveBeenCalled()
-
-    await wrapper.find('.desktop-chat-header-action[aria-label="文件"]').trigger('click')
-    expect(wrapper.vm.leftPanelOpen).toBe(true)
-    expect(wrapper.vm.leftPanelView).toBe('files')
+    wrapper.vm.openToolPanel('browser')
+    expect(wrapper.vm.rightPanelTab).toBe('browser')
   })
 
   it('opens the native session menu and handles its selected action', async () => {
@@ -174,8 +179,8 @@ describe('DesktopChatTab 子代理回放标签', () => {
     await flushPromises()
 
     expect(window.electronAPI.desktopChatHeaderMenu.open).toHaveBeenCalledWith('gray')
-    expect(wrapper.vm.leftPanelOpen).toBe(true)
-    expect(wrapper.vm.leftPanelView).toBe('project-capabilities')
+    expect(wrapper.vm.rightPanelOpen).toBe(true)
+    expect(wrapper.vm.rightPanelTab).toBe('project-capabilities')
     expect(wrapper.find('.desktop-chat-header-menu').exists()).toBe(false)
   })
 
@@ -375,8 +380,9 @@ describe('DesktopChatTab 子代理回放标签', () => {
     // 打开子代理面板（挂载后 ref 才可用）
     wrapper.vm.toggleSubAgentPanel()
     await nextTick()
-    expect(wrapper.vm.subAgentPanelMounted).toBe(true)
-    expect(wrapper.vm.subAgentPanelRef).toBeTruthy()
+    expect(wrapper.vm.rightPanelOpen).toBe(true)
+    expect(wrapper.vm.rightPanelTab).toBe('sub-agents')
+    expect(wrapper.vm.toolPanelRef).toBeTruthy()
 
     wrapper.vm.handleSubAgentEvent({type: 'sub_start', subId: 3, subSessionId: 'sub-live', task: '实时任务'})
     await nextTick()
@@ -384,17 +390,16 @@ describe('DesktopChatTab 子代理回放标签', () => {
     expect(subPanelRefreshSpy).toHaveBeenCalled()
   })
 
-  it('opens the project capabilities panel from the right activity bar', async () => {
+  it('opens project capabilities in the unified workspace panel', async () => {
     const wrapper = mountTab()
     await flushPromises()
 
     wrapper.vm.toggleProjectCapabilitiesPanel()
     await nextTick()
 
-    expect(wrapper.vm.projectCapabilitiesPanelMounted).toBe(true)
-    expect(wrapper.vm.leftPanelOpen).toBe(true)
-    expect(wrapper.vm.leftPanelView).toBe('project-capabilities')
-    expect(wrapper.find('.desktop-chat-header-action[aria-label="项目能力"]').exists()).toBe(true)
+    expect(wrapper.vm.rightPanelOpen).toBe(true)
+    expect(wrapper.vm.rightPanelTab).toBe('project-capabilities')
+    expect(wrapper.findAll('.desktop-chat-header-action')).toHaveLength(2)
   })
 
   it('openSubAgentTab fills blocks through the reactive proxy (ChatView perceives updates)', async () => {
