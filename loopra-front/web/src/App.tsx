@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Check } from 'lucide-react';
 import { getSessionMessages, useLocalState } from './lib';
@@ -40,7 +40,7 @@ import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
 import { isDesktopWindow } from './desktop-shell';
-import { launchWorkspace, workspaceApplications } from './workspace-launcher';
+import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
 import { notifyWorkspaceChanged } from './workspace-events';
 import WorkspaceTabs from './components/WorkspaceTabs';
 import { closeWorkspaceFile, emptyWorkspaceTabs, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
@@ -55,6 +55,7 @@ export default function App() {
   const [composerOptions, setComposerOptions] = useLocalState<ComposerOptions>('composer-options', defaultOptions);
   const [defaultModel, setDefaultModel] = useLocalState('default-model', defaultOptions.modelId);
   const [agentSettings, setAgentSettings] = useLocalState<AgentSettings>('agent-settings', defaultAgentSettings);
+  const [availableApplications, setAvailableApplications] = useState<string[] | null>(null);
   const [petReply, setPetReply] = useState<PetReply | null>(null);
   const [composerContext, setComposerContext] = useState<ComposerContext>(emptyContext);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -603,6 +604,16 @@ export default function App() {
     setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '' }));
     setWorkspace(current => backend.workspaces.some(item => item.hash === current) ? current : backend.workspaces.find(item => item.path === config.workspace)?.hash || backend.workspaces[0]?.hash || '');
   }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server]);
+  // The host is what actually launches these, and only it knows what exists there (Git Bash is
+  // Windows-only, PowerShell needs pwsh installed), so ask it instead of offering a fixed list.
+  const refreshApplications = useCallback(() => {
+    void fetchAvailableApplications(api).then(ids => setAvailableApplications(ids));
+  }, [api]);
+  useEffect(() => { if (backend.status === 'connected') refreshApplications(); }, [backend.status, refreshApplications]);
+  // Ask again whenever the menu opens. The first attempt can land while the service is restarting,
+  // or against a service too old to have the inventory, and that answer must not stick for the
+  // whole session — otherwise the menu keeps offering launchers the host cannot run.
+  useEffect(() => { if (menu === 'folder') refreshApplications(); }, [menu, refreshApplications]);
   // Switching backends/servers drops the previous run's tokens/s badge so the
   // home composer never shows a speed from another project.
   useEffect(() => { setLiveSpeed(undefined); }, [server]);
@@ -687,7 +698,7 @@ export default function App() {
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
-          applications={workspaceApplications} onOpenWorkspace={application => void openWorkspace(application)} onTerminal={() => { setTerminal(true); setMenu(null); }} onCopyPath={copyPath}
+          applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onTerminal={() => { setTerminal(true); setMenu(null); }} onCopyPath={copyPath}
           onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
           onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
           onClear={() => { setMenu(null); clearChat(); }}
@@ -732,6 +743,7 @@ export default function App() {
       onRefresh={() => backend.refresh()}
       workspaces={workspaces}
       server={server}
+      availableApplications={availableApplications}
       config={agentSettings}
       onConfig={saveAgentSettings}
       options={composerOptions}

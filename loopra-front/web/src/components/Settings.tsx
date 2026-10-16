@@ -18,6 +18,7 @@ import type { Workspace } from '../backend';
 import { AgentDefaults, PromptSettings } from './AgentSettingsPages';
 import { searchSettings } from '../settings-search';
 import { normalizeSettingsSection, settingsCategories, settingsCategoryFor } from '../settings-navigation';
+import { visibleApplications } from '../workspace-launcher';
 import PetSettings from './PetSettings';
 import type { PetStore } from '../usePets';
 import VersionInfo from './VersionInfo';
@@ -38,6 +39,8 @@ type Props = {
   /** Creates a fresh session and sends the Loopra update prompt (About page). */
   onAutoUpdate?: () => void;
   open: boolean; onClose: () => void; initialTab: string; server: string; workspaces: Workspace[]; onRefresh: () => Promise<void>;
+  /** Launcher ids the service host reports as usable; null/absent means unknown, so don't filter. */
+  availableApplications?: string[] | null;
   preferences: Preferences; onPreferences: (value: Preferences) => void;
   providers: Provider[]; onProviders: (value: Provider[]) => void | Promise<void>;
   sessions: Session[]; onRestore: (id: string) => void; notify: (message: string) => void;
@@ -69,6 +72,10 @@ export default function Settings(props: Props) {
   function openCategory(name: string) { setTab(normalizeSettingsSection(name)); setExpandedCategory(settingsCategoryFor(name).name); setQuery(''); setFocusTarget(''); }
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => onPreferences({ ...prefs, [key]: value });
   const pageProps = { config, onConfig, options: props.options, onOptions: props.onOptions, providers, sessions, notify };
+  // Only launchers the service host actually has; an already-saved one stays listed even if it
+  // has since gone away, so the stored preference still shows what it is set to.
+  const openWithNames = visibleApplications(props.availableApplications).map(item => item.name);
+  const openWithOptions = openWithNames.includes(prefs.openWith) ? openWithNames : [prefs.openWith, ...openWithNames];
   const results = searchSettings(query, tabs);
   const category = settingsCategoryFor(tab);
   const currentSection = category.sections.find(section => section.name === tab)!;
@@ -101,7 +108,7 @@ export default function Settings(props: Props) {
             <SettingRow title="界面缩放" description="同步调整文字、侧栏宽度、控件尺寸与间距"><div className="font-scale-control"><SettingSegments label="全局界面缩放" options={UI_SCALE_LEVELS.map(level => `${level}%`)} value={`${normalizeUiScale(prefs.fontScale)}%`} onChange={value => update('fontScale', Number(value.replace('%', '')))} /></div></SettingRow>
           </div>
           <h3 className="settings-section-title">回复通知</h3><div className="settings-card"><SettingRow title="系统通知" description="回答完成时显示应用内通知"><SettingSwitch label="系统通知" value={prefs.notifications} onChange={value => update('notifications', value)} /></SettingRow><SettingRow title="通知提示音" description="回答完成时播放简短提示音"><SettingSwitch label="通知提示音" value={prefs.sound} onChange={value => update('sound', value)} /></SettingRow></div>
-          <h3 className="settings-section-title">使用体验</h3><div className="settings-card"><SettingRow title="默认打开应用" description="顶栏文件夹按钮在项目目录启动的系统应用"><SelectField compact label="默认打开应用" value={prefs.openWith} onChange={value => update('openWith', value)} options={['File Explorer', 'Terminal', 'PowerShell', 'Git Bash', 'Bash']} startContent={<FolderClosed size="1.0625rem" />} /></SettingRow><SettingRow title="界面动画" description="弹窗与控件的过渡效果"><SettingSwitch label="界面动画" value={prefs.animations} onChange={value => update('animations', value)} /></SettingRow></div>
+          <h3 className="settings-section-title">使用体验</h3><div className="settings-card"><SettingRow title="默认打开应用" description="顶栏文件夹按钮在项目目录启动的系统应用"><SelectField compact label="默认打开应用" value={prefs.openWith} onChange={value => update('openWith', value)} options={openWithOptions} startContent={<FolderClosed size="1.0625rem" />} /></SettingRow><SettingRow title="界面动画" description="弹窗与控件的过渡效果"><SettingSwitch label="界面动画" value={prefs.animations} onChange={value => update('animations', value)} /></SettingRow></div>
         </>}
         {tab === '通用' && <PetSettings pets={props.pets} enabled={config.petEnabled} onEnabled={petEnabled => onConfig({ ...config, petEnabled })} onInitPet={props.onInitPet} notify={notify} />}
         {tab === '模型供应商' && <ModelProviderSettings {...pageProps} server={props.server} onProviders={onProviders} defaultModel={props.defaultModel} onDefaultModel={props.onDefaultModel} />}

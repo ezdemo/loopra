@@ -16,6 +16,10 @@ import java.util.function.Function;
 /** Opens native applications on the service host, rooted at the selected project. */
 @Component
 public class WorkspaceOpenService {
+    /** Desktop terminals we know how to drive, in preference order. */
+    private static final List<String> LINUX_TERMINALS =
+            List.of("gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm");
+
     @Inject private AgentService agentService;
     private final Function<String, String> resolver;
     private final Function<String, Path> executable;
@@ -66,6 +70,27 @@ public class WorkspaceOpenService {
         }
     }
 
+    /**
+     * 宿主当前真正能打开的入口 id，供前端只展示可选项（Windows 的 Git Bash、未安装 pwsh 时的
+     * PowerShell 在 macOS/Linux 上都不该出现在菜单里）。判定必须与 {@link #command} 的分支一致，
+     * 否则菜单会给出一个点了就报错的项。
+     */
+    public List<String> availableApplications() {
+        List<String> available = new ArrayList<>();
+        available.add("folder");
+        if (os.startsWith("windows")) {
+            if (executable.apply("git-bash.exe") != null) available.addAll(List.of("git-bash", "bash"));
+            // command() 无论用 pwsh 还是 powershell 启动，都要求 powershell.exe 本身存在。
+            if (executable.apply("powershell.exe") != null) available.addAll(List.of("powershell", "terminal"));
+            return available;
+        }
+        if (executable.apply("pwsh") != null) available.add("powershell");
+        boolean desktopTerminal = os.startsWith("mac")
+                || LINUX_TERMINALS.stream().anyMatch(name -> executable.apply(name) != null);
+        if (desktopTerminal && executable.apply("bash") != null) available.addAll(List.of("bash", "terminal"));
+        return available;
+    }
+
     private ProcessBuilder command(Path directory, String application) {
         if (application.equals("folder")) {
             return new ProcessBuilder(os.startsWith("windows") ? "explorer.exe" : os.startsWith("mac") ? "open" : "xdg-open", directory.toString());
@@ -90,7 +115,7 @@ public class WorkspaceOpenService {
             return new ProcessBuilder("osascript", "-e", script, directory.toString(), shell.toString());
         }
         if (!os.startsWith("linux")) throw new ServiceException("当前系统暂不支持打开终端");
-        for (String terminal : List.of("gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm")) {
+        for (String terminal : LINUX_TERMINALS) {
             Path binary = executable.apply(terminal);
             if (binary == null) continue;
             List<String> command = new ArrayList<>(List.of(binary.toString()));

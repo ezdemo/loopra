@@ -118,4 +118,35 @@ class WorkspaceOpenServiceTest {
                 builder -> new LaunchedProcess() { public int exitValue() { return 2; } }, "Windows 11");
         assertThrows(ServiceException.class, () -> service.open(HASH, "powershell"));
     }
+
+    /** Reports exactly the named programs as present, so availability can be probed per platform. */
+    private static Function<String, Path> only(String... present) {
+        List<String> available = List.of(present);
+        return name -> available.contains(name) ? Path.of("/usr/bin", name) : null;
+    }
+
+    private static WorkspaceOpenService service(String os, String... present) {
+        return new WorkspaceOpenService(hash -> null, only(present), builder -> new LaunchedProcess(), os);
+    }
+
+    @Test
+    void macOffersNeitherGitBashNorPowerShellUnlessPwshIsInstalled() {
+        assertEquals(List.of("folder", "bash", "terminal"), service("Mac OS X", "bash").availableApplications());
+        assertEquals(List.of("folder", "powershell", "bash", "terminal"),
+                service("Mac OS X", "bash", "pwsh").availableApplications());
+    }
+
+    @Test
+    void windowsOnlyOffersTheProgramsItCanFind() {
+        assertEquals(List.of("folder", "git-bash", "bash", "powershell", "terminal"),
+                service("Windows 11", "git-bash.exe", "powershell.exe").availableApplications());
+        assertEquals(List.of("folder"), service("Windows 11").availableApplications());
+    }
+
+    @Test
+    void linuxNeedsBothAShellAndADesktopTerminal() {
+        assertEquals(List.of("folder"), service("Linux", "bash").availableApplications());
+        assertEquals(List.of("folder", "bash", "terminal"),
+                service("Linux", "bash", "xfce4-terminal").availableApplications());
+    }
 }
