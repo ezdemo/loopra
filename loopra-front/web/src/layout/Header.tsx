@@ -19,7 +19,6 @@ export type HeaderProps = {
   onToggleChanges: () => void;
   applications: { application: string; name: string; label: string }[];
   onOpenWorkspace: (application?: string) => void;
-  onTerminal: () => void;
   onCopyPath: () => void;
   onRename: () => void;
   onRecords: () => void;
@@ -66,7 +65,6 @@ export default function Header(p: HeaderProps) {
           </div>
           <Popup open={menu === 'folder'} className="popup folder-menu" role="menu">
             {p.applications.map(item => <button key={item.application} role="menuitem" onClick={() => p.onOpenWorkspace(item.name)}>{item.application === 'folder' ? <FolderClosed size="1rem" /> : <SquareTerminal size="1rem" />}{item.label}</button>)}
-            <button role="menuitem" onClick={p.onTerminal}><SquareTerminal size="1rem" />后台命令</button>
             <hr />
             <button role="menuitem" onClick={p.onCopyPath}><Copy size="1rem" />复制路径</button>
           </Popup>

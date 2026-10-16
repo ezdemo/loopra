@@ -698,7 +698,7 @@ export default function App() {
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
-          applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onTerminal={() => { setTerminal(true); setMenu(null); }} onCopyPath={copyPath}
+          applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onCopyPath={copyPath}
           onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
           onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
           onClear={() => { setMenu(null); clearChat(); }}
