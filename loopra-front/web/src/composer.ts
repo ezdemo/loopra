@@ -238,12 +238,3 @@ export function formatTokenSpeed(speed?: LiveSpeed) {
   const n = speed?.done ? average ?? streaming : streaming;
   return n == null ? '' : speedLabel(n);
 }
-
-export function tokenSpeedTitle(speed?: LiveSpeed) {
-  const streaming = positive(speed?.tokensPerSecond);
-  const average = positive(speed?.avgTokensPerSecond);
-  const tokens = speed?.completionTokens || 0;
-  if (speed?.done && streaming != null && average != null) return `平均 ${speedLabel(average)} · 实时 ${speedLabel(streaming)} · ${formatTokens(tokens)} tokens`;
-  const label = formatTokenSpeed(speed);
-  return label ? `生成速度 ${label} · ${formatTokens(tokens)} tokens` : '';
-}

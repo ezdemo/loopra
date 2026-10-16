@@ -69,9 +69,11 @@
 .composer-context-chips .context-chip-size { margin-left: 0.25rem; color: var(--muted); font-size: 0.625rem; font-weight: 400; }
 .usage-ring { width: 1rem; height: 1rem; border-radius: 50%; background: conic-gradient(var(--blue) var(--usage), var(--line) 0); position: relative; }
 .usage-ring::after { content: ''; position: absolute; inset: 0.15625rem; border-radius: inherit; background: var(--surface); }
-.rich-composer .composer-tps { display: inline-flex; align-items: center; gap: 0.25rem; height: 1.75rem; padding: 0 0.5rem; border-radius: var(--radius-md); color: var(--secondary); background: var(--soft); font-size: 0.6875rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.rich-composer .composer-tps svg { color: var(--blue); }
 .composer-popover { position: absolute; bottom: 4.375rem; z-index: 90; width: min(22.8125rem, calc(100vw - 2.5rem)); max-height: min(37.5rem, var(--composer-popover-height, 31.25rem)); overflow: auto; border: 1px solid var(--line); border-radius: 1.0625rem; background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000006, 0 0.875rem 2.8125rem #00000017; color: var(--text); font-size: 0.8125rem; text-align: left; padding: 0.375rem; }
+/* The suggestion list re-mounts on every keystroke while typing, so it is excluded
+   from the open animation; every other composer menu (models, tools, projects…)
+   pops in when it opens. */
+.composer-popover:not(.composer-suggestions) { animation: surface-pop-in 0.15s ease-out; }
 .popover-left { left: 0.5625rem; }
 .popover-right { right: 0.5625rem; }
 .composer-popover button { border-radius: var(--radius-md); }
@@ -152,11 +154,14 @@
 .context-total > span.context-medium { color: var(--warning); }
 .context-total > span.context-low { color: var(--blue); }
 .context-body > .composer-note { padding-left: 0; padding-right: 0; }
-.context-gauge { position: relative; height: 0.4375rem; border-radius: var(--radius-md); background: var(--soft); overflow: hidden; margin: 0.75rem 0 0.3125rem; }
-.context-gauge-fill { display: block; height: 100%; border-radius: var(--radius-md); background: linear-gradient(90deg, var(--blue), #42b7a0); transition: width 0.3s ease; }
+/* One bar for the whole picture: the track is the context window, the used region is
+   split by the same part colours as the breakdown rows below, and the fold mark sits
+   on the window scale. (The separate composition bar was merged into this one.) The
+   segments stay contiguous so a segment edge still lines up with the fold mark. */
+.context-gauge { position: relative; display: flex; height: 0.4375rem; border-radius: var(--radius-md); background: var(--soft); overflow: hidden; margin: 0.75rem 0 0.3125rem; }
+.context-gauge > span:not(.context-gauge-threshold) { height: 100%; transition: width 0.3s ease; }
 .context-gauge-scale { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--muted); }
-.context-bar { position: relative; height: 0.4375rem; border-radius: var(--radius-md); overflow: hidden; display: flex; gap: 0.125rem; margin: 0.75rem 0 0.375rem; }
-.context-bar-threshold { position: absolute; top: 0; bottom: 0; width: 0.125rem; margin-left: -0.0625rem; background: var(--warning); opacity: 0.9; z-index: 1; pointer-events: none; }
+.context-gauge-threshold { position: absolute; top: 0; bottom: 0; width: 0.125rem; margin-left: -0.0625rem; background: var(--warning); opacity: 0.9; z-index: 1; pointer-events: none; }
 .context-threshold-note { font-size: 0.6875rem; }
 .context-breakdown { display: flex; align-items: center; font-size: 0.75rem; gap: 0.625rem; padding: 0.4375rem 0; }
 .context-breakdown span { flex: 1; display: flex; align-items: center; gap: 0.4375rem; color: var(--secondary); }

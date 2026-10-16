@@ -23,7 +23,7 @@ import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
 import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type Workspace } from './backend';
 import useLoopra from './useLoopra';
-import { AppMotion, Enter, Toast } from './components/Motion';
+import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
 import usePets from './usePets';
 import { petActivity, petReplyPreview, type PetReply } from './pets';
@@ -63,6 +63,9 @@ export default function App() {
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const [changes, setChanges] = useState(false);
+  // Both sidebars slide both ways, so they stay mounted until their exit slide ends.
+  const sidebarMounted = usePresence(sidebar);
+  const changesMounted = usePresence(changes);
   const [sessionDetails, setSessionDetails] = useState(false);
   const [sessionDetailsTab, setSessionDetailsTab] = useState('events');
   const [deleteSession, setDeleteSession] = useState<Session>();
@@ -675,8 +678,8 @@ export default function App() {
   return <AppMotion enabled={preferences.animations}><div className={`desktop-app${isDesktopWindow() ? ' is-desktop-shell' : ''}`}>
     {isDesktopWindow() && <DesktopTitleBar />}
     <div className="app-body">
-      {narrow && sidebar && <button className="sidebar-backdrop" aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebar && <Sidebar english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed} sortNewest={sortNewest} onSortNewest={setSortNewest} sectionRef={sessionSection}
+      {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
+      {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed} sortNewest={sortNewest} onSortNewest={setSortNewest} sectionRef={sessionSection}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()} onLocate={locateActiveSession}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} />}
@@ -702,8 +705,8 @@ export default function App() {
           </>}
         </div></WorkspaceTabs>
       </main>
-      {changes && <button className="workbench-backdrop" aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {changes && <ChangesPanel api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
+      {changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}

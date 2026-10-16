@@ -881,8 +881,13 @@ function setTitleBarOverlayDimmed(dimmed) {
 }
 
 function createWindow() {
-  // React supplies the drag region and window controls on every platform.
-  const titleBarOptions = { frame: false }
+  // macOS keeps its real traffic lights floating over the content
+  // (`hiddenInset` implies frame: true — combining it with `frame: false` hides
+  // the lights entirely). Everywhere else the window is frameless and React
+  // supplies the drag region and the window controls.
+  const titleBarOptions = process.platform === 'darwin'
+    ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 12 } }
+    : { frame: false }
   mainWindow = new BrowserWindow({
     width: 1200, height: 800,
     minWidth: 800, minHeight: 600,

@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { Button } from '@nextui-org/react';
 import { Bot, CalendarClock, Check, ChevronDown, FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, Waypoints, X, type LucideIcon } from 'lucide-react';
 import { IconButton } from './ui';
@@ -23,8 +23,8 @@ const PRIMARY_TABS: TabDef[] = [['files', '文件', FolderTree], ['git', 'Git', 
 const MORE_TABS: TabDef[] = [['schedules', '定时', CalendarClock], ['subagents', '子代理', Bot], ['capabilities', '能力', Puzzle], ['environment', '环境', Waypoints]];
 
 type PanelProps = { api: LoopraClient; workspaceHash: string; onClose: () => void };
-type WorkbenchProps = PanelProps & { notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
-export default function ChangesPanel({ api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'git', sessionName, sessions, onAdd }: WorkbenchProps) {
+type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
+export default function ChangesPanel({ open, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'git', sessionName, sessions, onAdd }: WorkbenchProps) {
   const [tab, setTab] = useState(initialTab); const [revision, setRevision] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = MORE_TABS.find(([id]) => id === tab);
@@ -45,7 +45,10 @@ export default function ChangesPanel({ api, workspaceHash, onClose, notify, onOp
   // Drag the panel's left edge to resize, mirroring legacy RightPanel.vue.
   function startResize(event: ReactMouseEvent<HTMLDivElement>) { event.preventDefault(); const startX = event.clientX; const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width || panelWidth; setDragging(true); const onMove = (move: MouseEvent) => setPanelWidth(resizePanelWidth(startWidth, move.clientX - startX, window.innerWidth)); const onUp = () => { setDragging(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); }; window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp); }
   const refresh = () => setRevision(value => value + 1);
-  return <aside className={`changes-panel ${wide ? 'wide' : ''}${dragging ? ' resizing' : ''}`} style={docked ? { width: panelWidth, flexBasis: panelWidth } : undefined} aria-label="工作区面板">
+  // `--panel-width` is what the slide collapses to when closed (see `.changes-panel`
+  // in styles.css); it tracks the resize handle because the inline width overrides
+  // the static one.
+  return <aside className={`changes-panel ${wide ? 'wide' : ''}${dragging ? ' resizing' : ''}`} data-open={open} style={docked ? ({ width: panelWidth, flexBasis: panelWidth, '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined} aria-label="工作区面板">
     {docked && <div className="panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="拖动调整右侧面板宽度" title="拖动调整右侧面板宽度" onMouseDown={startResize} />}
     <header className="panel-header">
       <div className="workbench-tabs" role="tablist" aria-label="工作区工具">

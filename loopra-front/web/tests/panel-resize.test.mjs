@@ -30,7 +30,9 @@ test('the right workbench panel inherits the legacy drag-to-resize behaviour', (
   assert.match(panels, /resizePanelWidth\(startWidth, move\.clientX - startX, window\.innerWidth\)/);
   // The handle only shows while the panel is docked (>=1101px); below that it floats.
   assert.match(panels, /aria-label="拖动调整右侧面板宽度"/);
-  assert.match(panels, /style=\{docked \? \{ width: panelWidth, flexBasis: panelWidth \} : undefined\}/);
+  // The docked width is inline because it follows the drag — and it doubles as the
+  // distance the panel slides when it closes (`--panel-width`).
+  assert.match(panels, /style=\{docked \? \(\{ width: panelWidth, flexBasis: panelWidth, '--panel-width': `\$\{panelWidth\}px` \} as CSSProperties\) : undefined\}/);
   assert.match(workbenchCss, /\.panel-resize-handle \{/);
   assert.match(workbenchCss, /cursor: ew-resize;/);
 });

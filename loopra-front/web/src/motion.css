@@ -1,8 +1,16 @@
-/* Static shell layout; component transitions are owned by NextUI. */
+/* Shell layout plus the hand-rolled open/close motion. NextUI still owns its own
+   component transitions; the surfaces below are custom, so they animate here. */
 .icon-button, .send-button { overflow: hidden; }
 .composer:focus-within { border-color: #2083ff75; box-shadow: 0 0 0 0.1875rem #2083ff0b, var(--shadow); }
 .send-button:not(:disabled):hover { box-shadow: 0 0.1875rem 0.625rem #2083ff26; }
 .content-collapse, .code-preview { overflow: hidden; min-width: 0; }
+/* The code block's collapsed height used to be an inline style, which applied
+   everywhere `Markdown` renders — including the plan review and requirement board,
+   not just `.loopra-conversation`. Keep it unscoped for the same reach, and
+   `interpolate-size` is what lets the expand tween to `height: auto` (Chromium 129+;
+   elsewhere the declaration is ignored and the block opens instantly as before). */
+.code-preview { height: auto; transition: height 0.25s ease; interpolate-size: allow-keywords; }
+.code-block-wrap.collapsed .code-preview { height: 11.0625rem; }
 .sidebar, .changes-panel, .terminal-panel { overflow: hidden; }
 .disclosure-heading { width: 100%; text-align: left; }
 .loopra-conversation .compacted-summary > .disclosure-heading { font: inherit; }
@@ -29,6 +37,21 @@
 @media (max-width: 760px) {
   .settings-nav button > .selection-indicator { display: block; }
 }
+/* Motion tokens. `--panel-slide-*` drives the two docked sidebars, whose slide is
+   a margin transition rather than a keyframe so it can run in BOTH directions;
+   `usePresence` in components/Motion.tsx holds them mounted for the exit half and
+   keeps PANEL_SLIDE_MS in step with the duration here (asserted in the tests). */
+:root { --panel-slide-duration: 300ms; --panel-slide-ease: cubic-bezier(.32, .72, 0, 1); }
+/* Opening motion for the surfaces that still mount only while open (`Popup`/
+   `Collapse` render `open ? … : null`), where a mount keyframe plays exactly on
+   open. Plain CSS on purpose: the kill switch below then covers it, and with
+   motion off these appear instantly exactly as they did before. */
+@keyframes surface-pop-in { from { opacity: 0; transform: translateY(-0.25rem); } to { opacity: 1; transform: none; } }
+/* Every `Collapse` body — the assistant 用时/思考/工具 detail, user message展开,
+   sidebar groups, composer model groups — shares this wrapper. opacity/translateY
+   never change layout height, so the chat virtualiser still measures one stable
+   height per row instead of chasing an animating box. */
+.content-collapse { animation: surface-pop-in 0.15s ease-out; }
 /* This preference also reaches overlays rendered in a NextUI portal. */
 html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="off"] *::after {
   animation: none !important; transition: none !important; scroll-behavior: auto !important;

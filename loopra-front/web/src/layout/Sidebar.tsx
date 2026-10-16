@@ -6,6 +6,8 @@ import type { Session } from '../lib';
 import type { Workspace } from '../backend';
 
 export type SidebarProps = {
+  /** Drives the slide; the element stays mounted while it closes (see `usePresence`). */
+  open: boolean;
   english: boolean;
   workspaces: Workspace[];
   sessions: Session[];
@@ -56,7 +58,7 @@ export default function Sidebar(props: SidebarProps) {
     };
   }
 
-  return <SidebarSurface key="sidebar">
+  return <SidebarSurface key="sidebar" open={props.open}>
     <div className="sidebar-brand">
       <span className="app-icon"><LoopraMark small /></span><span>Loopra</span>
       <IconButton label="收起侧边栏" onClick={props.onClose}><PanelLeft size="1rem" /></IconButton>

@@ -126,7 +126,12 @@ svg { flex-shrink: 0; }
 .app-tooltip { font-size: .75rem; background: var(--text); border: 0; color: var(--surface); border-radius: var(--radius-sm); padding: .25rem .5rem; box-shadow: var(--shadow-sm); }
 
 /* Sidebar */
-.sidebar { flex: 0 0 15rem; width: 15rem; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--sidebar); min-height: 0; }
+/* The two sidebars slide in and out. Closing cannot be an animation: the panel is
+   unmounted then, so the transition lives on the element and `usePresence` keeps it
+   mounted for the exit half. The panel's own box moves (margin), never its width, so
+   its content slides rigidly instead of re-flowing. */
+.sidebar { flex: 0 0 15rem; width: 15rem; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--sidebar); min-height: 0; margin-left: 0; transition: margin-left var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s; }
+.sidebar[data-open="false"] { margin-left: -15rem; visibility: hidden; transition: margin-left var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
 
 .sidebar-brand { display: flex; align-items: center; gap: .5rem; height: 3rem; flex: 0 0 3rem; padding: 0 .625rem 0 .875rem; white-space: nowrap; user-select: none; font-weight: 600; letter-spacing: -.01em; }
 .sidebar-brand > .icon-button { margin-left: auto; }
@@ -162,7 +167,8 @@ svg { flex-shrink: 0; }
 .workspace-tools .icon-button:hover { background: var(--selected); color: var(--text); }
 @media (hover: none) { .workspace-tools { opacity: 1; pointer-events: auto; } .workspace-heading { padding-right: 5rem; } }
 
-.sidebar-backdrop { position: absolute; inset: 0; z-index: 31; background: #0006; border: 0; cursor: default; }
+.sidebar-backdrop { position: absolute; inset: 0; z-index: 31; background: #0006; border: 0; cursor: default; opacity: 0; visibility: hidden; transition: opacity var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
+.sidebar-backdrop[data-open="true"] { opacity: 1; visibility: visible; transition: opacity var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s; }
 
 .no-conversation { font-size: .75rem; color: var(--muted); padding-left: 1.75rem; height: 1.75rem; line-height: 1.75rem; margin: 0; }
 
@@ -485,7 +491,7 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 
 .menu-anchor, .model-control { position: relative; }
 
-.popup { position: absolute; border: 1px solid var(--line); border-radius: var(--radius-lg); padding: .25rem; background: var(--surface); color: var(--text); box-shadow: var(--shadow-pop); min-width: 12rem; z-index: 70; font-size: .8125rem; text-align: left; }
+.popup { position: absolute; border: 1px solid var(--line); border-radius: var(--radius-lg); padding: .25rem; background: var(--surface); color: var(--text); box-shadow: var(--shadow-pop); min-width: 12rem; z-index: 70; font-size: .8125rem; text-align: left; animation: surface-pop-in 0.15s ease-out; }
 
 .popup button { width: 100%; display: flex; align-items: center; gap: .5rem; min-height: 1.875rem; padding: .25rem .5rem; border-radius: var(--radius-md); text-align: left; }
 
@@ -551,7 +557,17 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 
 /* Right-hand change inspector */
 
-.changes-panel { position: relative; width: 26rem; flex: 0 0 26rem; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--surface); }
+.changes-panel { position: relative; width: 26rem; flex: 0 0 26rem; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--surface); margin-right: 0; transition: margin-right var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s; }
+/* `--panel-width` is set inline while docked so the slide matches a resized panel;
+   the fallback covers the overlay layout, where it is never narrower than 26rem. */
+.changes-panel[data-open="false"] { margin-right: calc(-1 * var(--panel-width, 26rem)); visibility: hidden; transition: margin-right var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
+/* Entry half. A newly mounted panel starts off-screen and slides to its place with
+   no JS frame needed; the backdrops fade up the same way. */
+@starting-style {
+  .sidebar { margin-left: -15rem; }
+  .changes-panel { margin-right: calc(-1 * var(--panel-width, 26rem)); }
+  .sidebar-backdrop[data-open="true"], .workbench-backdrop[data-open="true"] { opacity: 0; }
+}
 
 .changes-panel.wide { width: 35rem; flex-basis: 35rem; }
 
@@ -956,7 +972,8 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
   .native-select { min-width: 13.125rem; }
 
   .changes-panel { position: absolute; right: 0; bottom: 0; top: 0; z-index: 42; box-shadow: -0.4375rem 0 1.5rem #0000000b; }
-  .workbench-backdrop { display: block; position: absolute; inset: 0; z-index: 41; background: #0003; border: 0; cursor: default; }
+  .workbench-backdrop { display: block; position: absolute; inset: 0; z-index: 41; background: #0003; border: 0; cursor: default; opacity: 0; visibility: hidden; transition: opacity var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
+  .workbench-backdrop[data-open="true"] { opacity: 1; visibility: visible; transition: opacity var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s; }
 
   .has-changes .header-actions { gap: 0.4375rem; }
 
@@ -1163,9 +1180,13 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
   .sidebar ~ .changes-panel { max-width: max(15rem, calc(100% - 36rem)); }
 }
 
-/* Electron frameless-window chrome (rendered only when electronAPI.window exists). */
+/* Electron window chrome (rendered only when electronAPI.window exists). */
 .desktop-titlebar { display: flex; align-items: center; height: 2.25rem; min-height: 2.25rem; padding-left: .75rem; background: var(--surface); border-bottom: 1px solid var(--line); user-select: none; -webkit-app-region: drag; }
-.desktop-titlebar-title { font-size: .75rem; font-weight: 600; letter-spacing: .01em; color: var(--muted); }
+/* macOS draws the real traffic lights itself at a fixed device-pixel position
+   (~64px wide, 12px tall), while `rem` follows the 界面缩放 setting on :root.
+   Every metric that has to line up with them is therefore pinned to px — a rem
+   here would shrink with the UI scale and let the bar fall behind the buttons. */
+.desktop-titlebar.is-native-controls { height: 36px; min-height: 36px; padding-left: 80px; }
 .desktop-titlebar-spacer { flex: 1; align-self: stretch; }
 .desktop-window-controls { display: flex; align-self: stretch; -webkit-app-region: no-drag; }
 .dw-btn { width: 2.75rem; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 0; color: var(--text); cursor: default; }

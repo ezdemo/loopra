@@ -10,7 +10,7 @@ import ts from 'typescript';
 const shellSource = await readFile(new URL('../src/desktop-shell.ts', import.meta.url), 'utf8');
 const shellJs = ts.transpileModule(shellSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const shellUrl = 'data:text/javascript;base64,' + Buffer.from(shellJs).toString('base64');
-const { desktopPlatform, desktopWindowApi, isDesktopWindow, windowControlsOnLeft } = await import(shellUrl);
+const { desktopPlatform, desktopWindowApi, isDesktopWindow, usesNativeWindowControls } = await import(shellUrl);
 
 const titleBar = await readFile(new URL('../src/components/DesktopTitleBar.tsx', import.meta.url), 'utf8');
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -33,12 +33,12 @@ test('desktop window chrome is detected only when the preload bridge exposes con
   assert.equal(withWindow({ electronAPI: { platform: 'win32', window: controls } }, () => desktopWindowApi().close === controls.close), true);
 });
 
-test('platform defaults to win32 and macOS keeps controls on the left', () => {
+test('platform defaults to win32 and only macOS uses native window controls', () => {
   assert.equal(withWindow(undefined, () => desktopPlatform()), 'win32');
   assert.equal(withWindow({ electronAPI: { platform: 'darwin' } }, () => desktopPlatform()), 'darwin');
-  assert.equal(windowControlsOnLeft('darwin'), true);
-  assert.equal(windowControlsOnLeft('win32'), false);
-  assert.equal(windowControlsOnLeft('linux'), false);
+  assert.equal(usesNativeWindowControls('darwin'), true);
+  assert.equal(usesNativeWindowControls('win32'), false);
+  assert.equal(usesNativeWindowControls('linux'), false);
 });
 
 test('the app renders the title bar and shell class only on desktop', () => {
@@ -50,6 +50,14 @@ test('the app renders the title bar and shell class only on desktop', () => {
 test('the desktop title bar provides a draggable region with no-drag controls', () => {
   assert.match(styles, /\.desktop-titlebar \{[^}]*-webkit-app-region: drag;/);
   assert.match(styles, /\.desktop-window-controls \{[^}]*-webkit-app-region: no-drag;/);
+  // The OS draws the macOS traffic lights at a fixed device-pixel position, so
+  // the metrics that line up with them must not follow the rem-based UI scale
+  // (`:root { font-size: calc(16px * var(--ui-scale)) }`) or they drift onto the
+  // title whenever 界面缩放 is below 100%.
+  const nativeMetrics = styles.match(/\.desktop-titlebar\.is-native-controls \{([^}]*)\}/)[1];
+  assert.match(nativeMetrics, /height: 36px;/);
+  assert.match(nativeMetrics, /padding-left: 80px;/);
+  assert.doesNotMatch(nativeMetrics, /rem/);
 });
 
 test('entry routing uses React by default in Electron and preserves auxiliary windows', () => {
@@ -111,4 +119,15 @@ test('the title bar renders the frameless window controls under Electron', async
   assert.match(html, /aria-label="还原窗口"/); // isMaximized() reported true
   assert.match(html, /aria-label="关闭窗口"/);
   assert.match(html, /class="desktop-window-controls"/);
+});
+
+test('macOS keeps the native traffic lights and draws no duplicate controls', async () => {
+  dom.window.electronAPI = { platform: 'darwin', window: { minimize: () => {}, maximize: () => {}, close: () => {}, isMaximized: () => true } };
+  const html = await render();
+  assert.match(html, /class="desktop-titlebar is-native-controls"/);
+  assert.doesNotMatch(html, /desktop-window-controls/);
+  assert.doesNotMatch(html, /aria-label="关闭窗口"/);
+  // The shell header directly below already shows the app name, so the drag
+  // strip carries no label of its own.
+  assert.doesNotMatch(html, /Loopra/);
 });
