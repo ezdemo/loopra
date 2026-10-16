@@ -51,8 +51,8 @@
 }
 
 /* Sub-agent sessions inside the workbench panel (legacy SubAgentPanel.vue). */
-.workbench-subagents { display: flex; flex-direction: column; gap: 0.75rem; }
-.workbench-subagents .workbench-card { padding: 0.75rem; }
+.workbench-subagents { display: flex; flex-direction: column; }
+.workbench-subagents .workbench-card { padding: .75rem 1rem; }
 .workbench-card-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
 .workbench-card-head strong { font-size: 0.8125rem; }
 .workbench-card-head .section-note { margin: 0 0 0 auto; font-size: 0.6875rem; }

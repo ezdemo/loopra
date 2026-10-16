@@ -4,7 +4,7 @@
 .project-capabilities .workbench-card-head .section-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
 .spin { animation: capabilities-spin .8s linear infinite; }
 @keyframes capabilities-spin { to { transform: rotate(360deg); } }
-.capabilities-summary { display: flex; align-items: baseline; gap: .75rem; margin: .75rem; padding-bottom: .5rem; border-bottom: 1px solid var(--line); color: var(--secondary); font-size: .6875rem; }
+.capabilities-summary { display: flex; align-items: baseline; gap: .75rem; margin: 0; padding: .75rem 1rem; border-bottom: 1px solid var(--line); color: var(--secondary); font-size: .6875rem; }
 .capabilities-summary span { display: inline-flex; align-items: baseline; gap: .25rem; }
 .capabilities-summary strong { color: var(--text); font-size: .8125rem; font-weight: 600; }
 .capability-list { list-style: none; display: flex; flex-direction: column; }

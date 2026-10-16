@@ -34,7 +34,8 @@ export const ModalBody = ModalContent;
 export const ModalHeader = ModalContent;
 export const ModalFooter = ModalContent;
 `);
-const iconsStub = dataUrl('export const Copy=()=>null;export const Maximize=()=>null;export const RefreshCw=()=>null;export const SquareTerminal=()=>null;export const X=()=>null;');
+const iconsStub = dataUrl('export const Copy=()=>null;export const Maximize=()=>null;export const RefreshCw=()=>null;export const SquareTerminal=()=>null;export const X=()=>null;export const Bot=()=>null;export const CalendarClock=()=>null;export const Check=()=>null;export const ChevronDown=()=>null;export const FolderTree=()=>null;export const GitBranch=()=>null;export const Puzzle=()=>null;export const Waypoints=()=>null;');
+const motionStub = dataUrl('export const Popup = () => null;');
 const uiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const IconButton = ({ label, children, onClick }) => createElement('button', { type: 'button', 'aria-label': label, onClick }, children);
@@ -56,7 +57,7 @@ export function useLocalState(_key, initial) { return React.useState(initial); }
 const bashUrl = await sourceUrl('bash-sessions.ts');
 const bashStateUrl = await sourceUrl('useBashSessions.ts', { './bash-sessions': bashUrl });
 const panelsUrl = await sourceUrl('components/Panels.tsx', {
-  '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub, './ui': uiStub, './RemoteControls': controlsStub,
+  '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub, './ui': uiStub, './Motion': motionStub, './RemoteControls': controlsStub,
   './FilesPanel': stubPanel, './GitTools': stubPanel, './SchedulePanel': stubPanel, './SubAgentsPanel': stubPanel,
   './ProjectCapabilities': stubPanel, './DiffView': stubPanel, '../bash-sessions': bashUrl, '../lib': libStub, '../panel-resize': panelResizeStub, '../useBashSessions': bashStateUrl, '../workspace-events': workspaceEventsStub,
 });

@@ -1,7 +1,8 @@
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { Button } from '@nextui-org/react';
-import { Maximize, RefreshCw, SquareTerminal, X } from 'lucide-react';
+import { Bot, CalendarClock, Check, ChevronDown, FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, Waypoints, X, type LucideIcon } from 'lucide-react';
 import { IconButton } from './ui';
+import { Popup } from './Motion';
 import type { LoopraClient } from '../backend';
 import type { Session } from '../lib';
 import { useLocalState } from '../lib';
@@ -17,10 +18,23 @@ import { bashSessionState, bashSessionSummary, formatBashUptime } from '../bash-
 import { useBashSessions, type BashSessionsState } from '../useBashSessions';
 import { watchWorkspaceChanges } from '../workspace-events';
 
+type TabDef = [id: string, label: string, icon: LucideIcon];
+const PRIMARY_TABS: TabDef[] = [['files', '文件', FolderTree], ['git', 'Git', GitBranch]];
+const MORE_TABS: TabDef[] = [['schedules', '定时', CalendarClock], ['subagents', '子代理', Bot], ['capabilities', '能力', Puzzle], ['environment', '环境', Waypoints]];
+
 type PanelProps = { api: LoopraClient; workspaceHash: string; onClose: () => void };
 type WorkbenchProps = PanelProps & { notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
 export default function ChangesPanel({ api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'git', sessionName, sessions, onAdd }: WorkbenchProps) {
   const [tab, setTab] = useState(initialTab); const [revision, setRevision] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreActive = MORE_TABS.find(([id]) => id === tab);
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const close = (event: Event) => { if (!(event.target as Element | null)?.closest?.('[data-popover]')) setMoreOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMoreOpen(false); };
+    document.addEventListener('pointerdown', close); window.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', close); window.removeEventListener('keydown', escape); };
+  }, [moreOpen]);
   useEffect(() => watchWorkspaceChanges(workspaceHash, () => setRevision(value => value + 1)), [workspaceHash]);
   const [panelWidth, setPanelWidth] = useLocalState<number>('right-panel-width', DEFAULT_PANEL_WIDTH);
   const [dragging, setDragging] = useState(false);
@@ -31,7 +45,19 @@ export default function ChangesPanel({ api, workspaceHash, onClose, notify, onOp
   // Drag the panel's left edge to resize, mirroring legacy RightPanel.vue.
   function startResize(event: ReactMouseEvent<HTMLDivElement>) { event.preventDefault(); const startX = event.clientX; const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width || panelWidth; setDragging(true); const onMove = (move: MouseEvent) => setPanelWidth(resizePanelWidth(startWidth, move.clientX - startX, window.innerWidth)); const onUp = () => { setDragging(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); }; window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp); }
   const refresh = () => setRevision(value => value + 1);
-  return <aside className={`changes-panel ${wide ? 'wide' : ''}${dragging ? ' resizing' : ''}`} style={docked ? { width: panelWidth, flexBasis: panelWidth } : undefined} aria-label="工作区面板">{docked && <div className="panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="拖动调整右侧面板宽度" title="拖动调整右侧面板宽度" onMouseDown={startResize} />}<header className="panel-header"><strong>工作区</strong><div><IconButton label="刷新工作区面板" onClick={refresh}><RefreshCw size={16} /></IconButton><IconButton label="展开工作区面板" onClick={() => setPanelWidth(wide ? DEFAULT_PANEL_WIDTH : WIDE_PANEL_WIDTH)}><Maximize size={16} /></IconButton><IconButton label="收起工作区面板" onClick={onClose}><X size={16} /></IconButton></div></header><div className="workbench-tabs" role="tablist" aria-label="工作区工具">{[['files', '文件'], ['git', 'Git'], ['schedules', '定时'], ['subagents', '子代理'], ['capabilities', '能力'], ['environment', '环境']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div><div className="workbench-body" data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitTools key={workspaceHash} {...{ api, workspaceHash, revision, notify }} onRefresh={refresh} onFile={path => onOpenFile({ path, mode: 'diff' })} /> : tab === 'schedules' ? <SchedulePanel key={workspaceHash} {...{ api, workspaceHash, sessionName, sessions, revision }} onRefresh={refresh} /> : tab === 'subagents' ? <SubAgentsPanel key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, notify }} onDiff={path => onOpenFile({ path, mode: 'diff' })} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <Environment key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} />}</div></aside>;
+  return <aside className={`changes-panel ${wide ? 'wide' : ''}${dragging ? ' resizing' : ''}`} style={docked ? { width: panelWidth, flexBasis: panelWidth } : undefined} aria-label="工作区面板">
+    {docked && <div className="panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="拖动调整右侧面板宽度" title="拖动调整右侧面板宽度" onMouseDown={startResize} />}
+    <header className="panel-header">
+      <div className="workbench-tabs" role="tablist" aria-label="工作区工具">
+        {PRIMARY_TABS.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={14} />{label}</button>)}
+        <div data-popover className="menu-anchor">
+          <button role="tab" aria-selected={!!moreActive} aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen(open => !open)}>{moreActive ? moreActive[1] : '更多'}<ChevronDown size={13} /></button>
+          <Popup open={moreOpen} className="popup panel-more-menu" role="menu">{MORE_TABS.map(([id, label, Icon]) => <button key={id} role="menuitem" className={tab === id ? 'chosen' : ''} onClick={() => { setTab(id); setMoreOpen(false); }}><Icon size={15} />{label}{tab === id && <Check size={14} />}</button>)}</Popup>
+        </div>
+      </div>
+      <div className="panel-actions"><IconButton label="刷新工作区面板" onClick={refresh}><RefreshCw size={15} /></IconButton><IconButton label="展开工作区面板" onClick={() => setPanelWidth(wide ? DEFAULT_PANEL_WIDTH : WIDE_PANEL_WIDTH)}><Maximize size={15} /></IconButton><IconButton label="收起工作区面板" onClick={onClose}><X size={16} /></IconButton></div>
+    </header>
+    <div className="workbench-body" data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitTools key={workspaceHash} {...{ api, workspaceHash, revision, notify }} onRefresh={refresh} onFile={path => onOpenFile({ path, mode: 'diff' })} /> : tab === 'schedules' ? <SchedulePanel key={workspaceHash} {...{ api, workspaceHash, sessionName, sessions, revision }} onRefresh={refresh} /> : tab === 'subagents' ? <SubAgentsPanel key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, notify }} onDiff={path => onOpenFile({ path, mode: 'diff' })} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <Environment key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} />}</div></aside>;
 }
 function Environment({ api, workspaceHash, sessionName, revision, notify, onRefresh }: { api: LoopraClient; workspaceHash: string; sessionName?: string; revision: number; notify: (text: string) => void; onRefresh: () => void }) {
   const suffix = query({ workspaceHash, sessionName });
