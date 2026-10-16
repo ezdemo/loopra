@@ -1,3 +1,4 @@
+import { mergeFileDiffs } from './diff';
 import type { ChatBlock, Message } from './chat';
 import type { Provider, Session } from './lib';
 
@@ -143,7 +144,13 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
   } else if (event.type === 'file_changes' && event.changes?.length) {
     let summary = blocks.find(block => block.type === 'file_changes');
     if (!summary || summary.type !== 'file_changes') { summary = { id, type: 'file_changes', changes: [] }; blocks.push(summary); }
-    for (const change of event.changes) { const old = summary.changes.find(item => item.path === change.path); if (old) { old.additions += change.additions || 0; old.deletions += change.deletions || 0; old.created ||= change.created; old.diff = [old.diff, change.diff].filter(Boolean).join('\n'); } else summary.changes.push(change); }
+    for (const change of event.changes) { const old = summary.changes.find(item => item.path === change.path); if (old) {
+      // Successive edits of one file collapse into a single net diff (not the file shown twice).
+      const merged = mergeFileDiffs(old.diff, change.diff);
+      if (merged) { old.diff = merged.diff; old.additions = merged.additions; old.deletions = merged.deletions; }
+      else { old.additions += change.additions || 0; old.deletions += change.deletions || 0; old.diff = [old.diff, change.diff].filter(Boolean).join('\n'); }
+      old.created ||= change.created;
+    } else summary.changes.push(change); }
   } else if (event.type === 'choice' && event.options?.length) blocks.push({ id, type: 'choice', question: event.title || event.question || '请选择', description: event.description, options: event.options.map(option => ({ title: option.title, value: option.value, description: option.summary })) });
   else if (event.type === 'complete' && content && !blocks.some(block => block.type === 'content' && block.content.trim())) blocks.push({ id, type: 'content', content });
   return { ...message, blocks, text: blocks.flatMap(block => block.type === 'content' ? [block.content] : []).join('\n\n') };

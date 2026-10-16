@@ -3,8 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 
+const diffSource = await readFile(new URL('../src/diff.ts', import.meta.url), 'utf8');
+const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(diffSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText).toString('base64');
 const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
-const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
+let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
+outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
 const { SseParser, LoopraClient, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('SSE preserves fragmented UTF-8, CRLF, comments and multiline frames', () => {
@@ -215,4 +218,17 @@ test('history marks turns whose reasoning was encrypted', () => {
   assert.deepEqual(messages[1].blocks.map(block => block.type), ['reasoning_started', 'content']);
   const plain = historyMessages([{ role: 'assistant', content: '嗯', response_reasoning: { type: 'reasoning', encrypted_content: '' } }]);
   assert.deepEqual(plain[0].blocks.map(block => block.type), ['content']);
+});
+
+test('successive full-file diffs of one path collapse into a single net diff', () => {
+  const created = '@@ -1,0 +1,3 @@\n+a\n+b\n+c\n';
+  const edited = '@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n';
+  const message = { id: 'm', role: 'assistant', text: '', blocks: [] };
+  const first = applyEvent(message, { type: 'file_changes', changes: [{ path: 'x.txt', additions: 3, deletions: 0, created: true, diff: created }] });
+  const merged = applyEvent(first, { type: 'file_changes', changes: [{ path: 'x.txt', additions: 1, deletions: 1, diff: edited }] });
+  const [change] = merged.blocks.find(block => block.type === 'file_changes').changes;
+  assert.equal(change.created, true);
+  assert.equal(change.additions, 3);
+  assert.equal(change.deletions, 0);
+  assert.equal(change.diff, '@@ -1,0 +1,3 @@\n+a\n+B\n+c\n');
 });

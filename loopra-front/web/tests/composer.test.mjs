@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { getModelCatalog, groupModels, composeMessage, estimateContext, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { formatTokens, getModelCatalog, groupModels, composeMessage, estimateContext, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 const providers = [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'magpie', name: 'magpie' }];
 const models = getModelCatalog(providers);
 
@@ -120,4 +120,10 @@ test('the composer renders image thumbnails and sized chips using the view helpe
   assert.match(component, /className="context-chip-size"/);
   assert.match(component, /attachmentViews\(context, pasteChars\)/);
   assert.match(component, /size: file\.size/);
+});
+
+test('token counts use compact K / M units', () => {
+  assert.deepEqual([0, 999, 1000, 1250, 57075, 99999, 100000, 512000, 1000000, 1250000].map(formatTokens),
+    ['0', '999', '1K', '1.3K', '57.1K', '100K', '100K', '512K', '1M', '1.25M']);
+  assert.equal(formatTokens(NaN), '0');
 });

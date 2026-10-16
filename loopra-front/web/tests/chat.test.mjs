@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { splitAssistantBlocks, groupToolBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { splitAssistantBlocks, groupToolBlocks, chainBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const reasoning = { id: 'r', type: 'reasoning', content: '检查项目' };
 const read = { id: 'read', type: 'tool_call', name: 'read', status: '成功' };
@@ -121,4 +121,15 @@ test('demo turns keep their answer visible and block IDs are unique', () => {
       assert.ok(splitAssistantBlocks(message.blocks).final.length > 0);
     }
   }
+});
+
+test('consecutive thinking and tool steps fold into one reasoning chain', () => {
+  const [chain, ...rest] = chainBlocks([reasoning, read, bash, reasoning, finish, read]);
+  assert.equal(chain.type, 'chain');
+  assert.deepEqual(chain.steps, [reasoning, read, bash, reasoning]);
+  assert.deepEqual(rest, [finish, read]);
+  // A single step is not worth a chain.
+  assert.deepEqual(chainBlocks([read]), [read]);
+  assert.deepEqual(chainBlocks([reasoning, finish]), [reasoning, finish]);
+  assert.deepEqual(chainBlocks([]), []);
 });

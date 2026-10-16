@@ -37,6 +37,7 @@ pnpm build
 
 - `src/backend.ts`：HTTP/SSE、配置和历史协议适配。
 - `src/App.tsx`、`src/useLoopra.ts`：工作区、会话与运行配置。
+- `src/layout/`：Sidebar、Header、HomeView、ChatDock 等外壳组件；设计 token 位于 `src/styles.css` 的 `:root` / `:root.dark`（颜色、圆角、间距、阴影），NextUI 主题在 `tailwind.config.js` 中映射到同一套色值。
 - `src/components/Composer.tsx`：输入栏与模型选择。
 - `src/components/Settings.tsx`：NextUI 设置。
 - `src/components/RemoteModelsPicker.tsx`：远程模型选择弹窗。

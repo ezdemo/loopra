@@ -9,19 +9,19 @@
 .capabilities-summary strong { color: var(--text); font-size: .8125rem; font-weight: 600; }
 .capability-list { list-style: none; display: flex; flex-direction: column; }
 .capability-row { display: flex; align-items: center; gap: .5rem; min-width: 0; padding: .4rem 0; }
-.capability-row:hover { background: var(--hover); border-radius: .375rem; }
+.capability-row:hover { background: var(--hover); border-radius: var(--radius-sm); }
 .capability-row details { width: 100%; min-width: 0; }
 .capability-row summary { display: flex; align-items: center; gap: .5rem; cursor: pointer; list-style: none; }
 .capability-row summary::-webkit-details-marker { display: none; }
 .capability-dot { width: .375rem; height: .375rem; flex: 0 0 .375rem; border-radius: 50%; background: var(--secondary); opacity: .55; }
 .capability-dot.project { opacity: .85; }
-.capability-dot.loaded { background: #4c8a68; opacity: 1; }
+.capability-dot.loaded { background: var(--success); opacity: 1; }
 .capability-main { flex: 1; min-width: 0; display: grid; }
 .capability-main strong, .capability-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .capability-main strong { font-size: .75rem; font-weight: 600; }
 .capability-main small, .capability-detail, .mcp-failed { color: var(--secondary); font-size: .6875rem; }
 .mcp-status { flex: 0 0 auto; font-size: .6875rem; color: var(--secondary); }
-.mcp-status.loaded { color: #4c8a68; }
+.mcp-status.loaded { color: var(--success); }
 .capability-detail { padding: .25rem 0 .375rem 1rem; }
 .mcp-tools { display: flex; flex-wrap: wrap; gap: .25rem .5rem; margin: 0; color: inherit; font-size: inherit; }
 .mcp-tools code { padding: 0; background: transparent; color: inherit; font-size: inherit; }

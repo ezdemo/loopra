@@ -8,7 +8,7 @@ export type IntegrationKind = 'mcp' | 'openapi';
 export type Integration = { id: string; kind: IntegrationKind; name: string; enabled: boolean; transport: string; url: string; command: string; args: string; env: string; headers: string; timeout: number; auth: string; token: string; tools: string[] };
 export type Extension = { id: string; name: string; description: string; enabled: boolean; source?: string };
 export type AgentSettings = {
-  codeFontSize: number; defaultWorkspace: string; projectPath: string; agentName: string; systemPrompt: string;
+  defaultWorkspace: string; projectPath: string; agentName: string; systemPrompt: string;
   serverUrl: string; browserEnabled: boolean; browser: string; headless: boolean;
   validatorModel: string; imageModel: string; tools: ToolConfig[]; skills: SkillConfig[]; agents: AgentProfile[];
   integrations: Integration[]; plugins: Extension[]; extensions: Extension[]; petEnabled: boolean;
@@ -25,7 +25,7 @@ export const defaultTools: ToolConfig[] = [
   { name: 'finish', description: '返回最终结果', category: '协作', readOnly: true, enabled: true },
 ];
 export const defaultAgentSettings: AgentSettings = {
-  codeFontSize: 12, defaultWorkspace: 'comfyui', projectPath: '~\\Documents\\ChatGPT\\comfyui', agentName: '编程助手', systemPrompt: defaultSystemPrompt,
+  defaultWorkspace: 'comfyui', projectPath: '~\\Documents\\ChatGPT\\comfyui', agentName: '编程助手', systemPrompt: defaultSystemPrompt,
   serverUrl: 'http://127.0.0.1:8080', browserEnabled: true, browser: '内置浏览器', headless: false,
   validatorModel: '', imageModel: '', tools: defaultTools,
   skills: [

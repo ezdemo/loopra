@@ -8,7 +8,7 @@ import ts from 'typescript';
 // DiffViewer.vue side-by-side pairing).
 const source = await readFile(new URL('../src/diff.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { parseSideBySide, diffHunkCount } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { parseSideBySide, diffHunkCount, wordDiff, diffFolds, foldContext, mergeFileDiffs } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('pairs removed and added lines into replacements and keeps context', () => {
   const diff = [
@@ -86,4 +86,46 @@ test('the side-by-side view renders the legacy 旧版本/新版本 column header
   assert.ok(html.indexOf('diff-sbs-header') < html.indexOf('diff-sbs-row'));
   assert.match(workbenchCss, /\.diff-sbs-header \{/);
   assert.match(workbenchCss, /\.diff-sbs-label:first-child \{ border-right: 1px solid var\(--line\); \}/);
+});
+
+test('wordDiff marks only the tokens that changed inside a replaced line', () => {
+  const { left, right } = wordDiff('const total = price * 2;', 'const total = price * qty;');
+  assert.deepEqual(left.filter(part => part.changed).map(part => part.text), ['2']);
+  assert.deepEqual(right.filter(part => part.changed).map(part => part.text), ['qty']);
+  assert.equal(left.map(part => part.text).join(''), 'const total = price * 2;');
+  assert.equal(right.map(part => part.text).join(''), 'const total = price * qty;');
+  // Identical lines have nothing to highlight; unrelated lines are fully changed.
+  assert.equal(wordDiff('same', 'same').left.some(part => part.changed), false);
+  assert.equal(wordDiff('abc', 'xyz').right.every(part => part.changed), true);
+});
+
+test('diffFolds counts the unchanged lines hidden before each hunk', () => {
+  const diff = ['@@ -10,2 +10,2 @@', ' a', '-b', '+c', '@@ -30,1 +30,1 @@', '-x', '+y'].join('\n');
+  const rows = parseSideBySide(diff);
+  const folds = diffFolds(rows);
+  assert.equal(folds.get(0), 9);
+  assert.equal(folds.get(rows.findIndex(row => row.hunkIndex === 1)), 18);
+  assert.equal(diffFolds(parseSideBySide('@@ -1,1 +1,1 @@\n-a\n+b\n')).size, 0);
+});
+
+test('foldContext keeps three rows around each change and numbers every block as its own hunk', () => {
+  const lines = Array.from({ length: 30 }, (_, index) => ` line${index + 1}`);
+  lines[4] = '-old5\n+new5';
+  lines[24] = '-old25\n+new25';
+  const rows = foldContext(parseSideBySide(`@@ -1,30 +1,30 @@\n${lines.join('\n')}\n`));
+  assert.equal(diffHunkCount(rows), 2);
+  assert.deepEqual(rows.map(row => row.leftLineNum), [2, 3, 4, 5, 6, 7, 8, 22, 23, 24, 25, 26, 27, 28]);
+  assert.equal(diffFolds(rows).get(0), 1);
+  assert.equal(diffFolds(rows).get(7), 13);
+  // Without any change there is nothing to fold.
+  const same = parseSideBySide('@@ -1,2 +1,2 @@\n a\n b\n');
+  assert.equal(foldContext(same), same);
+});
+
+test('mergeFileDiffs turns two whole-file diffs into the net change', () => {
+  const merged = mergeFileDiffs('@@ -1,0 +1,2 @@\n+a\n+b\n', '@@ -1,2 +1,3 @@\n a\n b\n+c\n');
+  assert.deepEqual(merged, { diff: '@@ -1,0 +1,3 @@\n+a\n+b\n+c\n', additions: 3, deletions: 0 });
+  // Partial hunks cannot be reconstructed, so the caller falls back to concatenating.
+  assert.equal(mergeFileDiffs('@@ -10,1 +10,1 @@\n-a\n+b\n', '@@ -1,1 +1,1 @@\n-a\n+b\n'), null);
+  assert.equal(mergeFileDiffs(undefined, '@@ -1,1 +1,1 @@\n-a\n+b\n'), null);
 });

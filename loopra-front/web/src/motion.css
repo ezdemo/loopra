@@ -14,7 +14,7 @@
 .session-item > .selection-indicator { flex: none; mask-image: none; overflow: visible; }
 .session-item.selected, .settings-nav button.selected, .dark .settings-nav button.selected,
 .segmented > button.selected, .file-view-toggle button.selected { background: transparent; box-shadow: none; }
-.settings-nav .selection-indicator { background: #f7f7f7; }
+.settings-nav .selection-indicator { background: var(--soft); }
 .dark .settings-nav .selection-indicator { background: var(--soft); }
 .segmented .selection-indicator, .file-view-toggle .selection-indicator {
   background: var(--surface); box-shadow: 0 1px 0.1875rem #00000015;

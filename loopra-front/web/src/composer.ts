@@ -217,6 +217,15 @@ export function estimateContext(history: string[], draft: string, context: Compo
 // Live generation speed streamed as `token_speed` SSE events (legacy ChatInput displayTps).
 export type LiveSpeed = { tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number };
 
+/** Compact token counts: 999 → "999", 57075 → "57.1K", 512000 → "512K", 1250000 → "1.25M". */
+export function formatTokens(value: number) {
+  const n = Math.max(0, Math.round(Number(value) || 0));
+  const trim = (x: number, digits: number) => x.toFixed(digits).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${trim(n / 1000, n < 100_000 ? 1 : 0)}K`;
+  return `${trim(n / 1_000_000, 2)}M`;
+}
+
 const positive = (value: unknown) => {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -234,7 +243,7 @@ export function tokenSpeedTitle(speed?: LiveSpeed) {
   const streaming = positive(speed?.tokensPerSecond);
   const average = positive(speed?.avgTokensPerSecond);
   const tokens = speed?.completionTokens || 0;
-  if (speed?.done && streaming != null && average != null) return `平均 ${speedLabel(average)} · 实时 ${speedLabel(streaming)} · ${tokens} tokens`;
+  if (speed?.done && streaming != null && average != null) return `平均 ${speedLabel(average)} · 实时 ${speedLabel(streaming)} · ${formatTokens(tokens)} tokens`;
   const label = formatTokenSpeed(speed);
-  return label ? `生成速度 ${label} · ${tokens} tokens` : '';
+  return label ? `生成速度 ${label} · ${formatTokens(tokens)} tokens` : '';
 }

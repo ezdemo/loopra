@@ -1,7 +1,7 @@
 export type SettingSearchItem = { category: string; title: string; keywords: string };
 
 const fields: Record<string, string[]> = {
-  '通用': ['外观', '语言', '界面缩放', '代码字号', '系统通知', '通知提示音', '默认打开应用', '宠物', '界面动画'],
+  '通用': ['外观', '语言', '界面缩放', '系统通知', '通知提示音', '默认打开应用', '宠物', '界面动画'],
   '关于': ['Loopra Web 服务', '数据存储', '帮助中心'],
   '项目': ['添加本地项目', '项目绝对路径', '会话管理', '需求池'],
   '服务器': ['后端 API 地址'],

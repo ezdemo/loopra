@@ -61,7 +61,7 @@ function AssistantMessage({ message, streaming, ...actions }: { message: Message
   if (!blocks.length && !streaming) return null;
   return <Enter as="article" className="msg assistant" aria-label="助手消息" data-message-id={message.id}><div className="msg-body assistant-body">
     {(process.length > 0 || streaming || pending) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
-      <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><span>{duration ? '用时 ' + duration : '思考过程'}</span><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} />{streaming && <span className="streaming-label"><i />正在生成</span>}</button>
+      <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><span>{duration ? '用时 ' + duration : '思考过程'}</span><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
       <Collapse open={expanded && process.length > 0} id={processId} className="assistant-process-detail"><BlockRenderer blocks={process} {...actions} /></Collapse>
     </section>}
     <BlockRenderer blocks={final} {...actions} />

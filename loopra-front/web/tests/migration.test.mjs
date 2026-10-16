@@ -4,9 +4,12 @@ import test from 'node:test';
 import ts from 'typescript';
 import { usesLegacyRenderer } from '../../src/entry-routing.js';
 
+const diffSource = await readFile(new URL('../src/diff.ts', import.meta.url), 'utf8');
+const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(diffSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText).toString('base64');
 async function sourceModule(name) {
   const source = await readFile(new URL(`../src/${name}.ts`, import.meta.url), 'utf8');
-  const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
+  let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
+  outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
   return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 }
 const { resolveInitialServer } = await sourceModule('runtime-config');

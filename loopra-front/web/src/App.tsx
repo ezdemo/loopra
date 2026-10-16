@@ -1,9 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
-import { Archive, ArrowDownToLine, Check, ChevronDown, ChevronRight, Copy, Crosshair, Download, FileCode2, FoldVertical, FolderClosed, FolderOpen, FolderPlus, GitBranch, MessageCirclePlus, MoreHorizontal, PanelLeft, PanelRight, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, SlidersHorizontal, ScrollText, SquareTerminal, Trash2, UnfoldVertical } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { getSessionMessages, useLocalState } from './lib';
 import type { Provider, Session } from './lib';
-import { LoopraMark, IconButton } from './components/ui';
+import Sidebar from './layout/Sidebar';
+import Header from './layout/Header';
+import HomeView from './layout/HomeView';
+import ChatDock from './layout/ChatDock';
 import { Messages } from './components/Conversation';
 import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
@@ -11,7 +14,7 @@ import Settings, { defaultPreferences } from './components/Settings';
 import type { Preferences } from './components/Settings';
 import Search from './components/Search';
 import type { FileChange, Message } from './chat';
-import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, truncatePreview, unresolvedChoices, userMessageDock } from './chat';
+import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
@@ -20,7 +23,7 @@ import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
 import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type Workspace } from './backend';
 import useLoopra from './useLoopra';
-import { AppMotion, Collapse, Enter, Popup, SelectionIndicator, SidebarSurface, Toast } from './components/Motion';
+import { AppMotion, Enter, Toast } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
 import usePets from './usePets';
 import { petActivity, petReplyPreview, type PetReply } from './pets';
@@ -90,8 +93,6 @@ export default function App() {
   const [rename, setRename] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [sortNewest, setSortNewest] = useState(false);
-  const [dragWorkspace, setDragWorkspace] = useState('');
-  const [dragOverWorkspace, setDragOverWorkspace] = useState('');
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
   const activeRequest = useRef<{ controller: AbortController; requestId: string; session?: Session; stopping?: boolean }>();
   const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage[]>>({});
@@ -133,9 +134,8 @@ export default function App() {
     // Root tokens also reach NextUI menus, modals and tooltips rendered in portals.
     const root = document.documentElement;
     root.style.setProperty('--ui-scale', String(preferences.fontScale / 100));
-    root.style.setProperty('--configured-code-font', `${agentSettings.codeFontSize / 16}rem`);
-    return () => { root.style.removeProperty('--ui-scale'); root.style.removeProperty('--configured-code-font'); };
-  }, [preferences.fontScale, agentSettings.codeFontSize]);
+    return () => { root.style.removeProperty('--ui-scale'); };
+  }, [preferences.fontScale]);
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
   function selectMainTab(path: string | null, hash = workspace) { const key = `${server}/${hash}`; setWorkspaceEditors(current => ({ ...current, [key]: { ...(current[key] || emptyWorkspaceTabs), active: path } })); }
@@ -309,7 +309,6 @@ export default function App() {
   }
   // Legacy Sidebar.vue drag-reorder: persist the new project order to the backend.
   function reorderWorkspaces(from: string, to: string) {
-    setDragWorkspace(''); setDragOverWorkspace('');
     if (!from || !to || from === to) return;
     const next = [...workspaces];
     const source = next.findIndex(item => item.hash === from);
@@ -655,7 +654,6 @@ export default function App() {
     return () => { document.removeEventListener('pointerdown', onPointer); window.removeEventListener('keydown', onKey); };
   });
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
-  const allWorkspacesCollapsed = workspaces.length > 0 && workspaces.every(item => collapsed.includes(item.hash));
 
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
@@ -678,27 +676,28 @@ export default function App() {
     {isDesktopWindow() && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && sidebar && <button className="sidebar-backdrop" aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebar && <SidebarSurface key="sidebar"><div className="sidebar-brand"><span className="app-icon"><LoopraMark small /></span><span>Loopra</span><IconButton label="收起侧边栏" onClick={() => setSidebar(false)}><PanelLeft size="1.0625rem" /></IconButton></div><div className="sidebar-actions"><button onClick={() => newSession()}><MessageCirclePlus size="1.1875rem" />{preferences.language === 'English' ? 'New chat' : '新建会话'}</button><button onClick={() => { setSearchOpen(true); setMenu(null); }}><SearchIcon size="1.25rem" />{preferences.language === 'English' ? 'Search' : '搜索'}</button></div>
-        <div className="session-section" ref={sessionSection}><div className="section-label"><span>会话</span><div><IconButton label="定位当前会话" onClick={locateActiveSession}><Crosshair size="0.875rem" /></IconButton><IconButton label={allWorkspacesCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={() => setCollapsed(allWorkspacesCollapsed ? [] : workspaces.map(item => item.hash))}>{allWorkspacesCollapsed ? <UnfoldVertical size="0.9375rem" /> : <FoldVertical size="0.9375rem" />}</IconButton><IconButton label={sortNewest ? '恢复默认排序' : '按最新排序'} active={sortNewest} onClick={() => setSortNewest(!sortNewest)}><SlidersHorizontal size="0.875rem" /></IconButton><IconButton label="刷新项目列表" onClick={() => void backend.refresh()}><RefreshCw size="0.875rem" /></IconButton></div></div>
-          {workspaces.map(item => <div key={item.hash} className={`workspace-group ${dragWorkspace === item.hash ? 'dragging' : ''} ${dragOverWorkspace === item.hash && dragWorkspace !== item.hash ? 'drag-over' : ''}`} draggable onDragStart={event => { setDragWorkspace(item.hash); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={event => { if (!dragWorkspace || dragWorkspace === item.hash) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverWorkspace(item.hash); }} onDragLeave={() => setDragOverWorkspace(current => current === item.hash ? '' : current)} onDrop={event => { event.preventDefault(); reorderWorkspaces(dragWorkspace, item.hash); }} onDragEnd={() => { setDragWorkspace(''); setDragOverWorkspace(''); }}><div className="workspace-heading-row"><button type="button" title={item.path || item.name} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${collapsed.includes(item.hash) ? '展开' : '折叠'} ${item.name}`} aria-expanded={!collapsed.includes(item.hash)} onClick={() => setCollapsed(current => current.includes(item.hash) ? current.filter(hash => hash !== item.hash) : [...current, item.hash])}><ChevronRight className="workspace-chevron" size="0.875rem" />{collapsed.includes(item.hash) ? <FolderClosed size="1.1875rem" /> : <FolderOpen size="1.1875rem" />}<span>{item.name}</span></button><span className="workspace-tools"><IconButton label={`在 ${item.name} 新建会话`} onClick={() => newSession(item.hash)}><Plus size="0.8125rem" /></IconButton><IconButton label={`刷新 ${item.name} 的会话`} onClick={() => void refreshProject(item.hash)}><RefreshCw size="0.8125rem" /></IconButton><IconButton label={`管理 ${item.name} 的会话`} onClick={() => setProjectDialog(item)}><MoreHorizontal size="0.9375rem" /></IconButton></span></div><Collapse open={!collapsed.includes(item.hash)} className="workspace-sessions">{!visibleSessions.some(entry => entry.workspaceHash === item.hash) && <p className="no-conversation">暂无对话</p>}{(sortNewest ? [...visibleSessions].reverse() : visibleSessions).filter(entry => entry.workspaceHash === item.hash).map(entry => <div key={entry.id} data-session-key={entry.id} className={`session-row ${activeId === entry.id ? 'selected' : ''}`}><button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => selectSession(entry.id)} title={entry.title}>{activeId === entry.id && <SelectionIndicator />}<span>{entry.title}</span>{entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}<time>{entry.mtime ? new Date(entry.mtime).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : ''}</time></button><span className="session-row-tools"><IconButton label={`刷新 ${entry.title}`} onClick={() => void refreshSessionChat(entry)}><RefreshCw size="0.75rem" /></IconButton><IconButton label={`删除 ${entry.title}`} onClick={() => setDeleteSession(entry)}><Trash2 size="0.75rem" /></IconButton></span></div>)}</Collapse></div>)}
-        </div><footer className="sidebar-footer"><button type="button" className="sidebar-settings" aria-label="设置" onClick={() => openSettings()}><SettingsIcon size="1.0625rem" /><span>{preferences.language === 'English' ? 'Settings' : '设置'}</span></button></footer>
-      </SidebarSurface>}
+      {sidebar && <Sidebar english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed} sortNewest={sortNewest} onSortNewest={setSortNewest} sectionRef={sessionSection}
+        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()} onLocate={locateActiveSession}
+        onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
+        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} />}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
-        <header className={`conversation-header ${isHome ? 'home-header' : ''}`}>
-          {!sidebar && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={() => setSidebar(true)}><PanelLeft size="1.0625rem" /></IconButton>}
-          {!isHome && <div className="breadcrumb"><span>{workspaceName}</span><span className="breadcrumb-divider">/</span><strong title={session.title}>{session.title}</strong><div data-popover className="menu-anchor"><IconButton label="会话选项" onClick={() => toggleMenu('session')}><MoreHorizontal size="1.1875rem" /></IconButton><Popup open={menu === 'session'} className="popup session-menu" role="menu"><button role="menuitem" onClick={() => { setRename(session.id); setRenameValue(session.title); setMenu(null); }}><FileCode2 size="1rem" />重命名会话</button><button role="menuitem" onClick={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}><ScrollText size="1rem" />会话记录</button><button role="menuitem" onClick={() => { setMenu(null); clearChat(); }}><MessageCirclePlus size="1rem" />清空当前对话</button><button role="menuitem" onClick={() => { setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}><Download size="1rem" />导出对话</button><button role="menuitem" onClick={archiveSession}><Archive size="1rem" />在本机隐藏</button><button role="menuitem" onClick={() => { setDeleteSession(session); setMenu(null); }}><Trash2 size="1rem" />删除会话</button><button role="menuitem" onClick={() => { void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }}><Copy size="1rem" />复制会话标题</button></Popup></div></div>}
-          <div className="header-actions"><button className={`backend-status ${backend.status}`} title={backend.error || `${server} · v${backend.version}`} onClick={() => openSettings('服务器')}><span />{backend.status === 'connecting' ? '连接中' : backend.status === 'error' ? '连接失败' : backend.ready ? 'Loopra 已连接' : '需要配置模型'}</button>{!isHome && <><div data-popover className="menu-anchor"><div className="folder-split"><button aria-label="在系统应用中打开项目" onClick={() => void openWorkspace()}><FolderClosed size="1rem" /></button><button aria-label="打开方式" onClick={() => toggleMenu('folder')}><ChevronDown size="1rem" /></button></div><Popup open={menu === 'folder'} className="popup folder-menu" role="menu">{workspaceApplications.map(item => <button key={item.application} role="menuitem" onClick={() => void openWorkspace(item.name)}>{item.application === 'folder' ? <FolderClosed size="1rem" /> : <SquareTerminal size="1rem" />}{item.label}</button>)}<button role="menuitem" onClick={() => { setTerminal(true); setMenu(null); }}><SquareTerminal size="1rem" />后台命令</button><hr /><button role="menuitem" onClick={copyPath}><Copy size="1.0625rem" />复制路径</button></Popup></div>{!changes && <div data-popover className="menu-anchor"><button className="branch-button" onClick={() => toggleMenu('branch')}><GitBranch size="1rem" />{gitBranch}</button><Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={() => { setChanges(true); setMenu(null); }}><GitBranch size="0.9375rem" />{gitBranch}<Check size="1rem" /></button></Popup></div>}</>}
-              <IconButton label={changes ? '关闭改动面板' : '打开改动面板'} active={changes} onClick={() => setChanges(!changes)}><PanelRight size="1.0625rem" /></IconButton>
-          </div>
-        </header>
+        <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
+          backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
+          gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
+          applications={workspaceApplications} onOpenWorkspace={application => void openWorkspace(application)} onTerminal={() => { setTerminal(true); setMenu(null); }} onCopyPath={copyPath}
+          onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
+          onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
+          onClear={() => { setMenu(null); clearChat(); }}
+          onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
+          onHide={archiveSession} onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
+          onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
-          {isHome ? <section className="welcome-shell"><Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark />Loopra</h1></Enter><div className="workspace-selector menu-anchor" data-popover><button onClick={() => toggleMenu('workspace')}><FolderClosed size="1.125rem" />{workspaceName}<ChevronDown size="1.0625rem" /></button><Popup open={menu === 'workspace'} className="popup workspace-menu"><h3>选择工作区</h3>{workspaces.map(item => <button key={item.hash} onClick={() => { setWorkspace(item.hash); setMenu(null); }}><FolderClosed size="1rem" />{item.name}{workspace === item.hash && <Check size="1rem" />}</button>)}{!workspaces.length && <p className="composer-empty">暂无可用项目</p>}<hr /><button onClick={() => { setMenu(null); setProjectsOpen(true); }}><FolderPlus size="1rem" />管理项目</button></Popup></div>{composer}</section> : <>
+          {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
+            onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
-            {(() => { const dock = userMessageDock(getSessionMessages(session)); return dock.length > 0 && <nav className="msg-thumb-dock" aria-label="消息定位"><div className="thumb-dock-inner">{dock.map(item => <button key={item.id} type="button" className="thumb-item" title={item.text} onClick={() => jumpToMessage(item.id)}><span className="thumb-indicator" /><span className="thumb-preview">{truncatePreview(item.text)}</span></button>)}</div></nav>; })()}
-            {showScrollBtn && <button type="button" className="scroll-bottom-btn" title="滚动到底部" aria-label="滚动到底部" onClick={scrollToBottom}><ArrowDownToLine size="1rem" /></button>}
-            {getSessionMessages(session).length > 0 && <button type="button" className="collapse-all-btn" title="一键折叠所有展开的块" aria-label="一键折叠所有展开的块" onClick={collapseAllBlocks}><FoldVertical size="1rem" /></button>}
+            <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
@@ -720,7 +719,33 @@ export default function App() {
     }}><p>撤回这条消息及之后的所有记录？</p>{rollbackMessage.snapshotId && <label><input type="checkbox" checked={rollbackCode} onChange={event => setRollbackCode(event.target.checked)} />同时恢复代码到本条消息之前</label>}</ConfirmAction>}
     {discardPlan && <ConfirmAction title="退出计划模式" onClose={() => setDiscardPlan(false)} action={exitPlanMode}><p>{pendingPlan ? '待审查计划将被丢弃，且无法恢复。' : '将退出计划模式并恢复全部工具。'}</p></ConfirmAction>}
     <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={visibleSessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
-    <Settings onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }} onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }} onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }} pets={pets} onInitPet={initPet} onAutoUpdate={() => void autoUpdate()} onRefresh={() => backend.refresh()} workspaces={workspaces} server={server} config={agentSettings} onConfig={saveAgentSettings} options={composerOptions} onOptions={saveOptions} defaultModel={defaultModel} onDefaultModel={saveDefaultModel} open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab={settingsTab} preferences={preferences} onPreferences={setPreferences} providers={providers} onProviders={saveProviders} sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))} onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }} notify={notify} />
+    <Settings
+      onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }}
+      onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }}
+      onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}
+      pets={pets}
+      onInitPet={initPet}
+      onAutoUpdate={() => void autoUpdate()}
+      onRefresh={() => backend.refresh()}
+      workspaces={workspaces}
+      server={server}
+      config={agentSettings}
+      onConfig={saveAgentSettings}
+      options={composerOptions}
+      onOptions={saveOptions}
+      defaultModel={defaultModel}
+      onDefaultModel={saveDefaultModel}
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      initialTab={settingsTab}
+      preferences={preferences}
+      onPreferences={setPreferences}
+      providers={providers}
+      onProviders={saveProviders}
+      sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))}
+      onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }}
+      notify={notify}
+    />
     <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>
   </div></AppMotion>;

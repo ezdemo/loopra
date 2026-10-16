@@ -27,10 +27,10 @@ test('the system prompt tab renders Markdown with a copy action', async () => {
 
 test('the record window has only records and prompt tabs, and its menu has an icon', async () => {
   const details = await readFile(new URL('../src/components/SessionDetails.tsx', import.meta.url), 'utf8');
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const header = await readFile(new URL('../src/layout/Header.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(details, /\/snapshots|回滚到此快照|代码快照/);
   assert.match(details, /label: '原始记录'/);
   assert.match(details, /label: '系统提示词'/);
   assert.match(details, /<RawSessionRecords messages=\{events.data\}/);
-  assert.match(app, /<ScrollText size="1rem" \/>会话记录/);
+  assert.match(header, /<ScrollText size="1rem" \/>会话记录/);
 });

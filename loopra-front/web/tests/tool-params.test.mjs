@@ -46,5 +46,6 @@ test('the tool card renders the clickable file button', async () => {
   const blockRenderer = await readFile(new URL('../src/components/BlockRenderer.tsx', import.meta.url), 'utf8');
   assert.match(blockRenderer, /toolParam\(block\.name, block\.args\)/);
   assert.match(blockRenderer, /className="tool-file"/);
-  assert.match(blockRenderer, /<ToolBlock key=\{tool\.id\} block=\{tool\} onOpenFile=\{actions\.onDiff\} \/>/);
+  // Tools inside a reasoning chain render through the same ToolBlock (and its file button).
+  assert.match(blockRenderer, /<ToolBlock block=\{block\} onOpenFile=\{actions\.onDiff\} \/>/);
 });

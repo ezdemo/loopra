@@ -85,6 +85,28 @@ export function groupToolBlocks(blocks: ChatBlock[]): (ChatBlock | BlockGroup)[]
   return groups;
 }
 
+export type ChainGroup = { id: string; type: 'chain'; steps: ChatBlock[] };
+
+const isChainStep = (block: ChatBlock) => block.type === 'reasoning' || block.type === 'reasoning_started' || block.type === 'sub_agent'
+  || (block.type === 'tool_call' && !['finish', 'ask_choice'].includes(block.name));
+
+/**
+ * Folds runs of consecutive thinking / tool / sub-agent steps into one "reasoning chain".
+ * A lone step stays a plain block; the final answer, file changes, checklists and
+ * choices break a chain.
+ */
+export function chainBlocks(blocks: ChatBlock[]): (ChatBlock | ChainGroup)[] {
+  const out: (ChatBlock | ChainGroup)[] = [];
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index];
+    if (!isChainStep(block)) { out.push(block); continue; }
+    const steps = [block];
+    while (index + 1 < blocks.length && isChainStep(blocks[index + 1])) steps.push(blocks[++index]);
+    out.push(steps.length > 1 ? { id: `chain-${block.id}`, type: 'chain', steps } : block);
+  }
+  return out;
+}
+
 export type ChoiceBlockData = Extract<ChatBlock, { type: 'choice' }>;
 
 /**

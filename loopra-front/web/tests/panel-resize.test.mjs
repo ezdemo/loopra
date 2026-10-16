@@ -6,6 +6,7 @@ import ts from 'typescript';
 // Skills remain available in settings after simplifying the sidebar.
 // The right dock retains the legacy resize behaviour.
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const sidebar = await readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8');
 const panels = await readFile(new URL('../src/components/Panels.tsx', import.meta.url), 'utf8');
 const workbenchCss = await readFile(new URL('../src/workbench.css', import.meta.url), 'utf8');
 const panelResizeSource = await readFile(new URL('../src/panel-resize.ts', import.meta.url), 'utf8');
@@ -19,7 +20,8 @@ test('skills remain available in settings after removing the sidebar shortcut', 
 });
 
 test('the sidebar exposes the legacy refresh-projects control', () => {
-  assert.match(app, /<IconButton label="刷新项目列表" onClick=\{\(\) => void backend\.refresh\(\)\}><RefreshCw size="0\.875rem" \/><\/IconButton>/);
+  assert.match(sidebar, /<IconButton label="刷新项目列表" onClick=\{\(\) => void props\.onRefreshAll\(\)\}><RefreshCw size="0\.875rem" \/><\/IconButton>/);
+  assert.match(app, /onRefreshAll=\{\(\) => void backend\.refresh\(\)\}/);
 });
 
 test('the right workbench panel inherits the legacy drag-to-resize behaviour', () => {
