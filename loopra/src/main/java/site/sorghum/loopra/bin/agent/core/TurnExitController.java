@@ -2,25 +2,26 @@ package site.sorghum.loopra.bin.agent.core;
 
 import lombok.extern.slf4j.Slf4j;
 import site.sorghum.cutin.core.context.DefaultLoopContext;
+import site.sorghum.loopra.bin.agent.context.ConversationContext;
 import site.sorghum.loopra.bin.agent.spi.GoalGuard;
 import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitHost;
 import site.sorghum.loopra.tool.LogLevel;
-import site.sorghum.loopra.tool.interact.FinishTool;
 
 import java.io.IOException;
 import java.nio.file.Path;
 
 /**
  * 回合退出决策宿主。
- * <p>负责 finish 工具触发的退出、无工具调用轮次的退出仲裁，
- * 以及 Goal 守卫（未关闭的持久化 Goal 会拦截 finish / no_tool 退出）。</p>
+ * <p>负责无工具调用轮次的退出仲裁，以及 Goal 守卫（未关闭的持久化 Goal 会阻止本轮收尾）。</p>
+ * <p>{@code finish} 分支是历史路径：显式结束工具移除后已没有调用方写入该退出原因，
+ * 相关方法保留只为兼容既有调用点。</p>
  */
 @Slf4j
 final class TurnExitController implements LoopraExitHost {
 
     private final AgentLoop loop;
 
-    /** 任务完成标志 —— finish 工具设置，非空时主循环将退出并返回该内容 */
+    /** 任务完成标志 —— 由 {@link #finish(String)} 设置，非空时主循环将退出并返回该内容 */
     private volatile String finishContent = null;
 
     @lombok.Setter
@@ -88,7 +89,7 @@ final class TurnExitController implements LoopraExitHost {
         }
         loop.ctx().addUser(openGoal != null
                 ? "[Goal guard] Goal 尚未关闭。请继续执行当前步骤，记录证据，并调用 goal_complete 后再结束。"
-                : FinishTool.TIPS);
+                : ConversationContext.NO_TOOL_CALL_NOTICE);
         return true;
     }
 
@@ -143,7 +144,7 @@ final class TurnExitController implements LoopraExitHost {
             loop.getModelProvider().resetStreamAbort();
             return null;
         } catch (Exception e) {
-            String reminder = "[Goal guard] 无法读取持久化 Goal 状态，已拒绝 finish：" + e.getMessage()
+            String reminder = "[Goal guard] 无法读取持久化 Goal 状态，已拒绝本轮收尾：" + e.getMessage()
                     + "。若持续无法读取，可提示用户执行 `/goal reset` 清除损坏快照后重试。";
             loop.injectUserMessage(reminder);
             loop.safeOutput("goalFinishGuard", () -> loop.getOutput().onLog(LogLevel.ERROR, reminder));

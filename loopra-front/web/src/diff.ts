@@ -7,11 +7,13 @@ export type DiffRow = {
   hunkIndex: number;
 };
 
-// Ported from the legacy DiffViewer.vue parseSideBySide: turn a unified diff into
-// side-by-side rows, pairing consecutive removed/added lines as replacements.
-export function parseSideBySide(diffText?: string): DiffRow[] {
+// Ported from the legacy DiffViewer.vue pairing: turn a unified diff into rows,
+// pairing consecutive removed/added lines into a replacement.
+export function parseDiffRows(diffText?: string): DiffRow[] {
   if (!diffText) return [];
-  const lines = diffText.split('\n');
+  // CRLF patches keep their carriage return in the body line, which `white-space:
+  // pre` would then render as a line break of its own; split it off here.
+  const lines = diffText.split(/\r?\n/);
   const result: DiffRow[] = [];
   let i = 0;
   let hunkIndex = -1;
@@ -48,10 +50,15 @@ export function parseSideBySide(diffText?: string): DiffRow[] {
       }
     };
     let j = i + 1;
-    while (j < lines.length && !lines[j].startsWith('@@')) {
+    // The body ends at the next hunk, and at the next file: a patch holding two
+    // files would otherwise read the second file's `---`/`+++` header as content.
+    while (j < lines.length && !lines[j].startsWith('@@') && !lines[j].startsWith('diff --git')) {
       const body = lines[j];
-      if (body.startsWith('+') && !body.startsWith('+++')) addedQueue.push({ content: body.substring(1), lineNum: newNum++ });
-      else if (body.startsWith('-') && !body.startsWith('---')) removedQueue.push({ content: body.substring(1), lineNum: oldNum++ });
+      // Inside a hunk every line is body: `+++`/`---` only open a file header, and
+      // skipping them here would drop real content that starts with `--` or `++`
+      // (a YAML document marker, a SQL comment) and shift that side's numbering.
+      if (body.startsWith('+')) addedQueue.push({ content: body.substring(1), lineNum: newNum++ });
+      else if (body.startsWith('-')) removedQueue.push({ content: body.substring(1), lineNum: oldNum++ });
       else if (body.startsWith(' ')) {
         flushQueues();
         const content = body.substring(1);
@@ -117,18 +124,26 @@ export function wordDiff(oldText: string, newText: string): { left: WordSegment[
 }
 
 /**
- * Number of untouched lines hidden before each hunk, keyed by the index of the
- * hunk's first row (the "N 行未更改" fold an IDE shows between changes).
+ * Number of untouched lines hidden before each row, keyed by that row's index
+ * (the "N 行未更改" fold an IDE shows between changes). The gap is measured in file
+ * lines and every row is checked, not just the first row of a hunk: folding can
+ * merge two neighbouring hunks into one contiguous block, and the lines between
+ * them must still be accounted for rather than silently disappear.
  */
 export function diffFolds(rows: DiffRow[]): Map<number, number> {
   const folds = new Map<number, number>();
-  let lastLeft = 0;
-  let lastRight = 0;
+  let lastLeft: number | null = null;
+  let lastRight: number | null = null;
   rows.forEach((row, index) => {
-    if (index === 0 || row.hunkIndex !== rows[index - 1].hunkIndex) {
-      const gap = row.rightLineNum !== null ? row.rightLineNum - lastRight - 1 : row.leftLineNum !== null ? row.leftLineNum - lastLeft - 1 : 0;
-      if (gap > 0) folds.set(index, gap);
-    }
+    // Untouched lines advance both files together, so the gap is the same on
+    // either side — but only if that side's cursor is real. A hunk that opens
+    // with removals leaves the new-file cursor behind, and measuring against it
+    // would report a fold in the middle of the group.
+    const gaps: number[] = [];
+    if (row.leftLineNum !== null) gaps.push(row.leftLineNum - (lastLeft ?? 0) - 1);
+    if (row.rightLineNum !== null) gaps.push(row.rightLineNum - (lastRight ?? 0) - 1);
+    const gap = gaps.length ? Math.min(...gaps) : 0;
+    if (gap > 0) folds.set(index, gap);
     if (row.leftLineNum !== null) lastLeft = row.leftLineNum;
     if (row.rightLineNum !== null) lastRight = row.rightLineNum;
   });
@@ -158,6 +173,37 @@ export function foldContext(rows: DiffRow[], context = 3): DiffRow[] {
     out.push({ ...row, hunkIndex: hunk });
   });
   return out;
+}
+
+/** One line of the single-column diff, already carrying the sign it renders with. */
+export type UnifiedLine = {
+  kind: 'context' | 'add' | 'remove' | 'empty';
+  /** The number on the side the line belongs to: the old file for removals, the new one otherwise. */
+  lineNum: number | null;
+  text: string;
+  hunkIndex: number;
+  changed: boolean;
+};
+
+/**
+ * The lines a single-column diff shows for each paired row, in order. A replaced
+ * line is the one row that becomes two lines — the old one, then the new one —
+ * which is why folding stays keyed by row: `foldContext` and `diffFolds` are
+ * measured on the paired rows, and this expansion runs after them.
+ */
+export function unifiedLines(rows: DiffRow[]): UnifiedLine[][] {
+  return rows.map(row => {
+    const base = { hunkIndex: row.hunkIndex, changed: row.type !== 'context' && row.type !== 'empty' };
+    if (row.type === 'context') return [{ ...base, kind: 'context' as const, lineNum: row.rightLineNum ?? row.leftLineNum, text: row.right }];
+    if (row.type === 'empty') return [{ ...base, kind: 'empty' as const, lineNum: null, text: row.right }];
+    if (row.type === 'remove') return [{ ...base, kind: 'remove' as const, lineNum: row.leftLineNum, text: row.left }];
+    if (row.type === 'add') return [{ ...base, kind: 'add' as const, lineNum: row.rightLineNum, text: row.right }];
+    // A replacement reads top-down in one column: what was there, then what replaced it.
+    return [
+      { ...base, kind: 'remove' as const, lineNum: row.leftLineNum, text: row.left },
+      { ...base, kind: 'add' as const, lineNum: row.rightLineNum, text: row.right },
+    ];
+  });
 }
 
 type FullDiff = { before: string[]; after: string[] };

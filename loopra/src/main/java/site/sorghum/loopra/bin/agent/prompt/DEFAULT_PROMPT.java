@@ -4,8 +4,8 @@ package site.sorghum.loopra.bin.agent.prompt;
  * Loopra 专属补充提示词 —— {@code loopra-supplement} 切片（order 150）。
  * <p>
  * 只写 {@link ClaudeCodePrompt} 里没有的能力：{@code workspace_*}（主/子代理共享通道）、
- * {@code browser_*}（人工接管）、{@code goal_*}（可恢复长期目标）、{@code finish}
- * （显式结束信号）、{@code submit_plan}、{@code bash_*}（会话式终端）、
+ * {@code browser_*}（人工接管）、{@code goal_*}（可恢复长期目标）、
+ * {@code submit_plan}、{@code bash_*}（会话式终端）、
  * {@code checklist_*}、{@code memory}。
  * </p>
  * <p>
@@ -40,8 +40,6 @@ public class DEFAULT_PROMPT {
             未完成全部步骤时 `goal_complete` 会被拒绝。
             只有确实需要用户输入或外部状态变化时才 `goal_block`，不要因为工作困难、缓慢或不确定就阻塞。
 
-            ## finish —— 显式结束信号
-            当会话配置为「必须显式结束」时，纯文本回复不会退出循环，必须调用 `finish` 结束本轮对话。
 
             ## submit_plan —— 计划模式的核心产物
             计划模式下用 `submit_plan` 提交完整执行计划；提交后向用户简要总结要点并结束本轮，

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { FileCode2, MessageSquare, RefreshCw, X } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import type { WorkspaceFile, WorkspaceTabs as TabsState } from '../workspace-tabs';
 import { watchWorkspaceChanges } from '../workspace-events';
 import { errorText, query } from './RemoteControls';
-import DiffView from './DiffView';
+import UnifiedDiff from './UnifiedDiff';
+import CodeViewer from './CodeViewer';
 
 type Props = {
   api: LoopraClient; workspaceHash: string; state: TabsState; children: ReactNode;
@@ -35,13 +36,13 @@ export default function WorkspaceTabs({ api, workspaceHash, state, children, onS
     </nav>}
     <div className="workspace-chat-view" id="workspace-chat-view" role={state.files.length ? 'tabpanel' : undefined} aria-labelledby={state.files.length ? 'workspace-chat-tab' : undefined} hidden={state.active !== null}>{children}</div>
     {state.files.map((file, index) => <div className="workspace-file-view" id={`workspace-file-view-${index}`} role="tabpanel" aria-labelledby={`workspace-file-tab-${index}`} hidden={state.active !== file.path} key={file.path}>
-      <WorkspaceFileView api={api} workspaceHash={workspaceHash} file={file} revision={revision} onMode={mode => onOpen({ ...file, mode })} onAdd={onAdd} />
+      <WorkspaceFileView api={api} workspaceHash={workspaceHash} file={file} revision={revision} active={state.active === file.path} onMode={mode => onOpen({ ...file, mode })} onAdd={onAdd} />
     </div>)}
   </div>;
 }
 
 type FileData = { content?: string | null; exists?: boolean; message?: string; diff?: string };
-function WorkspaceFileView({ api, workspaceHash, file, revision, onMode, onAdd }: { api: LoopraClient; workspaceHash: string; file: WorkspaceFile; revision: number; onMode: (mode: WorkspaceFile['mode']) => void; onAdd: Props['onAdd'] }) {
+function WorkspaceFileView({ api, workspaceHash, file, revision, active, onMode, onAdd }: { api: LoopraClient; workspaceHash: string; file: WorkspaceFile; revision: number; active: boolean; onMode: (mode: WorkspaceFile['mode']) => void; onAdd: Props['onAdd'] }) {
   const [state, setState] = useState<{ data?: FileData; loading: boolean; error: string }>({ loading: true, error: '' });
   const [reload, setReload] = useState(0);
   const [selection, setSelection] = useState('');
@@ -60,7 +61,10 @@ function WorkspaceFileView({ api, workspaceHash, file, revision, onMode, onAdd }
       .catch(cause => { if (!controller.signal.aborted) setState(current => ({ ...current, loading: false, error: errorText(cause) })); });
     return () => controller.abort();
   }, [api, workspaceHash, file.path, file.mode, file.diff, revision, reload]);
-  function selectText() {
+  // The diff view is plain DOM, so its selection comes from the document; the
+  // code preview is a Monaco editor, which reports its own selection instead.
+  function selectText(event: MouseEvent<HTMLDivElement> | KeyboardEvent<HTMLDivElement>) {
+    if (event.target instanceof Element && event.target.closest('.workspace-code-editor')) return;
     const selected = window.getSelection();
     setSelection(selected?.anchorNode && selected.focusNode && body.current?.contains(selected.anchorNode) && body.current.contains(selected.focusNode) ? selected.toString().trim() : '');
   }
@@ -71,8 +75,8 @@ function WorkspaceFileView({ api, workspaceHash, file, revision, onMode, onAdd }
       <button type="button" onClick={() => onAdd(file.path, selection || undefined)}>{selection ? '引用选中内容' : '引用文件'}</button>
       <button type="button" className="workspace-file-refresh" aria-label="刷新文件" disabled={state.loading || (file.mode === 'diff' && file.diff !== undefined)} onClick={() => setReload(value => value + 1)}><RefreshCw size={14} /></button>
     </div></header>
-    <div className={`workspace-file-body${file.mode === 'diff' ? ' is-diff' : ''}`} ref={body} onMouseUp={selectText} onKeyUp={selectText}>
-      {state.error ? <p className="settings-error" role="alert">{state.error}<button type="button" onClick={() => setReload(value => value + 1)}>重试</button></p> : state.loading && !data ? <p className="panel-empty" role="status">正在读取文件…</p> : file.mode === 'diff' ? <DiffView diff={data?.diff} /> : data?.exists && typeof data.content === 'string' ? <div className="workspace-code"><pre className="workspace-line-numbers" aria-hidden="true">{Array.from({ length: data.content.split('\n').length }, (_, index) => index + 1).join('\n')}</pre><pre className="workspace-file-code" tabIndex={0}><code>{data.content}</code></pre></div> : <p className="panel-empty">{data?.message || '当前项目中未找到此文件，可能已移动或删除。'}</p>}
+    <div className={`workspace-file-body${file.mode === 'diff' ? ' is-diff' : ' is-code'}`} ref={body} onMouseUp={selectText} onKeyUp={selectText}>
+      {state.error ? <p className="settings-error" role="alert">{state.error}<button type="button" onClick={() => setReload(value => value + 1)}>重试</button></p> : state.loading && !data ? <p className="panel-empty" role="status">正在读取文件…</p> : file.mode === 'diff' ? <UnifiedDiff diff={data?.diff} path={file.path} nav emptyText="该文件没有未提交的改动。" /> : data?.exists && typeof data.content === 'string' ? <CodeViewer path={file.path} content={data.content} active={active} onSelect={setSelection} /> : <p className="panel-empty">{data?.message || '当前项目中未找到此文件，可能已移动或删除。'}</p>}
     </div>
   </>;
 }

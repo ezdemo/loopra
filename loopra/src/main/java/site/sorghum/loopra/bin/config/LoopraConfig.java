@@ -146,7 +146,7 @@ public class LoopraConfig implements AgentConfig {
                   "hitl": "free",
                   "autoWhitelist": [
                     "resolve-library-id", "query-docs", "skillrefresh", "mcprefresh", "skilllist",
-                    "read", "glob", "write", "ls", "grep", "edit", "finish",
+                    "read", "glob", "write", "ls", "grep", "edit",
                     "java_source", "checklist_step", "workspace_read", "webfetch",
                     "codesearch", "ask_choice", "browser_request_user_action", "workspace_list", "workspace_write",
                     "call_api", "checklist_start", "sub_agent", "checklist_status",
@@ -917,7 +917,8 @@ public class LoopraConfig implements AgentConfig {
 
     /**
      * 无工具调用时是否将模型文本作为最终回答。
-     * false 时追加 FinishTool.TIPS 并要求模型继续调用 finish（连续三次无工具调用后兜底结束）。
+     * false 时追加 ConversationContext.NO_TOOL_CALL_NOTICE 提醒模型继续推理，
+     * 并在连续三次无工具调用后兜底结束。
      */
     public boolean terminateOnNoToolCall() {
         ONode n = root.select("$.terminateOnNoToolCall");

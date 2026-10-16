@@ -177,7 +177,7 @@ public class GoalService {
         }
         result.append("继续推进当前步骤。完成步骤后调用 goal_update_step 并提供可验证证据；")
                 .append("全部步骤完成后执行必要验证，再调用 goal_complete。")
-                .append("目标未完成时不要调用 finish，也不要仅因本轮结束而把 Goal 标记完成或阻塞。");
+                .append("目标未完成时继续推进，不要仅因本轮结束就把 Goal 标记完成或阻塞。");
         return result.toString();
     }
 

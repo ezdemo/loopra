@@ -3,11 +3,11 @@ package site.sorghum.loopra.bin.session;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
+import site.sorghum.loopra.bin.agent.context.ConversationContext;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.FileChange;
 import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.util.ONodeUtil;
-import site.sorghum.loopra.tool.interact.FinishTool;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -29,7 +29,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -438,7 +437,7 @@ public class JsonlSessionStore implements SessionStore {
                     }
                 }
                 messages = messages.stream().filter(
-                        it -> !(it.isUser() && Objects.equals(FinishTool.TIPS,it.getContent()))
+                        it -> !(it.isUser() && ConversationContext.isInternalNotice(it.getContent()))
                 ).toList();
                 return messages;
             } finally {

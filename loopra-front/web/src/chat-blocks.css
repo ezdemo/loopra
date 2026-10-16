@@ -169,22 +169,12 @@
 .loopra-conversation .code-block-wrap.collapsed .code-preview { mask-image: linear-gradient(#000 70%,transparent); }
 .loopra-conversation .code-expand { display: flex; align-items: center; justify-content: center; gap: 0.375rem; width: 100%; padding: 0.375rem; border-top: 1px solid var(--chat-border-soft); color: var(--chat-fg-3); font-size: 0.6875rem; }
 .loopra-conversation .code-expand:hover { background: var(--chat-hover); }
-.loopra-conversation :is(.hljs-keyword,.hljs-selector-tag,.hljs-literal) { color: var(--danger); }
-.loopra-conversation :is(.hljs-string,.hljs-regexp) { color: #0a3069; }
-.loopra-conversation :is(.hljs-number,.hljs-built_in,.hljs-attr) { color: #0550ae; }
-.loopra-conversation :is(.hljs-title,.hljs-section) { color: #8250df; }
-.loopra-conversation :is(.hljs-comment,.hljs-meta) { color: #6e7781; }
-.dark .loopra-conversation :is(.hljs-keyword,.hljs-selector-tag,.hljs-literal) { color: #ff7b72; }
-.dark .loopra-conversation :is(.hljs-string,.hljs-regexp) { color: #a5d6ff; }
-.dark .loopra-conversation :is(.hljs-number,.hljs-built_in,.hljs-attr) { color: #79c0ff; }
-.dark .loopra-conversation :is(.hljs-title,.hljs-section) { color: #d2a8ff; }
-.dark .loopra-conversation :is(.hljs-comment,.hljs-meta) { color: #8b949e; }
 .loopra-conversation .block-file-changes { margin: .75rem 0 .25rem; overflow: hidden; border: 1px solid var(--chat-border); border-radius: var(--radius-lg); background: var(--chat-bg); }
 .loopra-conversation .file-changes-head { display: flex; align-items: center; gap: .75rem; padding: .625rem .75rem; min-height: 3.25rem; background: transparent; }
 .loopra-conversation .file-changes-main { display: flex; align-items: center; flex: 1; min-width: 0; gap: 0.75rem; text-align: left; }
 .loopra-conversation .file-changes-main:hover:not(:disabled) strong { color: var(--blue); }
 .loopra-conversation .file-changes-icon { display: grid; place-items: center; width: 2rem; height: 2rem; flex-shrink: 0; border-radius: var(--radius-md); background: var(--chat-muted); color: var(--chat-fg-2); }
-.loopra-conversation .file-changes-summary { display: flex; flex-direction: column; gap: 0.1875rem; min-width: 0; }
+.loopra-conversation .file-changes-summary { display: flex; flex-direction: column; flex: 1; gap: 0.1875rem; min-width: 0; }
 .loopra-conversation .file-changes-summary strong { font-size: .875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loopra-conversation .file-changes-total,
 .loopra-conversation .file-change-stats { display: inline-flex; gap: 0.4375rem; font: 600 0.75rem/1.125rem var(--chat-mono); }
@@ -192,9 +182,15 @@
 .loopra-conversation .file-change-add { color: var(--chat-green); }
 .loopra-conversation .file-change-del { color: var(--chat-red); }
 .loopra-conversation .file-changes-undo { height: 1.75rem; min-width: 0; padding: 0.25rem 0.5rem; color: var(--chat-fg-2); font-size: 0.8125rem; border-radius: var(--radius-sm); }
-.loopra-conversation .file-change-row { display: flex; align-items: center; gap: .625rem; width: 100%; padding: .5rem .75rem; border-top: 1px solid var(--chat-border); color: var(--chat-fg-2); text-align: left; }
-.loopra-conversation .file-change-row > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 0.75rem var(--chat-mono); }
-.loopra-conversation .file-change-row:hover { background: var(--chat-hover); }
+.loopra-conversation .file-change-row { display: flex; align-items: center; border-top: 1px solid var(--chat-border); }
+.loopra-conversation .file-change-main { display: flex; align-items: center; gap: .625rem; flex: 1; min-width: 0; padding: .5rem .75rem; color: var(--chat-fg-2); text-align: left; }
+.loopra-conversation .file-change-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 0.75rem var(--chat-mono); }
+.loopra-conversation .file-change-main:hover:not(:disabled) { background: var(--chat-hover); }
+.loopra-conversation .file-change-row .icon-button { flex-shrink: 0; margin-inline-end: .5rem; width: 1.75rem; height: 1.75rem; min-width: 1.75rem !important; color: var(--chat-fg-3); }
+/* The diff expands inside the message: the same rows the workspace pane shows,
+   sized for the transcript and capped so one file cannot fill the view. */
+.loopra-conversation .file-change-diff { border-top: 1px solid var(--chat-border); }
+.loopra-conversation .file-change-diff .unified-diff { max-height: 22rem; border: 0; border-radius: 0; font-family: var(--chat-mono); font-size: .75rem; }
 .loopra-conversation .file-changes-expand { width: 100%; display: flex; align-items: center; gap: .375rem; padding: .5rem .75rem; border-top: 1px solid var(--chat-border); background: transparent; color: var(--chat-fg-3); font-size: .75rem; }
 .loopra-conversation .undone .file-changes-icon { opacity: .5; }
 .loopra-conversation .checklist-detail { padding: 0.625rem 0.75rem; border-top: 1px solid var(--chat-border-soft); }

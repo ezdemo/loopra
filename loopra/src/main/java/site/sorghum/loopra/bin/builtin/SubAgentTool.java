@@ -129,7 +129,7 @@ public class SubAgentTool extends AbsToolProvider implements SolonToTools {
                     || parentController.terminateOnNoToolCall();
             systemPromptBuilder.append(terminateOnNoToolCall
                     ? "无工具调用时，模型的纯文本回复会结束对话。"
-                    : "结束对话必须调用 `finish`，纯文本回复不会退出循环。");
+                    : "结束对话时直接给出最终回答；连续三轮没有工具调用时本轮会兜底结束。");
             String systemPrompt = systemPromptBuilder.toString();
 
             // 获取父级 AgentLoopController，传播中断信号到子代理

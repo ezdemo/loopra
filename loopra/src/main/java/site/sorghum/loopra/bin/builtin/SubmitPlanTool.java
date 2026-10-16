@@ -67,7 +67,7 @@ public class SubmitPlanTool extends AbsToolProvider implements SolonToTools {
         log.info("[plan] 收到执行计划提交: {} 步", stepList.size());
 
         return "{\"status\":\"submitted\",\"message\":\"计划已提交，等待用户确认。"
-                + "请向用户简要总结计划要点并结束本轮（必要时调用 finish），不要执行任何修改操作。"
+                + "请向用户简要总结计划要点并结束本轮，不要执行任何修改操作。"
                 + "用户批准计划后系统会自动退出计划模式并按计划执行。\"}";
     }
 

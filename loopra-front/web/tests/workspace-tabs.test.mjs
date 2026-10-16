@@ -20,11 +20,12 @@ async function compile(path, aliases = {}) {
 }
 const model = await import(await compile('../src/workspace-tabs.ts'));
 const { emptyWorkspaceTabs, openWorkspaceFile, closeWorkspaceFile, updateWorkspaceFilePath } = model;
+const { highlightStub, codeViewerStub } = await import('./helpers/highlight.mjs');
 const diff = await compile('../src/diff.ts');
-const diffView = await compile('../src/components/DiffView.tsx', { '../diff': diff });
+const unifiedDiff = await compile('../src/components/UnifiedDiff.tsx', { '../diff': diff, '../highlight': highlightStub });
 const events = await compile('../src/workspace-events.ts');
 const controls = dataUrl(`export const errorText = cause => cause.message; export const query = values => new URLSearchParams(values).toString();`);
-const { default: WorkspaceTabs } = await import(await compile('../src/components/WorkspaceTabs.tsx', { './RemoteControls': controls, './DiffView': diffView, '../workspace-events': events }));
+const { default: WorkspaceTabs } = await import(await compile('../src/components/WorkspaceTabs.tsx', { './RemoteControls': controls, './UnifiedDiff': unifiedDiff, './CodeViewer': codeViewerStub, '../highlight': highlightStub, '../workspace-events': events }));
 const click = async element => act(async () => element.click());
 const tab = name => [...document.querySelectorAll('.workspace-tabs [role="tab"]')].find(element => element.textContent === name);
 
@@ -58,7 +59,7 @@ test('only the conversation has no tab bar; opening and closing the last file re
     await view.open({ path: 'README.md', mode: 'content' });
     assert.equal(tab('会话').getAttribute('aria-selected'), 'false');
     assert.equal(document.querySelector('.workspace-chat-view').hidden, true);
-    assert.match(document.querySelector('.workspace-file-code').textContent, /content README.md/);
+    assert.match(document.querySelector('.workspace-code-editor').textContent, /content README.md/);
     await click(document.querySelector('[aria-label="关闭 README.md"]'));
     assert.equal(document.querySelector('.workspace-tabs'), null);
     assert.equal(document.querySelector('.workspace-chat-view').hidden, false);
@@ -88,14 +89,14 @@ test('historical diffs keep the saved content while opening the live Git entry r
   try {
     await view.open({ path: 'a.md', mode: 'diff', diff: '@@ -1 +1 @@\n-old saved\n+new saved' });
     assert.equal(view.calls.length, 0);
-    assert.match(document.querySelector('.diff-sbs').textContent, /new saved/);
+    assert.match(document.querySelector('.unified-diff').textContent, /new saved/);
     await click([...document.querySelectorAll('.workspace-view-modes button')].find(button => button.textContent === '原文件'));
-    assert.match(document.querySelector('.workspace-file-code').textContent, /content a.md/);
+    assert.match(document.querySelector('.workspace-code-editor').textContent, /content a.md/);
     await click([...document.querySelectorAll('.workspace-view-modes button')].find(button => button.textContent === '本次改动'));
-    assert.match(document.querySelector('.diff-sbs').textContent, /new saved/);
+    assert.match(document.querySelector('.unified-diff').textContent, /new saved/);
     assert.equal(view.calls.filter(path => path.startsWith('/git/diff-content')).length, 0);
     await view.open({ path: 'a.md', mode: 'diff' });
-    assert.match(document.querySelector('.diff-sbs').textContent, /new live/);
+    assert.match(document.querySelector('.unified-diff').textContent, /new live/);
     assert.equal(document.querySelectorAll('.workspace-file-tab').length, 1);
   } finally { await view.close(); }
 });
@@ -106,7 +107,7 @@ test('file read failures can retry and a reference returns to the existing conve
     await view.open({ path: 'a.md', mode: 'content' });
     assert.match(document.querySelector('[role="alert"]').textContent, /读取失败/);
     await click(document.querySelector('[role="alert"] button'));
-    assert.match(document.querySelector('.workspace-file-code').textContent, /content a.md/);
+    assert.match(document.querySelector('.workspace-code-editor').textContent, /content a.md/);
     await click([...document.querySelectorAll('.workspace-file-actions button')].find(button => button.textContent === '引用文件'));
     assert.deepEqual(view.references, [{ path: 'a.md', text: undefined }]);
     assert.equal(document.querySelector('.workspace-chat-view').hidden, false);

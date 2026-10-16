@@ -40,8 +40,6 @@ public final class LoopraToolNames {
     public static final String ASK_CHOICE = "ask_choice";
     /** 提交计划供用户审查。 */
     public static final String SUBMIT_PLAN = "submit_plan";
-    /** 显式结束对话。 */
-    public static final String FINISH = "finish";
     /** 抓取网页内容。 */
     public static final String WEB_FETCH = "webfetch";
 

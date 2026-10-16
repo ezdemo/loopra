@@ -13,23 +13,13 @@ import { normalizeMathMarkdown } from '../markdown-math';
 import { normalizeAlertMarkdown } from '../markdown-alert';
 import { LOCAL_FILE_SCHEME, localFilePath, rehypeLocalFileLinks } from '../markdown-links';
 import { markdownSchema } from '../markdown-schema';
+import { useColorizedFence } from '../highlight';
 import { useImagePreview } from './ImagePreview';
 import { LinkPopoverProvider, useLinkPopover } from './LinkPopover';
-import hljs from 'highlight.js/lib/core';
-import javascript from 'highlight.js/lib/languages/javascript';
-import typescript from 'highlight.js/lib/languages/typescript';
-import python from 'highlight.js/lib/languages/python';
-import bash from 'highlight.js/lib/languages/bash';
-import json from 'highlight.js/lib/languages/json';
-import css from 'highlight.js/lib/languages/css';
-import xml from 'highlight.js/lib/languages/xml';
 import { Check, ChevronDown, Code2, Copy } from 'lucide-react';
 import { IconButton } from './ui';
 import { useCollapseAll } from './Motion';
 
-for (const [name, syntax] of Object.entries({ javascript, typescript, python, bash, json, css, xml })) hljs.registerLanguage(name, syntax);
-hljs.registerAliases(['jsx'], { languageName: 'javascript' });
-hljs.registerAliases(['tsx'], { languageName: 'typescript' });
 const NoticeContext = createContext<(message: string) => void>(() => {});
 
 // Markdown links that point at workspace files open the local preview instead
@@ -47,7 +37,9 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
   useCollapseAll(() => setExpanded(false));
   const lines = code.split('\n').length;
-  const highlighted = useMemo(() => hljs.getLanguage(language) ? hljs.highlight(code, { language, ignoreIllegals: true }).value : null, [code, language]);
+  // VS Code's tokenizer paints the block once Monaco is loaded; until then (and
+  // for oversized blocks) the fence renders as plain text.
+  const highlighted = useColorizedFence(code, language);
   return <div className={`code-block-wrap ${lines > 8 && !expanded ? 'collapsed' : ''}`}>
     <div className="code-block-top"><button type="button" className="code-block-toggle" aria-label={lines > 8 ? `${expanded ? '收起' : '展开'} ${language || 'text'} 代码` : `${language || 'text'} 代码`} aria-expanded={lines > 8 ? expanded : undefined} disabled={lines <= 8} onClick={() => setExpanded(!expanded)}><Code2 size="0.875rem" /><span>{language || 'text'}</span><span className="code-block-meta">{lines} 行</span>{lines > 8 && <ChevronDown size="0.875rem" className={expanded ? 'rotated' : ''} />}</button><IconButton label="复制代码" onClick={() => { void copyText(code, notify).then(success => setCopied(success)); }}>{copied ? <Check size="0.875rem" /> : <Copy size="0.875rem" />}</IconButton></div>
     <div className="code-preview" style={{ height: lines > 8 && !expanded ? '11.0625rem' : 'auto' }}><pre>{highlighted === null ? <code>{code}</code> : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre></div>

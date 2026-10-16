@@ -19,10 +19,11 @@ test('git init can create the initial commit like the legacy panel', () => {
   assert.match(gitTools, /useState\(true\)/);
 });
 
-test('the git tab opens a main workspace tab using the shared side-by-side DiffView', () => {
+test('the git tab opens a main workspace tab using the shared single-column diff', () => {
   assert.match(panels, /onFile=\{path => onOpenFile\(\{ path, mode: 'diff' \}\)\}/);
-  assert.match(workspaceTabs, /import DiffView from '\.\/DiffView';/);
-  assert.match(workspaceTabs, /<DiffView diff=\{data\?\.diff\} \/>/);
+  assert.match(workspaceTabs, /import UnifiedDiff from '\.\/UnifiedDiff';/);
+  // The pane hands the diff its file path, which is what Monaco reads the language from.
+  assert.match(workspaceTabs, /<UnifiedDiff diff=\{data\?\.diff\} path=\{file\.path\} nav emptyText="[^"]+" \/>/);
 });
 
 test('git commit models group by channel with a round-tripping option value', () => {
@@ -73,7 +74,9 @@ test('message file changes reuse the stored diff while the live diff stays the f
   const blockRenderer = await readFile(new URL('../src/components/BlockRenderer.tsx', import.meta.url), 'utf8');
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
   assert.match(blockRenderer, /onDiff\?: \(path: string, diff\?: string\) => void/);
-  assert.match(blockRenderer, /onClick=\{\(\) => onDiff\?\.\(change\.path, change\.diff\)\}/);
+  // The card expands the saved patch in place and offers the pane as the alternative.
+  assert.match(blockRenderer, /<UnifiedDiff diff=\{change\.diff\} path=\{change\.path\} \/>/);
+  assert.match(blockRenderer, /onDiff\(change\.path, change\.diff\)/);
   assert.match(app, /function openDiff\(path: string, storedDiff\?: string\)/);
   assert.match(app, /openFile\(\{ path, mode: 'diff', diff: storedDiff \}\)/);
   assert.match(workspaceTabs, /file.mode === 'diff' && file.diff !== undefined/);

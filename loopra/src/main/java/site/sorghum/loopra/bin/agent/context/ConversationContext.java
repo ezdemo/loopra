@@ -9,7 +9,6 @@ import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.agent.prompt.PromptPrefix;
 import site.sorghum.loopra.bin.session.SessionStore;
-import site.sorghum.loopra.tool.interact.FinishTool;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -31,9 +30,29 @@ import java.util.Objects;
  */
 @Slf4j
 public class ConversationContext {
+
+    /**
+     * 无工具调用轮次的提醒 —— 退出仲裁在「不因纯文本回复收尾」且没有未关闭 Goal 时注入，
+     * 提示模型继续推理或直接给出最终回答。
+     */
+    public static final String NO_TOOL_CALL_NOTICE =
+            "[系统提示]；如果询问用户下一步动作，请调用 `ask_choice` 工具；"
+                    + "否则请继续推理，或在信息已经足够时直接给出最终回答。"
+                    + "连续三轮没有工具调用时，本轮会以最后一次回答收尾。";
+
+    /** finish 工具时代的同一句提醒 —— 只用于过滤旧会话里已经写入的记录。 */
+    private static final String LEGACY_NO_TOOL_CALL_NOTICE =
+            "[系统提示]；如果询问用户下一步动作，请调用`ask_choice`工具， 如果有足够信息，请调用 `finish` 提交结果，否则请继续推理。";
+
     private static final List<String> NO_TO_JSONL = List.of(
-            FinishTool.TIPS
+            NO_TOOL_CALL_NOTICE,
+            LEGACY_NO_TOOL_CALL_NOTICE
     );
+
+    /** 这段文案是否属于「只给模型看」的内部通知（不回放给用户、不落 JSONL）。 */
+    public static boolean isInternalNotice(String content) {
+        return content != null && NO_TO_JSONL.contains(content);
+    }
 
     private final List<ChatMessage> history = new ArrayList<>();
     private final PromptPrefix prefix;
@@ -209,7 +228,7 @@ public class ConversationContext {
      * 如果 sessionStore 未设置或写入失败，静默忽略。
      */
     private void persist(ChatMessage msg) {
-        if (msg.hasContent() && NO_TO_JSONL.contains(msg.getContent())){
+        if (msg.hasContent() && isInternalNotice(msg.getContent())) {
             return;
         }
         // 空消息不持久化

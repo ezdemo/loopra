@@ -69,7 +69,8 @@ const specifiers = {
   'rehype-sanitize': import.meta.resolve('rehype-sanitize'),
   'rehype-katex': import.meta.resolve('rehype-katex'),
   'katex/dist/katex.min.css': dataUrl('export default {};'),
-  'highlight.js/lib/core': import.meta.resolve('highlight.js/lib/core'),
+  // Monaco is stubbed: this suite covers markdown structure, not tokenizing.
+  '../highlight': (await import('./helpers/highlight.mjs')).highlightStub,
   'lucide-react': import.meta.resolve('lucide-react'),
   './ImagePreview': previewUrl,
   './ui': uiStub,
@@ -77,9 +78,6 @@ const specifiers = {
   './Motion': dataUrl('export const useCollapseAll = () => {};'),
   './LinkPopover': linkPopoverUrl,
 };
-for (const language of ['javascript', 'typescript', 'python', 'bash', 'json', 'css', 'xml']) {
-  specifiers[`highlight.js/lib/languages/${language}`] = import.meta.resolve(`highlight.js/lib/languages/${language}`);
-}
 
 const source = await readFile(new URL('../src/components/Markdown.tsx', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } });
