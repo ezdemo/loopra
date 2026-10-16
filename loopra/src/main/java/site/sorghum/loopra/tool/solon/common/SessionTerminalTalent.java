@@ -38,6 +38,15 @@ public class SessionTerminalTalent extends TerminalTalent {
     /** bash_start/bash_wait/bash_stdin/bash_stop 后台会话镜像（sessionId → 会话信息）。 */
     private final ConcurrentMap<String, BashSessionInfo> bashSessions = new ConcurrentHashMap<>();
 
+    /**
+     * 服务端轮询提前读走、还没交给 agent 的工具返回文本（sessionId → 待交付文本）。
+     * 底层命令会话只有一个读取位置（{@code CommandSession.nextOutputOffset}），
+     * 我们读走了 agent 就会少看一段，所以必须原样还给它。
+     */
+    private final ConcurrentMap<String, StringBuilder> pendingToolResults = new ConcurrentHashMap<>();
+    /** 单个会话待交付文本的上限，与镜像日志同量级。 */
+    private static final int MAX_PENDING_CHARS = 512 * 1024;
+
     public SessionTerminalTalent(MountManager mountManager, String workspace) {
         super(mountManager);
         this.workspace = Path.of(workspace).toAbsolutePath().normalize();
@@ -185,6 +194,9 @@ public class SessionTerminalTalent extends TerminalTalent {
     public String bashWait(@Param(value = "session_id") String sessionId,
                            @Param(value = "yield_time_ms", required = false, defaultValue = "1000") Integer yieldTimeMs,
                            @Param(value = "max_output_chars", required = false, defaultValue = "64000") Integer maxOutputChars) throws IOException {
+        // 面板轮询可能已经替它读过并把文本排在这里：先还给 agent，保证一条输出都不少
+        String queued = takeQueuedResult(sessionId);
+        if (queued != null) return queued;
         String result = super.bashWait(sessionId, yieldTimeMs, maxOutputChars);
         appendBashOutput(sessionId, result);
         markBashSessionCompleted(sessionId, result);
@@ -198,11 +210,13 @@ public class SessionTerminalTalent extends TerminalTalent {
                             @Param(value = "chars") String chars,
                             @Param(value = "yield_time_ms", required = false, defaultValue = "1000") Integer yieldTimeMs,
                             @Param(value = "max_output_chars", required = false, defaultValue = "64000") Integer maxOutputChars) throws IOException {
+        // 轮询抢先读走的那段按时间顺序排在本轮写入之前，一并交给 agent
+        String queued = takeQueuedResult(sessionId);
         String result = super.bashStdin(sessionId, chars, yieldTimeMs, maxOutputChars);
         appendBashOutput(sessionId, result);
         markBashSessionCompleted(sessionId, result);
         clearCompletedCommand(sessionId, result);
-        return result;
+        return queued == null ? result : queued + "\n" + result;
     }
 
     @Override
@@ -210,18 +224,66 @@ public class SessionTerminalTalent extends TerminalTalent {
     public String bashStop(@Param(value = "session_id") String sessionId,
                            @Param(value = "reason", required = false) String reason,
                            @Param(value = "max_output_chars", required = false, defaultValue = "64000") Integer maxOutputChars) {
+        String queued = takeQueuedResult(sessionId);
         String result = null;
         try {
             result = super.bashStop(sessionId, reason, maxOutputChars);
-            return result;
+            return queued == null ? result : queued + "\n" + result;
         } finally {
             if (sessionId != null) {
                 BashSessionInfo info = bashSessions.get(sessionId);
                 if (info != null) info.appendOutput(extractCommandOutput(result));
                 bashSessions.remove(sessionId);
+                pendingToolResults.remove(sessionId);
             }
             AgentLoopController controller = ToolContext.getCurrentController();
             if (controller != null) controller.clearAbortResource(sessionId);
+        }
+    }
+
+    /**
+     * 面板轮询时顺手把会话的最新输出读回来（yield=0，不阻塞调用方）：
+     * <ul>
+     *   <li>追加到镜像 —— 否则没人调用 bash_wait 时，面板永远停在启动那一屏；</li>
+     *   <li>把读到的文本排队还给 agent —— 底层读取位置是共用的，不能白拿；</li>
+     *   <li>借返回文本里的状态修正镜像 —— 否则进程自己退出后，面板会一直显示 running。</li>
+     * </ul>
+     * 会话在底层已消失（例如被 bash_stop 收走）时按已完成处理，别让它继续挂在列表里。
+     */
+    private void drainBashSession(BashSessionInfo info) {
+        if (info == null || !info.isRunning()) return;
+        String sessionId = info.getSessionId();
+        try {
+            String result = super.bashWait(sessionId, 0, 64_000);
+            info.appendOutput(extractCommandOutput(result));
+            queueForAgent(sessionId, result);
+            markBashSessionCompleted(sessionId, result);
+            if (!info.isRunning()) clearCompletedCommand(sessionId, result);
+        } catch (Exception error) {
+            info.markCompleted();
+        }
+    }
+
+    /**
+     * 只把「有新增输出」或「状态已结束」的返回文本排队，避免轮询把无意义的占位块堆给 agent。
+     */
+    private void queueForAgent(String sessionId, String result) {
+        if (sessionId == null || result == null) return;
+        if (extractCommandOutput(result).isEmpty() && isCommandRunning(result)) return;
+        StringBuilder buffer = pendingToolResults.computeIfAbsent(sessionId, key -> new StringBuilder());
+        synchronized (buffer) {
+            buffer.append(result);
+            if (buffer.length() > MAX_PENDING_CHARS) buffer.delete(0, buffer.length() - MAX_PENDING_CHARS);
+        }
+    }
+
+    /** 取走该会话待交付给 agent 的文本；没有待交付内容时返回 null。 */
+    private String takeQueuedResult(String sessionId) {
+        if (sessionId == null) return null;
+        StringBuilder buffer = pendingToolResults.remove(sessionId);
+        if (buffer == null) return null;
+        synchronized (buffer) {
+            return buffer.length() == 0 ? null : buffer.toString();
         }
     }
 
@@ -281,11 +343,18 @@ public class SessionTerminalTalent extends TerminalTalent {
     }
 
     /**
-     * 返回本项目的会话镜像快照（先清理过期 completed 项）。
+     * 返回本项目的会话镜像快照（先读一次实时输出，再清理过期 completed 项）。
      */
     public List<BashSessionInfo> snapshotBashSessions() {
         long now = System.currentTimeMillis();
-        bashSessions.entrySet().removeIf(entry -> entry.getValue().isExpired(now));
+        // 前端每 3 秒拉一次列表，顺便把运行中的会话读回来（非阻塞）：这样"没人调用
+        // bash_wait"时面板也能看到最新输出，并拿到进程真实的存活状态。
+        bashSessions.values().forEach(this::drainBashSession);
+        bashSessions.entrySet().removeIf(entry -> {
+            if (!entry.getValue().isExpired(now)) return false;
+            pendingToolResults.remove(entry.getKey());
+            return true;
+        });
         return new ArrayList<>(bashSessions.values());
     }
 
@@ -364,7 +433,11 @@ public class SessionTerminalTalent extends TerminalTalent {
                 continue;
             }
             BashSessionInfo info = talent.bashSessions.get(sessionId);
-            if (info != null) return info;
+            if (info != null) {
+                // 「查看日志」是直接按 sessionId 取的，这里也先读一次，免得刚打开看到的还是旧内容
+                talent.drainBashSession(info);
+                return info;
+            }
         }
         return null;
     }
