@@ -52,9 +52,7 @@ public class AgentController {
     @Get
     @Mapping("/status")
     public ApiResponse<AgentStatusDTO> status() {
-        if (!agentService.isReady()) {
-            throw new ServiceException("Agent 未初始化，请检查 ~/.loopra/config.json 配置");
-        }
+        // 未就绪时也返回 ready=false，前端据此引导用户配置模型
         return ApiResponse.ok(agentService.getStatus());
     }
 

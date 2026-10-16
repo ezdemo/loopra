@@ -337,7 +337,7 @@ public class ConfigController {
     @Get
     @Mapping("/workspaces")
     public ApiResponse<List<ProjectInfoDTO>> listProjects() {
-        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        // 仅读取项目目录，不依赖 Agent；未配置 apiKey 时前端仍需要它来完成连接并进入模型配置
         return ApiResponse.ok(agentService.listProjects());
     }
 
