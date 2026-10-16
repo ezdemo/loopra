@@ -600,10 +600,18 @@ export default function App() {
     const config = backend.config; if (!config) return;
     const modelId = `${config.modelChannelId}:${config.model}`;
     setDefaultModel(modelId);
-    setComposerOptions(current => ({ ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode }));
+    // model/effort belong to the *session*: the picker writes them to that session's settings
+    // and selectSession loads them back. Re-deriving them from the global config here (which
+    // the picker never updates) silently undid the user's pick on every backend.refresh(),
+    // which is triggered by ordinary things like refreshing projects or opening the session
+    // manager. Keep them seeded from the config only when no session owns them yet — that is
+    // the only place the configured default reaches an empty composer.
+    setComposerOptions(current => session
+      ? { ...current, mode: permissionLabel(config.hitl), fast: config.fastMode }
+      : { ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode });
     setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '' }));
     setWorkspace(current => backend.workspaces.some(item => item.hash === current) ? current : backend.workspaces.find(item => item.path === config.workspace)?.hash || backend.workspaces[0]?.hash || '');
-  }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server]);
+  }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server, session?.id]);
   // The host is what actually launches these, and only it knows what exists there (Git Bash is
   // Windows-only, PowerShell needs pwsh installed), so ask it instead of offering a fixed list.
   const refreshApplications = useCallback(() => {
