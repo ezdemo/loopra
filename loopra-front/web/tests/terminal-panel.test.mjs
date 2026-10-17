@@ -48,6 +48,7 @@ export function useRemote() { return { data: undefined, error: '', loading: fals
 export const RemoteState = () => null;
 `);
 const stubPanel = dataUrl('export default () => null;');
+const environmentPanelStub = dataUrl('export default () => null; export const EnvironmentBar = () => null; export const useEnvironmentController = () => ({ mode: undefined });');
 const workspaceEventsStub = dataUrl('export const watchWorkspaceChanges = () => () => {};');
 const panelResizeStub = dataUrl('export const DEFAULT_PANEL_WIDTH = 452; export const WIDE_PANEL_WIDTH = 560; export const resizePanelWidth = width => width;');
 const libStub = dataUrl(`
@@ -59,7 +60,7 @@ const bashStateUrl = await sourceUrl('useBashSessions.ts', { './bash-sessions': 
 const panelsUrl = await sourceUrl('components/Panels.tsx', {
   '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub, './ui': uiStub, './Motion': motionStub, './RemoteControls': controlsStub,
   './FilesPanel': stubPanel, './GitTools': stubPanel, './SchedulePanel': stubPanel, './SubAgentsPanel': stubPanel,
-  './ProjectCapabilities': stubPanel, './DiffView': stubPanel, '../bash-sessions': bashUrl, '../lib': libStub, '../panel-resize': panelResizeStub, '../useBashSessions': bashStateUrl, '../workspace-events': workspaceEventsStub,
+  './ProjectCapabilities': stubPanel, './EnvironmentPanel': environmentPanelStub, './DiffView': stubPanel, '../bash-sessions': bashUrl, '../lib': libStub, '../panel-resize': panelResizeStub, '../useBashSessions': bashStateUrl, '../workspace-events': workspaceEventsStub,
 });
 const { TerminalPanel } = await import(panelsUrl);
 const taskLogUrl = await sourceUrl('components/BackgroundTaskLog.tsx', { '@nextui-org/react': nextuiStub, '../bash-sessions': bashUrl });

@@ -50,17 +50,22 @@ function WorkspaceFileView({ api, workspaceHash, file, revision, active, onMode,
   const loadedKey = useRef('');
   useEffect(() => {
     setSelection('');
-    const key = `${workspaceHash}/${file.path}/${file.mode}`;
+    const key = `${workspaceHash}/${file.environment || ''}/${file.path}/${file.mode}`;
     const sameFile = loadedKey.current === key; loadedKey.current = key;
     if (file.mode === 'diff' && file.diff !== undefined) { setState({ data: { diff: file.diff }, loading: false, error: '' }); return; }
     const controller = new AbortController();
     setState(current => ({ data: sameFile ? current.data : undefined, loading: true, error: '' }));
-    const endpoint = file.mode === 'diff' ? '/git/diff-content' : '/git/working-file-content';
-    void api.request<FileData>(`${endpoint}?${query({ workspaceHash, path: file.path })}`, 'GET', undefined, controller.signal)
+    // Worktree tabs go through the environment endpoints; their paths are
+    // resolved by the backend from the session, never sent as arbitrary dirs.
+    const endpoint = file.mode === 'diff'
+      ? (file.environment ? '/git/environment/diff-content' : '/git/diff-content')
+      : (file.environment ? '/git/environment/working-file-content' : '/git/working-file-content');
+    const params = file.environment ? { workspaceHash, sessionName: file.environment, path: file.path } : { workspaceHash, path: file.path };
+    void api.request<FileData>(`${endpoint}?${query(params)}`, 'GET', undefined, controller.signal)
       .then(data => { if (!controller.signal.aborted) setState({ data, loading: false, error: '' }); })
       .catch(cause => { if (!controller.signal.aborted) setState(current => ({ ...current, loading: false, error: errorText(cause) })); });
     return () => controller.abort();
-  }, [api, workspaceHash, file.path, file.mode, file.diff, revision, reload]);
+  }, [api, workspaceHash, file.environment, file.path, file.mode, file.diff, revision, reload]);
   // The diff view is plain DOM, so its selection comes from the document; the
   // code preview is a Monaco editor, which reports its own selection instead.
   function selectText(event: MouseEvent<HTMLDivElement> | KeyboardEvent<HTMLDivElement>) {

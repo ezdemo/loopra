@@ -1,4 +1,5 @@
-export type WorkspaceFile = { path: string; mode: 'content' | 'diff'; diff?: string };
+/** `environment` is the session name for files read from an isolated worktree. */
+export type WorkspaceFile = { path: string; mode: 'content' | 'diff'; diff?: string; environment?: string };
 export type WorkspaceTabs = { files: WorkspaceFile[]; active: string | null };
 export const emptyWorkspaceTabs: WorkspaceTabs = { files: [], active: null };
 

@@ -35,7 +35,7 @@ function useGitRemote<T>(api: LoopraClient, path: string | null, revision = 0) {
   return { ...request, data: request.data ?? (request.loading && cached?.api === api && cached.path === path ? cached.data : undefined) };
 }
 
-export default function GitTools({ api, workspaceHash, revision, onRefresh, onFile, notify }: { api: LoopraClient; workspaceHash: string; revision: number; onRefresh: () => void; onFile: (path: string) => void; notify: (message: string) => void }) {
+export default function GitTools({ api, workspaceHash, revision, onRefresh, onFile, notify, showBranch = true }: { api: LoopraClient; workspaceHash: string; revision: number; onRefresh: () => void; onFile: (path: string) => void; notify: (message: string) => void; showBranch?: boolean }) {
   const suffix = query({ workspaceHash });
   const state = useGitRemote<Status>(api, `/git/status?${suffix}`, revision);
   const config = useRemote<Record<string, string>>(api, `/git/config?${suffix}`);
@@ -78,7 +78,7 @@ export default function GitTools({ api, workspaceHash, revision, onRefresh, onFi
     {state.data && !state.data.gitAvailable && <div className="git-empty"><span className="git-empty-icon"><FolderGit2 size={24} /></span><h3>还没有安装 Git</h3><p>在服务所在电脑安装 Git 后，即可管理项目版本。</p></div>}
     {state.data?.gitAvailable && !state.data.initialized && <div className="git-empty git-init"><span className="git-empty-icon"><FolderGit2 size={24} /></span><h3>开始记录项目的每一步</h3><p>初始化 Git 仓库，追踪文件改动与提交历史。</p><label><input type="checkbox" checked={initCommit} disabled={busy} onChange={event => setInitCommit(event.target.checked)} />初始化后创建首次提交</label><Button size="sm" color="primary" isDisabled={busy} onPress={() => setConfirm('init')}><Plus size={15} />初始化仓库</Button></div>}
     {state.data?.initialized && <>
-      <header className="git-repository" aria-label="当前分支"><GitBranch size={16} /><strong title={state.data.branch}>{state.data.branch || 'HEAD'}</strong></header>
+      {showBranch && <header className="git-repository" aria-label="当前分支"><GitBranch size={16} /><strong title={state.data.branch}>{state.data.branch || 'HEAD'}</strong></header>}
       <section className="git-commit-card" aria-label="创建提交"><header className="git-section-header"><h3>提交说明</h3><Button className="git-ai-button" size="sm" variant="light" aria-busy={generating} isDisabled={busy || generating || !files.length} onPress={() => void generate()}><Sparkles size={14} /><span>{generating ? '生成中…' : 'AI 生成说明'}</span></Button></header><label className="git-message-label" htmlFor="git-commit-message">提交说明</label><textarea id="git-commit-message" className="git-message-input" aria-label="提交说明" rows={4} placeholder="描述这次改动…" value={message} disabled={busy || generating} onChange={event => setMessage(event.target.value)} /><footer className="git-commit-footer"><span>{selected.length ? `已选择 ${selected.length} 个文件` : files.length ? '未勾选时提交全部改动' : '暂无待提交文件'}</span><Button className="git-commit-button" size="sm" color="primary" isDisabled={busy || generating || pendingStages.length > 0 || !message.trim() || !files.length} onPress={() => setConfirm('commit')}>提交 {commitCount} 个文件</Button></footer>
         <details className="git-advanced"><summary><span>提交作者与生成模型</span><ChevronDown size={14} /></summary><div className="git-config-fields">
           <label>作者名称<input value={author.authorName} onChange={event => setAuthor(current => ({ ...current, authorName: event.target.value }))} /></label>

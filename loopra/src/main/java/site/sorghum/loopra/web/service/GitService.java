@@ -126,7 +126,22 @@ public class GitService {
      * Git 综合状态检测 —— 四阶段检测：git 可用性 → 仓库状态 → 分支名 → 变更文件。
      */
     public GitStatusDTO getStatus(String workspaceHash) throws Exception {
-        File workspaceDir = new File(resolveWorkspace(workspaceHash));
+        GitStatusDTO status = getStatusAt(resolveWorkspace(workspaceHash));
+        if (!status.initialized()) return status;
+
+        // 项目级配置只对主工作区有意义；隔离分支复用同一份模型配置。
+        Map<String, String> config = getGitConfig(workspaceHash);
+        return new GitStatusDTO(status.gitAvailable(), true, status.branch(), status.workspacePath(),
+                status.changed(), status.untracked(), config.get("model"), config.get("modelChannelId"),
+                status.ahead(), status.behind(), status.upstream());
+    }
+
+    /**
+     * 读取任意工作目录的 Git 状态（会话隔离分支使用）。
+     * 目录必须由后端从 workspaceHash + sessionName 解析后传入。
+     */
+    public GitStatusDTO getStatusAt(String path) throws Exception {
+        File workspaceDir = new File(path);
 
         // 1. 检测 git 是否可用
         try {
@@ -155,13 +170,33 @@ public class GitService {
         // 4. 展开未跟踪目录，只返回当前项目内、相对项目的文件路径。
         WorkspaceChanges changes = readWorkspaceChanges(workspaceDir);
 
-        // 5. 获取配置的模型与渠道
-        Map<String, String> config = getGitConfig(workspaceHash);
-        String model = config.get("model");
-        String modelChannelId = config.get("modelChannelId");
+        // 5. 分支跟踪信息（没有 upstream 时保持 0/0）。
+        int[] aheadBehind = trackingCounts(workspaceDir);
+        String upstream = runGitSimple(workspaceDir.getAbsolutePath(),
+                "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}");
 
         return new GitStatusDTO(true, true, branch,
-                workspaceDir.getAbsolutePath(), changes.changed(), changes.untracked(), model, modelChannelId);
+                workspaceDir.getAbsolutePath(), changes.changed(), changes.untracked(), null, null,
+                aheadBehind[0], aheadBehind[1], upstream == null ? null : upstream.trim());
+    }
+
+    /** HEAD 与 upstream 的领先/落后数量；无 upstream 时返回 {0, 0}。 */
+    private int[] trackingCounts(File workspaceDir) {
+        ProcessResult result;
+        try {
+            result = runGit(workspaceDir, "git", "rev-list", "--left-right", "--count", "HEAD...@{upstream}");
+        } catch (Exception e) {
+            return new int[]{0, 0};
+        }
+        if (result.exitCode != 0 || result.stdout == null) return new int[]{0, 0};
+        String[] parts = result.stdout.trim().split("\\s+");
+        if (parts.length < 2) return new int[]{0, 0};
+        try {
+            // 左=HEAD 独有（领先），右=upstream 独有（落后）。
+            return new int[]{Integer.parseInt(parts[0]), Integer.parseInt(parts[1])};
+        } catch (NumberFormatException e) {
+            return new int[]{0, 0};
+        }
     }
 
     /**
@@ -214,8 +249,15 @@ public class GitService {
      * 如果非 Git 管理或没有 diff，返回文件原文内容。
      */
     public GitDiffContentDTO getDiffContent(String workspaceHash, String path) throws Exception {
-        File workspaceDir = new File(resolveWorkspace(workspaceHash));
+        return getDiffContentAt(new File(resolveWorkspace(workspaceHash)), path);
+    }
 
+    /** 读取任意工作目录内文件相对 HEAD 的 diff（会话隔离分支使用）。 */
+    public GitDiffContentDTO getDiffContentAt(String dirPath, String path) throws Exception {
+        return getDiffContentAt(new File(dirPath), path);
+    }
+
+    private GitDiffContentDTO getDiffContentAt(File workspaceDir, String path) throws Exception {
         // 安全校验：防止路径穿越
         path = validatePath(workspaceDir, path);
 
@@ -384,11 +426,16 @@ public class GitService {
      * 读取项目当前文件内容，用于前端代码预览，不依赖 Git 状态或提交历史。
      */
     public WorkingFileContentDTO getWorkingFileContent(String workspaceHash, String path) throws Exception {
+        return getWorkingFileContentAt(resolveWorkspace(workspaceHash), path);
+    }
+
+    /** 读取任意工作目录内的当前文件内容（会话隔离分支使用）。 */
+    public WorkingFileContentDTO getWorkingFileContentAt(String dirPath, String path) throws Exception {
         if (path == null || path.isBlank()) {
             throw new ServiceException("Invalid path");
         }
 
-        java.nio.file.Path workspace = java.nio.file.Paths.get(resolveWorkspace(workspaceHash)).toAbsolutePath().normalize();
+        java.nio.file.Path workspace = java.nio.file.Paths.get(dirPath).toAbsolutePath().normalize();
         String filePath = path.trim().replaceFirst(":\\d+$", "");
         java.nio.file.Path requested = java.nio.file.Paths.get(filePath);
         java.nio.file.Path file = (requested.isAbsolute() ? requested : workspace.resolve(requested)).normalize();
@@ -411,8 +458,16 @@ public class GitService {
      * </p>
      */
     public GitCommitDTO.ListWrapper getCommitHistory(String workspaceHash, Integer limit) {
-        String workspacePath = resolveWorkspace(workspaceHash);
+        return getCommitHistoryAt(resolveWorkspace(workspaceHash), limit);
+    }
+
+    /**
+     * 读取任意工作目录的提交历史（会话隔离分支使用）。
+     */
+    public GitCommitDTO.ListWrapper getCommitHistoryAt(String path, Integer limit) {
+        String workspacePath = path;
         if (limit == null || limit <= 0) limit = 50;
+        limit = Math.max(1, Math.min(limit, 100));
 
         // 自定义格式: 完整哈希|短哈希|作者|邮箱|日期|消息
         // 使用 %x1F (Unit Separator) 作为字段分隔，避免消息中的特殊字符干扰
@@ -541,6 +596,79 @@ public class GitService {
     }
 
     /**
+     * 在任意工作目录提交全部改动（自动 add -A），供会话隔离分支使用。
+     * 与桌面端旧实现保持一致：仓库没有作者配置时回退到 Loopra 默认身份。
+     */
+    public GitCommitResultDTO commitEnvironment(String path, String body) throws Exception {
+        ONode json = parseJsonBody(body, "environment commit");
+        return commitAtPath(path, readStringField(json, "message"), readStringListField(json, "files"));
+    }
+
+    public GitCommitResultDTO commitAtPath(String path, String message) throws Exception {
+        return commitAtPath(path, message, null);
+    }
+
+    public GitCommitResultDTO commitAtPath(String path, String message, List<String> files) throws Exception {
+        File workspaceDir = new File(path);
+        if (message == null || message.trim().isEmpty()) {
+            throw new ServiceException("提交信息不能为空");
+        }
+        ProcessResult check = runGit(workspaceDir, "git", "rev-parse", "--is-inside-work-tree");
+        if (check.exitCode != 0) {
+            throw new ServiceException("Not a git repository");
+        }
+
+        ProcessResult addResult;
+        if (files != null && !files.isEmpty()) {
+            List<String> valid = validatePaths(workspaceDir, files);
+            List<String> addCmd = new ArrayList<>(Arrays.asList("git", "add", "--"));
+            addCmd.addAll(valid);
+            addResult = runGit(workspaceDir, addCmd.toArray(new String[0]));
+        } else {
+            addResult = runGit(workspaceDir, "git", "add", "-A");
+        }
+        if (addResult.exitCode != 0) {
+            throw new ServiceException("git add failed: " + addResult.stderr);
+        }
+
+        String name = runGitSimple(workspaceDir.getAbsolutePath(), "config", "user.name");
+        String email = runGitSimple(workspaceDir.getAbsolutePath(), "config", "user.email");
+        List<String> commitCmd = new ArrayList<>();
+        commitCmd.add("git");
+        commitCmd.add("-c");
+        commitCmd.add("user.name=" + (name == null || name.trim().isEmpty() ? DEFAULT_AUTHOR_NAME : name.trim()));
+        commitCmd.add("-c");
+        commitCmd.add("user.email=" + (email == null || email.trim().isEmpty() ? DEFAULT_AUTHOR_EMAIL : email.trim()));
+        commitCmd.add("commit");
+        commitCmd.add("-m");
+        commitCmd.add(message.trim());
+        ProcessResult commitResult = runGit(workspaceDir, commitCmd.toArray(new String[0]));
+        if (commitResult.exitCode != 0) {
+            throw new ServiceException("git commit failed: " + commitResult.stderr);
+        }
+        return new GitCommitResultDTO(commitResult.stdout.trim().isEmpty()
+                ? commitResult.stderr.trim() : commitResult.stdout.trim());
+    }
+
+    /**
+     * 在任意工作目录执行 git push（沿用已配置的 upstream）。
+     */
+    public String pushAtPath(String path) throws Exception {
+        File workspaceDir = new File(path);
+        ProcessResult check = runGit(workspaceDir, "git", "rev-parse", "--is-inside-work-tree");
+        if (check.exitCode != 0) {
+            throw new ServiceException("Not a git repository");
+        }
+        ProcessResult result = runGit(workspaceDir, 60, "git", "push");
+        String output = (result.stdout == null ? "" : result.stdout.trim());
+        String error = (result.stderr == null ? "" : result.stderr.trim());
+        if (result.exitCode != 0) {
+            throw new ServiceException("git push failed: " + (error.isEmpty() ? output : error));
+        }
+        return output.isEmpty() ? (error.isEmpty() ? "已推送" : error) : output;
+    }
+
+    /**
      * 获取提交作者配置（优先级：已保存配置 > git config > Loopra 默认）。
      */
     public Map<String, String> getGitConfig(String workspaceHash) {
@@ -666,7 +794,15 @@ public class GitService {
      * 暂存或取消暂存文件及目录；可用 staged 显式指定目标状态。
      */
     public Map<String, Object> toggleFile(String workspaceHash, String body) throws Exception {
-        File workspaceDir = new File(resolveWorkspace(workspaceHash));
+        return toggleFileAt(new File(resolveWorkspace(workspaceHash)), body);
+    }
+
+    /** 在任意工作目录暂存/取消暂存文件（会话隔离分支使用）。 */
+    public Map<String, Object> toggleFileAt(String dirPath, String body) throws Exception {
+        return toggleFileAt(new File(dirPath), body);
+    }
+
+    private Map<String, Object> toggleFileAt(File workspaceDir, String body) throws Exception {
         ProcessResult check = runGit(workspaceDir, "git", "rev-parse", "--is-inside-work-tree");
         if (check.exitCode != 0) {
             throw new ServiceException("Not a git repository");

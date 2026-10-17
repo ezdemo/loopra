@@ -11,6 +11,7 @@ import org.noear.solon.annotation.Mapping;
 import org.noear.solon.annotation.Param;
 import org.noear.solon.annotation.Post;
 import site.sorghum.loopra.web.model.ApiResponse;
+import site.sorghum.loopra.web.model.EnvironmentGitStatusDTO;
 import site.sorghum.loopra.web.model.EnvironmentStatusDTO;
 import site.sorghum.loopra.web.model.GitBranchDTO;
 import site.sorghum.loopra.web.model.GitCommitDTO;
@@ -200,13 +201,117 @@ public class GitController {
         return ApiResponse.ok(gitService.generateCommitMessageAtPath(targetPath, environment.workspaceHash(), body));
     }
 
-    @ApiOperation(value = "获取当前会话环境", notes = "返回 Agent 当前使用的本地项目或隔离分支；Git 操作由 Desktop 端执行")
+    @ApiOperation(value = "获取当前会话环境", notes = "返回 Agent 当前使用的本地项目或隔离分支")
     @Get
     @Mapping("/environment")
     public ApiResponse<EnvironmentStatusDTO> environment(
             @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
             @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName) {
         return ApiResponse.ok(worktreeService.environment(workspaceHash, sessionName));
+    }
+
+    @ApiOperation(value = "获取会话环境的 Git 状态", notes = "由后端解析主项目与会话隔离分支目录，返回两边完整的状态与分支跟踪信息")
+    @Get
+    @Mapping("/environment/status")
+    public ApiResponse<EnvironmentGitStatusDTO> environmentStatus(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName) throws Exception {
+        EnvironmentStatusDTO environment = worktreeService.environment(workspaceHash, sessionName);
+        GitStatusDTO main = environment.mainPath() == null ? null : gitService.getStatusAt(environment.mainPath());
+        GitStatusDTO current = environment.currentPath() == null ? null
+                : environment.currentPath().equals(environment.mainPath()) ? main
+                : gitService.getStatusAt(environment.currentPath());
+        return ApiResponse.ok(new EnvironmentGitStatusDTO(
+                environment.workspaceHash(), environment.sessionName(), environment.mode(),
+                environment.mainPath(), environment.mainBranch(),
+                environment.currentPath(), environment.currentBranch(), main, current));
+    }
+
+    @ApiOperation(value = "获取会话环境的提交历史", notes = "scope=main 读取主项目，scope=current 读取隔离分支；路径由后端解析")
+    @Get
+    @Mapping("/environment/log")
+    public ApiResponse<GitCommitDTO.ListWrapper> environmentLog(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName,
+            @ApiParam(value = "main 或 current", required = false) @Param(value = "scope", required = false) String scope,
+            @ApiParam(value = "返回条数，默认 30") @Param(value = "limit", required = false) Integer limit) {
+        EnvironmentStatusDTO environment = worktreeService.environment(workspaceHash, sessionName);
+        boolean main = "main".equalsIgnoreCase(scope);
+        if (scope != null && !scope.isBlank() && !main && !"current".equalsIgnoreCase(scope)) {
+            throw new site.sorghum.loopra.web.common.ServiceException("scope 只能是 main 或 current");
+        }
+        String path = main ? environment.mainPath() : environment.currentPath();
+        if (path == null) throw new site.sorghum.loopra.web.common.ServiceException("隔离分支尚未创建");
+        return ApiResponse.ok(gitService.getCommitHistoryAt(path, limit));
+    }
+
+    @ApiOperation(value = "提交会话环境改动", notes = "在 Agent 当前使用的目录执行 add -A 与 commit，隔离分支与本地项目共用")
+    @Post
+    @Mapping("/environment/commit")
+    public ApiResponse<GitCommitResultDTO> environmentCommit(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName,
+            @ApiParam(value = "请求体：{message}") @Body String body) throws Exception {
+        EnvironmentStatusDTO environment = worktreeService.environment(workspaceHash, sessionName);
+        if (environment.currentPath() == null) {
+            throw new site.sorghum.loopra.web.common.ServiceException("当前环境不可用：" + environment.message());
+        }
+        return ApiResponse.ok(gitService.commitEnvironment(environment.currentPath(), body));
+    }
+
+    @ApiOperation(value = "推送主项目", notes = "隔离分支需先合并到主项目；推送沿用仓库已配置的 upstream")
+    @Post
+    @Mapping("/environment/push")
+    public ApiResponse<Map<String, Object>> environmentPush(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName) throws Exception {
+        EnvironmentStatusDTO environment = worktreeService.environment(workspaceHash, sessionName);
+        if (environment.mainPath() == null) {
+            throw new site.sorghum.loopra.web.common.ServiceException("当前环境不可用：" + environment.message());
+        }
+        return ApiResponse.ok(Map.of("message", gitService.pushAtPath(environment.mainPath())));
+    }
+
+    @ApiOperation(value = "暂存或取消暂存会话环境文件", notes = "在 Agent 当前使用的目录执行 git add/reset，隔离分支与本地项目共用")
+    @Post
+    @Mapping("/environment/toggle")
+    public ApiResponse<Map<String, Object>> environmentToggle(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName,
+            @ApiParam(value = "请求体：{path, staged}") @Body String body) throws Exception {
+        EnvironmentStatusDTO environment = worktreeService.environment(workspaceHash, sessionName);
+        if (environment.currentPath() == null) {
+            throw new site.sorghum.loopra.web.common.ServiceException("当前环境不可用：" + environment.message());
+        }
+        return ApiResponse.ok(gitService.toggleFileAt(environment.currentPath(), body));
+    }
+
+    @ApiOperation(value = "获取会话环境文件的 Diff", notes = "读取隔离分支或本地项目内文件相对 HEAD 的 diff")
+    @Get
+    @Mapping("/environment/diff-content")
+    public ApiResponse<GitDiffContentDTO> environmentDiffContent(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName,
+            @ApiParam(value = "文件路径") @Param(value = "path", required = false) String path) throws Exception {
+        EnvironmentStatusDTO environment = worktreeService.environment(workspaceHash, sessionName);
+        if (environment.currentPath() == null) {
+            throw new site.sorghum.loopra.web.common.ServiceException("当前环境不可用：" + environment.message());
+        }
+        return ApiResponse.ok(gitService.getDiffContentAt(environment.currentPath(), path));
+    }
+
+    @ApiOperation(value = "读取会话环境当前文件内容", notes = "读取隔离分支或本地项目内的文件内容")
+    @Get
+    @Mapping("/environment/working-file-content")
+    public ApiResponse<WorkingFileContentDTO> environmentWorkingFileContent(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名称", required = true) @Param(value = "sessionName", required = true) String sessionName,
+            @ApiParam(value = "文件路径") @Param(value = "path") String path) throws Exception {
+        EnvironmentStatusDTO environment = worktreeService.environment(workspaceHash, sessionName);
+        if (environment.currentPath() == null) {
+            throw new site.sorghum.loopra.web.common.ServiceException("当前环境不可用：" + environment.message());
+        }
+        return ApiResponse.ok(gitService.getWorkingFileContentAt(environment.currentPath(), path));
     }
 
     // ==================== 会话隔离分支 ====================
