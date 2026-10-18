@@ -9,7 +9,7 @@ export type SubSession = {
 };
 
 export type SubSessionEvent = {
-  type?: string; subId?: string | number; subSessionId?: string; task?: string; name?: string; title?: string;
+  type?: string; toolCallId?: string; subId?: string | number; subSessionId?: string; task?: string; name?: string; title?: string;
   content?: string; token?: string; args?: unknown; result?: unknown; error?: string; status?: string;
   startedAt?: number; finishedAt?: number; description?: string;
   options?: { title?: string; value?: string; summary?: string }[];
@@ -93,15 +93,15 @@ export function subSessionBlocks(events: SubSessionEvent[]) {
       return;
     }
     if (type === 'sub_tool_call') {
-      blocks.push({ id: nextId(), type: 'tool_call', name: String(event.name || 'unknown'), status: '执行中', args: argsObject(event.args) });
+      blocks.push({ id: nextId(), type: 'tool_call', ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}), name: String(event.name || 'unknown'), status: '执行中', args: argsObject(event.args) });
       return;
     }
     if (type === 'sub_tool_result') {
       const result = text(event.result ?? event.content);
       const name = String(event.name || '');
       const candidates = blocks.filter((block): block is Extract<ChatBlock, { type: 'tool_call' }> => block.type === 'tool_call' && block.status === '执行中');
-      const target = (name ? [...candidates].reverse().find(block => block.name === name) : undefined) || candidates.at(-1);
-      if (target) { target.result = result; target.status = /^(错误|Error|Exception)/i.test(result) ? '失败' : '成功'; }
+      const target = event.toolCallId ? blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId) as Extract<ChatBlock, { type: 'tool_call' }> | undefined : (name ? [...candidates].reverse().find(block => block.name === name) : undefined) || candidates.at(-1);
+      if (target) { target.result = result; target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception)/i.test(result) ? '失败' : '成功'; }
       return;
     }
     if (type === 'sub_error') {

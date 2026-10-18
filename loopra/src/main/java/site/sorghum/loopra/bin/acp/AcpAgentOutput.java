@@ -1,192 +1,140 @@
 package site.sorghum.loopra.bin.acp;
 
-import lombok.extern.slf4j.Slf4j;
+import com.agentclientprotocol.sdk.agent.SyncPromptContext;
+import com.agentclientprotocol.sdk.spec.AcpSchema.*;
+import org.noear.snack4.ONode;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.ChoiceOption;
 import site.sorghum.loopra.tool.LogLevel;
 
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-/**
- * ACP 输出适配器 —— 将 Loopra 的 AgentOutput 事件转发为 ACP session/update 通知。
- * <p>
- * 通过 {@link AcpPromptContext} 发送流式内容（文本块、思考过程、工具调用状态等），
- * 使 ACP 客户端能实时接收到 Agent 的推理过程。
- * </p>
- *
- * @author Sorghum
- */
-@Slf4j
-public class AcpAgentOutput implements AgentOutput {
+/** ACP v1 updates, with negotiated metadata for Native workbench features. */
+public final class AcpAgentOutput implements AgentOutput {
+    public static final String EXTENSION = "loopra.dev/workbench";
+    public static final String EVENT = "loopra.dev/event";
+    private final SyncPromptContext context;
+    private final boolean workbenchEvents;
+    private final Map<String, String> activeTools = new ConcurrentHashMap<>();
+    private final CompletableFuture<Void> completion = new CompletableFuture<>();
+    private volatile boolean completed;
+    private volatile Boolean permissionDecision;
+    private volatile boolean pendingChoice;
+    private volatile boolean permissionCancelled;
+    private volatile boolean contentSent;
 
-    /** ACP session/update 通知发送器 */
-    private final AcpNotificationSender notificationSender;
-
-    /** 当前消息的内容累积缓冲区（用于按句号/换行分割发送） */
-    private final StringBuilder contentBuffer = new StringBuilder();
-
-    /** 当前思考内容累积缓冲区 */
-    private final StringBuilder reasoningBuffer = new StringBuilder();
-
-    /** 消息发送完成的通知（用于等待所有流式消息发送完毕） */
-    private final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
-
-    /** 是否已完成 */
-    private volatile boolean completed = false;
-
-    public AcpAgentOutput(AcpNotificationSender notificationSender) {
-        this.notificationSender = notificationSender;
+    public AcpAgentOutput(SyncPromptContext context, boolean workbenchEvents) {
+        this.context = context;
+        this.workbenchEvents = workbenchEvents;
     }
 
-    @Override
-    public void onContentDelta(String token) {
-        if (token == null || token.isEmpty() || completed) return;
-        contentBuffer.append(token);
-        // 每积累到分隔符时发送一个消息块
-        if (containsSentenceBoundary(contentBuffer)) {
-            flushContent();
-        }
+    @Override public synchronized void onContentDelta(String text) {
+        if (!completed && text != null && !text.isEmpty()) { contentSent = true; context.sendMessage(text); }
     }
-
-    @Override
-    public void onContentComplete() {
-        flushContent();
-        notificationSender.sendContentComplete();
+    @Override public void onContentComplete() {}
+    @Override public synchronized void onReasoningDelta(String text) {
+        if (!completed && text != null && !text.isEmpty()) context.sendThought(text);
     }
+    @Override public void onReasoning(String text) { onReasoningDelta(text); }
+    @Override public void onReasoningStarted() { sendEvent("reasoning_started", "{}"); }
 
-    @Override
-    public void onReasoningDelta(String token) {
-        if (token == null || token.isEmpty() || completed) return;
-        reasoningBuffer.append(token);
-        // 思考内容积累到一定长度时发送
-        if (reasoningBuffer.length() >= 50) {
-            flushReasoning();
-        }
+    @Override public void onToolCall(String name, String args) {
+        onToolCall(UUID.randomUUID().toString(), name, args);
     }
-
-    @Override
-    public void onReasoning(String reasoning) {
-        if (reasoning == null || reasoning.isEmpty() || completed) return;
-        flushReasoning();
-        if (reasoning.length() > 0) {
-            notificationSender.sendThought(reasoning);
-        }
-    }
-
-    @Override
-    public void onToolCall(String name, String args) {
+    @Override public synchronized void onToolCall(String id, String name, String args) {
         if (completed) return;
-        flushContent();
-        notificationSender.sendToolCall(name, args);
+        if (id == null || id.isBlank()) id = UUID.randomUUID().toString();
+        activeTools.put(id, name);
+        context.sendUpdate(context.getSessionId(), new ToolCall("tool_call", id, name,
+                ToolKind.OTHER, ToolCallStatus.IN_PROGRESS, null, null, parse(args), null,
+                Map.of("loopra.dev/toolName", name)));
     }
-
-    @Override
-    public void onToolResult(String name, String result) {
+    @Override public void onToolResult(String name, String result) {
+        String id = activeTools.entrySet().stream().filter(e -> e.getValue().equals(name))
+                .map(Map.Entry::getKey).findFirst().orElse(UUID.randomUUID().toString());
+        onToolResult(id, name, result, false);
+    }
+    @Override public synchronized void onToolResult(String id, String name, String result, boolean failed) {
         if (completed) return;
-        notificationSender.sendToolResult(name, result);
+        activeTools.remove(id);
+        context.sendUpdate(context.getSessionId(), new ToolCallUpdateNotification("tool_call_update", id,
+                name, null, failed ? ToolCallStatus.FAILED : ToolCallStatus.COMPLETED,
+                List.of(new ToolCallContentBlock("content", new TextContent(result == null ? "" : result))),
+                null, null, result, Map.of("loopra.dev/toolName", name)));
     }
-
-    @Override
-    public void onUsage(int promptTokens, int completionTokens, int totalTokens,
-                         int cacheHit, int cacheMiss) {
-        // ACP 协议支持 usage_update 通知，可通过 AcpNotificationSender 实现
-        log.debug("[acp] token usage: prompt={}, completion={}, total={}, cacheHit={}, cacheMiss={}",
-                promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss);
+    @Override public void onUsage(int prompt, int generated, int total, int hit, int miss) {
+        sendEvent("usage", ONode.serialize(Map.of("promptTokens", prompt, "completionTokens", generated,
+                "totalTokens", total, "cacheHit", hit, "cacheMiss", miss, "lastPromptTokens", prompt)));
     }
-
-    @Override
-    public void onError(String error) {
-        if (completed) return;
-        flushContent();
-        notificationSender.sendError(error);
+    @Override public void onError(String error) {
+        if (workbenchEvents) sendEvent("error", ONode.serialize(Map.of("error", error == null ? "" : error)));
+        else onContentDelta("错误: " + error);
     }
-
-    @Override
-    public void onLog(LogLevel level, String message) {
-        log.debug("[acp:{}] {}", level, message);
+    @Override public void onLog(LogLevel level, String message) {
+        sendEvent("log", ONode.serialize(Map.of("level", level.name(), "message", message)));
     }
+    @Override public void onChoice(List<ChoiceOption> options) { onChoice(options, null, null); }
+    @Override public void onChoice(List<ChoiceOption> options, String title, String description) {
+        if (options == null || options.isEmpty() || completed) return;
+        boolean approval = options.stream().anyMatch(o -> "/agree".equals(o.value()))
+                && options.stream().anyMatch(o -> "/deny".equals(o.value()));
+        if (!approval) {
+            pendingChoice = true;
+            ONode event = ONode.ofJson("{}").set("options", options);
+            if (title != null) event.set("title", title);
+            if (description != null) event.set("description", description);
+            if (workbenchEvents) sendEvent("choice", event.toJson());
+            else onContentDelta((title == null ? "请选择" : title) + "\n"
+                    + options.stream().map(o -> o.title() + " (" + o.value() + ")")
+                    .collect(java.util.stream.Collectors.joining("\n")));
+            return;
+        }
+        List<PermissionOption> permissions = options.stream().map(o -> new PermissionOption(o.value(), o.title(),
+                "/agree".equals(o.value()) ? PermissionOptionKind.ALLOW_ONCE : PermissionOptionKind.REJECT_ONCE)).toList();
+        String details = title == null ? "工具调用需要审批" : title;
+        if (description != null) details += "\n" + description;
+        RequestPermissionResponse response = context.requestPermission(new RequestPermissionRequest(
+                context.getSessionId(), new ToolCallUpdate("approval-" + UUID.randomUUID(), details,
+                ToolKind.OTHER, ToolCallStatus.PENDING, null, null, null, null), permissions));
+        permissionDecision = response != null && response.outcome() instanceof PermissionSelected selected
+                ? "/agree".equals(selected.optionId()) : null;
+        permissionCancelled = permissionDecision == null;
+    }
+    public Boolean takePermissionDecision() {
+        Boolean decision = permissionDecision;
+        permissionDecision = null;
+        return decision;
+    }
+    public boolean hasPendingChoice() { return pendingChoice; }
+    public boolean isPermissionCancelled() { return permissionCancelled; }
+    public boolean hasContent() { return contentSent; }
 
-    @Override
-    public void onChoice(List<ChoiceOption> options) {
-        // ACP 模式下，HITL 审批通过 session/request_permission 机制处理
-        // 此处简单记录
-        if (options != null && !options.isEmpty()) {
-            log.debug("[acp] 需要用户选择: {}", options);
+    @Override public synchronized void sendEvent(String type, String data) {
+        if (!completed && workbenchEvents && type != null && data != null) {
+            context.sendUpdate(context.getSessionId(), new AgentMessageChunk("agent_message_chunk",
+                    new TextContent(""), null, Map.of(EVENT, Map.of("type", type, "data", data))));
         }
     }
-
-    /**
-     * 标记完成并等待所有流式消息发送完毕。
-     */
-    public void markCompleted() {
-        this.completed = true;
-        flushContent();
-        flushReasoning();
-        completionFuture.complete(null);
+    public synchronized void markCompleted() {
+        if (completed) return;
+        for (var entry : Map.copyOf(activeTools).entrySet()) {
+            onToolResult(entry.getKey(), entry.getValue(), "工具执行已结束，未收到结果", true);
+        }
+        completed = true;
+        completion.complete(null);
     }
-
-    /**
-     * 等待流式消息发送完成（带超时）。
-     */
     public boolean awaitCompletion(long timeoutMs) {
-        try {
-            return completionFuture.completeOnTimeout(null, timeoutMs, TimeUnit.MILLISECONDS)
-                    .get() != null;
-        } catch (Exception e) {
-            return false;
-        }
+        try { completion.get(timeoutMs, TimeUnit.MILLISECONDS); return true; }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+        catch (Exception e) { return false; }
     }
-
-    // ==================== 内部方法 ====================
-
-    private void flushContent() {
-        if (contentBuffer.isEmpty()) return;
-        String text = contentBuffer.toString();
-        contentBuffer.setLength(0);
-        notificationSender.sendMessage(text);
-    }
-
-    private void flushReasoning() {
-        if (reasoningBuffer.isEmpty()) return;
-        String text = reasoningBuffer.toString();
-        reasoningBuffer.setLength(0);
-        notificationSender.sendThought(text);
-    }
-
-    private boolean containsSentenceBoundary(StringBuilder sb) {
-        if (sb.length() < 2) return false;
-        char lastChar = sb.charAt(sb.length() - 1);
-        return lastChar == '.' || lastChar == '!' || lastChar == '?' ||
-               lastChar == '\n' || lastChar == '；' || lastChar == '。' ||
-               lastChar == '！' || lastChar == '？';
-    }
-
-    /**
-     * ACP 通知发送接口 —— 由具体的传输层实现。
-     * <p>
-     * 对于 stdio 传输，通过 StdioAcpAgentTransport 发送 JSON-RPC 通知；
-     * 对于 WebSocket 传输，通过 WebSocket 连接发送。
-     * </p>
-     */
-    public interface AcpNotificationSender {
-        /** 发送文本消息块（agent_message_chunk） */
-        void sendMessage(String text);
-
-        /** 发送思考内容（thought） */
-        void sendThought(String text);
-
-        /** 发送内容完成信号 */
-        void sendContentComplete();
-
-        /** 发送工具调用事件 */
-        void sendToolCall(String name, String args);
-
-        /** 发送工具结果 */
-        void sendToolResult(String name, String result);
-
-        /** 发送错误信息 */
-        void sendError(String error);
+    private static Object parse(String value) {
+        try { return value == null ? null : ONode.ofJson(value).toData(); }
+        catch (Exception ignored) { return value; }
     }
 }

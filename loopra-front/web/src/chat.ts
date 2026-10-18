@@ -4,11 +4,11 @@ export type ChatBlock =
   // `reasoning_started` marks a slot the model opened without streaming visible
   // tokens (encrypted reasoning); it upgrades to `reasoning` on the first delta.
   | { id: string; type: 'content' | 'reasoning' | 'reasoning_started'; content: string }
-  | { id: string; type: 'tool_call'; name: string; status: ToolStatus; args?: Record<string, unknown>; result?: string; duration?: string }
+  | { id: string; type: 'tool_call'; toolCallId?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; result?: string; duration?: string }
   | { id: string; type: 'file_changes'; changes: FileChange[] }
   | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string }[] }
   | { id: string; type: 'sub_agent'; name: string; status: ToolStatus; blocks: ChatBlock[] }
-  | { id: string; type: 'choice'; question: string; description?: string; subId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
+  | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
 export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number; rollbackId?: string; snapshotId?: string; rollbackTimestamp?: number; images?: string[] };
 
 // Accept longer fences when a system prompt itself contains Markdown code blocks.

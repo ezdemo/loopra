@@ -7,6 +7,8 @@ import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Body;
 import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Param;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
 import org.noear.solon.annotation.Path;
@@ -39,6 +41,28 @@ import java.util.UUID;
 @Controller
 @Mapping("/api/chat")
 public class ChatController {
+    public record PermissionAnswer(String workspaceHash, String sessionName, String permissionRequestId, String optionId) {}
+
+    @Post
+    @Mapping("/permission")
+    public ApiResponse<String> permission(@Body PermissionAnswer answer) {
+        if (answer == null || answer.workspaceHash() == null || answer.sessionName() == null
+                || answer.permissionRequestId() == null || answer.optionId() == null) {
+            throw new ServiceException("审批需要项目、会话、请求 ID 和选项 ID");
+        }
+        agentService.resolveAcpPermission(agentService.resolveProjectHashOrThrow(answer.workspaceHash()),
+                answer.sessionName(), answer.permissionRequestId(), answer.optionId());
+        return ApiResponse.ok("审批已提交");
+    }
+
+    @Get
+    @Mapping("/permissions")
+    public ApiResponse<java.util.List<Map<String, Object>>> permissions(
+            @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @Param(value = "sessionName", required = true) String sessionName) {
+        return ApiResponse.ok(agentService.pendingAcpPermissions(
+                agentService.resolveProjectHashOrThrow(workspaceHash), sessionName));
+    }
 
     @Inject
     private AgentService agentService;

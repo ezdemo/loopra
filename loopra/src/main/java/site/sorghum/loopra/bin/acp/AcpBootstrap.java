@@ -51,6 +51,7 @@ public class AcpBootstrap implements Closeable {
         this.agentSupport = AcpAgentSupport.create(agent)
                 .transport(transport)
                 .build();
+        agent.setUpdateSender(agentSupport.getAgent()::sendSessionUpdate);
 
         // 注册 JVM 关闭钩子
         this.shutdownHook = new Thread(() -> {

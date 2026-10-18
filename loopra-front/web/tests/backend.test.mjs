@@ -232,3 +232,36 @@ test('successive full-file diffs of one path collapse into a single net diff', (
   assert.equal(change.deletions, 0);
   assert.equal(change.diff, '@@ -1,0 +1,3 @@\n+a\n+B\n+c\n');
 });
+
+
+test('ACP tool IDs match concurrent identical tools and retain explicit status', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  for (const event of [
+    { type: 'tool_call', toolCallId: 'a', name: 'read', args: { path: 'a' } },
+    { type: 'tool_call', toolCallId: 'b', name: 'read', args: { path: 'b' } },
+    { type: 'tool_result', toolCallId: 'b', name: 'read', result: 'plain failure', status: 'failed' },
+    { type: 'tool_result', toolCallId: 'a', name: 'read', result: 'Error is just file text', status: 'completed' },
+    { type: 'tool_result', toolCallId: 'unknown', name: 'read', result: 'wrong', status: 'failed' },
+  ]) message = applyEvent(message, event);
+  assert.equal(message.blocks[0].result, 'Error is just file text');
+  assert.equal(message.blocks[0].status, '成功');
+  assert.equal(message.blocks[1].result, 'plain failure');
+  assert.equal(message.blocks[1].status, '失败');
+});
+
+test('ACP permission keeps request ID and resolves on the original stream', () => {
+  let message = applyEvent({ id: 'reply', role: 'assistant', text: '', blocks: [] }, {
+    type: 'choice', permissionRequestId: 'request-1', title: 'write', options: [{ title: '允许一次', value: 'allow-once' }],
+  });
+  assert.equal(message.blocks[0].permissionRequestId, 'request-1');
+  message = applyEvent(message, { type: 'permission_resolved', permissionRequestId: 'request-1', optionId: 'allow-once' });
+  assert.equal(message.blocks[0].selected, '允许一次');
+});
+
+test('ACP approval event alone does not turn an interrupted stream into completion', async () => {
+  const previous = globalThis.fetch;
+  globalThis.fetch = async () => new Response('event: choice\ndata: {"permissionRequestId":"p","options":[]}\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+  try {
+    await assert.rejects(new LoopraClient().stream({ message: 'hi' }, () => {}, new AbortController().signal), /连接意外中断/);
+  } finally { globalThis.fetch = previous; }
+});

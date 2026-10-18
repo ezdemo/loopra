@@ -2,6 +2,8 @@ package site.sorghum.loopra.web.service;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import com.agentclientprotocol.sdk.agent.support.AcpAgentSupport;
+import site.sorghum.loopra.bin.acp.*;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Destroy;
 import org.noear.solon.annotation.Init;
@@ -75,6 +77,7 @@ public class AgentService implements ProjectRuntimeAccess {
      */
     private static final int MAX_CACHE_SIZE = 50;
     private final Object runtimeMonitor = new Object();
+    private final ConcurrentHashMap<String, AcpWorkbenchClient> acpTurns = new ConcurrentHashMap<>();
     @Inject
     ChatCommandRegistry commandRegistry;
 
@@ -770,6 +773,7 @@ public class AgentService implements ProjectRuntimeAccess {
      * 中断当前聊天 —— 中断所有活跃的 Agent。
      */
     public void abortCurrentChat() {
+        acpTurns.values().forEach(AcpWorkbenchClient::cancel);
         // 中断所有缓存的 Agent
         for (LoopraAgent agent : sessionCache.values()) {
             if (agent != null) {
@@ -780,6 +784,11 @@ public class AgentService implements ProjectRuntimeAccess {
 
     /** 中断指定项目和会话的当前生成，不影响其他并行会话。 */
     public void abortChat(String workspacePath, String sessionName) {
+        AcpWorkbenchClient acp = acpTurns.get(generateSessionKey(workspacePath, sessionName));
+        if (acp != null) {
+            acp.cancel();
+            return;
+        }
         String sessionKey = generateSessionKey(workspacePath, sessionName);
         LoopraAgent agent = sessionCache.get(sessionKey);
         if (agent != null) {
@@ -872,25 +881,52 @@ public class AgentService implements ProjectRuntimeAccess {
     public void chatStream(UserMessage userMessage, String workspacePath, String sessionName, SseEmitter emitter,
                            String requestedModel, String requestedChannelId, String requestedReasoningEffort,
                            Boolean requestedFastMode, String action, String linkedProjectContext) {
-        String sessionKey = generateSessionKey(workspacePath, sessionName);
         String effectiveSessionName = sessionName != null ? sessionName : "default";
-        try (SessionTurn turn = openTurn(sessionKey)) {
-            SessionStore.SessionModelSettings sessionSettings = resolveSessionModelSettings(
-                    workspacePath, turn.sessionName(), requestedModel, requestedChannelId, requestedReasoningEffort);
-            LoopraAgent agent = getOrCreateAgent(sessionKey, sessionSettings);
-            turn.bind(agent, new SseAgentOutput(emitter));
-            if (requestedFastMode != null) {
-                agent.setFastMode(requestedFastMode);
-            }
-
-            String reply = turn.chat(userMessage, action, linkedProjectContext);
-
-            // 发送最终完整回复（使用 complete 事件，与增量 content 事件区分）
-            // HITL 待审批时跳过：interceptForHITL/interceptForSandboxHITL 已通过
-            // output.onContentDelta() 发送过 HITL 消息，此处不应重复发送
-            if (reply != null && !reply.isEmpty() && agent.noPendingHITL()) {
-                agent.getCurrentTurnFileChanges().forEach(emitter::sendFileChanges);
-                emitter.sendComplete(reply);
+        try {
+            String sessionKey = generateSessionKey(workspacePath, sessionName);
+            WorkbenchNativeSession backend = new WorkbenchNativeSession(sessionKey);
+            LoopraAcpAgent nativeAgent = new LoopraAcpAgent(backend);
+            try (JsonRpcLoopback connection = new JsonRpcLoopback()) {
+                AcpAgentSupport server = AcpAgentSupport.create(nativeAgent).transport(connection.agent())
+                        .requestTimeout(java.time.Duration.ofHours(12)).build();
+                try (AutoCloseable serverCleanup = server::close) {
+                    nativeAgent.setUpdateSender(server.getAgent()::sendSessionUpdate);
+                    server.start();
+                    try (AcpWorkbenchClient client = new AcpWorkbenchClient(connection.client(), new SseAgentOutput(emitter))) {
+                        if (acpTurns.putIfAbsent(sessionKey, client) != null) {
+                            throw new ServiceException(409, "当前会话已有运行中的 ACP 请求");
+                        }
+                        boolean opened = false;
+                        try {
+                            client.open(sessionKey.split("::", 2)[0]);
+                            opened = true;
+                            Map<String, Object> options = new LinkedHashMap<>();
+                            options.put("model", requestedModel);
+                            options.put("modelChannelId", requestedChannelId);
+                            options.put("reasoningEffort", requestedReasoningEffort);
+                            options.put("fastMode", requestedFastMode);
+                            options.put("action", action);
+                            options.put("linkedProjectContext", linkedProjectContext);
+                            options.put("snapshotId", userMessage.getSnapshotId());
+                            options.put("rollbackId", userMessage.getRollbackId());
+                            options.put("webHidden", userMessage.isWebHidden());
+                            client.prompt(userMessage, options);
+                        } finally {
+                            // The SDK prompt runs on a separate thread. Cancellation must finish Native
+                            // cleanup before the HTTP task unregisters or the protocol connection closes.
+                            boolean interrupted = Thread.interrupted();
+                            try {
+                                if (opened) {
+                                    if (interrupted || !backend.finished.isDone()) client.cancel();
+                                    backend.awaitStopped();
+                                }
+                            } finally {
+                                acpTurns.remove(sessionKey, client);
+                                if (interrupted) Thread.currentThread().interrupt();
+                            }
+                        }
+                    }
+                }
             }
         } catch (Exception e) {
             if (isUserAbortLike(e)) {
@@ -915,6 +951,85 @@ public class AgentService implements ProjectRuntimeAccess {
                 log.warn("[web] 完成SSE流失败（可能SSE连接已断开）: {}", ex.getMessage());
             }
         }
+    }
+
+    public void resolveAcpPermission(String workspacePath, String sessionName, String id, String optionId) {
+        AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
+        if (client == null) throw new ServiceException(409, "当前会话没有待处理的 ACP 审批");
+        client.resolvePermission(id, optionId);
+    }
+
+    public List<Map<String, Object>> pendingAcpPermissions(String workspacePath, String sessionName) {
+        AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
+        return client == null ? List.of() : client.pendingPermissions();
+    }
+
+    /** Binds one ACP connection to an existing workbench session; Native retains session ownership. */
+    private final class WorkbenchNativeSession implements AcpSessionBackend {
+        private final String key;
+        private final String workspace;
+        private final String name;
+        private final String id = java.util.UUID.randomUUID().toString();
+        private volatile LoopraAgent agent;
+        private volatile boolean cancelled;
+        private volatile boolean started;
+        private final java.util.concurrent.CompletableFuture<Void> finished = new java.util.concurrent.CompletableFuture<>();
+
+        WorkbenchNativeSession(String key) {
+            this.key = key;
+            String[] parts = key.split("::", 2);
+            workspace = parts[0];
+            name = parts[1];
+        }
+        @Override public String createSession(String cwd, String ignored) {
+            if (!Path.of(workspace).equals(Path.of(cwd))) throw new ServiceException("ACP 工作目录不匹配");
+            return id;
+        }
+        @Override public boolean loadOrRestoreSession(String sessionId, String cwd) {
+            return id.equals(sessionId) && workspace.equals(cwd);
+        }
+        @Override public String handlePrompt(String sessionId, String text, List<String> images,
+                                              AcpAgentOutput output, Map<String, Object> options) {
+            if (!id.equals(sessionId)) throw new ServiceException("ACP 会话不存在");
+            synchronized (this) {
+                if (cancelled) return "";
+                started = true;
+            }
+            try (SessionTurn turn = openTurn(key)) {
+                if (cancelled) return "";
+                SessionStore.SessionModelSettings settings = resolveSessionModelSettings(workspace, name,
+                        (String) options.get("model"), (String) options.get("modelChannelId"),
+                        (String) options.get("reasoningEffort"));
+                agent = getOrCreateAgent(key, settings);
+                turn.bind(agent, output);
+                if (options.get("fastMode") instanceof Boolean fast) agent.setFastMode(fast);
+                UserMessage message = UserMessage.of(text, images);
+                message.setSnapshotId((String) options.get("snapshotId"));
+                message.setRollbackId((String) options.get("rollbackId"));
+                message.setWebHidden(Boolean.TRUE.equals(options.get("webHidden")));
+                if (cancelled) return "";
+                String reply = AcpPromptExecutor.run(agent, output, () -> turn.chat(message,
+                        (String) options.get("action"), (String) options.get("linkedProjectContext")));
+                if (agent.noPendingHITL()) agent.getCurrentTurnFileChanges().forEach(changes ->
+                        output.sendEvent("file_changes", org.noear.snack4.ONode.serialize(Map.of("changes", changes))));
+                return reply;
+            } finally { finished.complete(null); }
+        }
+        @Override public void cancelPrompt(String sessionId) {
+            if (!id.equals(sessionId)) return;
+            synchronized (this) {
+                cancelled = true;
+                if (!started) finished.complete(null);
+            }
+            if (agent != null) agent.abort();
+        }
+        @Override public boolean isCancelled(String sessionId) {
+            return cancelled || (agent != null && agent.isAbortRequested());
+        }
+        @Override public void closeSession(String sessionId) { cancelPrompt(sessionId); }
+        @Override public List<SessionInfo> listSessions() { return List.of(new SessionInfo(id, workspace)); }
+        @Override public List<ChatMessage> history(String sessionId) { return getHistory(workspace, name); }
+        void awaitStopped() { finished.join(); }
     }
 
     /**
@@ -1524,6 +1639,7 @@ public class AgentService implements ProjectRuntimeAccess {
 
     @Destroy
     public void close() {
+        acpTurns.values().forEach(AcpWorkbenchClient::cancel);
         sessionCache.clear();
     }
 

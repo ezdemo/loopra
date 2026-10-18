@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
  * @author Sorghum
  */
 @Slf4j
-public class AcpSessionManager {
+public class AcpSessionManager implements AcpSessionBackend {
 
     /** ACP sessionId → LoopraAgent（内存缓存，重启即失） */
     private final Map<String, SessionEntry> sessions = new ConcurrentHashMap<>();
@@ -50,6 +50,8 @@ public class AcpSessionManager {
 
     public AcpSessionManager() {
         try {
+            // Standalone ACP does not start Solon, so no @Init method initializes ConfigService.
+            if (ConfigService.getConfig() == null) ConfigService.reload();
             this.config = ConfigService.getConfig();
             initSharedModelProvider();
         } catch (Exception e) {
@@ -131,7 +133,7 @@ public class AcpSessionManager {
      * @return 生成的 ACP sessionId
      */
     public String createSession(String cwd, String sessionName) {
-        String sessionId = sessionName != null ? sessionName : "acp-" + UUID.randomUUID().toString().substring(0, 8);
+        String sessionId = sessionName != null ? sessionName : "acp-" + UUID.randomUUID().toString();
 
         // 如果已在内存中，直接返回
         if (sessions.containsKey(sessionId)) {
@@ -144,8 +146,8 @@ public class AcpSessionManager {
 
         // ★ 关键：将 ACP sessionId 绑定为 Loopra 会话名
         // 这样所有聊天消息都会以 {sessionId}.jsonl 持久化到磁盘
-        agent.getCtx().getSessionStore().bindTo(sessionId);
-        agent.setSessionId(sessionId);
+        agent.getCtx().clearHistory();
+        agent.bindSession(sessionId);
 
         sessions.put(sessionId, new SessionEntry(sessionId, agent, workspacePath));
         log.info("[acp] 创建会话: sessionId={}, workspace={}", sessionId, workspacePath);
@@ -168,14 +170,13 @@ public class AcpSessionManager {
         // 1. 检查内存缓存
         if (sessions.containsKey(sessionId)) {
             log.debug("[acp] 从内存加载会话: {}", sessionId);
-            return true;
+            return sessions.get(sessionId).workspace().toAbsolutePath().normalize().equals(resolveWorkspace(cwd).toAbsolutePath().normalize());
         }
 
         Path workspacePath = resolveWorkspace(cwd);
 
         // 2. 检查磁盘持久化文件
         try {
-            String hash = ProjectRegistry.computeProjectHash(workspacePath.toAbsolutePath().toString());
             Path sessionFile = ProjectRegistry.getOrCreate(workspacePath.toString())
                     .getSessionsDir(workspacePath.toString())
                     .resolve(sanitize(sessionId) + ".jsonl");
@@ -191,25 +192,11 @@ public class AcpSessionManager {
             LoopraAgent agent = buildAgent(workspacePath);
 
             // 4. 绑定会话名并加载历史
-            agent.getCtx().getSessionStore().bindTo(sessionId);
-            agent.setSessionId(sessionId);
-
-            // 5. 从 JSONL 加载历史消息并注入上下文
-            List<ChatMessage> history = agent.getCtx().getSessionStore().load(sessionId);
-            if (history != null && !history.isEmpty()) {
-                // Healing：修复可能截断的消息
-                var healResult = MessageHealer.heal(history);
-                for (ChatMessage msg : healResult.messages()) {
-                    agent.getCtx().injectHistory(msg);
-                }
-                log.info("[acp] 已恢复 {} 条历史消息", healResult.messages().size());
-            }
-
-            // 6. 恢复 token 用量
-            long[] usage = agent.getCtx().getSessionStore().loadUsage(sessionId);
-            if (usage != null && usage.length >= 4) {
-                agent.addUsage((int) usage[0], (int) usage[1], (int) usage[2], (int) usage[3]);
-            }
+            agent.getCtx().clearHistory();
+            agent.bindSession(sessionId);
+            var healed = MessageHealer.heal(agent.getCtx().getHistory());
+            agent.getCtx().clearHistory();
+            for (ChatMessage message : healed.messages()) agent.getCtx().injectHistory(message);
 
             sessions.put(sessionId, new SessionEntry(sessionId, agent, workspacePath));
             return true;
@@ -224,7 +211,13 @@ public class AcpSessionManager {
      * 处理 ACP session/prompt。
      */
     public String handlePrompt(String sessionId, String promptText, List<String> images,
-                                AcpAgentOutput output) throws IOException {
+                               AcpAgentOutput output) throws IOException {
+        return handlePrompt(sessionId, promptText, images, output, Map.of());
+    }
+
+    @Override
+    public String handlePrompt(String sessionId, String promptText, List<String> images,
+                                AcpAgentOutput output, Map<String, Object> options) throws IOException {
         SessionEntry entry = sessions.get(sessionId);
         if (entry == null) {
             throw new IllegalArgumentException("ACP 会话不存在: " + sessionId);
@@ -244,7 +237,10 @@ public class AcpSessionManager {
             UserMessage userMessage = UserMessage.of(promptText, images);
 
             // 执行 Agent 推理循环
-            String result = agent.chat(userMessage);
+            String result = AcpPromptExecutor.run(agent, output, () -> agent.chat(userMessage));
+
+            agent.getCurrentTurnFileChanges().forEach(changes -> output.sendEvent("file_changes",
+                    org.noear.snack4.ONode.serialize(Map.of("changes", changes))));
 
             // 刷入会话
             agent.flushSession();
@@ -252,6 +248,7 @@ public class AcpSessionManager {
 
             return result;
         } finally {
+            agent.setOutput(site.sorghum.loopra.tool.AgentOutput.NOOP);
             LoopraModelProvider.CURRENT_LOG_SESSION.remove();
         }
     }
@@ -294,9 +291,19 @@ public class AcpSessionManager {
     }
 
     /**
-     * SessionInfo 简略信息。
+     * 供 ACP session/load 回放当前 Native 会话历史。
      */
-    public record SessionInfo(String sessionId, String cwd) {}
+    @Override
+    public List<ChatMessage> history(String sessionId) {
+        LoopraAgent agent = getAgent(sessionId);
+        return agent == null ? List.of() : List.copyOf(agent.getCtx().getHistory());
+    }
+
+    @Override
+    public boolean isCancelled(String sessionId) {
+        LoopraAgent agent = getAgent(sessionId);
+        return agent != null && agent.isAbortRequested();
+    }
 
     /**
      * 获取指定会话的 LoopraAgent。

@@ -21,7 +21,7 @@ import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
-import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type Workspace } from './backend';
+import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
 import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
@@ -364,7 +364,17 @@ export default function App() {
     setRemoteRun(running ? { id: target.id, requestId: status?.requestId } : null);
     if (running || observe.running) {
       const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
-      if (!controller.signal.aborted && history.length) setSessions(current => current.map(item => item.id === target.id ? { ...item, messages: historyMessages(history) } : item));
+      const permissions = running ? await api.request<StreamEvent[]>(`/chat/permissions?${sessionQuery(target)}`, 'GET', undefined, controller.signal) : [];
+      if (!controller.signal.aborted && (history.length || permissions.length)) setSessions(current => current.map(item => {
+        if (item.id !== target.id) return item;
+        const messages = historyMessages(history);
+        for (const permission of permissions) {
+          const last = messages.at(-1);
+          if (!last || last.role !== 'assistant') messages.push({ id: `permission-${permission.permissionRequestId}`, role: 'assistant', text: '', blocks: [] });
+          messages[messages.length - 1] = applyEvent(messages[messages.length - 1], { ...permission, type: 'choice' });
+        }
+        return { ...item, messages };
+      }));
     }
     if (observe.running && !running) {
       notifyWorkspaceChanged(target.workspaceHash);
@@ -420,7 +430,11 @@ export default function App() {
     setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => message.blocks ? { ...message, blocks: answers.reduce((blocks, answer) => resolveChoiceBlock(blocks, answer.id, answer.label), message.blocks) } : message) } : item));
     const outgoing: string[] = [];
     for (const answer of answers) {
-      if (answer.subId) void api.request(`/chat/sub-hitl/${encodeURIComponent(answer.subId)}`, 'POST', { action: answer.value === '/agree' || answer.value === 'approve' ? 'approve' : 'deny' }).then(() => notify('子代理审批已发送')).catch(error => notify(error instanceof Error ? error.message : '审批失败'));
+      if (answer.permissionRequestId) void api.request('/chat/permission', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, permissionRequestId: answer.permissionRequestId, optionId: answer.value }).catch(error => {
+        setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => ({ ...message, blocks: message.blocks?.map(block => block.id === answer.id && block.type === 'choice' ? { ...block, selected: undefined } : block) })) } : item));
+        notify(error instanceof Error ? error.message : '审批失败');
+      });
+      else if (answer.subId) void api.request(`/chat/sub-hitl/${encodeURIComponent(answer.subId)}`, 'POST', { action: answer.value === '/agree' || answer.value === 'approve' ? 'approve' : 'deny' }).then(() => notify('子代理审批已发送')).catch(error => notify(error instanceof Error ? error.message : '审批失败'));
       else if (answer.value) outgoing.push(answer.value);
     }
     if (!outgoing.length) return;
@@ -578,7 +592,7 @@ export default function App() {
           // "/agree" command, so this drops the extra bubbles and merges the AI
           // replies for free. A suspended choice is client-only, so reattach it.
           if (completed && !controller.signal.aborted && history.length) {
-            const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks));
+            const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks).filter(choice => !choice.permissionRequestId));
             setSessions(current => current.map(item => item.id === id ? { ...item, messages } : item));
           }
         } catch { /* Keep the already received stream if history reload fails. */ }

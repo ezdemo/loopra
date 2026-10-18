@@ -1308,6 +1308,23 @@ const pollSessionStatus = async (token, workspaceHash, sessionName) => {
     // 运行期间每次状态采样都刷新一次持久化历史；停止后再做一次最终刷新。
     if (running || sessionStatusObservedRunning) {
       await loadHistory(sessionName, true, workspaceHash, token)
+      if (running && isCurrentSessionStatus(token, workspaceHash, sessionName)) {
+        const pending = await chatAPI.permissions(workspaceHash, sessionName)
+        if (isCurrentSessionStatus(token, workspaceHash, sessionName) && pending?.success) {
+          for (const permission of pending.data || []) {
+            let last = messages.value.at(-1)
+            if (!last || last.role !== 'assistant') {
+              last = { role: 'assistant', content: '', blocks: [] }
+              messages.value.push(last)
+            }
+            last.blocks ||= []
+            if (!last.blocks.some(block => block.permissionRequestId === permission.permissionRequestId)) {
+              last.blocks.push({ type: 'choice', question: permission.title, options: permission.options,
+                permissionRequestId: permission.permissionRequestId })
+            }
+          }
+        }
+      }
     }
     if (!running) {
       sessionStatusObservedRunning = false
@@ -1919,6 +1936,15 @@ const formatHitlQuestion = (title) => {
 }
 
 const sendChoice = async (value, block) => {
+  if (block?.permissionRequestId) {
+    try {
+      await chatAPI.permission({ workspaceHash: props.workspaceHash, sessionName: props.sessionName,
+        permissionRequestId: block.permissionRequestId, optionId: value })
+      block.resolved = true
+      block.selectedTitle = (block.options || []).find(option => option.value === value)?.title || value
+    } catch (error) { console.error('ACP 审批失败:', error) }
+    return
+  }
   // 子代理 HITL 审批：调用 REST API 而非发送聊天消息
   if (block?.subId != null) {
     // 解析 action：/agree → approve, /deny → deny
@@ -2216,6 +2242,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             if (name === 'bash_start') notifyBashStart()
             msg.blocks.push({
               type: 'tool_call',
+              toolCallId: data.toolCallId,
               name: name || 'unknown',
               status: '执行中',
               args,
@@ -2231,9 +2258,9 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             let matched = false
             if (targetName) {
               for (let i = msg.blocks.length - 1; i >= 0; i--) {
-                if (msg.blocks[i].type === 'tool_call' && msg.blocks[i].name === targetName && !msg.blocks[i].result) {
+                if (msg.blocks[i].type === 'tool_call' && (data.toolCallId ? msg.blocks[i].toolCallId === data.toolCallId : msg.blocks[i].name === targetName && !msg.blocks[i].result)) {
                   msg.blocks[i].result = rn;
-                  msg.blocks[i].status = '成功';
+                  msg.blocks[i].status = data.status === 'failed' ? '失败' : '成功';
                   msg.blocks[i].toolFinishedAt = Date.now();
                   msg.blocks[i].toolDurationMs = msg.blocks[i].toolFinishedAt - msg.blocks[i].toolStartedAt;
                   msg.blocks[i].expanded = false;
@@ -2243,11 +2270,11 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
               }
             }
             // 按 name 没匹配到，fallback 到从后往前找第一个无结果的
-            if (!matched) {
+            if (!matched && !data.toolCallId) {
               for (let i = msg.blocks.length - 1; i >= 0; i--) {
                 if (msg.blocks[i].type === 'tool_call' && !msg.blocks[i].result) {
                   msg.blocks[i].result = rn;
-                  msg.blocks[i].status = '成功';
+                  msg.blocks[i].status = data.status === 'failed' ? '失败' : '成功';
                   msg.blocks[i].toolFinishedAt = Date.now();
                   msg.blocks[i].toolDurationMs = msg.blocks[i].toolFinishedAt - msg.blocks[i].toolStartedAt;
                   msg.blocks[i].expanded = false;
@@ -2267,6 +2294,11 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             // 更新 usage 数据
             if (data.promptTokens !== undefined) {
               usage.value = {...usage.value, ...data}
+            }
+          } else if (data.type === 'permission_resolved') {
+            for (const block of msg.blocks) if (block.type === 'choice' && block.permissionRequestId === data.permissionRequestId) {
+              block.resolved = true
+              block.selectedTitle = block.options.find(option => option.value === data.optionId)?.title || '已取消'
             }
           } else if (data.type === 'choice') {
             // 选项按钮（如 HITL 审批、ask_choice）
@@ -2307,7 +2339,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
                   return opt
                 })
               }
-              msg.blocks.push({type: 'choice', options, question, description})
+              msg.blocks.push({type: 'choice', options, question, description, permissionRequestId: data.permissionRequestId})
             }
           } else if (data.type === 'log') {
             // 系统日志（如 [compact] 折叠结果）→ 仅展示 INFO 及以上级别

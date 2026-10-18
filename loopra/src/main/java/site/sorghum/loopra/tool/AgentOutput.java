@@ -56,10 +56,19 @@ public interface AgentOutput {
      */
     void onToolCall(String name, String args);
 
+    /** Stable engine call ID; legacy outputs retain their name-only callbacks. */
+    default void onToolCall(String toolCallId, String name, String args) {
+        onToolCall(name, args);
+    }
+
     /**
      * 工具结果事件
      */
     void onToolResult(String name, String result);
+
+    default void onToolResult(String toolCallId, String name, String result, boolean failed) {
+        onToolResult(name, result);
+    }
 
     /**
      * Token 用量回调

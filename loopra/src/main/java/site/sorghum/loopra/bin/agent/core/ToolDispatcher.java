@@ -135,7 +135,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
             String reason) {
         String result = rejectedToolResult(message, reason);
         loop.safeListener("toolResult", () -> loop.listener().onToolResult(call.toolId(), result));
-        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(call.toolId(), result));
+        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(call.id(), call.toolId(), result, true));
         return site.sorghum.cutin.core.tool.ToolResult.failure(call.id(), result);
     }
 
@@ -291,7 +291,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
             final String finalTcName = tcName;
             final String finalTcArgs = tcArgs;
             loop.safeListener("toolCall", () -> loop.listener().onToolCall(finalTcName, finalTcArgs));
-            loop.safeOutputDebug("toolCall", () -> loop.getOutput().onToolCall(finalTcName, finalTcArgs));
+            loop.safeOutputDebug("toolCall", () -> loop.getOutput().onToolCall(tcId, finalTcName, finalTcArgs));
         }
         return new ParsedToolCalls(tcList, filteredTcList);
     }
@@ -395,7 +395,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                     if (fc == null && !loop.getToolRegistry().cutinRegistry().find(toolCall.getName()).isPresent()) {
                         String result = "工具不存在";
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true));
                         return toolResult(toolCall.getId(), "工具不存在");
                     }
 
@@ -407,7 +407,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                                 "当前处于计划模式，仅允许只读工具；本次调用已被拒绝。请继续使用只读工具探索，完成后用 submit_plan 提交计划。",
                                 "plan_mode");
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true));
                         return toolResult(toolCall.getId(), result);
                     }
 
@@ -420,7 +420,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                             anySuppressed.set(true);
                             String result = rejectedToolResult(suppression.reason(), "storm");
                             loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                            loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                            loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true));
                             return toolResult(toolCall.getId(), result);
                         }
                     }
@@ -471,7 +471,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                                 ? ImageToolResult.parseResult(rawResult) : null;
                         String result = imageResult == null ? rawResult : imageResult.summary();
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, !cutinResult.ok()));
                         ChatMessage toolMessage = imageResult == null ? ChatMessage.tool(toolCall.getId(), result)
                                 : ChatMessage.toolWithImage(toolCall.getId(), result,
                                 imageResult.dataUri(), imageResult.detail());
@@ -486,7 +486,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                     } catch (Throwable e) {
                         String result = e.getMessage();
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true));
                         return timedToolResult(toolCall.getId(), result, toolStartedAt);
                     }
                 } finally {

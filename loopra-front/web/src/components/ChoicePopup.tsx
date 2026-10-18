@@ -3,7 +3,7 @@ import { Button } from '@nextui-org/react';
 import { Check, ChevronLeft, CircleHelp } from 'lucide-react';
 import type { ChoiceBlockData } from '../chat';
 
-export type ChoiceAnswer = { id: string; value: string; label: string; subId?: string };
+export type ChoiceAnswer = { id: string; value: string; label: string; subId?: string; permissionRequestId?: string };
 
 // The agent is suspended until the choice is answered, so the popup sits over
 // the composer and walks every pending question: pick an option, "下一个" for the
@@ -16,7 +16,7 @@ export default function ChoicePopup({ choices, onSubmit }: { choices: ChoiceBloc
   const chosen = answers[current.id];
   const answered = choices.filter(choice => answers[choice.id]).length;
   const last = index >= choices.length - 1;
-  const pick = (option: ChoiceBlockData['options'][number]) => setAnswers(all => ({ ...all, [current.id]: { id: current.id, value: option.value || option.title, label: option.title, subId: current.subId } }));
+  const pick = (option: ChoiceBlockData['options'][number]) => setAnswers(all => ({ ...all, [current.id]: { id: current.id, value: option.value || option.title, label: option.title, subId: current.subId, ...(current.permissionRequestId ? { permissionRequestId: current.permissionRequestId } : {}) } }));
   return <section className="choice-popup" role="dialog" aria-label="待选择">
     <header className="choice-popup-head">
       {choices.length > 1 && <span className="choice-progress">问题 {index + 1} / {choices.length}</span>}

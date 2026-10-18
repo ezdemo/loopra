@@ -82,3 +82,15 @@ test('an empty choices list renders nothing', () => {
   const view = render({ choices: [], onSubmit: () => {} });
   try { assert.equal(view.container.querySelector('.choice-popup'), null); } finally { view.unmount(); }
 });
+
+
+test('ACP choice submission carries permission request ID and opaque option value', () => {
+  const answers = [];
+  const view = render({ choices: [{ ...approval, permissionRequestId: 'p1', options: [{ title: '允许一次', value: 'opaque-option' }] }], onSubmit: value => answers.push(value) });
+  try {
+    click(view.container.querySelector('.choice-popup-option'));
+    click(view.container.querySelector('.choice-submit'));
+    assert.equal(answers[0][0].permissionRequestId, 'p1');
+    assert.equal(answers[0][0].value, 'opaque-option');
+  } finally { view.unmount(); }
+});

@@ -156,6 +156,8 @@ function generateRequestId() {
 
 // 聊天 API
 export const chatAPI = {
+  permission: (answer) => api.post('/chat/permission', answer),
+  permissions: (workspaceHash, sessionName) => api.get('/chat/permissions', { params: { workspaceHash, sessionName } }),
   // 同步聊天 - POST /api/chat
   sendMessage: (message) => {
     return api.post('/chat', { message })
