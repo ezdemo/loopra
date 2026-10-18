@@ -1,14 +1,16 @@
 import { mergeFileDiffs } from './diff';
 import type { ChatBlock, Message } from './chat';
 import type { Provider, Session } from './lib';
+import type { AgentConfigOption } from './agent-config';
 
 export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
 export type Workspace = { hash: string; name: string; path: string; displayName?: string | null };
-export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean };
+export type AgentEngine = { id: string; name: string; available: boolean; detail?: string };
+export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };
-export type StreamEvent = { type: string; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
-export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; model: string; modelChannelId: string; reasoningEffort: string; fastMode: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
+export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
 
 export function serverAddress(value: string) {
   const url = new URL(value.trim() || DEFAULT_SERVER);
@@ -141,6 +143,13 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     const existing = event.toolCallId && blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
     if (!existing) blocks.push({ id, type: 'tool_call', ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}), name: event.name || 'unknown', status: '执行中', args: argsObject(event.args ?? event.arguments) });
   }
+  else if (event.type === 'tool_update') {
+    const existing = blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
+    if (existing?.type === 'tool_call') {
+      if (event.name) existing.name = event.name;
+      if (event.args != null) existing.args = argsObject(event.args);
+    }
+  }
   else if (event.type === 'tool_result') {
     const target = [...blocks].reverse().find(block => block.type === 'tool_call' && (event.toolCallId ? block.toolCallId === event.toolCallId : block.status === '执行中' && (!event.name || block.name === event.name)));
     if (target?.type === 'tool_call') { target.result = stringify(event.result ?? content); target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception)/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
@@ -208,7 +217,7 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
   return messages;
 }
 export function remoteSession(item: RemoteSession, workspace: Workspace): Session {
-  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime, messageCount: item.messageCount || 0, worktreeMode: !!item.worktreeMode };
+  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime, messageCount: item.messageCount || 0, worktreeMode: !!item.worktreeMode, ...(item.agentId ? { agentId: item.agentId } : {}) };
 }
 export function configProviders(config: RemoteConfig): Provider[] {
   return (config.modelChannels || []).map(channel => ({ id: channel.id, name: channel.name, type: channel.apiProtocol, baseUrl: channel.baseUrl, apiKey: channel.apiKey, compatibility: channel.specialCompatibility, count: channel.models.length, enabled: true, models: channel.models.map(model => ({ ...model, priceEnabled: !!model.price, inputPrice: model.price?.input || 0, cachePrice: model.price?.cache || 0, outputPrice: model.price?.output || 0 })) }));

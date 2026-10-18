@@ -190,7 +190,7 @@ public class AgentController {
     @Post
     @Mapping("/mode")
     public ApiResponse<java.util.Map<String, Object>> updateMode(@Body PlanModeRequest request) {
-        if (!agentService.isReady()) {
+        if (!agentService.isNativeReady()) {
             throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
         }
         if (request == null || request.getSessionName() == null || request.getSessionName().isBlank()) {
@@ -218,7 +218,7 @@ public class AgentController {
     public ApiResponse<PromptDTO> prompt(
             @ApiParam(value = "项目 hash") @Param(value = "workspaceHash", required = false) String workspaceHash,
             @ApiParam(value = "会话名称") @Param(value = "sessionName", required = false) String sessionName) {
-        if (!agentService.isReady()) {
+        if (!agentService.isNativeReady()) {
             throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
         }
         String workspacePath = workspaceHash != null ? agentService.resolveProjectPath(workspaceHash) : null;

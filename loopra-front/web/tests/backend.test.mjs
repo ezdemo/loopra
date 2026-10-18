@@ -265,3 +265,24 @@ test('ACP approval event alone does not turn an interrupted stream into completi
     await assert.rejects(new LoopraClient().stream({ message: 'hi' }, () => {}, new AbortController().signal), /连接意外中断/);
   } finally { globalThis.fetch = previous; }
 });
+
+test('ACP delayed tool arguments update one card while retaining its result', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  for (const event of [
+    { type: 'tool_call', toolCallId: 'write-1', name: 'Preparing file', args: {} },
+    { type: 'tool_update', toolCallId: 'write-1', name: 'Write output.txt', args: '{"file_path":"output.txt"}' },
+    { type: 'tool_result', toolCallId: 'write-1', name: 'Write output.txt', status: 'completed', result: 'written' },
+    { type: 'tool_update', toolCallId: 'write-1', args: { file_path: 'output.txt', content: 'hello' } },
+  ]) message = applyEvent(message, event);
+  assert.equal(message.blocks.length, 1);
+  assert.equal(message.blocks[0].name, 'Write output.txt');
+  assert.deepEqual(message.blocks[0].args, { file_path: 'output.txt', content: 'hello' });
+  assert.equal(message.blocks[0].status, '成功');
+  assert.equal(message.blocks[0].result, 'written');
+});
+
+test('remote conversations preserve their Agent identity independently of model providers', () => {
+  const session = remoteSession({ name: 'claude-chat', mtime: 1, messageCount: 2, agentId: 'claude-code' }, { hash: 'p', name: 'Project', path: '/project' });
+  assert.equal(session.agentId, 'claude-code');
+  assert.equal(session.id, 'p/claude-chat');
+});

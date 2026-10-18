@@ -73,6 +73,9 @@ java -jar loopra.jar --loopra.acp=true
 使用原有服务；同步内部聊天、定时任务、需求执行和子代理继续对话尚未全部改为 ACP
 Client 调用。通用 Agent 注册、外部进程管理、动态配置 UI 和 ACP v2 留待后续阶段。
 
+后续阶段已增加 [Claude Code ACP 接入](acp-claude.md)：主聊天现在可选择本机 Claude，
+并由独立的外部会话管理器持有 stdio 连接和远端 Session ID。
+
 ## 验证
 
 `NativeAcpProtocolTest` 验证 JSON-RPC、工具 ID、明确失败状态、图片、扩展协商、

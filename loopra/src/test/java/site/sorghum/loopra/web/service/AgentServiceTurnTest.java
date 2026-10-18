@@ -129,7 +129,7 @@ class AgentServiceTurnTest {
         ContextEmpty context = new ContextEmpty();
         SseEmitter emitter = new SseEmitter(context);
         service.chatStream(UserMessage.of("stream"), null, null, emitter,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, List.of());
 
         assertTrue(emitter.isCompleted());
         assertTrue(body(context).contains("event: complete"));
@@ -148,7 +148,7 @@ class AgentServiceTurnTest {
         SseEmitter emitter = new SseEmitter(context);
         store.failFlush = true;
         service.chatStream(UserMessage.of("hello"), null, null, emitter,
-                null, null, null, null, "unknown-action", null);
+                null, null, null, null, "unknown-action", null, List.of());
 
         assertTrue(emitter.isCompleted());
         assertTrue(body(context).contains("event: error"));
@@ -202,7 +202,7 @@ class AgentServiceTurnTest {
         ContextEmpty context = new ContextEmpty();
         SseEmitter emitter = new SseEmitter(context);
         Thread runner = new Thread(() -> service.chatStream(UserMessage.of("read file"), null, null, emitter,
-                null, null, null, null, null, null));
+                null, null, null, null, null, null, List.of()));
         runner.start();
         try {
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
@@ -250,7 +250,7 @@ class AgentServiceTurnTest {
         ContextEmpty context = new ContextEmpty();
         SseEmitter emitter = new SseEmitter(context);
         service.chatStream(UserMessage.of("hello"), "invalid\0workspace", "session", emitter,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, List.of());
 
         assertTrue(emitter.isCompleted());
         assertTrue(body(context).contains("event: error"));
@@ -270,7 +270,7 @@ class AgentServiceTurnTest {
         SseEmitter emitter = new SseEmitter(context);
 
         service.chatStream(message, null, null, emitter,
-                null, null, null, null, "execute_plan", "linked project context");
+                null, null, null, null, "execute_plan", "linked project context", List.of());
 
         assertNull(agent.getPendingPlan());
         assertFalse(agent.isPlanMode());
@@ -298,7 +298,7 @@ class AgentServiceTurnTest {
 
         try {
             service.chatStream(UserMessage.of("approved"), null, null, emitter,
-                    null, null, null, null, "execute_plan", "temporary linked context");
+                    null, null, null, null, "execute_plan", "temporary linked context", List.of());
         } finally {
             field(AgentLoop.class, "cutinEngine").set(loop, engine);
         }

@@ -16,6 +16,8 @@ import Search from './components/Search';
 import type { FileChange, Message } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
+import type { AgentEngine } from './backend';
+import type { AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
@@ -91,6 +93,11 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
+  const [engines, setEngines] = useState<AgentEngine[]>([]);
+  const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});
+  const [agentConfigBusy, setAgentConfigBusy] = useState<string>();
+  const [agentConfigError, setAgentConfigError] = useState('');
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>();
   const [toast, setToast] = useState('');
@@ -126,6 +133,24 @@ export default function App() {
   const settingsQueue = useRef(Promise.resolve());
   const session = sessions.find(item => item.id === activeId && !hiddenSessions.includes(item.id));
   const isHome = !session;
+  const agentId = session?.agentId || (session ? 'native' : newAgentId);
+  const externalAgent = agentId !== 'native';
+  useEffect(() => {
+    setAgentConfigError('');
+    if (!session?.name || !session.workspaceHash || backend.status !== 'connected') return;
+    const controller = new AbortController();
+    const id = session.id; setAgentConfigBusy(id);
+    void api.request<{ configOptions: AgentConfigOption[] }>(`/agent-engines/config?${sessionQuery(session)}`, 'GET', undefined, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setAgentConfigs(current => ({ ...current, [id]: result.configOptions })); })
+      .catch(error => { if (!controller.signal.aborted) setAgentConfigError(error instanceof Error ? error.message : String(error)); })
+      .finally(() => setAgentConfigBusy(current => current === id ? undefined : current));
+    return () => controller.abort();
+  }, [api, session?.id, backend.status]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal).then(setEngines).catch(() => setEngines([]));
+    return () => controller.abort();
+  }, [api, backend.status]);
   // Pending HITL/ask_choice cards drive the composer popup. Read from the live
   // session messages (not demo history) so mock/offline sessions never pop it.
   const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
@@ -156,18 +181,69 @@ export default function App() {
     return result;
   }
   function saveOptions(next: ComposerOptions) {
+    if (externalAgent) { setComposerOptions(next); return Promise.resolve(); }
     // Leaving plan mode discards any submitted plan, so confirm first (legacy togglePlan).
     if (!next.plan && composerOptions.plan && session) { setDiscardPlan(true); return Promise.resolve(); }
     return mutation(async () => {
-      const model = getModelCatalog(providers).find(item => item.id === next.modelId);
-      if (!model) throw new Error('请选择有效模型');
-      await api.request('/config', 'PUT', { hitl: permissionValue(next.mode), fastMode: next.fast });
-      if (session) {
-        await api.request(sessionRoute(session, '/settings'), 'PUT', { model: model.name, modelChannelId: model.providerId, reasoningEffort: next.effort });
-        if (next.plan !== composerOptions.plan) await api.request('/agent/mode', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, enabled: next.plan });
+      const target = session || await prepareAgentConfig();
+      if (!target) return;
+      const changes: [string, string][] = [];
+      if (next.modelId !== composerOptions.modelId) changes.push(['model', next.modelId]);
+      if (next.mode !== composerOptions.mode) changes.push(['mode', permissionValue(next.mode)]);
+      if (next.effort !== composerOptions.effort) changes.push(['effort', next.effort]);
+      if (next.fast !== composerOptions.fast) changes.push(['fast', next.fast ? 'on' : 'off']);
+      if (next.plan !== composerOptions.plan) changes.push(['plan', next.plan ? 'on' : 'off']);
+      for (const [configId, value] of changes) {
+        const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
+          { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
+        setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
       }
       setComposerOptions(next);
     }).catch(() => {});
+  }
+  async function prepareAgentConfig() {
+    if (!currentWorkspace) { notify('请先选择工作区'); return; }
+    setAgentConfigBusy(session?.id || 'new'); setAgentConfigError('');
+    try {
+      const prepared = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
+        { workspaceHash: currentWorkspace.hash, sessionName: session?.name, agentId });
+      const target = session || remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, currentWorkspace);
+      setAgentConfigs(current => ({ ...current, [target.id]: prepared.configOptions }));
+      if (!session) { setSessions(current => [...current, target]); setActiveId(target.id); }
+      return target;
+    } catch (error) { const message = error instanceof Error ? error.message : String(error); setAgentConfigError(message); notify(message); }
+    finally { setAgentConfigBusy(undefined); }
+  }
+  async function changeAgentConfig(configId: string, value: string | boolean) {
+    if (!session) return;
+    const target = session;
+    setAgentConfigBusy(target.id);
+    try {
+      const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
+        { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
+      setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
+      if (target.agentId === 'native' || !target.agentId) {
+        // Native choices also feed the legacy settings page and plan review, so
+        // mirror the Agent's authoritative config back into composer options.
+        setComposerOptions(current => {
+          const next = { ...current };
+          const model = result.configOptions.find(option => option.id === 'model');
+          const mode = result.configOptions.find(option => option.id === 'mode');
+          const effort = result.configOptions.find(option => option.id === 'effort');
+          const fast = result.configOptions.find(option => option.id === 'fast');
+          const plan = result.configOptions.find(option => option.id === 'plan');
+          if (model && typeof model.currentValue === 'string') next.modelId = model.currentValue;
+          if (mode && typeof mode.currentValue === 'string') next.mode = permissionLabel(mode.currentValue);
+          if (effort && typeof effort.currentValue === 'string') next.effort = effort.currentValue;
+          if (fast) next.fast = fast.currentValue === true || fast.currentValue === 'on';
+          if (plan) next.plan = plan.currentValue === 'on';
+          return next;
+        });
+        const plan = result.configOptions.find(option => option.id === 'plan');
+        if (plan && plan.currentValue !== 'on') setPendingPlan(undefined);
+      }
+    } catch (error) { notify(`保存失败：${error instanceof Error ? error.message : String(error)}`); }
+    finally { setAgentConfigBusy(undefined); }
   }
   function saveDefaultModel(id: string) {
     void mutation(async () => {
@@ -228,7 +304,7 @@ export default function App() {
       ]);
       if (controller.signal.aborted) return;
       setSessions(current => current.map(item => item.id === id ? { ...item, messages: historyMessages(history) } : item));
-      setComposerOptions(current => ({ ...current, modelId: `${settings.modelChannelId}:${settings.model}`, effort: settings.reasoningEffort || current.effort, plan: mode.mode === 'plan' }));
+      setComposerOptions(current => ({ ...current, ...(selected.agentId && selected.agentId !== 'native' ? {} : { modelId: `${settings.modelChannelId}:${settings.model}` }), effort: settings.reasoningEffort || current.effort, plan: mode.mode === 'plan' }));
       setPendingPlan(mode.pendingPlan || undefined);
     } catch (error) { if (!controller.signal.aborted) notify(`加载会话失败：${error instanceof Error ? error.message : error}`); }
   }
@@ -489,8 +565,6 @@ export default function App() {
     if (backend.status !== 'connected' || !backend.ready || !currentWorkspace) { notify('请先连接 Loopra 并选择工作区'); return; }
     let prompt = override || draft.trim() || (action ? '' : '请查看附件');
     const titleSource = prompt;
-    const selectedModel = getModelCatalog(providers).find(model => model.id === composerOptions.modelId);
-    if (!selectedModel) { notify('请先选择一个模型'); return; }
     // Oversized directly-typed bodies are saved into the project and replaced by
     // a reference block before sending, matching legacy ChatInput.vue. The paste
     // handler already externalizes clipboard text; this covers typed/edited text.
@@ -506,7 +580,6 @@ export default function App() {
         return;
       }
     }
-    const options = { ...composerOptions };
     if (preferences.sound) prepareCompletionSound();
     const context = { ...(overrideContext || composerContext) };
     const text = action ? prompt : composeOutgoing(prompt, context, savedInput);
@@ -536,15 +609,13 @@ export default function App() {
     try {
       if (!target) {
         const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
-        target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now }, currentWorkspace);
+        target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId }, currentWorkspace);
         activeRequest.current!.session = target;
         await api.request(sessionRoute(target, '/title'), 'PUT', { title: target.title }, controller.signal);
         setSessions(current => [...current, target!]); setActiveId(target.id);
       }
       const id = target.id; setGeneratingId(id);
-      await api.request('/config', 'PUT', { hitl: permissionValue(options.mode), fastMode: options.fast }, controller.signal);
       // Approving a plan (execute_plan) must not re-enter plan mode; the agent clears it while executing.
-      if (!action) await api.request('/agent/mode', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name, enabled: options.plan }, controller.signal);
       // A continued turn already owns its bubble: reopen it (so its timer ticks
       // again) instead of inserting a second one.
       if (resumed) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: undefined } : entry) } : item));
@@ -557,7 +628,8 @@ export default function App() {
       setShowScrollBtn(false);
       const attachments = context.attachments || [];
       const documentText = attachments.filter(file => file.text !== undefined).map(file => `附件：${file.name}\n${file.text}`).join('\n\n');
-      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, model: selectedModel.name, modelChannelId: selectedModel.providerId, reasoningEffort: options.effort, fastMode: options.fast, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+        if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
         if (event.type === 'plan_submitted') { setPendingPlan(event.plan || undefined); setComposerOptions(current => ({ ...current, plan: true })); return; }
         if (event.type === 'mode_changed') { setComposerOptions(current => ({ ...current, plan: event.mode === 'plan' })); if (event.mode !== 'plan') setPendingPlan(undefined); return; }
         if (event.type === 'snapshot' && event.msgId) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, rollbackId: event.msgId, ...(event.hasCodeSnapshot ? { snapshotId: event.msgId } : {}) } : entry) } : item));
@@ -692,6 +764,9 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+    agentConfig={{ options: session ? agentConfigs[session.id] : undefined, busy: !!agentConfigBusy, error: agentConfigError, onPrepare: () => void prepareAgentConfig(), onChange: (id, value) => void changeAgentConfig(id, value) }}
+    onAgentsRefresh={() => { void api.request<AgentEngine[]>('/agent-engines').then(setEngines).catch(() => {}); }}
+    agentId={agentId} engines={engines} onAgent={id => { if (id === agentId) return; if (generatingId) { notify('请先停止当前任务'); return; } setNewAgentId(id); newSession(); }}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !sessionsOpen && !helpOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
@@ -699,7 +774,7 @@ export default function App() {
     // Legacy `continueChat` sent the literal `/continue` command so the backend
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
-    onSend={() => sendMessage()} onStop={stopGeneration} onContinue={() => sendMessage('/continue')}
+    onSend={() => sendMessage()} onStop={stopGeneration} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
     onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openTerminal()} onManage={() => openSettings('模型供应商')}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}

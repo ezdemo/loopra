@@ -17,6 +17,19 @@ import java.util.Map;
  */
 public interface SessionStore {
 
+    /** Agent identity belongs to the conversation, independently of model providers. */
+    default AcpBinding getAcpBinding(String name) { return new AcpBinding("native", null, null); }
+
+    default void setAcpBinding(String name, AcpBinding binding) throws IOException {
+        throw new UnsupportedOperationException("ACP session metadata is unavailable");
+    }
+
+    record AcpBinding(String agentId, String remoteSessionId, String cwd) {}
+    default Map<String, String> getAgentConfig(String name) { return Map.of(); }
+    default void setAgentConfig(String name, Map<String, String> values) throws IOException {
+        throw new UnsupportedOperationException("Agent configuration storage is unavailable");
+    }
+
     /**
      * 获取当前会话名
      */

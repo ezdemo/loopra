@@ -39,7 +39,9 @@ public final class LoopraAcpAgent {
     @NewSession
     public NewSessionResponse newSession(NewSessionRequest request) {
         if (request == null || request.cwd() == null) throw new IllegalArgumentException("cwd is required");
-        return new NewSessionResponse(sessions.createSession(request.cwd(), null), null, null);
+        String id = sessions.createSession(request.cwd(), null);
+        publishConfig(id);
+        return new NewSessionResponse(id, null, null);
     }
 
     @LoadSession
@@ -49,7 +51,28 @@ public final class LoopraAcpAgent {
             throw new IllegalArgumentException("Session not found");
         }
         if (updates != null) replay(request.sessionId());
+        publishConfig(request.sessionId());
         return new LoadSessionResponse(null, null);
+    }
+
+    @SetSessionConfigOption
+    public SetSessionConfigOptionResponse setConfigOption(SetSessionConfigOptionRequest request) {
+        if (request == null || request.sessionId() == null) throw new IllegalArgumentException("sessionId is required");
+        sessions.setConfigOption(request.sessionId(), request.configId(), request.value());
+        return new SetSessionConfigOptionResponse(publishConfig(request.sessionId()));
+    }
+
+    @SetSessionMode
+    public SetSessionModeResponse setMode(SetSessionModeRequest request) {
+        sessions.setConfigOption(request.sessionId(), "mode", request.modeId());
+        publishConfig(request.sessionId());
+        return new SetSessionModeResponse();
+    }
+
+    private List<SessionConfigOption> publishConfig(String id) {
+        var config = sessions.configOptions(id);
+        if (updates != null && !config.isEmpty()) updates.accept(id, new ConfigOptionUpdate("config_option_update", config));
+        return config;
     }
 
     @ListSessions
@@ -72,6 +95,7 @@ public final class LoopraAcpAgent {
             String reply = sessions.handlePrompt(request.sessionId(), extractText(request), extractImages(request),
                     output, workbenchEvents && request.meta() != null ? request.meta() : Map.of());
             boolean cancelled = sessions.isCancelled(request.sessionId()) || output.isPermissionCancelled();
+            publishConfig(request.sessionId());
             if (!cancelled && !output.hasPendingChoice() && reply != null && !reply.isEmpty()) {
                 if (workbenchEvents) output.sendEvent("complete", ONode.serialize(Map.of("content", reply)));
                 // Commands may return an answer without sending any model chunks.

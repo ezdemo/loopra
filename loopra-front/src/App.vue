@@ -1122,7 +1122,10 @@ const startTaskFromWelcome = async (request) => {
     currentSessionWorkspace.value = workspaceHash
     await newChat(true, request?.worktreeMode == null ? null : !!request.worktreeMode)
     await nextTick()
-    if (request?.planMode) {
+    chatRef.value?.setAgentEngine(request?.agentId || 'native')
+    if (request?.configOnly) {
+      await chatRef.value?.prepareAgentConfiguration()
+    } else if (request?.planMode) {
       await chatRef.value?.enablePlanMode()
     } else {
       await chatRef.value?.startWelcomePrompt(prompt)

@@ -315,7 +315,7 @@
                 <PaperClipOutlined />
                 <span><strong>上传文件</strong><small>图片、文本、PDF、Word、Excel</small></span>
               </button>
-              <button type="button" class="composer-tools-primary composer-plan-action" role="menuitem" :class="{ active: planMode }"
+              <button v-if="!externalAgent && !unifiedAgentConfig" type="button" class="composer-tools-primary composer-plan-action" role="menuitem" :class="{ active: planMode }"
                       :disabled="streaming || sessionBusy || (!sessionName && !workspaceHash)"
                       :aria-pressed="planMode" @click="$emit('togglePlan')">
                 <FileTextOutlined />
@@ -363,7 +363,7 @@
                   </div>
                 </div>
               </div>
-              <div class="composer-tools-branch permission-tools-branch" :class="{ 'branch-active': activeToolsBranch === 'permission' }" @mouseenter="openToolsBranch('permission')" @mouseleave="scheduleCloseToolsBranch">
+              <div v-if="!externalAgent && !unifiedAgentConfig" class="composer-tools-branch permission-tools-branch" :class="{ 'branch-active': activeToolsBranch === 'permission' }" @mouseenter="openToolsBranch('permission')" @mouseleave="scheduleCloseToolsBranch">
                 <button type="button" class="composer-tools-primary" role="menuitem" aria-haspopup="menu">
                   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                   <span><strong>权限模式</strong><small>{{ permissionLabel }}</small></span>
@@ -517,7 +517,7 @@
         </div>
         </div>
         <div class="model-actions">
-        <div class="reasoning-effort-selector hover-reveal">
+        <div v-if="!externalAgent && !unifiedAgentConfig" class="reasoning-effort-selector hover-reveal">
           <button class="effort-btn" @click="toggleEffortPicker" :title="`当前推理强度: ${selectedReasoningEffort.label}`">
             <span class="effort-current-label">{{ selectedReasoningEffort.label }}</span>
             <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -569,7 +569,7 @@
             </label>
           </div>
         </div>
-          <div class="model-selector" v-if="currentModel">
+          <div class="model-selector" v-if="currentModel && !externalAgent && !unifiedAgentConfig">
             <button class="model-btn" @click="toggleModelPicker" :title="'当前模型: '+currentModelLabel">
               <span class="model-btn-label">{{ currentModel }}</span>
               <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -644,6 +644,8 @@ import ChecklistSteps from './ChecklistSteps.vue'
 import GoalSteps from './GoalSteps.vue'
 
 const props = defineProps({
+  externalAgent: {type: Boolean, default: false},
+  unifiedAgentConfig: {type: Boolean, default: false},
   inputText: {type: String, default: ''},
   streaming: {type: Boolean, default: false},
   usage: {type: Object, default: () => ({})},

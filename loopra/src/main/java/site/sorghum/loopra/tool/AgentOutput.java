@@ -61,6 +61,14 @@ public interface AgentOutput {
         onToolCall(name, args);
     }
 
+    /** ACP tools may acquire their title and arguments after their initial announcement. */
+    default void onToolUpdate(String toolCallId, String name, String args) {
+        Map<String, Object> event = new java.util.LinkedHashMap<>();
+        event.put("toolCallId", toolCallId); event.put("name", name);
+        if (args != null) event.put("args", args);
+        sendEvent("tool_update", ONode.serialize(event));
+    }
+
     /**
      * 工具结果事件
      */

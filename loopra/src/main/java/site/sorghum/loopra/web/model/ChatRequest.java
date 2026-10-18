@@ -11,6 +11,8 @@ import java.util.List;
  */
 @Data
 public class ChatRequest {
+    /** Agent engine identity; independent of the Native model provider. */
+    private String agentId;
 
     /**
      * 用户消息内容

@@ -709,6 +709,36 @@ public class JsonlSessionStore implements SessionStore {
         });
     }
 
+    @Override
+    public AcpBinding getAcpBinding(String name) {
+        ONode meta = readMeta(name);
+        String id = metaString(meta, "agentId");
+        return new AcpBinding(id == null ? "native" : id, metaString(meta, "acpSessionId"), metaString(meta, "acpCwd"));
+    }
+
+    @Override
+    public void setAcpBinding(String name, AcpBinding binding) throws IOException {
+        writeMeta(name, node -> {
+            setMetaString(node, "agentId", binding.agentId());
+            setMetaString(node, "acpSessionId", binding.remoteSessionId());
+            setMetaString(node, "acpCwd", binding.cwd());
+        });
+    }
+
+    @Override
+    public Map<String, String> getAgentConfig(String name) {
+        ONode meta = readMeta(name);
+        if (meta == null || !meta.get("agentConfig").isObject()) return Map.of();
+        Map<String, String> values = new java.util.LinkedHashMap<>();
+        meta.get("agentConfig").getObject().forEach((key, value) -> values.put(key, value.getString()));
+        return Map.copyOf(values);
+    }
+
+    @Override
+    public void setAgentConfig(String name, Map<String, String> values) throws IOException {
+        writeMeta(name, meta -> meta.set("agentConfig", values));
+    }
+
     private void updateMeta(String name, String label, java.util.function.Consumer<ONode> update) {
         try {
             writeMeta(name, update);

@@ -16,5 +16,9 @@ public interface AcpSessionBackend {
     List<SessionInfo> listSessions();
     default List<ChatMessage> history(String sessionId) { return List.of(); }
     default boolean isCancelled(String sessionId) { return false; }
+    default List<com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigOption> configOptions(String sessionId) { return List.of(); }
+    default void setConfigOption(String sessionId, String configId, Object value) {
+        throw new IllegalArgumentException("Agent does not support session configuration");
+    }
     record SessionInfo(String sessionId, String cwd) {}
 }

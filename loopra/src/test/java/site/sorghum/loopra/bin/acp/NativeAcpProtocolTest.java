@@ -48,11 +48,9 @@ class NativeAcpProtocolTest {
     }
 
     private static AcpSessionManager nativeSessions() throws Exception {
-        AcpSessionManager manager = new AcpSessionManager();
-        var provider = AcpSessionManager.class.getDeclaredField("sharedModelProvider");
-        provider.setAccessible(true);
-        provider.set(manager, site.sorghum.loopra.bin.model.TestLoopraProvider.returningStream("done"));
-        return manager;
+        return new AcpSessionManager(settings -> site.sorghum.loopra.bin.model.TestLoopraProvider.builder()
+                .model(settings.model()).channelId(settings.modelChannelId())
+                .stream(request -> site.sorghum.loopra.bin.model.TestLoopraProvider.contentStream("done")).build());
     }
 
     @Test

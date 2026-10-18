@@ -183,6 +183,7 @@ export const chatAPI = {
         // 添加项目和会话信息
         if (options.workspaceHash) requestBody.workspaceHash = options.workspaceHash
         if (options.sessionName) requestBody.sessionName = options.sessionName
+        if (options.agentId) requestBody.agentId = options.agentId
         if (options.model) requestBody.model = options.model
         if (options.modelChannelId) requestBody.modelChannelId = options.modelChannelId
         if (options.reasoningEffort) requestBody.reasoningEffort = options.reasoningEffort
@@ -274,6 +275,11 @@ export const chatAPI = {
 
 // Agent API
 export const agentAPI = {
+  engines: () => api.get('/agent-engines'),
+  engineSession: (workspaceHash, sessionName) => api.get('/agent-engines/session', {params: {workspaceHash, sessionName}}),
+  configuration: (workspaceHash, sessionName) => api.get('/agent-engines/config', {params: {workspaceHash, sessionName}}),
+  prepare: (request) => api.post('/agent-engines/prepare', request),
+  configure: (request) => api.put('/agent-engines/config', request),
   // 获取Agent状态 - GET /api/agent/status
   getStatus: () => {
     return api.get('/agent/status')
