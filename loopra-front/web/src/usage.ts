@@ -33,6 +33,16 @@ export function usagePath(workspaceHash: string, sessionName?: string) {
   return `/usage?${params.toString()}`;
 }
 
+/** Costs come from the Agent: Native prices in CNY, Claude Code reports USD. */
+export function formatUsageCost(value: number, currency?: string) {
+  const amount = Number(value || 0);
+  const text = amount > 0 && amount < 0.01 ? amount.toFixed(4) : amount.toFixed(2);
+  if (currency === 'USD') return `$${text}`;
+  if (currency === 'EUR') return `€${text}`;
+  if (currency && currency !== 'CNY') return `${text} ${currency}`;
+  return `¥${text}`;
+}
+
 function cacheHitRate(usage: UsageDTO) {
   const total = (usage.cacheHit || 0) + (usage.cacheMiss || 0);
   return total > 0 ? (usage.cacheHit / total) * 100 : null;

@@ -31,6 +31,19 @@ public interface SessionStore {
     }
 
     /**
+     * 外部 ACP Agent 上报的最后一次上下文用量。
+     * <p>{@code used} 是当前上下文已用 token，{@code size} 是该模型的上下文窗口；
+     * 外部 Agent 的累计 token 不在协议中，只能用它来准确展示上下文占用。</p>
+     */
+    record AcpUsage(long used, long size, Double cost, String currency, String model) {}
+
+    default AcpUsage getAcpUsage(String name) { return null; }
+
+    default void setAcpUsage(String name, AcpUsage usage) throws IOException {
+        throw new UnsupportedOperationException("ACP usage storage is unavailable");
+    }
+
+    /**
      * 获取当前会话名
      */
     String currentName();

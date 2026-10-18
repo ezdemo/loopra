@@ -7,7 +7,7 @@ import ts from 'typescript';
 // 80% fold threshold on the context bar and prints the threshold token count.
 const source = await readFile(new URL('../src/usage.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { FOLD_THRESHOLD_RATIO, foldThreshold, contextFromUsage, usagePath } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { FOLD_THRESHOLD_RATIO, foldThreshold, contextFromUsage, formatUsageCost, usagePath } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('fold threshold matches the legacy 80% window rule', () => {
   assert.equal(FOLD_THRESHOLD_RATIO, 0.8);
@@ -49,6 +49,27 @@ test('context view keeps the server window and exposes metrics', () => {
   assert.equal(contextFromUsage(null, fallback), fallback);
   assert.equal(contextFromUsage({ ...usage, contextEstimate: null, lastPromptTokens: 0 }, fallback), fallback);
   assert.equal(contextFromUsage({ ...usage, contextEstimate: null, lastPromptTokens: 5000 }, fallback).limit, 200000);
+});
+
+test('Agent-reported usage drives the context view without a local estimate', () => {
+  const fallback = { parts: [], total: 0, limit: 128000, percent: 0 };
+  // Claude Code reports context window usage over ACP; it has no breakdown and may price in USD.
+  const view = contextFromUsage({
+    promptTokens: 0, completionTokens: 0, cacheHit: 0, cacheMiss: 0, lastPromptTokens: 3210,
+    maxContextTokens: 200000, totalTokens: 0, model: 'claude-test', hasPrice: true,
+    totalCost: 0.0456, currency: 'USD', contextEstimate: null,
+  }, fallback);
+  assert.equal(view.total, 3210);
+  assert.equal(view.limit, 200000);
+  assert.equal(view.parts.length, 1);
+  assert.equal(view.parts[0].name, '会话上下文');
+  assert.equal(view.metrics.currency, 'USD');
+  assert.equal(formatUsageCost(0.0456, 'USD'), '$0.05');
+  assert.equal(formatUsageCost(0.0042, 'USD'), '$0.0042');
+  assert.equal(formatUsageCost(12.345, 'USD'), '$12.35');
+  assert.equal(formatUsageCost(3.7, 'CNY'), '¥3.70');
+  assert.equal(formatUsageCost(1, 'EUR'), '€1.00');
+  assert.equal(formatUsageCost(1, 'JPY'), '1.00 JPY');
 });
 
 test('usage path keeps the optional session name', () => {

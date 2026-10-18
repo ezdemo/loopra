@@ -48,6 +48,27 @@ class ExternalAcpSessionsTest {
         } finally { store.shutdown(); }
     }
 
+    @Test void contextUsageReportedByTheAgentIsPersistedAndStreamed() throws Exception {
+        var store = store();
+        List<String> events = new ArrayList<>();
+        AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
+            @Override public void sendEvent(String type, String data) { if (type.equals("usage")) events.add(data); }
+        };
+        try (var runtime = runtime()) {
+            prompt(runtime, store, "one", output);
+            SessionStore.AcpUsage usage = store.getAcpUsage("chat");
+            assertNotNull(usage, "ACP usage_update must outlive the transient connection");
+            assertEquals(3210, usage.used());
+            assertEquals(200000, usage.size());
+            assertEquals(0.0456, usage.cost(), 1e-9);
+            assertEquals("USD", usage.currency());
+            assertEquals("claude-test", usage.model());
+            assertEquals(1, events.size());
+            assertTrue(events.get(0).contains("\"used\":3210"));
+            assertTrue(events.get(0).contains("\"size\":200000"));
+        } finally { store.shutdown(); }
+    }
+
     @Test void groupedConfigurationChangesPersistAcrossConnectionsAndDriveActualPrompts() throws Exception {
         var store = store();
         try {

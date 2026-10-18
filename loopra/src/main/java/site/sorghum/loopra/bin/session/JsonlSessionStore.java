@@ -726,6 +726,33 @@ public class JsonlSessionStore implements SessionStore {
     }
 
     @Override
+    public AcpUsage getAcpUsage(String name) {
+        ONode meta = readMeta(name);
+        if (meta == null || !meta.get("acpUsage").isObject()) return null;
+        ONode usage = meta.get("acpUsage");
+        ONode cost = usage.get("cost");
+        return new AcpUsage(usage.get("used").getLong(), usage.get("size").getLong(),
+                cost == null || cost.isNull() ? null : cost.getDouble(),
+                metaString(usage, "currency"), metaString(usage, "model"));
+    }
+
+    @Override
+    public void setAcpUsage(String name, AcpUsage usage) throws IOException {
+        writeMeta(name, meta -> {
+            if (usage == null) {
+                meta.remove("acpUsage");
+                return;
+            }
+            ONode node = meta.getOrNew("acpUsage").asObject();
+            node.set("used", usage.used());
+            node.set("size", usage.size());
+            if (usage.cost() == null) node.remove("cost"); else node.set("cost", usage.cost());
+            setMetaString(node, "currency", usage.currency());
+            setMetaString(node, "model", usage.model());
+        });
+    }
+
+    @Override
     public Map<String, String> getAgentConfig(String name) {
         ONode meta = readMeta(name);
         if (meta == null || !meta.get("agentConfig").isObject()) return Map.of();

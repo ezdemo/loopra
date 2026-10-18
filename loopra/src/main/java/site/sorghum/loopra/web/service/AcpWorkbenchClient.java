@@ -38,6 +38,12 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     private volatile boolean configOptionsSupported;
     /** Optional owner hook so persistent sessions can save Agent-originated changes. */
     private volatile java.util.function.Consumer<List<AcpConfigOption>> configListener;
+    /** The Agent's last reported context usage; ACP omits cumulative session tokens. */
+    private volatile Usage lastUsage = new Usage(0, 0, null, null, null);
+    private volatile java.util.function.Consumer<Usage> usageListener;
+
+    /** Last `usage_update` values; later updates may omit cost or model. */
+    public record Usage(long used, long size, Double cost, String currency, String model) {}
 
     public AcpWorkbenchClient(AcpClientTransport transport, AgentOutput output) {
         this.output = output;
@@ -86,6 +92,11 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     /** Registers the owner that persists config changes made by the Agent itself. */
     public void setConfigListener(java.util.function.Consumer<List<AcpConfigOption>> listener) {
         this.configListener = listener;
+    }
+
+    /** Registers the owner that persists the context usage reported by the Agent. */
+    public void setUsageListener(java.util.function.Consumer<Usage> listener) {
+        this.usageListener = listener;
     }
 
     public synchronized List<AcpConfigOption> setConfigOption(String id, Object value) {
@@ -193,7 +204,39 @@ public final class AcpWorkbenchClient implements AutoCloseable {
                 output.onToolUpdate(call.toolCallId(), name, call.rawInput() == null ? null : ONode.serialize(call.rawInput()));
             }
             finishTool(call.toolCallId(), name, call.status(), call.rawOutput(), call.content());
+        } else if (update instanceof UsageUpdate usage) {
+            reportUsage(usage);
         }
+    }
+
+    /**
+     * ACP's `usage_update` carries the current context size, not cumulative token
+     * counters. Compaction updates may omit cost and model, so keep the last known
+     * values instead of making the usage panel regress to "estimate".
+     */
+    private void reportUsage(UsageUpdate update) {
+        Usage previous = lastUsage;
+        long used = update.used() == null ? previous.used() : update.used();
+        long size = update.size() == null ? previous.size() : update.size();
+        Double cost = update.cost() == null ? previous.cost() : update.cost().amount();
+        String currency = update.cost() == null ? previous.currency() : update.cost().currency();
+        String model = previous.model();
+        if (update.meta() != null && update.meta().get("_claude/model") instanceof String reported && !reported.isBlank()) {
+            model = reported;
+        }
+        Usage current = new Usage(used, size, cost, currency, model);
+        lastUsage = current;
+        var listener = usageListener;
+        if (listener != null) listener.accept(current);
+        Map<String, Object> event = new java.util.LinkedHashMap<>();
+        event.put("used", used);
+        event.put("size", size);
+        if (cost != null) {
+            event.put("cost", cost);
+            event.put("currency", currency);
+        }
+        if (model != null) event.put("model", model);
+        output.sendEvent("usage", ONode.serialize(event));
     }
 
     private void finishTool(String id, String name, ToolCallStatus status, Object raw, List<ToolCallContent> content) {

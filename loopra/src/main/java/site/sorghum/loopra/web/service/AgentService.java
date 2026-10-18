@@ -1611,6 +1611,18 @@ public class AgentService implements ProjectRuntimeAccess {
      */
     public UsageDTO getSessionUsageMap(String workspacePath, String sessionName) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
+        // External Agents report context usage over ACP; never create a Native Agent for
+        // their conversations, which would show an empty native context estimate.
+        if (sessionName != null && !sessionName.isBlank()) {
+            SessionStore store = sessionStoreFor(workspacePath);
+            if (store != null) {
+                try {
+                    if (!"native".equals(store.getAcpBinding(sessionName).agentId())) {
+                        return sessionUsageService.readAcp(store.getAcpUsage(sessionName));
+                    }
+                } finally { store.shutdown(); }
+            }
+        }
         LoopraAgent agent;
         // 每次按会话解析一次设置，确保模型设置 API 更新后，已缓存 Agent 的用量视图也同步。
         if (sessionName != null && !sessionName.isBlank()) {

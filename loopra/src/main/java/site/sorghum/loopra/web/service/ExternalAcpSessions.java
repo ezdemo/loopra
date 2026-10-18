@@ -122,6 +122,7 @@ final class ExternalAcpSessions implements AutoCloseable {
             // Each turn gets a new SessionStore instance, so the persistence hook
             // must follow the store currently in use.
             client.setConfigListener(options -> persistConfiguration(store, name, options));
+            client.setUsageListener(usage -> persistUsage(store, name, usage));
             return;
         }
         SessionStore.AcpBinding binding = store.getAcpBinding(name);
@@ -139,6 +140,24 @@ final class ExternalAcpSessions implements AutoCloseable {
         restoreConfiguration(client, name, store);
         connection.directories = directories;
         client.setConfigListener(options -> persistConfiguration(store, name, options));
+        client.setUsageListener(usage -> persistUsage(store, name, usage));
+    }
+
+    /**
+     * Context usage is per conversation, so it survives process restarts and session switches.
+     * <p>A fresh process only learns the cost at the result message; a cancelled turn may
+     * end after a cost-less mid-stream update, so keep the previous cost in that case.</p>
+     */
+    private void persistUsage(SessionStore store, String name, AcpWorkbenchClient.Usage usage) {
+        try {
+            SessionStore.AcpUsage previous = store.getAcpUsage(name);
+            store.setAcpUsage(name, new SessionStore.AcpUsage(usage.used(), usage.size(),
+                    usage.cost() != null ? usage.cost() : previous == null ? null : previous.cost(),
+                    usage.currency() != null ? usage.currency() : previous == null ? null : previous.currency(),
+                    usage.model() != null ? usage.model() : previous == null ? null : previous.model()));
+        } catch (java.io.IOException e) {
+            log.warn("[acp] 保存上下文用量失败: session={}, 原因={}", name, e.getMessage());
+        }
     }
 
     /** Persist the Agent's current configuration, including changes it makes itself. */

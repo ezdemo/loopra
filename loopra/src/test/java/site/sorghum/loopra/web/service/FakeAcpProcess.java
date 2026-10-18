@@ -78,6 +78,11 @@ public final class FakeAcpProcess {
                     } else {
                         update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "reply:" + text
                                 + ("state".equals(text) ? ":" + model + ":" + mode : ""))));
+                        // Real adapters report the context window in an unstable ACP update;
+                        // later compaction updates may omit cost and model.
+                        update(Map.of("sessionUpdate", "usage_update", "used", 3210, "size", 200000,
+                                "cost", Map.of("amount", 0.0456, "currency", "USD"),
+                                "_meta", Map.of("_claude/model", "claude-test")));
                         response(id, Map.of("stopReason", "end_turn"));
                     }
                 }
