@@ -96,6 +96,10 @@ export default function App() {
   const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
   const [engines, setEngines] = useState<AgentEngine[]>([]);
   const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});
+  // Home has no session yet, but its composer still advertises the selected
+  // Agent's options. The prepared backend session is reused by the first send.
+  const [newAgentConfig, setNewAgentConfig] = useState<{ key: string; options: AgentConfigOption[] } | null>(null);
+  const preparedNewSession = useRef<{ key: string; target: Session } | null>(null);
   const [agentConfigBusy, setAgentConfigBusy] = useState<string>();
   const [agentConfigError, setAgentConfigError] = useState('');
   const [generatingId, setGeneratingId] = useState<string | null>(null);
@@ -135,6 +139,7 @@ export default function App() {
   const isHome = !session;
   const agentId = session?.agentId || (session ? 'native' : newAgentId);
   const externalAgent = agentId !== 'native';
+  const agentConfigKey = `${workspace}::${agentId}`;
   useEffect(() => {
     setAgentConfigError('');
     if (!session?.name || !session.workspaceHash || backend.status !== 'connected') return;
@@ -158,6 +163,19 @@ export default function App() {
   const currentWorkspace = workspaces.find(item => item.hash === workspace);
   const workspaceName = currentWorkspace?.name || '选择工作区';
   const isDark = preferences.theme === '深色' || (preferences.theme === '跟随系统' && systemDark);
+  // A new chat has no session yet, but the Agent's choices are already known:
+  // prepare them in the background so the composer never asks for a manual step.
+  useEffect(() => {
+    if (session || !currentWorkspace || backend.status !== 'connected' || !backend.ready) return;
+    if (newAgentConfig?.key === agentConfigKey || preparedNewSession.current?.key === agentConfigKey) return;
+    const engine = engines.find(item => item.id === agentId);
+    if (engine && !engine.available) return;
+    const controller = new AbortController();
+    // Debounce so StrictMode's throwaway first effect (and rapid Agent toggles)
+    // never spawns a backend session that nobody asked for.
+    const timer = setTimeout(() => void loadNewAgentConfig(currentWorkspace.hash, agentId, controller.signal), 120);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [session, agentConfigKey, currentWorkspace, backend.status, backend.ready, newAgentConfig?.key, engines, agentId]);
 
   useLayoutEffect(() => {
     // Root tokens also reach NextUI menus, modals and tooltips rendered in portals.
@@ -185,7 +203,8 @@ export default function App() {
     // Leaving plan mode discards any submitted plan, so confirm first (legacy togglePlan).
     if (!next.plan && composerOptions.plan && session) { setDiscardPlan(true); return Promise.resolve(); }
     return mutation(async () => {
-      const target = session || await prepareAgentConfig();
+      const prepared = preparedNewSession.current;
+      const target = session || (prepared?.key === agentConfigKey ? prepared.target : undefined) || await prepareAgentConfig();
       if (!target) return;
       const changes: [string, string][] = [];
       if (next.modelId !== composerOptions.modelId) changes.push(['model', next.modelId]);
@@ -196,10 +215,37 @@ export default function App() {
       for (const [configId, value] of changes) {
         const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
           { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
-        setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
+        if (session) setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
+        else setNewAgentConfig(current => current && current.key === agentConfigKey ? { ...current, options: result.configOptions } : current);
       }
       setComposerOptions(next);
     }).catch(() => {});
+  }
+  /**
+   * Fetch the selected Agent's defaults for the home composer. The returned
+   * session name is kept only as a draft: it becomes visible when the first
+   * message is sent, so browsing the home page never adds empty sessions.
+   */
+  async function loadNewAgentConfig(workspaceHash: string, requestedAgent: string, signal?: AbortSignal) {
+    const key = `${workspaceHash}::${requestedAgent}`;
+    const busyId = `new:${key}`;
+    setAgentConfigBusy(busyId); setAgentConfigError('');
+    try {
+      const prepared = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
+        { workspaceHash, sessionName: undefined, agentId: requestedAgent }, signal);
+      if (signal?.aborted) return;
+      const project = workspaces.find(item => item.hash === workspaceHash);
+      if (!project) return;
+      const target = remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, project);
+      preparedNewSession.current = { key, target };
+      setNewAgentConfig({ key, options: prepared.configOptions });
+    } catch (error) {
+      if (signal?.aborted) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setAgentConfigError(message); notify(message);
+    } finally {
+      setAgentConfigBusy(current => current === busyId ? undefined : current);
+    }
   }
   async function prepareAgentConfig() {
     if (!currentWorkspace) { notify('请先选择工作区'); return; }
@@ -214,14 +260,20 @@ export default function App() {
     } catch (error) { const message = error instanceof Error ? error.message : String(error); setAgentConfigError(message); notify(message); }
     finally { setAgentConfigBusy(undefined); }
   }
+  function retryAgentConfig() {
+    if (session) { void prepareAgentConfig(); return; }
+    if (currentWorkspace) void loadNewAgentConfig(currentWorkspace.hash, agentId);
+  }
   async function changeAgentConfig(configId: string, value: string | boolean) {
-    if (!session) return;
-    const target = session;
+    const prepared = preparedNewSession.current;
+    const target = session || (prepared?.key === agentConfigKey ? prepared.target : undefined);
+    if (!target) return;
     setAgentConfigBusy(target.id);
     try {
       const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
         { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
-      setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
+      if (session) setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
+      else setNewAgentConfig(current => current && current.key === agentConfigKey ? { ...current, options: result.configOptions } : current);
       if (target.agentId === 'native' || !target.agentId) {
         // Native choices also feed the legacy settings page and plan review, so
         // mirror the Agent's authoritative config back into composer options.
@@ -608,8 +660,19 @@ export default function App() {
     let petAnswer = assistant;
     try {
       if (!target) {
-        const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
-        target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId }, currentWorkspace);
+        // Reuse the draft prepared for the home composer so its Agent choices
+        // (model, permission mode, effort…) survive into the first real turn.
+        const prepared = preparedNewSession.current;
+        if (prepared?.key === agentConfigKey) {
+          target = { ...prepared.target, title: titleSource.slice(0, 60) };
+          const options = newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : undefined;
+          if (options) setAgentConfigs(current => ({ ...current, [target!.id]: options }));
+          preparedNewSession.current = null;
+          setNewAgentConfig(null);
+        } else {
+          const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
+          target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId }, currentWorkspace);
+        }
         activeRequest.current!.session = target;
         await api.request(sessionRoute(target, '/title'), 'PUT', { title: target.title }, controller.signal);
         setSessions(current => [...current, target!]); setActiveId(target.id);
@@ -764,7 +827,7 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
-    agentConfig={{ options: session ? agentConfigs[session.id] : undefined, busy: !!agentConfigBusy, error: agentConfigError, onPrepare: () => void prepareAgentConfig(), onChange: (id, value) => void changeAgentConfig(id, value) }}
+    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : undefined, busy: !!agentConfigBusy, error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
     onAgentsRefresh={() => { void api.request<AgentEngine[]>('/agent-engines').then(setEngines).catch(() => {}); }}
     agentId={agentId} engines={engines} onAgent={id => { if (id === agentId) return; if (generatingId) { notify('请先停止当前任务'); return; } setNewAgentId(id); newSession(); }}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}

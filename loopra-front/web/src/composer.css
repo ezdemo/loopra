@@ -18,6 +18,7 @@
 .composer-selection-list > button.is-danger:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .rich-composer .composer-icon { width: 1.75rem; height: 1.75rem; min-width: 1.75rem; padding: 0; border-radius: var(--radius-md); color: var(--muted); background: transparent; }
 .rich-composer .composer-icon:hover { background: var(--hover); color: var(--text); }
+.agent-config-loading { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; color: var(--muted); }
 .rich-composer .composer-permission { min-width: 0; padding: 0 .5rem; height: 1.75rem; gap: .25rem; border-radius: var(--radius-md); color: var(--secondary); font-size: .75rem; background: transparent; }
 .rich-composer .composer-permission.automatic { color: var(--danger); }
 .rich-composer .composer-model { min-width: 0; height: 1.75rem; padding: 0 .5rem; border-radius: var(--radius-md); gap: .25rem; font-size: .8125rem; color: var(--secondary); background: transparent; max-width: 15rem; }
