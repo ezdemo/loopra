@@ -87,8 +87,11 @@ export function Enter({ children, className, as: Component = 'div', style, 'aria
   return <Component aria-label={label} className={className} style={style} data-message-id={messageId}>{children}</Component>;
 }
 
-export function SidebarSurface({ open, children }: { open: boolean; children: ReactNode }) {
-  return <aside className="sidebar" data-open={open} aria-label="工作区和会话">{children}</aside>;
+export function SidebarSurface({ open, width, children }: { open: boolean; width?: number; children: ReactNode }) {
+  // The width is inline because it follows a drag; `--sidebar-width` lets the
+  // closed state slide exactly that far off-screen.
+  return <aside className="sidebar" data-open={open}
+    style={width ? ({ width, flexBasis: width, '--sidebar-width': `${width}px` } as CSSProperties) : undefined} aria-label="工作区和会话">{children}</aside>;
 }
 
 export function Toast({ message, children }: { message: string; children: ReactNode }) {

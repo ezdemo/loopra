@@ -7,11 +7,12 @@ import ts from 'typescript';
 // The right dock retains the legacy resize behaviour.
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const sidebar = await readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8');
+const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 const panels = await readFile(new URL('../src/components/Panels.tsx', import.meta.url), 'utf8');
 const workbenchCss = await readFile(new URL('../src/workbench.css', import.meta.url), 'utf8');
 const panelResizeSource = await readFile(new URL('../src/panel-resize.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(panelResizeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { clampPanelWidth, resizePanelWidth } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { clampPanelWidth, clampSidebarWidth, resizePanelWidth, resizeSidebarWidth } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('skills remain available in settings after removing the sidebar shortcut', async () => {
   const settings = await readFile(new URL('../src/components/Settings.tsx', import.meta.url), 'utf8');
@@ -50,4 +51,23 @@ test('panel width clamps to the legacy 240px floor and 70% viewport cap', () => 
   assert.equal(resizePanelWidth(320, 100, 1000), 240);
   // A tiny viewport still leaves the floor reachable instead of collapsing.
   assert.equal(clampPanelWidth(600, 200), 240);
+});
+
+test('the left sidebar drags wider between 180px and 480px', () => {
+  assert.equal(resizeSidebarWidth(240, 96, 1600), 336);
+  assert.equal(resizeSidebarWidth(300, -300, 1600), 180);
+  assert.equal(clampSidebarWidth(100, 1600), 180);
+  assert.equal(clampSidebarWidth(900, 1600), 480);
+  // Narrow windows cap the sidebar at 45% of the viewport.
+  assert.equal(clampSidebarWidth(900, 800), 360);
+});
+
+test('the sidebar resize handle persists its width', () => {
+  assert.match(sidebar, /useLocalState<number>\('sidebar-width', DEFAULT_SIDEBAR_WIDTH\)/);
+  assert.match(sidebar, /resizeSidebarWidth\(startWidth, move\.clientX - startX, window\.innerWidth\)/);
+  assert.match(sidebar, /className=\{`sidebar-resize-handle/);
+  assert.match(sidebar, /role="separator" aria-orientation="vertical"/);
+  assert.match(styles, /\.sidebar-resize-handle \{/);
+  assert.match(styles, /cursor: col-resize;/);
+  assert.match(styles, /margin-left: calc\(-1 \* var\(--sidebar-width, 15rem\)\)/);
 });

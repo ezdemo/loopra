@@ -5,6 +5,7 @@ import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Moti
 import { useLocalState, type Session } from '../lib';
 import type { Workspace } from '../backend';
 import { sessionDate } from '../session-order';
+import { DEFAULT_SIDEBAR_WIDTH, clampSidebarWidth, resizeSidebarWidth } from '../panel-resize';
 
 /** Sessions a project shows before the list folds behind "展开显示". */
 const SESSION_GROUP_LIMIT = 6;
@@ -60,6 +61,25 @@ export default function Sidebar(props: SidebarProps) {
   const [draggingSession, setDraggingSession] = useState('');
   const [dragOverSession, setDragOverSession] = useState('');
   const [expandedGroups, setExpandedGroups] = useLocalState<string[]>('expanded-session-groups', []);
+  const [sidebarWidth, setSidebarWidth] = useLocalState<number>('sidebar-width', DEFAULT_SIDEBAR_WIDTH);
+  const [resizing, setResizing] = useState(false);
+  // A narrower window must not leave a stored wide sidebar covering the chat.
+  useEffect(() => {
+    const onResize = () => setSidebarWidth(current => clampSidebarWidth(current, window.innerWidth));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [setSidebarWidth]);
+  function startResize(event: React.MouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width || sidebarWidth;
+    setResizing(true);
+    document.body.style.cursor = 'col-resize';
+    const onMove = (move: MouseEvent) => setSidebarWidth(resizeSidebarWidth(startWidth, move.clientX - startX, window.innerWidth));
+    const onUp = () => { setResizing(false); document.body.style.cursor = ''; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
   const allCollapsed = workspaces.length > 0 && workspaces.every(item => collapsed.includes(item.hash));
   const toggle = (hash: string) => onCollapsed(current => current.includes(hash) ? current.filter(item => item !== hash) : [...current, hash]);
   const toggleExpanded = (hash: string) => setExpandedGroups(current => current.includes(hash) ? current.filter(item => item !== hash) : [...current, hash]);
@@ -90,7 +110,9 @@ export default function Sidebar(props: SidebarProps) {
     };
   }
 
-  return <SidebarSurface key="sidebar" open={props.open}>
+  return <SidebarSurface key="sidebar" open={props.open} width={sidebarWidth}>
+    <div className={`sidebar-resize-handle${resizing ? ' resizing' : ''}`} role="separator" aria-orientation="vertical"
+      aria-label="拖动调整侧边栏宽度" title="拖动调整侧边栏宽度" onMouseDown={startResize} />
     <div className="sidebar-brand">
       <span className="app-icon"><LoopraMark small /></span><span>Loopra</span>
       <IconButton label="收起侧边栏" onClick={props.onClose}><PanelLeft size="1rem" /></IconButton>

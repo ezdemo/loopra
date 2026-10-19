@@ -53,7 +53,7 @@ test('the sidebars slide both ways through one shared Bézier', () => {
   assert.match(motion, /--panel-slide-ease: cubic-bezier\(\.32, \.72, 0, 1\);/);
 
   for (const [selector, axis, distance] of [
-    ['.sidebar', 'margin-left', '-15rem'],
+    ['.sidebar', 'margin-left', 'calc\\(-1 \\* var\\(--sidebar-width, 15rem\\)\\)'],
     ['.changes-panel', 'margin-right', 'calc\\(-1 \\* var\\(--panel-width, 26rem\\)\\)'],
   ]) {
     const open = ruleBody(styles, selector);
@@ -71,7 +71,7 @@ test('the sidebars slide both ways through one shared Bézier', () => {
 
 test('the panels mount off-screen so the opening slide needs no JS frame', () => {
   const starting = styles.match(/@starting-style \{([\s\S]*?)\n\}/)[1];
-  assert.match(starting, /\.sidebar \{ margin-left: -15rem; \}/);
+  assert.match(starting, /\.sidebar \{ margin-left: calc\(-1 \* var\(--sidebar-width, 15rem\)\); \}/);
   assert.match(starting, /\.changes-panel \{ margin-right: calc\(-1 \* var\(--panel-width, 26rem\)\); \}/);
   assert.match(starting, /\.sidebar-backdrop\[data-open="true"\], \.workbench-backdrop\[data-open="true"\] \{ opacity: 0; \}/);
 });
@@ -94,8 +94,9 @@ test('both backdrops fade with their panel instead of popping', () => {
   assert.match(ruleBody(styles, '.sidebar-backdrop'), /transition: opacity var\(--panel-slide-duration\) var\(--panel-slide-ease\), visibility 0s/);
   assert.match(ruleBody(styles, '.sidebar-backdrop[data-open="true"]'), /opacity: 1; visibility: visible;/);
   // The workbench backdrop is `display: none` while the panel is docked, so only the
-  // overlay layout carries the fade.
-  assert.match(styles, /\.workbench-backdrop \{ display: block;[^}]*transition: opacity var\(--panel-slide-duration\)/);
+  // overlay layout carries the fade. It is an invisible click-catcher, so the chat
+  // behind an open panel is never dimmed.
+  assert.match(styles, /\.workbench-backdrop \{ display: block;[^}]*background: transparent;[^}]*transition: opacity var\(--panel-slide-duration\)/);
   assert.match(ruleBody(styles, '.workbench-backdrop[data-open="true"]'), /opacity: 1; visibility: visible;/);
 });
 

@@ -55,6 +55,8 @@ export default function Header(p: HeaderProps) {
         </Popup>
       </div>
     </div>}
+    {/* Electron drag area: the empty stretch between the title and the actions. */}
+    <div className="header-drag" aria-hidden="true" />
     <div className="header-actions">
       <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · v${backend.version}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
       {!p.isHome && <>

@@ -13,6 +13,7 @@ const shellUrl = 'data:text/javascript;base64,' + Buffer.from(shellJs).toString(
 const { desktopPlatform, desktopWindowApi, isDesktopWindow, usesNativeWindowControls } = await import(shellUrl);
 
 const titleBar = await readFile(new URL('../src/components/DesktopTitleBar.tsx', import.meta.url), 'utf8');
+const header = await readFile(new URL('../src/layout/Header.tsx', import.meta.url), 'utf8');
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 const routing = await import('../../src/entry-routing.js');
@@ -43,20 +44,34 @@ test('platform defaults to win32 and only macOS uses native window controls', ()
 
 test('the app renders the title bar and shell class only on desktop', () => {
   assert.match(app, /import DesktopTitleBar from '\.\/components\/DesktopTitleBar';/);
-  assert.match(app, /isDesktopWindow\(\) \? ' is-desktop-shell' : ''/);
-  assert.match(app, /\{isDesktopWindow\(\) && <DesktopTitleBar \/>\}/);
+  assert.match(app, /desktopShell \? ' is-desktop-shell' : ''/);
+  assert.match(app, /\{desktopShell && <DesktopTitleBar \/>\}/);
 });
 
-test('the desktop title bar provides a draggable region with no-drag controls', () => {
-  assert.match(styles, /\.desktop-titlebar \{[^}]*-webkit-app-region: drag;/);
+test('the shell first row is the drag region with no-drag controls', () => {
+  const titleRow = styles.match(/\.desktop-app\.is-desktop-shell \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell \.conversation-header,\s*\.desktop-app\.is-desktop-shell \.panel-header \{([^}]*)\}/)[1];
+  assert.match(titleRow, /height: 2\.25rem;/);
+  const dragRegion = styles.match(/\.desktop-app\.is-desktop-shell \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell \.panel-header,\s*\.desktop-app\.is-desktop-shell \.header-drag \{([^}]*)\}/)[1];
+  assert.match(dragRegion, /-webkit-app-region: drag;/);
+  // The header's drag area is the empty stretch only: a drag region under the
+  // fixed window controls would swallow their clicks (Electron behaviour).
+  assert.match(header, /className="header-drag" aria-hidden="true"/);
+  assert.doesNotMatch(styles, /\.conversation-header \{[^}]*-webkit-app-region: drag;/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell button,[\s\S]*?-webkit-app-region: no-drag;/);
   assert.match(styles, /\.desktop-window-controls \{[^}]*-webkit-app-region: no-drag;/);
+  // The controls float over the title row; when the panel is closed the header
+  // reserves their width, and the overlay layout always does.
+  assert.match(styles, /\[data-panel="closed"\] \.conversation-header \{ padding-right: 8\.25rem; \}/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell \.changes-panel \{ margin-top: 2\.25rem; \}/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.changes-panel \{ margin-top: 36px; \}/);
+  assert.doesNotMatch(styles, /\.panel-header \{ padding-right: 8\.25rem/);
   // The OS draws the macOS traffic lights at a fixed device-pixel position, so
   // the metrics that line up with them must not follow the rem-based UI scale
   // (`:root { font-size: calc(16px * var(--ui-scale)) }`) or they drift onto the
   // title whenever 界面缩放 is below 100%.
-  const nativeMetrics = styles.match(/\.desktop-titlebar\.is-native-controls \{([^}]*)\}/)[1];
+  const nativeMetrics = styles.match(/\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell\.is-native-controls \.conversation-header \{([^}]*)\}/)[1];
   assert.match(nativeMetrics, /height: 36px;/);
-  assert.match(nativeMetrics, /padding-left: 80px;/);
+  assert.match(styles, /padding-left: 80px;/);
   assert.doesNotMatch(nativeMetrics, /rem/);
 });
 
@@ -127,7 +142,7 @@ test('macOS keeps the native traffic lights and draws no duplicate controls', as
   assert.match(html, /class="desktop-titlebar is-native-controls"/);
   assert.doesNotMatch(html, /desktop-window-controls/);
   assert.doesNotMatch(html, /aria-label="关闭窗口"/);
-  // The shell header directly below already shows the app name, so the drag
-  // strip carries no label of its own.
+  // The sidebar brand / conversation header already show the app name, so the
+  // floating chrome carries no label of its own.
   assert.doesNotMatch(html, /Loopra/);
 });

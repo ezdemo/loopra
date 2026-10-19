@@ -42,7 +42,7 @@ import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
 import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
-import { isDesktopWindow } from './desktop-shell';
+import { desktopPlatform, isDesktopWindow, usesNativeWindowControls } from './desktop-shell';
 import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
 import { notifyWorkspaceChanged } from './workspace-events';
 import WorkspaceTabs from './components/WorkspaceTabs';
@@ -979,8 +979,12 @@ export default function App() {
     liveSpeed={liveSpeed}
     onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} /></BackgroundTasks>;
 
-  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${isDesktopWindow() ? ' is-desktop-shell' : ''}`}>
-    {isDesktopWindow() && <DesktopTitleBar />}
+  // The window controls float over the first row (sidebar brand and conversation
+  // header), so the shell has no empty title-bar strip of its own.
+  const desktopShell = isDesktopWindow();
+  const nativeWindowControls = desktopShell && usesNativeWindowControls(desktopPlatform());
+  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
+    {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
       {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed}

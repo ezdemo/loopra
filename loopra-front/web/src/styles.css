@@ -130,8 +130,13 @@ svg { flex-shrink: 0; }
    unmounted then, so the transition lives on the element and `usePresence` keeps it
    mounted for the exit half. The panel's own box moves (margin), never its width, so
    its content slides rigidly instead of re-flowing. */
-.sidebar { flex: 0 0 15rem; width: 15rem; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--sidebar); min-height: 0; margin-left: 0; transition: margin-left var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s; }
-.sidebar[data-open="false"] { margin-left: -15rem; visibility: hidden; transition: margin-left var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
+.sidebar { position: relative; flex: 0 0 15rem; width: 15rem; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--sidebar); min-height: 0; margin-left: 0; transition: margin-left var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s; }
+.sidebar[data-open="false"] { margin-left: calc(-1 * var(--sidebar-width, 15rem)); visibility: hidden; transition: margin-left var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
+/* Drag the right edge to resize; the width lives inline (see SidebarSurface). */
+.sidebar-resize-handle { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; z-index: 3; border-radius: var(--radius-sm); cursor: col-resize; }
+.sidebar-resize-handle:hover, .sidebar-resize-handle.resizing { background: color-mix(in srgb, var(--accent, #2563eb) 30%, transparent); }
+.sidebar.resizing { user-select: none; }
+.sidebar.resizing *, .sidebar-resize-handle { cursor: col-resize; }
 
 .sidebar-brand { display: flex; align-items: center; gap: .5rem; height: 3rem; flex: 0 0 3rem; padding: 0 .625rem 0 .875rem; white-space: nowrap; user-select: none; font-weight: 600; letter-spacing: -.01em; }
 .sidebar-brand > .icon-button { margin-left: auto; }
@@ -195,7 +200,6 @@ svg { flex-shrink: 0; }
 .conversation-header { height: 3rem; flex: 0 0 3rem; display: flex; align-items: center; padding: 0 .75rem 0 1rem; gap: .75rem; z-index: 25; }
 .home-header { justify-content: flex-end; }
 .sidebar-reopen { margin-right: .125rem; }
-.home-header > .sidebar-reopen { margin-right: auto; }
 
 .breadcrumb { display: flex; align-items: center; gap: .375rem; white-space: nowrap; min-width: 0; flex: 1; font-size: .8125rem; }
 .breadcrumb > span:first-child { color: var(--muted); max-width: 30%; overflow: hidden; text-overflow: ellipsis; flex-shrink: 2; }
@@ -588,7 +592,7 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 /* Entry half. A newly mounted panel starts off-screen and slides to its place with
    no JS frame needed; the backdrops fade up the same way. */
 @starting-style {
-  .sidebar { margin-left: -15rem; }
+  .sidebar { margin-left: calc(-1 * var(--sidebar-width, 15rem)); }
   .changes-panel { margin-right: calc(-1 * var(--panel-width, 26rem)); }
   .sidebar-backdrop[data-open="true"], .workbench-backdrop[data-open="true"] { opacity: 0; }
 }
@@ -996,7 +1000,8 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
   .native-select { min-width: 13.125rem; }
 
   .changes-panel { position: absolute; right: 0; bottom: 0; top: 0; z-index: 42; box-shadow: -0.4375rem 0 1.5rem #0000000b; }
-  .workbench-backdrop { display: block; position: absolute; inset: 0; z-index: 41; background: #0003; border: 0; cursor: default; opacity: 0; visibility: hidden; transition: opacity var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
+  /* Invisible click-catcher: closing by clicking outside must not dim the chat. */
+  .workbench-backdrop { display: block; position: absolute; inset: 0; z-index: 41; background: transparent; border: 0; cursor: default; opacity: 0; visibility: hidden; transition: opacity var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s linear var(--panel-slide-duration); }
   .workbench-backdrop[data-open="true"] { opacity: 1; visibility: visible; transition: opacity var(--panel-slide-duration) var(--panel-slide-ease), visibility 0s; }
 
   .has-changes .header-actions { gap: 0.4375rem; }
@@ -1007,7 +1012,9 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
 
   .desktop-app { border-radius: 0; }
 
-      .sidebar { position: absolute; top: 0; left: 0; bottom: 0; width: 15rem; z-index: 32; box-shadow: 0.625rem 0 1.875rem #0001; }
+      .sidebar { position: absolute; top: 0; left: 0; bottom: 0; width: 15rem !important; flex-basis: 15rem !important; z-index: 32; box-shadow: 0.625rem 0 1.875rem #0001; }
+
+  .sidebar-resize-handle { display: none; }
 
   .conversation-header { padding-left: 0.9375rem; gap: 0.4375rem; }
 
@@ -1204,18 +1211,55 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
   .sidebar ~ .changes-panel { max-width: max(15rem, calc(100% - 36rem)); }
 }
 
-/* Electron window chrome (rendered only when electronAPI.window exists). */
-.desktop-titlebar { display: flex; align-items: center; height: 2.25rem; min-height: 2.25rem; padding-left: .75rem; background: var(--surface); border-bottom: 1px solid var(--line); user-select: none; -webkit-app-region: drag; }
-/* macOS draws the real traffic lights itself at a fixed device-pixel position
-   (~64px wide, 12px tall), while `rem` follows the 界面缩放 setting on :root.
-   Every metric that has to line up with them is therefore pinned to px — a rem
-   here would shrink with the UI scale and let the bar fall behind the buttons. */
-.desktop-titlebar.is-native-controls { height: 36px; min-height: 36px; padding-left: 80px; }
-.desktop-titlebar-spacer { flex: 1; align-self: stretch; }
-.desktop-window-controls { display: flex; align-self: stretch; -webkit-app-region: no-drag; }
+/* Electron window chrome (rendered only when electronAPI.window exists).
+   The controls float over the first row, so the sidebar brand and the
+   conversation header themselves form the title bar and no empty strip is
+   reserved above the app. */
+.desktop-titlebar { position: fixed; top: 0; right: 0; z-index: 80; display: flex; align-items: stretch; height: 2.25rem; background: var(--surface); user-select: none; -webkit-app-region: no-drag; }
+.desktop-titlebar.is-native-controls { display: none; }
+.desktop-window-controls { display: flex; align-items: stretch; height: 100%; -webkit-app-region: no-drag; }
 .dw-btn { width: 2.75rem; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 0; color: var(--text); cursor: default; }
 .dw-btn:hover { background: var(--soft); }
 .dw-btn.dw-close:hover { background: #e81123; color: #fff; }
+/* The first row of each pane doubles as the window drag region; every
+   interactive control opts back out so it stays clickable. The conversation
+   header keeps its empty middle stretch as the drag area instead of marking the
+   whole header, so the fixed window controls are never covered by a drag
+   region (Electron ignores clicks that land under one). */
+.desktop-app.is-desktop-shell .sidebar-brand,
+.desktop-app.is-desktop-shell .conversation-header,
+.desktop-app.is-desktop-shell .panel-header { height: 2.25rem; flex-basis: 2.25rem; }
+.desktop-app.is-desktop-shell .sidebar-brand,
+.desktop-app.is-desktop-shell .panel-header,
+.desktop-app.is-desktop-shell .header-drag { -webkit-app-region: drag; }
+.header-drag { flex: 1 1 auto; align-self: stretch; min-width: .5rem; }
+.desktop-app.is-desktop-shell button,
+.desktop-app.is-desktop-shell input,
+.desktop-app.is-desktop-shell textarea,
+.desktop-app.is-desktop-shell select,
+.desktop-app.is-desktop-shell a,
+.desktop-app.is-desktop-shell .popup { -webkit-app-region: no-drag; }
+/* Leave room for the drawn minimize/maximize/close buttons. The panel opens
+   below the title row, so its own header/buttons keep their normal layout; the
+   conversation header stays rightmost and keeps the original buttons clear. */
+.desktop-app.is-desktop-shell:not(.is-native-controls)[data-panel="closed"] .conversation-header { padding-right: 8.25rem; }
+.desktop-app.is-desktop-shell .changes-panel { margin-top: 2.25rem; }
+/* The transparent click-catcher must not swallow the title row's own buttons. */
+.desktop-app.is-desktop-shell:not(.is-native-controls) .workbench-backdrop { top: 2.25rem; }
+.desktop-app.is-desktop-shell.is-native-controls .workbench-backdrop { top: 36px; }
+@media (max-width: 1100px) {
+  /* The overlay panel floats over the main area but starts below this row, so
+     the header row still reaches the window edge. */
+  .desktop-app.is-desktop-shell:not(.is-native-controls) .conversation-header { padding-right: 8.25rem; }
+}
+/* macOS draws the real traffic lights itself at a fixed device-pixel position
+   (~64px wide, 12px tall), while `rem` follows the 界面缩放 setting on :root.
+   Every metric that has to line up with them is therefore pinned to px. */
+.desktop-app.is-desktop-shell.is-native-controls .sidebar-brand,
+.desktop-app.is-desktop-shell.is-native-controls .conversation-header { height: 36px; flex-basis: 36px; }
+.desktop-app.is-desktop-shell.is-native-controls .sidebar-brand { padding-left: 80px; }
+.desktop-app.is-desktop-shell.is-native-controls .changes-panel { margin-top: 36px; }
+.desktop-app.is-desktop-shell.is-native-controls[data-sidebar="closed"] .conversation-header { padding-left: 80px; }
 .desktop-app.is-desktop-shell { border: 0; border-radius: 0; }
 
 /* Native disclosures use the same outline chevron as the Lucide controls. */
