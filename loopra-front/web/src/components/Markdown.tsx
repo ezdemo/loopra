@@ -42,7 +42,10 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   const highlighted = useColorizedFence(code, language);
   return <div className={`code-block-wrap ${lines > 8 && !expanded ? 'collapsed' : ''}`}>
     <div className="code-block-top"><button type="button" className="code-block-toggle" aria-label={lines > 8 ? `${expanded ? '收起' : '展开'} ${language || 'text'} 代码` : `${language || 'text'} 代码`} aria-expanded={lines > 8 ? expanded : undefined} disabled={lines <= 8} onClick={() => setExpanded(!expanded)}><Code2 size="0.875rem" /><span>{language || 'text'}</span><span className="code-block-meta">{lines} 行</span>{lines > 8 && <ChevronDown size="0.875rem" className={expanded ? 'rotated' : ''} />}</button><IconButton label="复制代码" onClick={() => { void copyText(code, notify).then(success => setCopied(success)); }}>{copied ? <Check size="0.875rem" /> : <Copy size="0.875rem" />}</IconButton></div>
-    <div className="code-preview" style={{ height: lines > 8 && !expanded ? '11.0625rem' : 'auto' }}><pre>{highlighted === null ? <code>{code}</code> : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre></div>
+    {/* The collapsed height lives in chat-blocks.css (`.collapsed .code-preview`)
+        so the expand can transition; `interpolate-size` is what lets `height: auto`
+        take part. */}
+    <div className="code-preview"><pre>{highlighted === null ? <code>{code}</code> : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre></div>
     {lines > 8 && <button type="button" className="code-expand" onClick={() => setExpanded(!expanded)}>{expanded ? '收起代码' : `展开全部 ${lines} 行`}<ChevronDown size="0.8125rem" className={expanded ? 'rotated' : ''} /></button>}
   </div>;
 }

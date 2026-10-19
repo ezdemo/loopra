@@ -42,6 +42,13 @@ public class SystemController {
         return ApiResponse.ok(workspaceOpenService.open(body == null ? null : body.get("workspaceHash"), body == null ? null : body.get("application")));
     }
 
+    @ApiOperation(value = "可用的打开方式", notes = "返回服务所在电脑当前可用的打开入口 id，前端据此只展示真正能打开的项")
+    @Get
+    @Mapping("/open-applications")
+    public ApiResponse<java.util.List<String>> openApplications() {
+        return ApiResponse.ok(workspaceOpenService.availableApplications());
+    }
+
     @ApiOperation(value = "选择项目文件夹", notes = "在运行 Loopra 服务的电脑上打开系统目录选择窗口，取消时返回空字符串")
     @Post
     @Mapping("/pick-directory")

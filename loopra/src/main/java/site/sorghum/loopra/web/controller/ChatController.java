@@ -7,6 +7,8 @@ import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Body;
 import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Param;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
 import org.noear.solon.annotation.Path;
@@ -26,6 +28,7 @@ import site.sorghum.loopra.web.service.PasteContentService;
 import site.sorghum.loopra.web.service.SnapshotService;
 import site.sorghum.loopra.web.service.SseEmitter;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,6 +42,28 @@ import java.util.UUID;
 @Controller
 @Mapping("/api/chat")
 public class ChatController {
+    public record PermissionAnswer(String workspaceHash, String sessionName, String permissionRequestId, String optionId) {}
+
+    @Post
+    @Mapping("/permission")
+    public ApiResponse<String> permission(@Body PermissionAnswer answer) {
+        if (answer == null || answer.workspaceHash() == null || answer.sessionName() == null
+                || answer.permissionRequestId() == null || answer.optionId() == null) {
+            throw new ServiceException("审批需要项目、会话、请求 ID 和选项 ID");
+        }
+        agentService.resolveAcpPermission(agentService.resolveProjectHashOrThrow(answer.workspaceHash()),
+                answer.sessionName(), answer.permissionRequestId(), answer.optionId());
+        return ApiResponse.ok("审批已提交");
+    }
+
+    @Get
+    @Mapping("/permissions")
+    public ApiResponse<java.util.List<Map<String, Object>>> permissions(
+            @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @Param(value = "sessionName", required = true) String sessionName) {
+        return ApiResponse.ok(agentService.pendingAcpPermissions(
+                agentService.resolveProjectHashOrThrow(workspaceHash), sessionName));
+    }
 
     @Inject
     private AgentService agentService;
@@ -101,11 +126,22 @@ public class ChatController {
         }
         final String rawMessage = request.getMessage() != null ? request.getMessage().trim() : "";
         final String resolvedPath = agentService.resolveProjectPath(request.getWorkspaceHash());
+        final String sessionName = request.getSessionName() == null || request.getSessionName().isBlank()
+                ? "default" : request.getSessionName();
+        agentService.selectSessionAgent(resolvedPath, sessionName, request.getAgentId());
         final String message = pasteContentService.externalizeIfNeeded(resolvedPath, rawMessage);
         final UserMessage userMsg = UserMessage.of(message, request.getImages());
         final String linkedProjectContext = agentService.buildLinkedProjectContext(
                 request.getLinkedProjectHashes(), request.getWorkspaceHash());
-        final String sessionName = request.getSessionName();
+        // External Agents bind additional working directories at session setup; the primary
+        // project is the session cwd and must not be repeated as a linked directory.
+        final List<String> linkedProjectDirectories = request.getLinkedProjectHashes() == null ? List.of()
+                : request.getLinkedProjectHashes().stream()
+                        .filter(hash -> hash != null && !hash.isBlank() && !hash.equals(request.getWorkspaceHash()))
+                        .distinct()
+                        .map(agentService::resolveProjectPath)
+                        .filter(path -> path != null && !path.isBlank())
+                        .toList();
         final String requestId = ensureRequestId(request);
 
         SseEmitter emitter = new SseEmitter(ctx);
@@ -140,7 +176,7 @@ public class ChatController {
 
                 agentService.chatStream(userMsg, resolvedPath, sessionName, emitter,
                         request.getModel(), request.getModelChannelId(), request.getReasoningEffort(),
-                        request.getFastMode(), request.getAction(), linkedProjectContext);
+                        request.getFastMode(), request.getAction(), linkedProjectContext, linkedProjectDirectories);
             } catch (Exception e) {
                 log.error("[chat] 流任务执行异常: session={}, requestId={}, 原因: {}",
                         sessionName, requestId, e.getMessage(), e);

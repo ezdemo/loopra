@@ -306,7 +306,7 @@ describe('ChatInput fast mode', () => {
     const wrapper = mountInput({fastMode: false})
 
     await wrapper.find('.model-actions > .reasoning-effort-selector .effort-btn').trigger('click')
-    const fastModeToggle = wrapper.findAll('.chat-reasoning-end-toggle')[1]
+    const fastModeToggle = wrapper.findAll('.chat-reasoning-end-toggle')[0]
     expect(fastModeToggle.text()).toContain('快速模式')
     await fastModeToggle.find('input').setValue(true)
 

@@ -14,6 +14,7 @@ import './pets.css';
 import './workbench.css';
 import './workspace-tabs.css';
 import './git-panel.css';
+import './environment.css';
 import './resources.css';
 import './capabilities.css';
 import './requirements.css';

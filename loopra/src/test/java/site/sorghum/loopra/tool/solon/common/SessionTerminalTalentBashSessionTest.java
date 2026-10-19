@@ -40,6 +40,14 @@ class SessionTerminalTalentBashSessionTest {
 
     private static final String RUNNING_PING = isWindows() ? "ping 127.0.0.1 -t" : "ping 127.0.0.1";
     private static final String FINITE_PING = isWindows() ? "ping 127.0.0.1 -n 2" : "ping -c 2 127.0.0.1";
+    /**
+     * 先沉默 1 秒、打一行、再长时间沉默：这行输出必须落在 bash_start 的 yield 窗口之后，
+     * 才真的属于"只有面板轮询才可能读走"的那一段（否则 bash_start 自己就消费掉了）。
+     */
+    private static final String MARK = "LOOPRA-PANEL-MARK";
+    private static final String QUIET_MARK_COMMAND = isWindows()
+            ? "timeout /t 1 > nul & echo " + MARK + " & timeout /t 30 > nul"
+            : "sleep 1; echo " + MARK + "; sleep 30";
 
     private static Path workspace;
 
@@ -251,6 +259,71 @@ class SessionTerminalTalentBashSessionTest {
     void aggregateWithoutProvidersReturnsEmpty() {
         // 纯 JUnit 环境无 Solon 容器，cliSkillProviderMap 应为空 → 聚合入口可用且返回空
         assertTrue(SessionTerminalTalent.aggregateBashSessions().isEmpty());
+    }
+
+    /**
+     * 前端每 3 秒拉一次列表（snapshot），服务端顺手读一次会话输出。
+     * 这里全程不调用 bashWait —— 模拟"AI 起了命令就走人"，面板也必须能看到输出。
+     */
+    @Test
+    void panelPollDeliversOutputWithoutAnyBashWait() throws Exception {
+        String start = talent.bashStart(QUIET_MARK_COMMAND, null, 300, 64_000, 60_000, null);
+        String sessionId = extractSessionId(start);
+        assertNotNull(sessionId, "长命令应返回 session_id: " + start);
+
+        String output = "";
+        for (int i = 0; i < 40 && !output.contains(MARK); i++) {
+            Thread.sleep(100);
+            output = mirrorOutput(sessionId);
+        }
+        assertTrue(output.contains(MARK), "没人调用 bash_wait 时，面板也应该读到输出，而不是停在启动那一屏: " + output);
+    }
+
+    /**
+     * 面板轮询是"抢先读"：底层命令会话只有一个读取位置，读走之后必须还给 agent。
+     */
+    @Test
+    void panelPollDoesNotStealOutputFromAgent() throws Exception {
+        String start = talent.bashStart(QUIET_MARK_COMMAND, null, 300, 64_000, 60_000, null);
+        String sessionId = extractSessionId(start);
+        assertNotNull(sessionId);
+
+        String output = "";
+        for (int i = 0; i < 40 && !output.contains(MARK); i++) {
+            Thread.sleep(100);
+            output = mirrorOutput(sessionId);
+        }
+        assertTrue(output.contains(MARK), "面板轮询应已把输出读进镜像");
+
+        String waited = talent.bashWait(sessionId, 0, 64_000);
+        assertTrue(waited.contains(MARK), "面板读过之后，agent 的 bash_wait 不能什么都拿不到: " + waited);
+    }
+
+    /**
+     * 命令自己退出、而没有任何人调用 bash_wait 时，面板状态也要跟着变，不能一直显示 running。
+     */
+    @Test
+    void panelPollMarksCompletedWhenProcessExitsOnItsOwn() throws Exception {
+        String start = talent.bashStart(FINITE_PING, null, 150, 4096, 60_000, null);
+        String sessionId = extractSessionId(start);
+        assertNotNull(sessionId);
+
+        String status = "running";
+        for (int i = 0; i < 100 && "running".equals(status); i++) {
+            Thread.sleep(100);
+            status = talent.snapshotBashSessions().stream()
+                    .filter(info -> sessionId.equals(info.getSessionId()))
+                    .map(SessionTerminalTalent.BashSessionInfo::getStatus)
+                    .findFirst().orElse("completed");
+        }
+        assertEquals("completed", status, "进程自然退出后镜像应变为 completed，而不是一直 running");
+    }
+
+    private String mirrorOutput(String sessionId) {
+        return talent.snapshotBashSessions().stream()
+                .filter(info -> sessionId.equals(info.getSessionId()))
+                .map(SessionTerminalTalent.BashSessionInfo::getOutput)
+                .findFirst().orElse("");
     }
 
   private static String extractSessionId(String result) {

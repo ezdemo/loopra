@@ -14,6 +14,26 @@ export function useAppMotion() {
   return useContext(MotionContext);
 }
 
+/** Slide length for the docked sidebars; mirrors `--panel-slide-duration` in motion.css. */
+export const PANEL_SLIDE_MS = 300;
+
+/**
+ * Keep a surface mounted while it animates out. The sidebars slide both ways, so
+ * the closing element has to survive its own exit transition; it is dropped once
+ * that finishes. With motion off there is nothing to play, so the node goes at once.
+ */
+export function usePresence(open: boolean): boolean {
+  const { enabled } = useAppMotion();
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) { setMounted(true); return undefined; }
+    if (!mounted) return undefined;
+    const timer = setTimeout(() => setMounted(false), enabled ? PANEL_SLIDE_MS : 0);
+    return () => clearTimeout(timer);
+  }, [open, mounted, enabled]);
+  return mounted;
+}
+
 export function AppMotion({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   const reduced = useSyncExternalStore(subscribeReducedMotion, () => window.matchMedia(reducedQuery).matches);
   const active = enabled && !reduced;
@@ -67,8 +87,11 @@ export function Enter({ children, className, as: Component = 'div', style, 'aria
   return <Component aria-label={label} className={className} style={style} data-message-id={messageId}>{children}</Component>;
 }
 
-export function SidebarSurface({ children }: { children: ReactNode }) {
-  return <aside className="sidebar" aria-label="工作区和会话">{children}</aside>;
+export function SidebarSurface({ open, width, children }: { open: boolean; width?: number; children: ReactNode }) {
+  // The width is inline because it follows a drag; `--sidebar-width` lets the
+  // closed state slide exactly that far off-screen.
+  return <aside className="sidebar" data-open={open}
+    style={width ? ({ width, flexBasis: width, '--sidebar-width': `${width}px` } as CSSProperties) : undefined} aria-label="工作区和会话">{children}</aside>;
 }
 
 export function Toast({ message, children }: { message: string; children: ReactNode }) {

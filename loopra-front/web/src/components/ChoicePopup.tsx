@@ -3,7 +3,7 @@ import { Button } from '@nextui-org/react';
 import { Check, ChevronLeft, CircleHelp } from 'lucide-react';
 import type { ChoiceBlockData } from '../chat';
 
-export type ChoiceAnswer = { id: string; value: string; label: string; subId?: string };
+export type ChoiceAnswer = { id: string; value: string; label: string; subId?: string; permissionRequestId?: string };
 
 // The agent is suspended until the choice is answered, so the popup sits over
 // the composer and walks every pending question: pick an option, "下一个" for the
@@ -16,12 +16,15 @@ export default function ChoicePopup({ choices, onSubmit }: { choices: ChoiceBloc
   const chosen = answers[current.id];
   const answered = choices.filter(choice => answers[choice.id]).length;
   const last = index >= choices.length - 1;
-  const pick = (option: ChoiceBlockData['options'][number]) => setAnswers(all => ({ ...all, [current.id]: { id: current.id, value: option.value || option.title, label: option.title, subId: current.subId } }));
+  const longDescription = (current.description?.length || 0) > 600 || (current.description?.split('\n').length || 0) > 8;
+  const pick = (option: ChoiceBlockData['options'][number]) => setAnswers(all => ({ ...all, [current.id]: { id: current.id, value: option.value || option.title, label: option.title, subId: current.subId, ...(current.permissionRequestId ? { permissionRequestId: current.permissionRequestId } : {}) } }));
   return <section className="choice-popup" role="dialog" aria-label="待选择">
     <header className="choice-popup-head">
       {choices.length > 1 && <span className="choice-progress">问题 {index + 1} / {choices.length}</span>}
       <div className="choice-question"><CircleHelp size="1rem" /><strong>{current.question}</strong></div>
-      {current.description && <p className="choice-desc">{current.description}</p>}
+      {current.description && (longDescription
+        ? <details className="choice-details" key={current.id}><summary>查看完整审批参数</summary><pre className="choice-desc" tabIndex={0} aria-label="完整审批参数">{current.description}</pre></details>
+        : <p className="choice-desc">{current.description}</p>)}
     </header>
     <div className="choice-popup-options" role="radiogroup" aria-label={current.question}>
       {current.options.map((option, position) => {

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Check } from 'lucide-react';
 import { getSessionMessages, useLocalState } from './lib';
@@ -6,6 +6,7 @@ import type { Provider, Session } from './lib';
 import Sidebar from './layout/Sidebar';
 import Header from './layout/Header';
 import HomeView from './layout/HomeView';
+import IsolationSwitch from './layout/IsolationSwitch';
 import ChatDock from './layout/ChatDock';
 import { Messages } from './components/Conversation';
 import ChangesPanel from './components/Panels';
@@ -16,14 +17,16 @@ import Search from './components/Search';
 import type { FileChange, Message } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
+import type { AgentEngine } from './backend';
+import { applySeed, newSessionSeed, seedChanges, type AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
-import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type Workspace } from './backend';
+import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
 import useLoopra from './useLoopra';
-import { AppMotion, Enter, Toast } from './components/Motion';
+import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
 import usePets from './usePets';
 import { petActivity, petReplyPreview, type PetReply } from './pets';
@@ -39,11 +42,12 @@ import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
 import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
-import { isDesktopWindow } from './desktop-shell';
-import { launchWorkspace, workspaceApplications } from './workspace-launcher';
+import { desktopPlatform, isDesktopWindow, usesNativeWindowControls } from './desktop-shell';
+import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
 import { notifyWorkspaceChanged } from './workspace-events';
 import WorkspaceTabs from './components/WorkspaceTabs';
-import { closeWorkspaceFile, emptyWorkspaceTabs, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
+import { closeSubAgentTab, closeWorkspaceFile, emptyWorkspaceTabs, ensureSubAgentTab, openSubAgentTab, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
+import { subSessionLabel, type SubSession } from './sub-sessions';
 
 export default function App() {
   const [server, setServer] = useLocalState('backend-server', DEFAULT_SERVER);
@@ -55,6 +59,7 @@ export default function App() {
   const [composerOptions, setComposerOptions] = useLocalState<ComposerOptions>('composer-options', defaultOptions);
   const [defaultModel, setDefaultModel] = useLocalState('default-model', defaultOptions.modelId);
   const [agentSettings, setAgentSettings] = useLocalState<AgentSettings>('agent-settings', defaultAgentSettings);
+  const [availableApplications, setAvailableApplications] = useState<string[] | null>(null);
   const [petReply, setPetReply] = useState<PetReply | null>(null);
   const [composerContext, setComposerContext] = useState<ComposerContext>(emptyContext);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -63,6 +68,9 @@ export default function App() {
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const [changes, setChanges] = useState(false);
+  // Both sidebars slide both ways, so they stay mounted until their exit slide ends.
+  const sidebarMounted = usePresence(sidebar);
+  const changesMounted = usePresence(changes);
   const [sessionDetails, setSessionDetails] = useState(false);
   const [sessionDetailsTab, setSessionDetailsTab] = useState('events');
   const [deleteSession, setDeleteSession] = useState<Session>();
@@ -87,12 +95,40 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
+  const [engines, setEngines] = useState<AgentEngine[]>([]);
+  // The backend re-detects Node/Claude on every request; bump this to refresh
+  // after the user installs a missing runtime outside the app.
+  const [enginesRevision, setEnginesRevision] = useState(0);
+  const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});
+  // Home has no session yet, but its composer still advertises the selected
+  // Agent's options. The prepared backend session is reused by the first send.
+  const [newAgentConfig, setNewAgentConfig] = useState<{ key: string; options: AgentConfigOption[] } | null>(null);
+  // Read synchronously by sends that race the background seeding.
+  const newAgentConfigRef = useRef<{ key: string; options: AgentConfigOption[] } | null>(null);
+  const newConfigSeed = useRef<Promise<void> | null>(null);
+  function storeNewAgentConfig(next: { key: string; options: AgentConfigOption[] } | null) {
+    newAgentConfigRef.current = next;
+    setNewAgentConfig(next);
+  }
+  // The last new conversation's choices per backend and Agent. Existing sessions
+  // keep their own saved config; only a fresh draft is seeded from this record.
+  const [newSessionConfig, setNewSessionConfig] = useLocalState<Record<string, Record<string, string | boolean>>>('new-session-config', {});
+  // Last known option list per backend and Agent. The home composer shows it
+  // (disabled) while the Agent reconnects instead of collapsing into a spinner.
+  const [agentConfigCache, setAgentConfigCache] = useLocalState<Record<string, AgentConfigOption[]>>('agent-config-cache', {});
+  const preparedNewSession = useRef<{ key: string; target: Session } | null>(null);
+  // A draft's Agent choices are already authoritative when it becomes a real
+  // session. Remember the id briefly so selecting it does not fire a redundant
+  // configuration read that would race (and lose to) the first prompt.
+  const seededConfigAt = useRef<Record<string, number>>({});
+  const [agentConfigBusy, setAgentConfigBusy] = useState<string>();
+  const [agentConfigError, setAgentConfigError] = useState('');
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>();
   const [toast, setToast] = useState('');
   const [rename, setRename] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [sortNewest, setSortNewest] = useState(false);
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
   const activeRequest = useRef<{ controller: AbortController; requestId: string; session?: Session; stopping?: boolean }>();
   const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage[]>>({});
@@ -116,12 +152,34 @@ export default function App() {
   // thumbnail dock can jump to a message that is currently unmounted.
   const messageOffsets = useRef<number[]>([]);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const sessionSection = useRef<HTMLDivElement>(null);
   // Legacy Chat.vue floating log stack (SSE `log`, `copy-success`, `app-notify`).
   const chatLogs = useChatLogs();
   const settingsQueue = useRef(Promise.resolve());
   const session = sessions.find(item => item.id === activeId && !hiddenSessions.includes(item.id));
   const isHome = !session;
+  const agentId = session?.agentId || (session ? 'native' : newAgentId);
+  const externalAgent = agentId !== 'native';
+  const agentConfigKey = `${workspace}::${agentId}`;
+  useEffect(() => {
+    setAgentConfigError('');
+    if (!session?.name || !session.workspaceHash || backend.status !== 'connected') return;
+    // Just converted from a preconfigured draft: the Agent already holds these
+    // choices, so a read here only competes with the first prompt for the process.
+    const seededAt = seededConfigAt.current[session.id];
+    if (seededAt && Date.now() - seededAt < 5000) return;
+    const controller = new AbortController();
+    const id = session.id; setAgentConfigBusy(id);
+    void api.request<{ configOptions: AgentConfigOption[] }>(`/agent-engines/config?${sessionQuery(session)}`, 'GET', undefined, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setAgentConfigs(current => ({ ...current, [id]: result.configOptions })); })
+      .catch(error => { if (!controller.signal.aborted) setAgentConfigError(error instanceof Error ? error.message : String(error)); })
+      .finally(() => setAgentConfigBusy(current => current === id ? undefined : current));
+    return () => controller.abort();
+  }, [api, session?.id, backend.status]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal).then(setEngines).catch(() => setEngines([]));
+    return () => controller.abort();
+  }, [api, backend.status, enginesRevision]);
   // Pending HITL/ask_choice cards drive the composer popup. Read from the live
   // session messages (not demo history) so mock/offline sessions never pop it.
   const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
@@ -129,6 +187,19 @@ export default function App() {
   const currentWorkspace = workspaces.find(item => item.hash === workspace);
   const workspaceName = currentWorkspace?.name || '选择工作区';
   const isDark = preferences.theme === '深色' || (preferences.theme === '跟随系统' && systemDark);
+  // A new chat has no session yet, but the Agent's choices are already known:
+  // prepare them in the background so the composer never asks for a manual step.
+  useEffect(() => {
+    if (session || !currentWorkspace || backend.status !== 'connected' || !backend.ready) return;
+    if (newAgentConfig?.key === agentConfigKey || preparedNewSession.current?.key === agentConfigKey) return;
+    const engine = engines.find(item => item.id === agentId);
+    if (engine && !engine.available) return;
+    const controller = new AbortController();
+    // Debounce so StrictMode's throwaway first effect (and rapid Agent toggles)
+    // never spawns a backend session that nobody asked for.
+    const timer = setTimeout(() => void loadNewAgentConfig(currentWorkspace.hash, agentId, controller.signal), 120);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [session, agentConfigKey, currentWorkspace, backend.status, backend.ready, newAgentConfig?.key, engines, agentId]);
 
   useLayoutEffect(() => {
     // Root tokens also reach NextUI menus, modals and tooltips rendered in portals.
@@ -142,6 +213,14 @@ export default function App() {
   function openFile(file: WorkspaceFile) { setWorkspaceEditors(current => ({ ...current, [editorKey]: openWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, file) })); if (narrow) setChanges(false); }
   function changeFilePath(from: string, to?: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: updateWorkspaceFilePath(current[editorKey] || emptyWorkspaceTabs, from, to) })); }
   function closeFile(path: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, path) })); }
+  function closeSubAgent(subSessionId: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeSubAgentTab(current[editorKey] || emptyWorkspaceTabs, subSessionId) })); }
+  /** Open a sub-agent run as a main-area tab (live runs auto-open one as well). */
+  function showSubAgent(item: Pick<SubSession, 'subSessionId' | 'name' | 'title' | 'task'>, sessionName = session?.name) {
+    if (!sessionName) return;
+    const label = subSessionLabel({ status: 'running', startedAt: 0, endedAt: 0, eventCount: 0, ...item });
+    setWorkspaceEditors(current => ({ ...current, [editorKey]: openSubAgentTab(current[editorKey] || emptyWorkspaceTabs,
+      { subSessionId: item.subSessionId, sessionName, label }) }));
+  }
   function mutation(task: () => Promise<void>) {
     const result = settingsQueue.current.then(async () => {
       if (activeRequest.current) throw new Error('请等待当前回复结束后再修改运行配置');
@@ -151,19 +230,172 @@ export default function App() {
     settingsQueue.current = result.catch(error => { notify(`保存失败：${error instanceof Error ? error.message : error}`); });
     return result;
   }
+  function newConfigKey(agent: string) { return `${server}::${agent}`; }
+  function cacheAgentConfig(agent: string, options: AgentConfigOption[]) {
+    setAgentConfigCache(current => ({ ...current, [newConfigKey(agent)]: options }));
+  }
+  function rememberNewConfig(agent: string, options: AgentConfigOption[]) {
+    setNewSessionConfig(current => ({ ...current, [newConfigKey(agent)]: newSessionSeed(options) }));
+  }
+  /** Native's non-ACP fallback writes the same choices through ComposerOptions. */
+  function rememberFallbackConfig(agent: string, next: ComposerOptions) {
+    setNewSessionConfig(current => ({ ...current, [newConfigKey(agent)]: {
+      model: next.modelId, mode: permissionValue(next.mode), effort: next.effort, fast: next.fast ? 'on' : 'off',
+    } }));
+  }
+  /**
+   * Re-apply the last new conversation's choices to a freshly prepared draft.
+   * A value the Agent no longer offers is skipped, so the draft always opens.
+   */
+  async function seedNewConfig(workspaceHash: string, sessionName: string, agent: string,
+      options: AgentConfigOption[]) {
+    let current = options;
+    for (const change of seedChanges(options, newSessionConfig[newConfigKey(agent)])) {
+      try {
+        const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
+          { workspaceHash, sessionName, configId: change.id, value: change.value });
+        current = result.configOptions;
+      } catch (error) {
+        // A retired model or a disabled mode must not block a new conversation.
+        console.warn('[agent-config] 忽略无法恢复的新会话配置', change.id, error);
+      }
+    }
+    return current;
+  }
   function saveOptions(next: ComposerOptions) {
+    if (externalAgent) { setComposerOptions(next); return Promise.resolve(); }
     // Leaving plan mode discards any submitted plan, so confirm first (legacy togglePlan).
     if (!next.plan && composerOptions.plan && session) { setDiscardPlan(true); return Promise.resolve(); }
     return mutation(async () => {
-      const model = getModelCatalog(providers).find(item => item.id === next.modelId);
-      if (!model) throw new Error('请选择有效模型');
-      await api.request('/config', 'PUT', { hitl: permissionValue(next.mode), fastMode: next.fast, terminateOnNoToolCall: next.finishWithoutTools });
-      if (session) {
-        await api.request(sessionRoute(session, '/settings'), 'PUT', { model: model.name, modelChannelId: model.providerId, reasoningEffort: next.effort });
-        if (next.plan !== composerOptions.plan) await api.request('/agent/mode', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, enabled: next.plan });
+      if (!session) await newConfigSeed.current?.catch(() => {});
+      const prepared = preparedNewSession.current;
+      const target = session || (prepared?.key === agentConfigKey ? prepared.target : undefined) || await prepareAgentConfig();
+      if (!target) return;
+      const changes: [string, string][] = [];
+      if (next.modelId !== composerOptions.modelId) changes.push(['model', next.modelId]);
+      if (next.mode !== composerOptions.mode) changes.push(['mode', permissionValue(next.mode)]);
+      if (next.effort !== composerOptions.effort) changes.push(['effort', next.effort]);
+      if (next.fast !== composerOptions.fast) changes.push(['fast', next.fast ? 'on' : 'off']);
+      if (next.plan !== composerOptions.plan) changes.push(['plan', next.plan ? 'on' : 'off']);
+      for (const [configId, value] of changes) {
+        const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
+          { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
+        if (session) setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
+        else {
+          const draft = newAgentConfigRef.current;
+          if (draft?.key === agentConfigKey) storeNewAgentConfig({ ...draft, options: result.configOptions });
+          cacheAgentConfig(target.agentId || agentId, result.configOptions);
+        }
       }
+      // A fresh draft remembers its final choices for the next new conversation.
+      if (!session) rememberFallbackConfig(target.agentId || agentId, next);
       setComposerOptions(next);
     }).catch(() => {});
+  }
+  /**
+   * Fetch the selected Agent's defaults for the home composer. The returned
+   * session name is kept only as a draft: it becomes visible when the first
+   * message is sent, so browsing the home page never adds empty sessions.
+   */
+  async function loadNewAgentConfig(workspaceHash: string, requestedAgent: string, signal?: AbortSignal) {
+    const key = `${workspaceHash}::${requestedAgent}`;
+    const busyId = `new:${key}`;
+    setAgentConfigBusy(busyId); setAgentConfigError('');
+    try {
+      const prepared = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
+        { workspaceHash, sessionName: undefined, agentId: requestedAgent }, signal);
+      if (signal?.aborted) return;
+      const project = workspaces.find(item => item.hash === workspaceHash);
+      if (!project) return;
+      const target = remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, project);
+      preparedNewSession.current = { key, target };
+      // Show the Agent's controls immediately, already carrying the remembered
+      // choices, so the factory default never flashes before the writes land.
+      // The remembered choices are also applied to the draft in the background,
+      // and the first send waits for them, so opening the home page never blocks
+      // on a round trip per option. Seeding deliberately does not use the effect's
+      // abort signal: the state update above reruns the effect and would cancel
+      // the very requests that restore the draft.
+      storeNewAgentConfig({ key, options: applySeed(prepared.configOptions, newSessionConfig[newConfigKey(prepared.agentId)]) });
+      let seeding: Promise<void>;
+      seeding = seedNewConfig(workspaceHash, prepared.sessionName, prepared.agentId, prepared.configOptions)
+        .then(options => {
+          const draft = newAgentConfigRef.current;
+          if (draft?.key === key) storeNewAgentConfig({ key, options });
+          cacheAgentConfig(prepared.agentId, options);
+        })
+        .finally(() => { if (newConfigSeed.current === seeding) newConfigSeed.current = null; });
+      newConfigSeed.current = seeding;
+    } catch (error) {
+      if (signal?.aborted) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setAgentConfigError(message); notify(message);
+    } finally {
+      setAgentConfigBusy(current => current === busyId ? undefined : current);
+    }
+  }
+  async function prepareAgentConfig() {
+    if (!currentWorkspace) { notify('请先选择工作区'); return; }
+    setAgentConfigBusy(session?.id || 'new'); setAgentConfigError('');
+    try {
+      const prepared = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
+        { workspaceHash: currentWorkspace.hash, sessionName: session?.name, agentId });
+      // Only a new draft is seeded; an existing session keeps its own saved config.
+      const options = session ? prepared.configOptions
+        : await seedNewConfig(currentWorkspace.hash, prepared.sessionName, prepared.agentId, prepared.configOptions);
+      const target = session || remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, currentWorkspace);
+      if (!session) cacheAgentConfig(prepared.agentId, options);
+      setAgentConfigs(current => ({ ...current, [target.id]: options }));
+      // A fresh session goes to the top, matching the server's newest-first list.
+      if (!session) { setSessions(current => [target, ...current]); setActiveId(target.id); }
+      return target;
+    } catch (error) { const message = error instanceof Error ? error.message : String(error); setAgentConfigError(message); notify(message); }
+    finally { setAgentConfigBusy(undefined); }
+  }
+  function retryAgentConfig() {
+    if (session) { void prepareAgentConfig(); return; }
+    if (currentWorkspace) void loadNewAgentConfig(currentWorkspace.hash, agentId);
+  }
+  async function changeAgentConfig(configId: string, value: string | boolean) {
+    const prepared = preparedNewSession.current;
+    const target = session || (prepared?.key === agentConfigKey ? prepared.target : undefined);
+    if (!target) return;
+    // A background seed writes the same options; finish it first so this change wins.
+    if (!session) await newConfigSeed.current?.catch(() => {});
+    setAgentConfigBusy(target.id);
+    try {
+      const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
+        { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
+      if (session) setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
+      else {
+        const draft = newAgentConfigRef.current;
+        if (draft?.key === agentConfigKey) storeNewAgentConfig({ ...draft, options: result.configOptions });
+        cacheAgentConfig(target.agentId || agentId, result.configOptions);
+        // A draft's change becomes the starting point for the next new conversation.
+        rememberNewConfig(target.agentId || agentId, result.configOptions);
+      }
+      if (target.agentId === 'native' || !target.agentId) {
+        // Native choices also feed the legacy settings page and plan review, so
+        // mirror the Agent's authoritative config back into composer options.
+        setComposerOptions(current => {
+          const next = { ...current };
+          const model = result.configOptions.find(option => option.id === 'model');
+          const mode = result.configOptions.find(option => option.id === 'mode');
+          const effort = result.configOptions.find(option => option.id === 'effort');
+          const fast = result.configOptions.find(option => option.id === 'fast');
+          const plan = result.configOptions.find(option => option.id === 'plan');
+          if (model && typeof model.currentValue === 'string') next.modelId = model.currentValue;
+          if (mode && typeof mode.currentValue === 'string') next.mode = permissionLabel(mode.currentValue);
+          if (effort && typeof effort.currentValue === 'string') next.effort = effort.currentValue;
+          if (fast) next.fast = fast.currentValue === true || fast.currentValue === 'on';
+          if (plan) next.plan = plan.currentValue === 'on';
+          return next;
+        });
+        const plan = result.configOptions.find(option => option.id === 'plan');
+        if (plan && plan.currentValue !== 'on') setPendingPlan(undefined);
+      }
+    } catch (error) { notify(`保存失败：${error instanceof Error ? error.message : String(error)}`); }
+    finally { setAgentConfigBusy(undefined); }
   }
   function saveDefaultModel(id: string) {
     void mutation(async () => {
@@ -203,6 +435,13 @@ export default function App() {
     try { await api.request(sessionRoute(target, '/title'), 'PUT', { title: renameValue.trim() }); setSessions(current => current.map(item => item.id === rename ? { ...item, title: renameValue.trim() } : item)); setRename(null); notify('会话已重命名'); }
     catch (error) { notify(`重命名失败：${error instanceof Error ? error.message : error}`); }
   }
+  /** Switching the Agent always starts a new conversation, and never mid-run. */
+  function switchAgent(id: string) {
+    if (id === agentId) return;
+    if (generatingId || remoteRun) { notify('任务运行中，结束后才能切换 Agent'); return; }
+    setNewAgentId(id);
+    newSession();
+  }
   function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') { selectMainTab(null, nextWorkspace); if (narrow) setSidebar(false); historyRequest.current?.abort(); if (getModelCatalog(providers).some(model => model.id === defaultModel)) setComposerOptions(value => ({ ...value, modelId: defaultModel })); setActiveId(null); setWorkspace(nextWorkspace); setChanges(false); setDraft(''); setComposerContext(emptyContext); setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null); userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false); setTimeout(() => textarea.current?.focus(), 50); }
   // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
   function clearChat() { if (generatingId) { notify('生成中无法清空，请先停止生成'); return; } newSession(workspace || workspaces[0]?.hash || ''); notify('已新建空白会话'); }
@@ -224,7 +463,7 @@ export default function App() {
       ]);
       if (controller.signal.aborted) return;
       setSessions(current => current.map(item => item.id === id ? { ...item, messages: historyMessages(history) } : item));
-      setComposerOptions(current => ({ ...current, modelId: `${settings.modelChannelId}:${settings.model}`, effort: settings.reasoningEffort || current.effort, plan: mode.mode === 'plan' }));
+      setComposerOptions(current => ({ ...current, ...(selected.agentId && selected.agentId !== 'native' ? {} : { modelId: `${settings.modelChannelId}:${settings.model}` }), effort: settings.reasoningEffort || current.effort, plan: mode.mode === 'plan' }));
       setPendingPlan(mode.pendingPlan || undefined);
     } catch (error) { if (!controller.signal.aborted) notify(`加载会话失败：${error instanceof Error ? error.message : error}`); }
   }
@@ -302,11 +541,6 @@ export default function App() {
     try { await backend.refreshSessions(workspaces); notify(`${workspaces.find(item => item.hash === hash)?.name || '项目'}的会话已刷新`); }
     catch (error) { notify(`刷新失败：${error instanceof Error ? error.message : error}`); }
   }
-  // Legacy Sidebar.vue: scroll the current session into view on demand.
-  function locateActiveSession() {
-    const nodes = sessionSection.current?.querySelectorAll<HTMLElement>('[data-session-key]');
-    nodes?.forEach(node => { if (node.dataset.sessionKey === activeId) node.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
-  }
   // Legacy Sidebar.vue drag-reorder: persist the new project order to the backend.
   function reorderWorkspaces(from: string, to: string) {
     if (!from || !to || from === to) return;
@@ -317,6 +551,23 @@ export default function App() {
     const [moved] = next.splice(source, 1);
     next.splice(target, 0, moved);
     void api.request('/workspaces/order', 'PUT', next.map(item => item.hash)).then(() => backend.refresh()).catch(error => notify(`调整项目顺序失败：${error instanceof Error ? error.message : error}`));
+  }
+  // Session drag-reorder inside one project. The backend stores the order so the
+  // list keeps it after a refresh and for other clients.
+  function reorderSessions(workspaceHash: string, from: string, to: string) {
+    if (!from || !to || from === to) return;
+    const own = sessions.filter(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id));
+    const source = own.findIndex(item => item.id === from);
+    const target = own.findIndex(item => item.id === to);
+    if (source < 0 || target < 0) return;
+    const next = [...own];
+    const [moved] = next.splice(source, 1);
+    next.splice(target, 0, moved);
+    let index = 0;
+    setSessions(current => current.map(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id) ? next[index++] : item));
+    const order = next.map(item => item.name).filter((name): name is string => !!name);
+    void api.request(`/sessions/order?workspaceHash=${encodeURIComponent(workspaceHash)}`, 'PUT', order)
+      .catch(error => { notify(`调整会话顺序失败：${error instanceof Error ? error.message : error}`); void backend.refresh(); });
   }
   function projectMaintained(kind: 'refresh' | 'clear' | 'delete', item: Workspace) {
     if ((kind === 'clear' || kind === 'delete') && activeId?.startsWith(`${item.hash}/`)) setActiveId(null);
@@ -360,7 +611,17 @@ export default function App() {
     setRemoteRun(running ? { id: target.id, requestId: status?.requestId } : null);
     if (running || observe.running) {
       const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
-      if (!controller.signal.aborted && history.length) setSessions(current => current.map(item => item.id === target.id ? { ...item, messages: historyMessages(history) } : item));
+      const permissions = running ? await api.request<StreamEvent[]>(`/chat/permissions?${sessionQuery(target)}`, 'GET', undefined, controller.signal) : [];
+      if (!controller.signal.aborted && (history.length || permissions.length)) setSessions(current => current.map(item => {
+        if (item.id !== target.id) return item;
+        const messages = historyMessages(history);
+        for (const permission of permissions) {
+          const last = messages.at(-1);
+          if (!last || last.role !== 'assistant') messages.push({ id: `permission-${permission.permissionRequestId}`, role: 'assistant', text: '', blocks: [] });
+          messages[messages.length - 1] = applyEvent(messages[messages.length - 1], { ...permission, type: 'choice' });
+        }
+        return { ...item, messages };
+      }));
     }
     if (observe.running && !running) {
       notifyWorkspaceChanged(target.workspaceHash);
@@ -416,7 +677,11 @@ export default function App() {
     setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => message.blocks ? { ...message, blocks: answers.reduce((blocks, answer) => resolveChoiceBlock(blocks, answer.id, answer.label), message.blocks) } : message) } : item));
     const outgoing: string[] = [];
     for (const answer of answers) {
-      if (answer.subId) void api.request(`/chat/sub-hitl/${encodeURIComponent(answer.subId)}`, 'POST', { action: answer.value === '/agree' || answer.value === 'approve' ? 'approve' : 'deny' }).then(() => notify('子代理审批已发送')).catch(error => notify(error instanceof Error ? error.message : '审批失败'));
+      if (answer.permissionRequestId) void api.request('/chat/permission', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, permissionRequestId: answer.permissionRequestId, optionId: answer.value }).catch(error => {
+        setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => ({ ...message, blocks: message.blocks?.map(block => block.id === answer.id && block.type === 'choice' ? { ...block, selected: undefined } : block) })) } : item));
+        notify(error instanceof Error ? error.message : '审批失败');
+      });
+      else if (answer.subId) void api.request(`/chat/sub-hitl/${encodeURIComponent(answer.subId)}`, 'POST', { action: answer.value === '/agree' || answer.value === 'approve' ? 'approve' : 'deny' }).then(() => notify('子代理审批已发送')).catch(error => notify(error instanceof Error ? error.message : '审批失败'));
       else if (answer.value) outgoing.push(answer.value);
     }
     if (!outgoing.length) return;
@@ -471,8 +736,6 @@ export default function App() {
     if (backend.status !== 'connected' || !backend.ready || !currentWorkspace) { notify('请先连接 Loopra 并选择工作区'); return; }
     let prompt = override || draft.trim() || (action ? '' : '请查看附件');
     const titleSource = prompt;
-    const selectedModel = getModelCatalog(providers).find(model => model.id === composerOptions.modelId);
-    if (!selectedModel) { notify('请先选择一个模型'); return; }
     // Oversized directly-typed bodies are saved into the project and replaced by
     // a reference block before sending, matching legacy ChatInput.vue. The paste
     // handler already externalizes clipboard text; this covers typed/edited text.
@@ -488,7 +751,6 @@ export default function App() {
         return;
       }
     }
-    const options = { ...composerOptions };
     if (preferences.sound) prepareCompletionSound();
     const context = { ...(overrideContext || composerContext) };
     const text = action ? prompt : composeOutgoing(prompt, context, savedInput);
@@ -517,16 +779,36 @@ export default function App() {
     let petAnswer = assistant;
     try {
       if (!target) {
-        const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
-        target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now }, currentWorkspace);
+        // Reuse the draft prepared for the home composer so its Agent choices
+        // (model, permission mode, effort…) survive into the first real turn.
+        const prepared = preparedNewSession.current;
+        if (prepared?.key === agentConfigKey) {
+          // Seeding may still be writing the last new-conversation choices; wait
+          // so the first turn never starts on the Agent's factory defaults.
+          await newConfigSeed.current?.catch(() => {});
+          const draft = newAgentConfigRef.current;
+          target = { ...prepared.target, title: titleSource.slice(0, 60) };
+          const options = draft?.key === agentConfigKey ? draft.options : undefined;
+          if (options) {
+            setAgentConfigs(current => ({ ...current, [target!.id]: options }));
+            cacheAgentConfig(target!.agentId || agentId, options);
+            // Freeze the draft's final choices for the next new conversation.
+            rememberNewConfig(target!.agentId || agentId, options);
+            seededConfigAt.current[target!.id] = Date.now();
+          }
+          preparedNewSession.current = null;
+          storeNewAgentConfig(null);
+        } else {
+          const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
+          target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId }, currentWorkspace);
+        }
         activeRequest.current!.session = target;
         await api.request(sessionRoute(target, '/title'), 'PUT', { title: target.title }, controller.signal);
-        setSessions(current => [...current, target!]); setActiveId(target.id);
+        // The server lists newest first; mirror that optimistically instead of appending.
+        setSessions(current => [target!, ...current]); setActiveId(target.id);
       }
       const id = target.id; setGeneratingId(id);
-      await api.request('/config', 'PUT', { hitl: permissionValue(options.mode), fastMode: options.fast, terminateOnNoToolCall: options.finishWithoutTools }, controller.signal);
       // Approving a plan (execute_plan) must not re-enter plan mode; the agent clears it while executing.
-      if (!action) await api.request('/agent/mode', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name, enabled: options.plan }, controller.signal);
       // A continued turn already owns its bubble: reopen it (so its timer ticks
       // again) instead of inserting a second one.
       if (resumed) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: undefined } : entry) } : item));
@@ -539,7 +821,8 @@ export default function App() {
       setShowScrollBtn(false);
       const attachments = context.attachments || [];
       const documentText = attachments.filter(file => file.text !== undefined).map(file => `附件：${file.name}\n${file.text}`).join('\n\n');
-      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, model: selectedModel.name, modelChannelId: selectedModel.providerId, reasoningEffort: options.effort, fastMode: options.fast, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+        if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
         if (event.type === 'plan_submitted') { setPendingPlan(event.plan || undefined); setComposerOptions(current => ({ ...current, plan: true })); return; }
         if (event.type === 'mode_changed') { setComposerOptions(current => ({ ...current, plan: event.mode === 'plan' })); if (event.mode !== 'plan') setPendingPlan(undefined); return; }
         if (event.type === 'snapshot' && event.msgId) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, rollbackId: event.msgId, ...(event.hasCodeSnapshot ? { snapshotId: event.msgId } : {}) } : entry) } : item));
@@ -549,6 +832,13 @@ export default function App() {
         // Legacy Chat.vue opened the right panel's command tab when the agent
         // started a background shell, so the running process is visible.
         if ((event.type === 'tool_call' || event.type === 'sub_tool_call') && event.name === 'bash_start') window.dispatchEvent(new CustomEvent('loopra:bash-start'));
+        // Every sub-agent run gets its own tab next to the conversation and files.
+        // Opening it without selecting keeps the answer the user is watching in view.
+        if (event.type === 'sub_start' && event.subSessionId && target?.name) {
+          const label = event.name && event.title ? `${event.name}：${event.title}` : event.name || event.title || event.task || '子代理';
+          setWorkspaceEditors(current => ({ ...current, [editorKey]: ensureSubAgentTab(current[editorKey] || emptyWorkspaceTabs,
+            { subSessionId: event.subSessionId!, sessionName: target!.name!, label }) }));
+        }
         petAnswer = applyEvent(petAnswer, event);
         setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, event) : entry) } : item));
       }, controller.signal);
@@ -574,7 +864,7 @@ export default function App() {
           // "/agree" command, so this drops the extra bubbles and merges the AI
           // replies for free. A suspended choice is client-only, so reattach it.
           if (completed && !controller.signal.aborted && history.length) {
-            const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks));
+            const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks).filter(choice => !choice.permissionRequestId));
             setSessions(current => current.map(item => item.id === id ? { ...item, messages } : item));
           }
         } catch { /* Keep the already received stream if history reload fails. */ }
@@ -596,10 +886,28 @@ export default function App() {
     const config = backend.config; if (!config) return;
     const modelId = `${config.modelChannelId}:${config.model}`;
     setDefaultModel(modelId);
-    setComposerOptions(current => ({ ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode, finishWithoutTools: config.terminateOnNoToolCall }));
+    // model/effort belong to the *session*: the picker writes them to that session's settings
+    // and selectSession loads them back. Re-deriving them from the global config here (which
+    // the picker never updates) silently undid the user's pick on every backend.refresh(),
+    // which is triggered by ordinary things like refreshing projects or opening the session
+    // manager. Keep them seeded from the config only when no session owns them yet — that is
+    // the only place the configured default reaches an empty composer.
+    setComposerOptions(current => session
+      ? { ...current, mode: permissionLabel(config.hitl), fast: config.fastMode }
+      : { ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode });
     setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '' }));
     setWorkspace(current => backend.workspaces.some(item => item.hash === current) ? current : backend.workspaces.find(item => item.path === config.workspace)?.hash || backend.workspaces[0]?.hash || '');
-  }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server]);
+  }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server, session?.id]);
+  // The host is what actually launches these, and only it knows what exists there (Git Bash is
+  // Windows-only, PowerShell needs pwsh installed), so ask it instead of offering a fixed list.
+  const refreshApplications = useCallback(() => {
+    void fetchAvailableApplications(api).then(ids => setAvailableApplications(ids));
+  }, [api]);
+  useEffect(() => { if (backend.status === 'connected') refreshApplications(); }, [backend.status, refreshApplications]);
+  // Ask again whenever the menu opens. The first attempt can land while the service is restarting,
+  // or against a service too old to have the inventory, and that answer must not stick for the
+  // whole session — otherwise the menu keeps offering launchers the host cannot run.
+  useEffect(() => { if (menu === 'folder') refreshApplications(); }, [menu, refreshApplications]);
   // Switching backends/servers drops the previous run's tokens/s badge so the
   // home composer never shows a speed from another project.
   useEffect(() => { setLiveSpeed(undefined); }, [server]);
@@ -656,6 +964,8 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey), error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
+    agentId={agentId} engines={engines}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !sessionsOpen && !helpOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
@@ -663,7 +973,7 @@ export default function App() {
     // Legacy `continueChat` sent the literal `/continue` command so the backend
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
-    onSend={() => sendMessage()} onStop={stopGeneration} onContinue={() => sendMessage('/continue')}
+    onSend={() => sendMessage()} onStop={stopGeneration} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
     onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openTerminal()} onManage={() => openSettings('模型供应商')}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}
@@ -672,38 +982,46 @@ export default function App() {
     liveSpeed={liveSpeed}
     onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} /></BackgroundTasks>;
 
-  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${isDesktopWindow() ? ' is-desktop-shell' : ''}`}>
-    {isDesktopWindow() && <DesktopTitleBar />}
+  // The window controls float over the first row (sidebar brand and conversation
+  // header), so the shell has no empty title-bar strip of its own.
+  const desktopShell = isDesktopWindow();
+  const nativeWindowControls = desktopShell && usesNativeWindowControls(desktopPlatform());
+  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
+    {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
-      {narrow && sidebar && <button className="sidebar-backdrop" aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebar && <Sidebar english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed} sortNewest={sortNewest} onSortNewest={setSortNewest} sectionRef={sessionSection}
-        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()} onLocate={locateActiveSession}
+      {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
+      {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed}
+        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
-        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} />}
+        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
-          applications={workspaceApplications} onOpenWorkspace={application => void openWorkspace(application)} onTerminal={() => { setTerminal(true); setMenu(null); }} onCopyPath={copyPath}
+          applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onCopyPath={copyPath}
           onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
           onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
           onClear={() => { setMenu(null); clearChat(); }}
           onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
           onHide={archiveSession} onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
-        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
+        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
           {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
-            onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}>{composer}</HomeView> : <>
+            onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}
+            engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun} onAgent={switchAgent}
+            onRefreshEngines={() => setEnginesRevision(value => value + 1)}
+            isolation={<IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
+              sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} />}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
       </main>
-      {changes && <button className="workbench-backdrop" aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {changes && <ChangesPanel api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
+      {changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} onOpenSubAgent={item => showSubAgent(item)} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
@@ -729,6 +1047,7 @@ export default function App() {
       onRefresh={() => backend.refresh()}
       workspaces={workspaces}
       server={server}
+      availableApplications={availableApplications}
       config={agentSettings}
       onConfig={saveAgentSettings}
       options={composerOptions}

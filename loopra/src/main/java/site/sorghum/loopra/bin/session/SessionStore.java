@@ -3,6 +3,7 @@ package site.sorghum.loopra.bin.session;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -16,6 +17,38 @@ import java.util.Map;
  * @author Sorghum
  */
 public interface SessionStore {
+
+    /** Agent identity belongs to the conversation, independently of model providers. */
+    default AcpBinding getAcpBinding(String name) { return new AcpBinding("native", null, null); }
+
+    default void setAcpBinding(String name, AcpBinding binding) throws IOException {
+        throw new UnsupportedOperationException("ACP session metadata is unavailable");
+    }
+
+    record AcpBinding(String agentId, String remoteSessionId, String cwd) {}
+    default Map<String, String> getAgentConfig(String name) { return Map.of(); }
+    default void setAgentConfig(String name, Map<String, String> values) throws IOException {
+        throw new UnsupportedOperationException("Agent configuration storage is unavailable");
+    }
+
+    /**
+     * 外部 ACP Agent 上报的最后一次上下文用量。
+     * <p>{@code used} 是当前上下文已用 token，{@code size} 是该模型的上下文窗口；
+     * 外部 Agent 的累计 token 不在协议中，只能用它来准确展示上下文占用。</p>
+     */
+    record AcpUsage(long used, long size, Double cost, String currency, String model) {}
+
+    default AcpUsage getAcpUsage(String name) { return null; }
+
+    default void setAcpUsage(String name, AcpUsage usage) throws IOException {
+        throw new UnsupportedOperationException("ACP usage storage is unavailable");
+    }
+
+    /**
+     * 会话文件所在目录；子代理执行记录（{@code .sub} 目录）也挂在这里。
+     * 非文件存储实现可返回 {@code null}，表示不支持子代理回放。
+     */
+    default Path sessionsDir() { return null; }
 
     /**
      * 获取当前会话名

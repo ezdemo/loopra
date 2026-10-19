@@ -123,6 +123,34 @@ class SessionUsageServiceTest {
     }
 
     @Test
+    void acpContextUsageKeepsTheAgentsRealWindowAndCostCurrency() {
+        UsageDTO result = service(Map.of(), null).readAcp(
+                new site.sorghum.loopra.bin.session.SessionStore.AcpUsage(3210, 200000, 0.0456, "USD", "claude-test"));
+        assertEquals(3210, result.lastPromptTokens());
+        assertEquals(200000, result.maxContextTokens());
+        assertEquals(0, result.totalTokens());
+        assertEquals("claude-test", result.model());
+        assertTrue(result.hasPrice());
+        assertEquals(0.0456, result.totalCost(), 1e-9);
+        assertEquals("USD", result.currency());
+        assertNull(result.contextEstimate());
+        // ACP does not report cumulative token counters or a cost breakdown.
+        assertEquals(0, result.promptTokens());
+        assertEquals(0, result.completionTokens());
+    }
+
+    @Test
+    void absentAcpUsageFallsBackToNoServerNumbersInsteadOfAStaleWindow() {
+        UsageDTO missing = service(Map.of(), null).readAcp(null);
+        assertEquals(0, missing.lastPromptTokens());
+        assertEquals(0, missing.maxContextTokens());
+        assertFalse(missing.hasPrice());
+        UsageDTO invalid = service(Map.of(), null).readAcp(
+                new site.sorghum.loopra.bin.session.SessionStore.AcpUsage(100, 0, null, null, null));
+        assertEquals(0, invalid.maxContextTokens());
+    }
+
+    @Test
     void absentAgentReturnsAnEmptyViewWithoutReadingConfiguration() {
         UsageDTO result = new SessionUsageService(() -> { throw new AssertionError("unexpected config read"); },
                 () -> { throw new AssertionError("unexpected provider read"); }, () -> "fallback").read(null);

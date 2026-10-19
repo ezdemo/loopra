@@ -1,6 +1,7 @@
 package site.sorghum.loopra.tool;
 
 import org.noear.snack4.ONode;
+import site.sorghum.loopra.bin.session.SessionFileChangeTracker.ToolChange;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,10 +57,37 @@ public interface AgentOutput {
      */
     void onToolCall(String name, String args);
 
+    /** Stable engine call ID; legacy outputs retain their name-only callbacks. */
+    default void onToolCall(String toolCallId, String name, String args) {
+        onToolCall(name, args);
+    }
+
+    /** ACP tools may acquire their title and arguments after their initial announcement. */
+    default void onToolUpdate(String toolCallId, String name, String args) {
+        Map<String, Object> event = new java.util.LinkedHashMap<>();
+        event.put("toolCallId", toolCallId); event.put("name", name);
+        if (args != null) event.put("args", args);
+        sendEvent("tool_update", ONode.serialize(event));
+    }
+
     /**
      * 工具结果事件
      */
     void onToolResult(String name, String result);
+
+    default void onToolResult(String toolCallId, String name, String result, boolean failed) {
+        onToolResult(name, result);
+    }
+
+    /**
+     * 工具结果事件（含本次工具调用产生的文件变更）。
+     * <p>ACP 输出实现会把 {@code fileChanges} 转为标准 {@code ToolCallDiff} 内容，
+     * 供客户端展示“修改了哪些文件”。</p>
+     */
+    default void onToolResult(String toolCallId, String name, String result, boolean failed,
+                              List<ToolChange> fileChanges) {
+        onToolResult(toolCallId, name, result, failed);
+    }
 
     /**
      * Token 用量回调

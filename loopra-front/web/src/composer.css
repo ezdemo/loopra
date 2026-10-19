@@ -5,8 +5,20 @@
 .rich-composer .composer-bottom { gap: 0.375rem; flex-wrap: wrap; }
 .rich-composer .composer-left { gap: 0.25rem; }
 .rich-composer .composer-right { gap: 0.125rem; margin-left: auto; max-width: 100%; }
+.rich-composer .composer-right.has-agent-config { flex-wrap: wrap; justify-content: flex-end; }
+/* Agent-specific options without a shared composer control (Claude personas…). */
+.agent-option-list { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.125rem 0.25rem 0.375rem; }
+.agent-option-group { display: flex; flex-direction: column; gap: 0.25rem; }
+.agent-option-group > header { display: flex; flex-direction: column; gap: 0.125rem; padding: 0.125rem 0.5rem; }
+.agent-option-group > header strong { font-size: 0.8125rem; font-weight: 600; }
+.agent-option-group > header small { color: var(--muted); font-size: 0.6875rem; }
+.agent-option-toggle { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); color: var(--text); font-size: 0.8125rem; text-align: left; }
+.agent-option-toggle:disabled { opacity: 0.6; }
+.composer-selection-list > button.is-danger { color: var(--danger); }
+.composer-selection-list > button.is-danger:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .rich-composer .composer-icon { width: 1.75rem; height: 1.75rem; min-width: 1.75rem; padding: 0; border-radius: var(--radius-md); color: var(--muted); background: transparent; }
 .rich-composer .composer-icon:hover { background: var(--hover); color: var(--text); }
+.agent-config-loading { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; color: var(--muted); }
 .rich-composer .composer-permission { min-width: 0; padding: 0 .5rem; height: 1.75rem; gap: .25rem; border-radius: var(--radius-md); color: var(--secondary); font-size: .75rem; background: transparent; }
 .rich-composer .composer-permission.automatic { color: var(--danger); }
 .rich-composer .composer-model { min-width: 0; height: 1.75rem; padding: 0 .5rem; border-radius: var(--radius-md); gap: .25rem; font-size: .8125rem; color: var(--secondary); background: transparent; max-width: 15rem; }
@@ -39,21 +51,25 @@
 .composer-run-status { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.375rem; }
 .composer-run-status i { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite; }
 /* 待选择弹窗（HITL 审批 / ask_choice）：在输入框上方依次作答后提交 */
-.choice-popup { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000010, 0 0.75rem 2rem #00000018; padding: 0.625rem 0.75rem 0.6875rem; margin-bottom: 0.4375rem; }
-.choice-popup-head { display: flex; flex-direction: column; gap: 0.25rem; }
+.choice-popup { display: flex; flex-direction: column; min-width: 0; max-height: min(60dvh, 32rem); box-sizing: border-box; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000010, 0 0.75rem 2rem #00000018; padding: 0.625rem 0.75rem 0.6875rem; margin-bottom: 0.4375rem; }
+.choice-popup-head { display: flex; flex: 0 1 auto; min-height: 0; min-width: 0; max-height: 34dvh; overflow: auto; overscroll-behavior: contain; flex-direction: column; gap: 0.25rem; }
 .choice-progress { align-self: flex-start; font-size: 0.6875rem; color: var(--muted); }
-.choice-popup .choice-question { display: flex; align-items: center; gap: 0.4375rem; color: var(--text); }
-.choice-popup .choice-question strong { font-size: 0.8125rem; font-weight: 600; }
-.choice-popup .choice-desc { margin: 0; font-size: 0.75rem; color: var(--muted); }
-.choice-popup-options { display: flex; flex-direction: column; gap: 0.3125rem; margin: 0.5rem 0 0.5625rem; }
-.choice-popup-option { display: flex; align-items: center; gap: 0.625rem; width: 100%; padding: 0.4375rem 0.625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); text-align: left; color: var(--text); }
+.choice-popup .choice-question { display: flex; align-items: flex-start; gap: 0.4375rem; color: var(--text); }
+.choice-question > svg { flex-shrink: 0; margin-top: 0.125rem; }
+.choice-popup .choice-question strong { min-width: 0; overflow-wrap: anywhere; font-size: 0.8125rem; font-weight: 600; }
+.choice-popup .choice-desc { margin: 0; max-height: min(24dvh, 12rem); overflow: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; color: var(--muted); }
+.choice-details { min-width: 0; }
+.choice-details summary { cursor: pointer; padding: 0.25rem 0; color: var(--secondary); font-size: 0.75rem; }
+.choice-details[open] .choice-desc { padding: 0.5rem; background: var(--soft); border-radius: var(--radius-md); font-family: var(--font-mono, monospace); }
+.choice-popup-options { display: flex; flex: 0 1 auto; min-height: 2.75rem; max-height: 22dvh; overflow: auto; overscroll-behavior: contain; flex-direction: column; gap: 0.3125rem; margin: 0.5rem 0 0.5625rem; }
+.choice-popup-option { display: flex; flex-shrink: 0; align-items: center; gap: 0.625rem; width: 100%; box-sizing: border-box; padding: 0.4375rem 0.625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); text-align: left; color: var(--text); }
 .choice-popup-option:hover { border-color: var(--blue); background: var(--hover); }
 .choice-popup-option.is-selected { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
 .choice-popup .choice-index { display: grid; place-items: center; flex-shrink: 0; width: 1.25rem; height: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 0.6875rem; color: var(--muted); }
-.choice-popup-label { flex: 1; min-width: 0; }
+.choice-popup-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .choice-popup-label strong { display: block; font-size: 0.8125rem; font-weight: 500; }
 .choice-popup-label small { display: block; font-size: 0.75rem; color: var(--muted); }
-.choice-popup-foot { display: flex; align-items: center; justify-content: flex-end; gap: 0.375rem; }
+.choice-popup-foot { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.375rem; }
 .choice-prev { margin-right: auto; }
 .choice-popup-count { font-size: 0.75rem; color: var(--muted); }
 .composer-context-chips .chip-projects { color: var(--blue); }
@@ -69,9 +85,11 @@
 .composer-context-chips .context-chip-size { margin-left: 0.25rem; color: var(--muted); font-size: 0.625rem; font-weight: 400; }
 .usage-ring { width: 1rem; height: 1rem; border-radius: 50%; background: conic-gradient(var(--blue) var(--usage), var(--line) 0); position: relative; }
 .usage-ring::after { content: ''; position: absolute; inset: 0.15625rem; border-radius: inherit; background: var(--surface); }
-.rich-composer .composer-tps { display: inline-flex; align-items: center; gap: 0.25rem; height: 1.75rem; padding: 0 0.5rem; border-radius: var(--radius-md); color: var(--secondary); background: var(--soft); font-size: 0.6875rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.rich-composer .composer-tps svg { color: var(--blue); }
 .composer-popover { position: absolute; bottom: 4.375rem; z-index: 90; width: min(22.8125rem, calc(100vw - 2.5rem)); max-height: min(37.5rem, var(--composer-popover-height, 31.25rem)); overflow: auto; border: 1px solid var(--line); border-radius: 1.0625rem; background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000006, 0 0.875rem 2.8125rem #00000017; color: var(--text); font-size: 0.8125rem; text-align: left; padding: 0.375rem; }
+/* The suggestion list re-mounts on every keystroke while typing, so it is excluded
+   from the open animation; every other composer menu (models, tools, projects…)
+   pops in when it opens. */
+.composer-popover:not(.composer-suggestions) { animation: surface-pop-in 0.15s ease-out; }
 .popover-left { left: 0.5625rem; }
 .popover-right { right: 0.5625rem; }
 .composer-popover button { border-radius: var(--radius-md); }
@@ -96,6 +114,9 @@
 .composer-model-row.is-selected { background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .composer-model-row > button:first-child { flex: 1; min-width: 0; padding: 0.5625rem 0.5rem 0.5625rem 1.3125rem; display: flex; gap: 0.5rem; align-items: center; text-align: left; }
 .composer-model-row > button:first-child > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-model-row > button:first-child > span { min-width: 0; display: flex; flex-direction: column; gap: 0.0625rem; }
+.agent-model-row > button:first-child strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-model-row > button:first-child small { color: var(--muted); font-size: 0.6875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-model-row .model-star { background: transparent; min-width: 1.8125rem; width: 1.8125rem; height: 1.8125rem; color: var(--muted); margin-right: 0.25rem; }
 .composer-model-row .model-star[aria-pressed="true"] { color: #d3a043; }
 .popover-footer { border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 0.25rem; padding: 0.4375rem 0.375rem 0.125rem; }
@@ -109,22 +130,104 @@
 .effort-symbol { width: 2.375rem; height: 2.375rem; display: grid; place-items: center; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .effort-summary strong { font-size: 0.875rem; font-weight: 500; }
 .effort-summary p { font-size: 0.75rem; color: var(--muted); margin-top: 0.125rem; }
-.effort-levels { display: flex; justify-content: space-between; padding: 0.5625rem 0 0.875rem; }
+/* Reasoning strength: a gradient pill carrying a drifting starfield. Everything is
+   derived from `--effort-level` (0–5, written by ReasoningControl), so the higher
+   the level the tighter, brighter and quicker the stream — and the fill it lives in
+   widens at the same time. */
+.effort-slider { --effort-level: 0; padding: 0.1875rem 0; }
+.effort-slider [data-slot="track"] { height: 0.875rem; margin-top: 0; margin-bottom: 0; border-left-width: 0.25rem; border-right-width: 0.25rem; }
+/* Only the fill may clip: the thumb rides on the track and would be cut off if the
+   track hid its overflow, whereas the fill has no children of its own. The track
+   carries half a thumb (0.625rem for size="sm") as a transparent side border and lays
+   the fill out inside it, which (a) leaves the track's pale cap showing as a detached
+   stub at whichever end is empty and (b) parks the fill's end a full 10px short of the
+   knob's centre. Trimming that inset to 0.25rem fixes both: the fill's cap lands on the
+   track's cap so the bar is one continuous pill, and its end now reaches close enough
+   to the knob's centre that the knob actually wraps it instead of grazing it. */
+.effort-slider [data-slot="filler"] {
+  margin-left: -0.25rem;
+  border-radius: inherit;
+  overflow: hidden;
+  /* One tile of drift per cycle. Widening the tile with the level is the whole density
+     control: the stars scale off a radius var, so only their spacing changes. */
+  --spark-tile: calc(8rem - var(--effort-level) * 0.6rem);
+  --spark-r: calc(0.05625rem + var(--effort-level) * 0.0075rem);
+  --spark-speed: calc(2.8s - var(--effort-level) * 0.41s);
+  background-image:
+    linear-gradient(90deg, transparent calc(100% - 1.75rem), #ffffff2e),
+    linear-gradient(90deg, color-mix(in srgb, var(--blue) 62%, #04123f), var(--blue) 46%, color-mix(in srgb, var(--blue) 55%, #7fa4ff));
+  /* A lit top edge plus a glow that grows with the level, so the bar reads as a light
+     source rather than a flat progress fill. */
+  box-shadow:
+    inset 0 0.0625rem 0 #ffffff33,
+    inset 0 -0.0625rem 0.125rem #001a5c33,
+    0 0 calc(0.35rem + var(--effort-level) * 0.09rem) color-mix(in srgb, var(--blue) 28%, transparent);
+}
+.effort-slider [data-slot="filler"]::before,
+.effort-slider [data-slot="filler"]::after { content: ""; position: absolute; inset: 0; }
+/* Stars in a tile, not one centred dot per tile: a single dot would push every layer
+   onto the same y and the field would collapse into a dotted line. Each layer holds
+   three or four stars at its own x *and* y — a bright core with only a hint of halo,
+   so they read as stars rather than blobs — and the two layers' unrelated tile widths
+   keep the scatter from repeating visibly. */
+.effort-slider [data-slot="filler"]::before {
+  background-image:
+    radial-gradient(circle at 15% 34%, #ffffff 0 var(--spark-r), #ffffff52 calc(var(--spark-r) * 1.55), transparent calc(var(--spark-r) * 1.9)),
+    radial-gradient(circle at 58% 72%, #ffffffcc 0 calc(var(--spark-r) * 0.6), #ffffff3d calc(var(--spark-r) * 1.25), transparent calc(var(--spark-r) * 1.6)),
+    radial-gradient(circle at 86% 26%, #ffffff 0 calc(var(--spark-r) * 1.15), #ffffff5c calc(var(--spark-r) * 1.75), transparent calc(var(--spark-r) * 2.1));
+  background-size: var(--spark-tile) 100%, var(--spark-tile) 100%, var(--spark-tile) 100%;
+  animation: effort-spark-flow var(--spark-speed) linear infinite;
+}
+.effort-slider [data-slot="filler"]::after {
+  background-image:
+    radial-gradient(circle at 22% 64%, #ffffff 0 calc(var(--spark-r) * 1.05), #ffffff5c calc(var(--spark-r) * 1.65), transparent calc(var(--spark-r) * 2)),
+    radial-gradient(circle at 47% 28%, #ffffffdd 0 calc(var(--spark-r) * 0.62), #ffffff42 calc(var(--spark-r) * 1.3), transparent calc(var(--spark-r) * 1.65)),
+    radial-gradient(circle at 74% 70%, #ffffff 0 var(--spark-r), #ffffff52 calc(var(--spark-r) * 1.6), transparent calc(var(--spark-r) * 1.95)),
+    radial-gradient(circle at 93% 40%, #ffffffcc 0 calc(var(--spark-r) * 0.7), #ffffff3d calc(var(--spark-r) * 1.4), transparent calc(var(--spark-r) * 1.75));
+  background-size: calc(var(--spark-tile) * 1.45) 100%;
+  animation: effort-spark-flow-b calc(var(--spark-speed) * 1.9) linear infinite, effort-spark-twinkle calc(2.4s - var(--effort-level) * 0.26s) ease-in-out infinite;
+}
+/* Travelling exactly one tile keeps both loops seamless. */
+@keyframes effort-spark-flow { to { background-position: var(--spark-tile) 0; } }
+@keyframes effort-spark-flow-b { to { background-position: calc(var(--spark-tile) * 1.45) 0; } }
+@keyframes effort-spark-twinkle { 50% { opacity: 0.28; } }
+/* One solid knob rather than NextUI's blue ring around a white dot: the ring blends
+   into the blue bar, so the end of the bar reads as a bead sitting on top of it. At
+   1.5rem across, the circle clears the fill's end (whose corners sit ~4px either side
+   of the knob's centre) so the bar runs visibly into the knob at any level. */
+.effort-slider [data-slot="thumb"] { width: 1.5rem; height: 1.5rem; background: none; }
+.effort-slider [data-slot="thumb"]::after {
+  width: 100%; height: 100%;
+  /* Solid white in both themes: the knob sits on the bar, not on the panel, and a
+     surface-coloured knob would vanish against a dark popover. */
+  background: #fff;
+  box-shadow: 0 0.0625rem 0.375rem #0000002b, 0 0 0 1px #0000000f, 0 0 calc(var(--effort-level) * 0.16rem) color-mix(in srgb, var(--blue) 34%, transparent);
+}
+.effort-levels { display: flex; justify-content: space-between; padding: 0.5625rem 0 0.5rem; }
 .effort-levels button { padding: 0.1875rem 0.3125rem; min-width: 1.75rem; font-size: 0.75rem; color: var(--muted); }
 .effort-levels button[aria-pressed="true"] { background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
-.custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.75rem; }
+.custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.5rem; }
 .custom-effort > div { flex: 1; }
 .custom-effort button { min-width: 3.125rem; }
-.composer-toggle-row { border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.75rem 0; }
-.composer-toggle-row span { display: flex; align-items: center; gap: 0.3125rem; }
-.composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; margin-top: 0.25rem; }
-.effort-body > .composer-note { padding: 0.25rem 0; }
-.composer-tool-list > button, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
-.composer-tool-list > button > svg:first-child, .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
-.composer-tool-list > button > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }
+/* Rows are deliberately one line tall: with the hint stacked under the label each row
+   ran to 65px and the two of them plus the custom-value field took over half the panel.
+   The hint now rides beside its label and truncates rather than wrapping. */
+.composer-toggle-row { border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.5rem 0; }
+.composer-toggle-row > div:first-child { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
+.composer-toggle-row span { display: flex; align-items: center; gap: 0.3125rem; flex-shrink: 0; }
+.composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-tool-list > button, .composer-tool-list > .agent-option > button:first-child, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
+.composer-tool-list > button > svg:first-child, .composer-tool-list > .agent-option > button:first-child > svg:first-child, .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
+.composer-tool-list > button > span:not(.keycap), .composer-tool-list > .agent-option > button:first-child > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }
 .composer-tool-list strong, .composer-selection-list strong, .composer-tool-plan strong { display: block; font-weight: 500; font-size: 0.8125rem; }
 .composer-tool-list small, .composer-selection-list small, .composer-tool-plan small { display: block; font-size: 0.6875rem; color: var(--muted); margin-top: 0.1875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-tool-list > button > svg:last-child { color: var(--muted); }
+.composer-tool-list > button > svg:last-child, .composer-tool-list > .agent-option > button:first-child > svg:last-child { color: var(--muted); }
+/* An external Agent without its runtime keeps the row disabled and offers the
+   install prompt as a separate control (a button cannot nest in a button). */
+.agent-option { position: relative; }
+.agent-option > button:first-child { padding-right: 3.75rem; }
+.agent-option > .agent-install { position: absolute; right: 0.5rem; top: 50%; width: auto; min-height: 1.5rem; height: 1.5rem; padding: 0 0.5rem; transform: translateY(-50%); justify-content: center; background: var(--soft); color: var(--blue); font-size: 0.6875rem; font-weight: 500; }
+.agent-option > .agent-install:hover { background: var(--hover); color: var(--text); }
 .composer-tool-list em { font-size: 0.6875rem; font-style: normal; color: var(--blue); }
 .composer-menu-divider { border-top: 1px solid var(--line); margin: 0.25rem 0.5rem; }
 .keycap { border: 1px solid var(--line); border-radius: var(--radius-sm); font: 0.6875rem monospace; padding: 1px 0.3125rem; color: var(--muted); }
@@ -152,11 +255,14 @@
 .context-total > span.context-medium { color: var(--warning); }
 .context-total > span.context-low { color: var(--blue); }
 .context-body > .composer-note { padding-left: 0; padding-right: 0; }
-.context-gauge { position: relative; height: 0.4375rem; border-radius: var(--radius-md); background: var(--soft); overflow: hidden; margin: 0.75rem 0 0.3125rem; }
-.context-gauge-fill { display: block; height: 100%; border-radius: var(--radius-md); background: linear-gradient(90deg, var(--blue), #42b7a0); transition: width 0.3s ease; }
+/* One bar for the whole picture: the track is the context window, the used region is
+   split by the same part colours as the breakdown rows below, and the fold mark sits
+   on the window scale. (The separate composition bar was merged into this one.) The
+   segments stay contiguous so a segment edge still lines up with the fold mark. */
+.context-gauge { position: relative; display: flex; height: 0.4375rem; border-radius: var(--radius-md); background: var(--soft); overflow: hidden; margin: 0.75rem 0 0.3125rem; }
+.context-gauge > span:not(.context-gauge-threshold) { height: 100%; transition: width 0.3s ease; }
 .context-gauge-scale { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--muted); }
-.context-bar { position: relative; height: 0.4375rem; border-radius: var(--radius-md); overflow: hidden; display: flex; gap: 0.125rem; margin: 0.75rem 0 0.375rem; }
-.context-bar-threshold { position: absolute; top: 0; bottom: 0; width: 0.125rem; margin-left: -0.0625rem; background: var(--warning); opacity: 0.9; z-index: 1; pointer-events: none; }
+.context-gauge-threshold { position: absolute; top: 0; bottom: 0; width: 0.125rem; margin-left: -0.0625rem; background: var(--warning); opacity: 0.9; z-index: 1; pointer-events: none; }
 .context-threshold-note { font-size: 0.6875rem; }
 .context-breakdown { display: flex; align-items: center; font-size: 0.75rem; gap: 0.625rem; padding: 0.4375rem 0; }
 .context-breakdown span { flex: 1; display: flex; align-items: center; gap: 0.4375rem; color: var(--secondary); }

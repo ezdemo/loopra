@@ -10,9 +10,10 @@ import ts from 'typescript';
 const shellSource = await readFile(new URL('../src/desktop-shell.ts', import.meta.url), 'utf8');
 const shellJs = ts.transpileModule(shellSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const shellUrl = 'data:text/javascript;base64,' + Buffer.from(shellJs).toString('base64');
-const { desktopPlatform, desktopWindowApi, isDesktopWindow, windowControlsOnLeft } = await import(shellUrl);
+const { desktopPlatform, desktopWindowApi, isDesktopWindow, usesNativeWindowControls } = await import(shellUrl);
 
 const titleBar = await readFile(new URL('../src/components/DesktopTitleBar.tsx', import.meta.url), 'utf8');
+const header = await readFile(new URL('../src/layout/Header.tsx', import.meta.url), 'utf8');
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 const routing = await import('../../src/entry-routing.js');
@@ -33,23 +34,49 @@ test('desktop window chrome is detected only when the preload bridge exposes con
   assert.equal(withWindow({ electronAPI: { platform: 'win32', window: controls } }, () => desktopWindowApi().close === controls.close), true);
 });
 
-test('platform defaults to win32 and macOS keeps controls on the left', () => {
+test('platform defaults to win32 and only macOS uses native window controls', () => {
   assert.equal(withWindow(undefined, () => desktopPlatform()), 'win32');
   assert.equal(withWindow({ electronAPI: { platform: 'darwin' } }, () => desktopPlatform()), 'darwin');
-  assert.equal(windowControlsOnLeft('darwin'), true);
-  assert.equal(windowControlsOnLeft('win32'), false);
-  assert.equal(windowControlsOnLeft('linux'), false);
+  assert.equal(usesNativeWindowControls('darwin'), true);
+  assert.equal(usesNativeWindowControls('win32'), false);
+  assert.equal(usesNativeWindowControls('linux'), false);
 });
 
 test('the app renders the title bar and shell class only on desktop', () => {
   assert.match(app, /import DesktopTitleBar from '\.\/components\/DesktopTitleBar';/);
-  assert.match(app, /isDesktopWindow\(\) \? ' is-desktop-shell' : ''/);
-  assert.match(app, /\{isDesktopWindow\(\) && <DesktopTitleBar \/>\}/);
+  assert.match(app, /desktopShell \? ' is-desktop-shell' : ''/);
+  assert.match(app, /\{desktopShell && <DesktopTitleBar \/>\}/);
 });
 
-test('the desktop title bar provides a draggable region with no-drag controls', () => {
-  assert.match(styles, /\.desktop-titlebar \{[^}]*-webkit-app-region: drag;/);
+test('the shell first row is the drag region with no-drag controls', () => {
+  const titleRow = styles.match(/\.desktop-app\.is-desktop-shell \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell \.conversation-header,\s*\.desktop-app\.is-desktop-shell \.panel-header \{([^}]*)\}/)[1];
+  assert.match(titleRow, /height: 2\.25rem;/);
+  const dragRegion = styles.match(/\.desktop-app\.is-desktop-shell \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell \.panel-header,\s*\.desktop-app\.is-desktop-shell \.header-drag \{([^}]*)\}/)[1];
+  assert.match(dragRegion, /-webkit-app-region: drag;/);
+  // The header's drag area is the empty stretch only: a drag region under the
+  // fixed window controls would swallow their clicks (Electron behaviour).
+  assert.match(header, /className="header-drag" aria-hidden="true"/);
+  assert.doesNotMatch(styles, /\.conversation-header \{[^}]*-webkit-app-region: drag;/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell button,[\s\S]*?-webkit-app-region: no-drag;/);
   assert.match(styles, /\.desktop-window-controls \{[^}]*-webkit-app-region: no-drag;/);
+  // The controls float over the title row; when the panel is closed the header
+  // reserves their width, and the overlay layout always does.
+  assert.match(styles, /\[data-panel="closed"\] \.conversation-header \{ padding-right: 8\.25rem; \}/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell \.changes-panel \{ margin-top: 2\.25rem; \}/);
+  // macOS: the traffic lights get their own band, the sidebar starts below it,
+  // and the right dock (which has no native controls over it) starts at the top.
+  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.changes-panel \{ margin-top: 0; \}/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar-brand \{ margin-top: 36px; \}/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar::before \{[^}]*-webkit-app-region: drag; \}/);
+  assert.doesNotMatch(styles, /\.panel-header \{ padding-right: 8\.25rem/);
+  // The OS draws the macOS traffic lights at a fixed device-pixel position, so
+  // the metrics that line up with them must not follow the rem-based UI scale
+  // (`:root { font-size: calc(16px * var(--ui-scale)) }`) or they drift onto the
+  // title whenever 界面缩放 is below 100%.
+  const nativeMetrics = styles.match(/\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell\.is-native-controls \.conversation-header,\s*\.desktop-app\.is-desktop-shell\.is-native-controls \.panel-header \{([^}]*)\}/)[1];
+  assert.match(nativeMetrics, /height: 36px;/);
+  assert.match(styles, /padding-left: 80px;/);
+  assert.doesNotMatch(nativeMetrics, /rem/);
 });
 
 test('entry routing uses React by default in Electron and preserves auxiliary windows', () => {
@@ -111,4 +138,15 @@ test('the title bar renders the frameless window controls under Electron', async
   assert.match(html, /aria-label="还原窗口"/); // isMaximized() reported true
   assert.match(html, /aria-label="关闭窗口"/);
   assert.match(html, /class="desktop-window-controls"/);
+});
+
+test('macOS keeps the native traffic lights and draws no duplicate controls', async () => {
+  dom.window.electronAPI = { platform: 'darwin', window: { minimize: () => {}, maximize: () => {}, close: () => {}, isMaximized: () => true } };
+  const html = await render();
+  assert.match(html, /class="desktop-titlebar is-native-controls"/);
+  assert.doesNotMatch(html, /desktop-window-controls/);
+  assert.doesNotMatch(html, /aria-label="关闭窗口"/);
+  // The sidebar brand / conversation header already show the app name, so the
+  // floating chrome carries no label of its own.
+  assert.doesNotMatch(html, /Loopra/);
 });

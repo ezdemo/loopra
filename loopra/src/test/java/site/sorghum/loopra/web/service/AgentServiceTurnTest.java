@@ -129,7 +129,7 @@ class AgentServiceTurnTest {
         ContextEmpty context = new ContextEmpty();
         SseEmitter emitter = new SseEmitter(context);
         service.chatStream(UserMessage.of("stream"), null, null, emitter,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, List.of());
 
         assertTrue(emitter.isCompleted());
         assertTrue(body(context).contains("event: complete"));
@@ -148,7 +148,7 @@ class AgentServiceTurnTest {
         SseEmitter emitter = new SseEmitter(context);
         store.failFlush = true;
         service.chatStream(UserMessage.of("hello"), null, null, emitter,
-                null, null, null, null, "unknown-action", null);
+                null, null, null, null, "unknown-action", null, List.of());
 
         assertTrue(emitter.isCompleted());
         assertTrue(body(context).contains("event: error"));
@@ -156,6 +156,79 @@ class AgentServiceTurnTest {
         assertTrue(body(context).contains("不支持的聊天操作"));
         assertTrue(store.saveAttempted, "flush failure must not skip usage persistence");
         assertTurnReleased();
+    }
+
+    @Test
+    void acpApprovalResumesTheSameNativeTurnAndKeepsToolIdentity() throws Exception {
+        exerciseAcpPermission("/agree", 2);
+    }
+
+    @Test
+    void acpDenialDoesNotReplayTheTool() throws Exception {
+        exerciseAcpPermission("/deny", 1);
+    }
+
+    @Test
+    void acpCancellationReleasesWaitingApprovalAndSessionLock() throws Exception {
+        exerciseAcpPermission(null, 1);
+    }
+
+    private void exerciseAcpPermission(String answer, int expectedExecutions) throws Exception {
+        agent.dispose();
+        java.util.concurrent.atomic.AtomicInteger executions = new java.util.concurrent.atomic.AtomicInteger();
+        ToolRegistry tools = new ToolRegistry().setDisabledTools(Set.of());
+        tools.setEnvironment(SessionEnvironment.local(workspace));
+        var read = new org.noear.solon.ai.chat.tool.FunctionToolDesc("read").description("read")
+                .inputSchema("{\"type\":\"object\"}").returnType(String.class).doHandle(arguments -> {
+                    if (executions.incrementAndGet() == 1) throw new site.sorghum.loopra.tool.HitlRequiredException(
+                            "read", "SANDBOX_ESCAPE", "outside workspace", Map.of());
+                    return "file contents";
+                });
+        read.metaPut("readOnly", true);
+        tools.register(read);
+        LoopraConfig config = ConfigService.getConfig();
+        var calls = org.noear.snack4.ONode.ofJson("[{\"id\":\"read-1\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]");
+        java.util.concurrent.atomic.AtomicInteger modelCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var provider = TestLoopraProvider.builder().model(config.model()).channelId(config.activeModelChannel().id())
+                .stream(request -> modelCalls.getAndIncrement() == 0 ? TestLoopraProvider.toolCallsStream(calls)
+                        : TestLoopraProvider.contentStream("done")).build();
+        agent = LoopraAgent.builder().config(config).environment(SessionEnvironment.local(workspace))
+                .modelProvider(provider).sessionStore(store).hitl("approval")
+                .toolSystem(new ToolSystem(tools, new PromptPrefix("test", tools.toOpenAiTools())))
+                .buildLightweight();
+        agent.bindSession("default");
+        agent.setHitlMode("approval");
+        sessions.put(key(), agent);
+        ContextEmpty context = new ContextEmpty();
+        SseEmitter emitter = new SseEmitter(context);
+        Thread runner = new Thread(() -> service.chatStream(UserMessage.of("read file"), null, null, emitter,
+                null, null, null, null, null, null, List.of()));
+        runner.start();
+        try {
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            List<Map<String, Object>> pending;
+            do {
+                pending = service.pendingAcpPermissions(null, null);
+                if (!pending.isEmpty()) break;
+                Thread.sleep(10);
+            } while (runner.isAlive() && System.nanoTime() < deadline);
+            assertFalse(pending.isEmpty(), "Native must request approval through ACP");
+            assertTrue(runner.isAlive());
+            if (answer == null) service.abortChat(null, null);
+            else service.resolveAcpPermission(null, null, (String) pending.get(0).get("permissionRequestId"), answer);
+            runner.join(10000);
+            assertFalse(runner.isAlive(), "approval or cancellation must finish the original prompt");
+            assertEquals(expectedExecutions, executions.get());
+            assertTrue(service.pendingAcpPermissions(null, null).isEmpty());
+            assertTrue(emitter.isCompleted());
+            assertTrue(body(context).contains("permission_resolved"));
+            assertTrue(body(context).contains("toolCallId"));
+            assertTurnReleased();
+        } finally {
+            service.abortChat(null, null);
+            runner.interrupt();
+            runner.join(10000);
+        }
     }
 
     @Test
@@ -177,7 +250,7 @@ class AgentServiceTurnTest {
         ContextEmpty context = new ContextEmpty();
         SseEmitter emitter = new SseEmitter(context);
         service.chatStream(UserMessage.of("hello"), "invalid\0workspace", "session", emitter,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, List.of());
 
         assertTrue(emitter.isCompleted());
         assertTrue(body(context).contains("event: error"));
@@ -197,7 +270,7 @@ class AgentServiceTurnTest {
         SseEmitter emitter = new SseEmitter(context);
 
         service.chatStream(message, null, null, emitter,
-                null, null, null, null, "execute_plan", "linked project context");
+                null, null, null, null, "execute_plan", "linked project context", List.of());
 
         assertNull(agent.getPendingPlan());
         assertFalse(agent.isPlanMode());
@@ -225,7 +298,7 @@ class AgentServiceTurnTest {
 
         try {
             service.chatStream(UserMessage.of("approved"), null, null, emitter,
-                    null, null, null, null, "execute_plan", "temporary linked context");
+                    null, null, null, null, "execute_plan", "temporary linked context", List.of());
         } finally {
             field(AgentLoop.class, "cutinEngine").set(loop, engine);
         }

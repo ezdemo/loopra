@@ -64,9 +64,6 @@ public interface AgentConfig {
     /** 最大自我纠正次数。 */
     int maxSelfCorrectionAttempts();
 
-    /** 无工具调用时是否直接结束本轮对话。 */
-    boolean terminateOnNoToolCall();
-
     /** 风暴断路器窗口大小。 */
     int stormWindowSize();
 

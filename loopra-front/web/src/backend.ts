@@ -1,14 +1,16 @@
 import { mergeFileDiffs } from './diff';
 import type { ChatBlock, Message } from './chat';
 import type { Provider, Session } from './lib';
+import type { AgentConfigOption } from './agent-config';
 
 export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
 export type Workspace = { hash: string; name: string; path: string; displayName?: string | null };
-export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean };
+export type AgentEngine = { id: string; name: string; available: boolean; detail?: string };
+export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
-export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; terminateOnNoToolCall: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };
-export type StreamEvent = { type: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
-export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; model: string; modelChannelId: string; reasoningEffort: string; fastMode: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
+export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
+export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
 
 export function serverAddress(value: string) {
   const url = new URL(value.trim() || DEFAULT_SERVER);
@@ -63,7 +65,7 @@ export class LoopraClient {
       else {
         // Loopra 26.9 sends complete (or a pending HITL choice), but its
         // emitter can close before writing done. Still read any trailing events.
-        if (event.type === 'complete' || event.type === 'choice') terminalReply = true;
+        if (event.type === 'complete' || (event.type === 'choice' && !event.permissionRequestId)) terminalReply = true;
         if (event.type === 'stream_reset') terminalReply = false;
         onEvent(event);
       }
@@ -123,24 +125,42 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     let sub = blocks.find(block => block.id === subId && block.type === 'sub_agent');
     if (!sub || sub.type !== 'sub_agent') { sub = { id: subId, type: 'sub_agent', name: event.task || '子代理', status: '执行中', blocks: [] }; blocks.push(sub); }
     if (event.task) sub.name = event.task;
-    if (event.type === 'sub_end') sub.status = '成功';
+    if (event.type === 'sub_end') sub.status = event.status === 'error' ? '失败' : event.status === 'aborted' ? '失败' : '成功';
     else if (event.type === 'sub_error') sub.status = '失败';
     else sub.blocks = applyEvent({ ...message, id: subId, blocks: sub.blocks }, { ...event, type: event.type.slice(4) }).blocks || [];
   } else if (event.type === 'reasoning_started') {
     // Encrypted reasoning opens a slot without any visible delta (legacy Chat.vue).
     if (blocks.at(-1)?.type !== 'reasoning_started') blocks.push({ id, type: 'reasoning_started', content: '' });
   } else if (event.type === 'content' || event.type === 'reasoning') {
-    const last = blocks.at(-1);
-    if (last?.type === event.type) last.content += content;
-    else if (last?.type === 'reasoning_started' && event.type === 'reasoning') blocks[blocks.length - 1] = { id: last.id, type: 'reasoning', content };
+    // A background subagent inserts its own block in the middle of the parent turn.
+    // Keep extending the parent's previous Markdown block across it, otherwise the
+    // list/paragraph would be split into two messages and render as broken text.
+    let index = blocks.length - 1;
+    if (blocks[index]?.type !== event.type) {
+      while (index >= 0 && blocks[index].type === 'sub_agent') index--;
+    }
+    const target = index >= 0 ? blocks[index] : undefined;
+    if (target?.type === 'content' && event.type === 'content') target.content += content;
+    else if (target?.type === 'reasoning' && event.type === 'reasoning') target.content += content;
+    else if (target?.type === 'reasoning_started' && event.type === 'reasoning') blocks[index] = { id: target.id, type: 'reasoning', content };
     else if (content.trim()) blocks.push({ id, type: event.type, content });
   } else if (event.type === 'stream_reset') {
     // Retry invalidates only the current model segment, retaining completed tools.
     while (['content', 'reasoning', 'reasoning_started'].includes(blocks.at(-1)?.type || '')) blocks.pop();
-  } else if (event.type === 'tool_call') blocks.push({ id, type: 'tool_call', name: event.name || 'unknown', status: '执行中', args: argsObject(event.args ?? event.arguments) });
+  } else if (event.type === 'tool_call') {
+    const existing = event.toolCallId && blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
+    if (!existing) blocks.push({ id, type: 'tool_call', ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}), name: event.name || 'unknown', status: '执行中', args: argsObject(event.args ?? event.arguments) });
+  }
+  else if (event.type === 'tool_update') {
+    const existing = blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
+    if (existing?.type === 'tool_call') {
+      if (event.name) existing.name = event.name;
+      if (event.args != null) existing.args = argsObject(event.args);
+    }
+  }
   else if (event.type === 'tool_result') {
-    const target = [...blocks].reverse().find(block => block.type === 'tool_call' && block.status === '执行中' && (!event.name || block.name === event.name));
-    if (target?.type === 'tool_call') { target.result = stringify(event.result ?? content); target.status = /^(错误|Error|Exception)/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
+    const target = [...blocks].reverse().find(block => block.type === 'tool_call' && (event.toolCallId ? block.toolCallId === event.toolCallId : block.status === '执行中' && (!event.name || block.name === event.name)));
+    if (target?.type === 'tool_call') { target.result = stringify(event.result ?? content); target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception)/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
   } else if (event.type === 'file_changes' && event.changes?.length) {
     let summary = blocks.find(block => block.type === 'file_changes');
     if (!summary || summary.type !== 'file_changes') { summary = { id, type: 'file_changes', changes: [] }; blocks.push(summary); }
@@ -151,7 +171,10 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
       else { old.additions += change.additions || 0; old.deletions += change.deletions || 0; old.diff = [old.diff, change.diff].filter(Boolean).join('\n'); }
       old.created ||= change.created;
     } else summary.changes.push(change); }
-  } else if (event.type === 'choice' && event.options?.length) blocks.push({ id, type: 'choice', question: event.title || event.question || '请选择', description: event.description, options: event.options.map(option => ({ title: option.title, value: option.value, description: option.summary })) });
+  } else if (event.type === 'choice' && event.options?.length) blocks.push({ id, type: 'choice', ...(event.permissionRequestId ? { permissionRequestId: event.permissionRequestId } : {}), question: event.title || event.question || '请选择', description: event.description, options: event.options.map(option => ({ title: option.title, value: option.value, description: option.summary })) });
+  else if (event.type === 'permission_resolved') {
+    for (const block of blocks) if (block.type === 'choice' && block.permissionRequestId === event.permissionRequestId) block.selected = block.options.find(option => option.value === event.optionId)?.title || '已取消';
+  }
   else if (event.type === 'complete' && content && !blocks.some(block => block.type === 'content' && block.content.trim())) blocks.push({ id, type: 'content', content });
   return { ...message, blocks, text: blocks.flatMap(block => block.type === 'content' ? [block.content] : []).join('\n\n') };
 }
@@ -188,9 +211,9 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
       if (hasEncryptedReasoning(entry.response_reasoning || entry.responseReasoning)) events.push({ type: 'reasoning_started' });
       for (const call of entry.tool_calls || []) {
         const name = call.function?.name || call.name || 'unknown';
-        events.push({ type: 'tool_call', name, args: call.function?.arguments ?? call.arguments });
+        events.push({ type: 'tool_call', toolCallId: call.id, name, args: call.function?.arguments ?? call.arguments });
         const result = results.get(call.id);
-        if (result) events.push({ type: 'tool_result', name, result: result.content, duration: result.tool_duration_ms });
+        if (result) events.push({ type: 'tool_result', toolCallId: call.id, name, result: result.content, duration: result.tool_duration_ms });
       }
       if (content.trim()) events.push({ type: 'content', content });
       if (entry.file_changes || entry.fileChanges) events.push({ type: 'file_changes', changes: entry.file_changes || entry.fileChanges });
@@ -202,7 +225,7 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
   return messages;
 }
 export function remoteSession(item: RemoteSession, workspace: Workspace): Session {
-  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime, messageCount: item.messageCount || 0, worktreeMode: !!item.worktreeMode };
+  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime, messageCount: item.messageCount || 0, worktreeMode: !!item.worktreeMode, ...(item.agentId ? { agentId: item.agentId } : {}) };
 }
 export function configProviders(config: RemoteConfig): Provider[] {
   return (config.modelChannels || []).map(channel => ({ id: channel.id, name: channel.name, type: channel.apiProtocol, baseUrl: channel.baseUrl, apiKey: channel.apiKey, compatibility: channel.specialCompatibility, count: channel.models.length, enabled: true, models: channel.models.map(model => ({ ...model, priceEnabled: !!model.price, inputPrice: model.price?.input || 0, cachePrice: model.price?.cache || 0, outputPrice: model.price?.output || 0 })) }));

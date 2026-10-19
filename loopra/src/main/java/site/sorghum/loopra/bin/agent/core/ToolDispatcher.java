@@ -13,6 +13,7 @@ import site.sorghum.loopra.bin.agent.model.ImageToolResult;
 import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.agent.model.ToolExecutionResult;
 import site.sorghum.loopra.bin.session.SessionFileChangeTracker;
+import site.sorghum.loopra.bin.session.SessionFileChangeTracker.ToolChange;
 import site.sorghum.loopra.bin.tool.ToolMetadata;
 import site.sorghum.loopra.integration.cutin.CutinFunctionToolBridge;
 import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchEvent;
@@ -135,7 +136,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
             String reason) {
         String result = rejectedToolResult(message, reason);
         loop.safeListener("toolResult", () -> loop.listener().onToolResult(call.toolId(), result));
-        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(call.toolId(), result));
+        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(call.id(), call.toolId(), result, true));
         return site.sorghum.cutin.core.tool.ToolResult.failure(call.id(), result);
     }
 
@@ -291,7 +292,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
             final String finalTcName = tcName;
             final String finalTcArgs = tcArgs;
             loop.safeListener("toolCall", () -> loop.listener().onToolCall(finalTcName, finalTcArgs));
-            loop.safeOutputDebug("toolCall", () -> loop.getOutput().onToolCall(finalTcName, finalTcArgs));
+            loop.safeOutputDebug("toolCall", () -> loop.getOutput().onToolCall(tcId, finalTcName, finalTcArgs));
         }
         return new ParsedToolCalls(tcList, filteredTcList);
     }
@@ -386,6 +387,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                             ? cutinContext.workingDirectory()
                             : loop.workingDirectory();
                 SessionFileChangeTracker.bind(executionRoot, loop.getSessionId());
+                SessionFileChangeTracker.beginTool();
                 try {
                     ONode tc = tcArray.get(idx);
                     ToolCall toolCall = CutinStreamSupport.getToolCall(tc);
@@ -394,8 +396,9 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                     // 外部注册区），存在性检查须同时覆盖两侧，避免“已注册却报工具不存在”。
                     if (fc == null && !loop.getToolRegistry().cutinRegistry().find(toolCall.getName()).isPresent()) {
                         String result = "工具不存在";
+                        List<ToolChange> fileChanges = SessionFileChangeTracker.endTool();
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true, fileChanges));
                         return toolResult(toolCall.getId(), "工具不存在");
                     }
 
@@ -406,8 +409,9 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                         String result = rejectedToolResult(
                                 "当前处于计划模式，仅允许只读工具；本次调用已被拒绝。请继续使用只读工具探索，完成后用 submit_plan 提交计划。",
                                 "plan_mode");
+                        List<ToolChange> fileChanges = SessionFileChangeTracker.endTool();
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true, fileChanges));
                         return toolResult(toolCall.getId(), result);
                     }
 
@@ -419,8 +423,9 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                         if (suppression.suppressed()) {
                             anySuppressed.set(true);
                             String result = rejectedToolResult(suppression.reason(), "storm");
+                            List<ToolChange> fileChanges = SessionFileChangeTracker.endTool();
                             loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                            loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                            loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true, fileChanges));
                             return toolResult(toolCall.getId(), result);
                         }
                     }
@@ -470,8 +475,9 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                                 || "browser_screenshot".equals(toolCall.getName()))
                                 ? ImageToolResult.parseResult(rawResult) : null;
                         String result = imageResult == null ? rawResult : imageResult.summary();
+                        List<ToolChange> fileChanges = SessionFileChangeTracker.endTool();
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, !cutinResult.ok(), fileChanges));
                         ChatMessage toolMessage = imageResult == null ? ChatMessage.tool(toolCall.getId(), result)
                                 : ChatMessage.toolWithImage(toolCall.getId(), result,
                                 imageResult.dataUri(), imageResult.detail());
@@ -485,12 +491,14 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                                 "[HITL_PENDING:" + e.getReason() + "] " + e.getDetails());
                     } catch (Throwable e) {
                         String result = e.getMessage();
+                        List<ToolChange> fileChanges = SessionFileChangeTracker.endTool();
                         loop.safeListener("toolResult", () -> loop.listener().onToolResult(toolCall.getName(), result));
-                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getName(), result));
+                        loop.safeOutputDebug("toolResult", () -> loop.getOutput().onToolResult(toolCall.getId(), toolCall.getName(), result, true, fileChanges));
                         return timedToolResult(toolCall.getId(), result, toolStartedAt);
                     }
                 } finally {
                     CutinFunctionToolBridge.clearCallContext();
+                    SessionFileChangeTracker.endTool();
                     SessionFileChangeTracker.clearBinding();
                     currentToolControl.remove();
                     ToolContext.clearCurrentController();

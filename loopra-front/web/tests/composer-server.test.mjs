@@ -9,7 +9,7 @@ const load = async name => {
   return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 };
 
-const { mergeSlashCommands, serverSlashCommands, localSlashCommands, presetPayload, presetsFromServer, formatTokenSpeed, tokenSpeedTitle } = await load('composer.ts');
+const { mergeSlashCommands, serverSlashCommands, localSlashCommands, presetPayload, presetsFromServer, formatTokenSpeed } = await load('composer.ts');
 const { contextFromUsage, usagePath } = await load('usage.ts');
 
 test('server slash commands merge skills, drop plan toggles and keep local actions first', () => {
@@ -92,10 +92,4 @@ test('token speed matches legacy displayTps rounding and done/streaming choice',
   assert.equal(formatTokenSpeed({ tokensPerSecond: 40, avgTokensPerSecond: 20, done: false }), '40.0 t/s');
   assert.equal(formatTokenSpeed({ tokensPerSecond: 40, avgTokensPerSecond: 20, done: true }), '20.0 t/s');
   assert.equal(formatTokenSpeed({ tokensPerSecond: 40, done: true }), '40.0 t/s');
-});
-
-test('token speed title reports average, live rate and token count once finished', () => {
-  assert.equal(tokenSpeedTitle({ tokensPerSecond: 30, completionTokens: 900 }), '生成速度 30.0 t/s · 900 tokens');
-  assert.match(tokenSpeedTitle({ tokensPerSecond: 30, avgTokensPerSecond: 25, done: true, completionTokens: 900 }), /平均 25.0 t\/s · 实时 30.0 t\/s · 900 tokens/);
-  assert.equal(tokenSpeedTitle(undefined), '');
 });

@@ -260,9 +260,6 @@ public class SubAgent {
         this.subLoop = new AgentLoop(modelProvider, registry, ctx, effectiveConfig);
         this.subLoop.setHitlMode(this.hitlMode);
         AgentLoop subLoop = this.subLoop;
-        if (parentController != null) {
-            subLoop.setTerminateOnNoToolCall(parentController.terminateOnNoToolCall());
-        }
         if (abortRequested.get()) {
             subLoop.requestUserAbort();
             return;

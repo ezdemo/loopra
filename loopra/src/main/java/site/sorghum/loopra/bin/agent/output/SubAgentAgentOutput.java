@@ -125,6 +125,25 @@ public class SubAgentAgentOutput implements AgentOutput {
     }
 
     @Override
+    public void onToolCall(String id, String name, String args) {
+        StringBuilder event = new StringBuilder(subIdPrefix());
+        event.append("\"toolCallId\":").append(escapeJson(id));
+        event.append(",\"name\":").append(escapeJson(name));
+        event.append(",\"args\":").append(args == null ? "{}" : args).append("}");
+        delegate.sendEvent("sub_tool_call", event.toString());
+    }
+
+    @Override
+    public void onToolResult(String id, String name, String result, boolean failed) {
+        StringBuilder event = new StringBuilder(subIdPrefix());
+        event.append("\"toolCallId\":").append(escapeJson(id));
+        event.append(",\"name\":").append(escapeJson(name));
+        event.append(",\"result\":").append(escapeJson(result == null ? "" : result));
+        event.append(",\"status\":").append(escapeJson(failed ? "failed" : "completed")).append("}");
+        delegate.sendEvent("sub_tool_result", event.toString());
+    }
+
+    @Override
     public void onToolResult(String name, String result) {
          // JSON：{"subId":...,"name":"xxx","result":"..."}
         StringBuilder sb = new StringBuilder(subIdPrefix());

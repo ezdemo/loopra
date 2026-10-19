@@ -16,6 +16,7 @@ import org.noear.solon.annotation.Post;
 import org.noear.solon.annotation.Put;
 import site.sorghum.loopra.bin.checklist.Checklist;
 import site.sorghum.loopra.bin.checklist.ChecklistStore;
+import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.goal.Goal;
 import site.sorghum.loopra.bin.goal.GoalStep;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
@@ -85,6 +86,19 @@ public class SessionController {
         String workspacePath = agentService.resolveProjectPath(workspaceHash);
         if (workspacePath == null) workspacePath = agentService.getCurrentProject();
         return ApiResponse.ok(agentService.listSessions(workspacePath));
+    }
+
+    @ApiOperation(value = "保存会话排序", notes = "按工作区保存会话名有序列表（侧边栏拖动排序）")
+    @Put
+    @Mapping("/order")
+    public ApiResponse<String> saveOrder(
+            @ApiParam(value = "项目 hash", required = true) @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @ApiParam(value = "会话名有序列表") @Body List<String> order) {
+        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        if (workspaceHash == null || workspaceHash.isBlank()) throw new ServiceException("项目 hash 不能为空");
+        if (order == null) throw new ServiceException("排序数据不能为空");
+        ConfigService.setSessionOrder(workspaceHash, order);
+        return ApiResponse.ok("排序已保存");
     }
 
     @ApiOperation(value = "获取当前会话", notes = "返回当前活跃的会话信息（项目 hash + 会话名）")

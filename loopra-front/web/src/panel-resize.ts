@@ -14,3 +14,20 @@ export function clampPanelWidth(width: number, viewport: number): number {
 export function resizePanelWidth(startWidth: number, pointerDeltaX: number, viewport: number): number {
   return clampPanelWidth(startWidth - pointerDeltaX, viewport);
 }
+
+// The left sidebar resizes by dragging its right edge: 180px floor, 480px cap,
+// and never more than 45% of a narrow window.
+export const DEFAULT_SIDEBAR_WIDTH = 240;
+export const MIN_SIDEBAR_WIDTH = 180;
+export const MAX_SIDEBAR_WIDTH = 480;
+export const MAX_SIDEBAR_WIDTH_RATIO = 0.45;
+
+export function clampSidebarWidth(width: number, viewport: number): number {
+  const max = Math.max(Math.min(MAX_SIDEBAR_WIDTH, Math.floor(viewport * MAX_SIDEBAR_WIDTH_RATIO)), MIN_SIDEBAR_WIDTH);
+  return Math.round(Math.min(Math.max(width, MIN_SIDEBAR_WIDTH), max));
+}
+
+// Dragging rightwards (positive delta) widens the sidebar.
+export function resizeSidebarWidth(startWidth: number, pointerDeltaX: number, viewport: number): number {
+  return clampSidebarWidth(startWidth + pointerDeltaX, viewport);
+}

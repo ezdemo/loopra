@@ -1,0 +1,111 @@
+/* Session environment panel — flat sections in the same visual language as
+   the Git tab (uppercase micro headings, hairline separators, 13px body). */
+.environment-panel { display: flex; flex-direction: column; gap: .75rem; min-width: 0; padding: .75rem; color: var(--text); font-size: .8125rem; }
+.environment-panel button, .environment-panel input, .environment-panel textarea, .environment-panel select { font: inherit; }
+.environment-panel :is(button, select, textarea, summary):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* Summary strip at the top of the Git tab */
+.env-bar-wrap { display: flex; flex-direction: column; gap: .5rem; padding: .75rem .75rem 0; }
+/* One summary card shared by local and isolated modes. */
+.env-summary { display: flex; flex-direction: column; gap: .25rem; min-width: 0; padding: .4375rem .625rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.env-summary.is-worktree { border-color: color-mix(in srgb, var(--blue) 30%, var(--line)); }
+.env-summary-head { display: flex; align-items: center; gap: .5rem; min-width: 0; white-space: nowrap; }
+.env-summary-icon { display: inline-grid; place-items: center; flex: 0 0 1.75rem; width: 1.75rem; height: 1.75rem; border-radius: var(--radius-sm); color: var(--secondary); background: var(--soft); }
+.env-summary.is-worktree .env-summary-icon { color: var(--blue); background: var(--accent-soft); }
+.env-summary-title { flex: 0 0 auto; color: var(--text); font-size: .8125rem; font-weight: 500; }
+.env-summary-grow { flex: 1; }
+.env-state { padding: .0625rem .375rem; border-radius: 999px; color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--surface)); font-size: .625rem; line-height: 1.5; white-space: nowrap; }
+.env-state.is-dirty { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, var(--surface)); }
+.env-state.is-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.env-state.is-muted { color: var(--muted); background: var(--soft); }
+.env-summary-meta { display: flex; align-items: center; gap: .3125rem; min-width: 0; padding-left: 2.25rem; color: var(--muted); font-size: .6875rem; white-space: nowrap; }
+.env-summary-meta > svg { flex: 0 0 auto; }
+.env-branch-name { flex: 0 0 auto; max-width: 45%; overflow: hidden; color: var(--secondary); font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; text-overflow: ellipsis; }
+.env-meta-sep { flex: 0 0 auto; color: var(--muted); }
+.env-summary-path { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; text-overflow: ellipsis; }
+.env-summary-actions { display: flex; flex: 0 0 auto; align-items: center; gap: .25rem; }
+.env-isolation-toggle { flex: 0 0 auto; margin: 0; }
+.env-isolation-label { color: var(--secondary); font-size: .6875rem; }
+.env-track { flex: 0 0 auto; color: var(--muted); font-size: .625rem; }
+.env-bar-config { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.env-config-label { flex: 0 0 auto; color: var(--secondary); font-size: .75rem; }
+.env-summary-branch em::before { margin: 0 .3rem 0 .125rem; content: '·'; }
+
+/* Notices and hints */
+.env-notice { display: flex; align-items: center; gap: .5rem; margin: 0; padding: .5rem .625rem; border: 1px solid var(--line); border-radius: var(--radius-md); color: var(--secondary); background: var(--surface); font-size: .75rem; line-height: 1.45; }
+.env-notice::before { flex: 0 0 .375rem; width: .375rem; height: .375rem; border-radius: 50%; background: var(--muted); content: ''; }
+.env-notice > span { flex: 1; min-width: 0; }
+.env-notice button { flex: 0 0 auto; min-width: 1.5rem; min-height: 1.5rem; padding: .125rem .25rem; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; font-size: .9375rem; line-height: 1; cursor: pointer; }
+.env-notice button:hover { color: var(--text); }
+.env-notice.is-success { border-color: color-mix(in srgb, var(--success) 28%, var(--line)); }
+.env-notice.is-success::before { background: var(--success); }
+.env-notice.is-error { border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); }
+.env-notice.is-error::before { background: var(--danger); }
+.env-notice.is-warning { border-color: color-mix(in srgb, var(--warning) 30%, var(--line)); }
+.env-notice.is-warning::before { background: var(--warning); }
+.env-hint { margin: .375rem 0 0; color: var(--muted); font-size: .75rem; line-height: 1.55; }
+.env-hint.is-error { color: var(--danger); }
+.env-hint.is-warning { color: var(--warning); }
+.env-hint .MuiCircularProgress-root, .env-hint > span[role="status"] { display: block; }
+
+/* Sections */
+.env-section { display: flex; flex-direction: column; gap: .375rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+.env-section-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 1.25rem; }
+.env-section-head h3 { display: flex; align-items: baseline; gap: .5rem; margin: 0; color: var(--muted); font-size: .6875rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
+.env-section-note { min-width: 0; overflow: hidden; color: var(--muted); font-size: .6875rem; text-overflow: ellipsis; white-space: nowrap; }
+.env-count { color: var(--secondary); font-size: .6875rem; font-weight: 400; }
+.env-count.is-muted { color: var(--muted); }
+.env-count.is-warning { color: var(--warning); }
+
+/* Isolation controls */
+.env-switch-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.env-switch-row > span { display: grid; min-width: 0; gap: .125rem; }
+.env-switch-row strong { color: var(--text); font-size: .8125rem; font-weight: 500; }
+.env-switch-row small { color: var(--muted); font-size: .6875rem; line-height: 1.45; }
+.env-field-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.env-field-row > label { color: var(--secondary); font-size: .75rem; }
+.env-inline-action { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.env-inline-action small { color: var(--muted); font-size: .6875rem; }
+.environment-panel button:disabled { cursor: default; opacity: .45; }
+
+/* Changed files */
+.env-clean { display: flex; align-items: center; gap: .375rem; margin: .25rem 0 0; color: var(--secondary); font-size: .75rem; }
+.env-clean > svg { color: var(--success); }
+.env-readonly-note { color: var(--muted); font-size: .625rem; }
+.environment-panel .git-tree-row > input[type="checkbox"] { flex: 0 0 .875rem; width: .875rem; height: .875rem; margin: 0; accent-color: var(--blue); cursor: pointer; }
+
+
+/* Commit bar */
+.env-ai-button { height: 1.5rem !important; min-width: 0 !important; padding: 0 !important; gap: .3rem !important; color: var(--blue); background: transparent !important; font-size: .6875rem !important; }
+.env-ai-button > span { display: inline-block; min-width: 3.5rem; text-align: right; }
+.env-textarea { margin: 0; }
+.env-textarea-wrapper { min-height: 4.25rem !important; border-color: var(--line) !important; border-radius: var(--radius-md) !important; background: var(--surface) !important; box-shadow: none !important; }
+.env-textarea-wrapper[data-focus="true"] { border-color: var(--accent) !important; }
+.env-textarea-input { font-size: .75rem !important; line-height: 1.6 !important; }
+.env-commit-footer { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+.env-commit-footer > span { color: var(--muted); font-size: .6875rem; }
+.env-commit-button { height: 2rem !important; min-width: 0 !important; padding: 0 .75rem !important; border-radius: var(--radius-sm) !important; font-size: .75rem !important; }
+
+/* History */
+.env-history { margin: 0; padding-top: .75rem; border-top: 1px solid var(--line); }
+.env-history-accordion { padding: 0 !important; }
+.env-history-trigger { padding: .375rem 0 !important; }
+.env-history-title { color: var(--secondary); font-size: .75rem !important; font-weight: 500; }
+.env-history-heading { display: flex; align-items: center; gap: .5rem; }
+.env-history-heading small { color: var(--muted); font-size: .625rem; font-weight: 400; }
+.env-history-content { padding: 0 0 .5rem !important; }
+.env-history-indicator { color: var(--muted); }
+.env-history-scope { padding: .25rem 0 .5rem; }
+.env-history-list { margin: 0; padding: 0 0 .5rem; list-style: none; }
+.env-history-list li { position: relative; display: flex; align-items: flex-start; gap: .625rem; padding: .5rem 0; }
+.env-history-list li:not(:last-child)::before { position: absolute; top: 1rem; bottom: -.75rem; left: .21875rem; width: 1px; background: var(--line); content: ''; }
+.env-history-dot { position: relative; z-index: 1; flex: 0 0 .5rem; width: .5rem; height: .5rem; margin-top: .3125rem; border: 1.5px solid var(--muted); border-radius: 50%; background: var(--surface); }
+.env-history-list li:first-child .env-history-dot { border-color: var(--blue); }
+.env-history-list li > div { flex: 1; min-width: 0; }
+.env-history-list strong { display: block; overflow: hidden; color: var(--text); font-size: .75rem; font-weight: 400; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.env-history-list small { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-top: .1875rem; color: var(--muted); font-size: .625rem; }
+.env-history-list code { margin-top: .0625rem; color: var(--muted); font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; font-size: .625rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .environment-panel *, .environment-panel *::before, .environment-panel *::after { transition: none !important; }
+}

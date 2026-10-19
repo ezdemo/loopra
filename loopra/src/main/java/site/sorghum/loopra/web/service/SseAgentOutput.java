@@ -56,6 +56,18 @@ public class SseAgentOutput implements AgentOutput {
     }
 
     @Override
+    public void onToolCall(String id, String name, String args) {
+        emitter.send("tool_call", ONode.serialize(Map.of("toolCallId", id, "name", name,
+                "args", args == null ? "{}" : args)));
+    }
+
+    @Override
+    public void onToolResult(String id, String name, String result, boolean failed) {
+        emitter.send("tool_result", ONode.serialize(Map.of("toolCallId", id, "name", name,
+                "result", result == null ? "" : result, "status", failed ? "failed" : "completed")));
+    }
+
+    @Override
     public void onToolResult(String name, String result) {
         emitter.sendToolResult(name, result);
     }

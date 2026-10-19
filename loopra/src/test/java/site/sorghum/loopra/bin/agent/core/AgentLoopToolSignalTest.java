@@ -32,15 +32,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class AgentLoopToolSignalTest {
 
     @Test
-    void terminateOnNoToolCallCanBeUpdatedAtRuntime() {
-        AgentLoop loop = new AgentLoop(stubProvider(), registryWith(tool("status", args -> "ok")), null, null);
-
-        assertTrue(loop.terminateOnNoToolCall());
-        loop.setTerminateOnNoToolCall(false);
-        assertFalse(loop.terminateOnNoToolCall());
-    }
-
-    @Test
     void resetUserAbortAlsoClearsModelStreamAbort() {
         TestLoopraProvider client = TestLoopraProvider.builder().model("test").build();
         AgentLoop loop = new AgentLoop(client, registryWith(tool("status", args -> "ok")), null, null);

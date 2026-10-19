@@ -127,3 +127,22 @@ test('token counts use compact K / M units', () => {
     ['0', '999', '1K', '1.3K', '57.1K', '100K', '100K', '512K', '1M', '1.25M']);
   assert.equal(formatTokens(NaN), '0');
 });
+
+test('the context popover keeps one window-scale bar and a three-stat footer', async () => {
+  const component = await readFile(new URL('../src/components/Composer.tsx', import.meta.url), 'utf8');
+  // The composition bar was merged into the gauge, so its segments are scaled to the
+  // window like the fold mark is — not to the current total.
+  assert.match(component, /width: `\$\{part\.tokens \/ usage\.limit \* 100\}%`/);
+  assert.doesNotMatch(component, /width: `\$\{part\.tokens \/ usage\.total \* 100\}%`/);
+  assert.match(component, /className="context-gauge-threshold"/);
+  // No second bar and no uniform fill left behind.
+  assert.doesNotMatch(component, /className="context-bar"/);
+  assert.doesNotMatch(component, /context-gauge-fill/);
+  assert.doesNotMatch(component, /context-bar-threshold/);
+  // The footer keeps only 总 token / 费用 / 命中率, and the 服务端统计 label is gone.
+  assert.match(component, /总 token \$\{formatTokens\(usage\.metrics\.promptTokens \+ usage\.metrics\.completionTokens\)\}/);
+  assert.match(component, /命中率 \$\{usage\.metrics\.cacheHitRate\.toFixed\(1\)\}%/);
+  assert.doesNotMatch(component, /服务端统计：输入/);
+  assert.doesNotMatch(component, /usage\.metrics\.inputCost/);
+  assert.doesNotMatch(component, /上下文窗口 · /);
+});

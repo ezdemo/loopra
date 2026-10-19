@@ -108,6 +108,11 @@ public class JsonlSessionStore implements SessionStore {
         this.writer = null;
     }
 
+    @Override
+    public Path sessionsDir() {
+        return sessionsDir;
+    }
+
     // ---- 文件管理 ----
 
     private static String sanitize(String name) {
@@ -707,6 +712,63 @@ public class JsonlSessionStore implements SessionStore {
             setMetaString(node, "modelChannelId", modelChannelId);
             setMetaString(node, "reasoningEffort", reasoningEffort);
         });
+    }
+
+    @Override
+    public AcpBinding getAcpBinding(String name) {
+        ONode meta = readMeta(name);
+        String id = metaString(meta, "agentId");
+        return new AcpBinding(id == null ? "native" : id, metaString(meta, "acpSessionId"), metaString(meta, "acpCwd"));
+    }
+
+    @Override
+    public void setAcpBinding(String name, AcpBinding binding) throws IOException {
+        writeMeta(name, node -> {
+            setMetaString(node, "agentId", binding.agentId());
+            setMetaString(node, "acpSessionId", binding.remoteSessionId());
+            setMetaString(node, "acpCwd", binding.cwd());
+        });
+    }
+
+    @Override
+    public AcpUsage getAcpUsage(String name) {
+        ONode meta = readMeta(name);
+        if (meta == null || !meta.get("acpUsage").isObject()) return null;
+        ONode usage = meta.get("acpUsage");
+        ONode cost = usage.get("cost");
+        return new AcpUsage(usage.get("used").getLong(), usage.get("size").getLong(),
+                cost == null || cost.isNull() ? null : cost.getDouble(),
+                metaString(usage, "currency"), metaString(usage, "model"));
+    }
+
+    @Override
+    public void setAcpUsage(String name, AcpUsage usage) throws IOException {
+        writeMeta(name, meta -> {
+            if (usage == null) {
+                meta.remove("acpUsage");
+                return;
+            }
+            ONode node = meta.getOrNew("acpUsage").asObject();
+            node.set("used", usage.used());
+            node.set("size", usage.size());
+            if (usage.cost() == null) node.remove("cost"); else node.set("cost", usage.cost());
+            setMetaString(node, "currency", usage.currency());
+            setMetaString(node, "model", usage.model());
+        });
+    }
+
+    @Override
+    public Map<String, String> getAgentConfig(String name) {
+        ONode meta = readMeta(name);
+        if (meta == null || !meta.get("agentConfig").isObject()) return Map.of();
+        Map<String, String> values = new java.util.LinkedHashMap<>();
+        meta.get("agentConfig").getObject().forEach((key, value) -> values.put(key, value.getString()));
+        return Map.copyOf(values);
+    }
+
+    @Override
+    public void setAgentConfig(String name, Map<String, String> values) throws IOException {
+        writeMeta(name, meta -> meta.set("agentConfig", values));
     }
 
     private void updateMeta(String name, String label, java.util.function.Consumer<ONode> update) {

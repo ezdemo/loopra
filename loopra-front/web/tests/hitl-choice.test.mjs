@@ -3,11 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 // A suspended HITL/ask_choice turn is never persisted, so the reload that ends
-// the stream must reattach the pending card instead of wiping it: the previous
+// the stream must reattach ordinary pending cards. ACP requests have a separate
+// lifetime and are restored through /chat/permissions. The previous
 // behaviour dropped the card the instant it appeared.
 test('the post-stream reload reattaches a still-pending choice', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /attachPendingChoices\(historyMessages\(history\), unresolvedChoices\(petAnswer\.blocks\)\)/);
+  assert.match(app, /attachPendingChoices\(historyMessages\(history\), unresolvedChoices\(petAnswer\.blocks\)\.filter\(choice => !choice\.permissionRequestId\)\)/);
   // The old unconditional skip that caused the flash is gone.
   assert.doesNotMatch(app, /!pendingChoice/);
 });

@@ -189,6 +189,26 @@ test('sub-agent output stays isolated and approvals preserve backend IDs and val
   assert.equal(message.text, '');
 });
 
+test('background sub-agent blocks do not split the parent Markdown message', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  message = applyEvent(message, { type: 'content', content: '1. first\n' });
+  // Claude flattens nested traffic onto the root stream, so the sub-agent block
+  // appears in the middle of the parent's numbered list.
+  message = applyEvent(message, { type: 'sub_start', subId: 'task-1', task: 'Explore' });
+  message = applyEvent(message, { type: 'sub_content', subId: 'task-1', token: 'child' });
+  message = applyEvent(message, { type: 'sub_end', subId: 'task-1', status: 'completed' });
+  message = applyEvent(message, { type: 'content', content: '2. second' });
+  const contents = message.blocks.filter(block => block.type === 'content');
+  assert.equal(contents.length, 1);
+  assert.equal(contents[0].content, '1. first\n2. second');
+  assert.equal(message.text, '1. first\n2. second');
+  assert.equal(message.blocks[1].type, 'sub_agent');
+  assert.equal(message.blocks[1].status, '成功');
+
+  message = applyEvent(message, { type: 'sub_end', subId: 'task-2', status: 'error' });
+  assert.equal(message.blocks[2].status, '失败');
+});
+
 test('encrypted reasoning opens a slot that visible deltas replace', () => {
   let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
   message = applyEvent(message, { type: 'reasoning_started' });
@@ -231,4 +251,58 @@ test('successive full-file diffs of one path collapse into a single net diff', (
   assert.equal(change.additions, 3);
   assert.equal(change.deletions, 0);
   assert.equal(change.diff, '@@ -1,0 +1,3 @@\n+a\n+B\n+c\n');
+});
+
+
+test('ACP tool IDs match concurrent identical tools and retain explicit status', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  for (const event of [
+    { type: 'tool_call', toolCallId: 'a', name: 'read', args: { path: 'a' } },
+    { type: 'tool_call', toolCallId: 'b', name: 'read', args: { path: 'b' } },
+    { type: 'tool_result', toolCallId: 'b', name: 'read', result: 'plain failure', status: 'failed' },
+    { type: 'tool_result', toolCallId: 'a', name: 'read', result: 'Error is just file text', status: 'completed' },
+    { type: 'tool_result', toolCallId: 'unknown', name: 'read', result: 'wrong', status: 'failed' },
+  ]) message = applyEvent(message, event);
+  assert.equal(message.blocks[0].result, 'Error is just file text');
+  assert.equal(message.blocks[0].status, '成功');
+  assert.equal(message.blocks[1].result, 'plain failure');
+  assert.equal(message.blocks[1].status, '失败');
+});
+
+test('ACP permission keeps request ID and resolves on the original stream', () => {
+  let message = applyEvent({ id: 'reply', role: 'assistant', text: '', blocks: [] }, {
+    type: 'choice', permissionRequestId: 'request-1', title: 'write', options: [{ title: '允许一次', value: 'allow-once' }],
+  });
+  assert.equal(message.blocks[0].permissionRequestId, 'request-1');
+  message = applyEvent(message, { type: 'permission_resolved', permissionRequestId: 'request-1', optionId: 'allow-once' });
+  assert.equal(message.blocks[0].selected, '允许一次');
+});
+
+test('ACP approval event alone does not turn an interrupted stream into completion', async () => {
+  const previous = globalThis.fetch;
+  globalThis.fetch = async () => new Response('event: choice\ndata: {"permissionRequestId":"p","options":[]}\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+  try {
+    await assert.rejects(new LoopraClient().stream({ message: 'hi' }, () => {}, new AbortController().signal), /连接意外中断/);
+  } finally { globalThis.fetch = previous; }
+});
+
+test('ACP delayed tool arguments update one card while retaining its result', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  for (const event of [
+    { type: 'tool_call', toolCallId: 'write-1', name: 'Preparing file', args: {} },
+    { type: 'tool_update', toolCallId: 'write-1', name: 'Write output.txt', args: '{"file_path":"output.txt"}' },
+    { type: 'tool_result', toolCallId: 'write-1', name: 'Write output.txt', status: 'completed', result: 'written' },
+    { type: 'tool_update', toolCallId: 'write-1', args: { file_path: 'output.txt', content: 'hello' } },
+  ]) message = applyEvent(message, event);
+  assert.equal(message.blocks.length, 1);
+  assert.equal(message.blocks[0].name, 'Write output.txt');
+  assert.deepEqual(message.blocks[0].args, { file_path: 'output.txt', content: 'hello' });
+  assert.equal(message.blocks[0].status, '成功');
+  assert.equal(message.blocks[0].result, 'written');
+});
+
+test('remote conversations preserve their Agent identity independently of model providers', () => {
+  const session = remoteSession({ name: 'claude-chat', mtime: 1, messageCount: 2, agentId: 'claude-code' }, { hash: 'p', name: 'Project', path: '/project' });
+  assert.equal(session.agentId, 'claude-code');
+  assert.equal(session.id, 'p/claude-chat');
 });

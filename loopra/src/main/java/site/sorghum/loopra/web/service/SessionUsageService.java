@@ -5,6 +5,7 @@ import site.sorghum.loopra.bin.agent.context.ContextTokenEstimate;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.model.ModelPriceProvider;
+import site.sorghum.loopra.bin.session.SessionStore;
 import site.sorghum.loopra.web.common.UsageCostCalculator;
 import site.sorghum.loopra.web.common.UsageCostCalculator.CostBreakdown;
 import site.sorghum.loopra.web.model.UsageDTO;
@@ -64,6 +65,22 @@ final class SessionUsageService {
                 UsageCostCalculator.round4(cost.inputCost()), UsageCostCalculator.round4(cost.cacheCost()),
                 UsageCostCalculator.round4(cost.outputCost()), UsageCostCalculator.round4(cost.totalCost()),
                 cost.hasPrice() ? "CNY" : null, estimate);
+    }
+
+    /**
+     * 外部 ACP Agent 只上报上下文占用，不提供累计 token 与分项费用。
+     * <p>复用 {@code lastPromptTokens}/{@code maxContextTokens} 让前端上下文面板
+     * 直接展示 Agent 的真实窗口与已用量，而不是本地估算。</p>
+     */
+    UsageDTO readAcp(SessionStore.AcpUsage usage) {
+        if (usage == null || usage.used() < 0 || usage.size() <= 0) {
+            return new UsageDTO(0, 0, 0, 0, 0, 0, 0, null, false, 0, 0, 0, 0, null, null);
+        }
+        long used = usage.used();
+        int size = usage.size() > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) usage.size();
+        boolean priced = usage.cost() != null;
+        return new UsageDTO(0, 0, 0, 0, used, size, 0, usage.model(), priced,
+                0, 0, 0, priced ? usage.cost() : 0, priced ? usage.currency() : null, null);
     }
 
     private static CostBreakdown calculate(Map<String, Map<String, Double>> prices, ModelPriceProvider provider,

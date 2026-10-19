@@ -18,7 +18,6 @@ import site.sorghum.loopra.bin.agent.model.PreparedMessages;
 import site.sorghum.loopra.bin.agent.prompt.StateNoticeRenderer;
 import site.sorghum.loopra.integration.cutin.CutinMessageBridge;
 import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionHost;
-import site.sorghum.loopra.integration.cutin.plugin.prompt.ToolContract;
 import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecoveryHost;
 import site.sorghum.loopra.tool.LogLevel;
 

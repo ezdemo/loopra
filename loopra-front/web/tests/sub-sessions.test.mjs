@@ -48,6 +48,14 @@ test('events rebuild content, reasoning, tool calls and results', () => {
   assert.equal(status, 'completed');
 });
 
+test('a run without a sub_end is still running, so live tabs keep polling', () => {
+  const { status } = subSessionBlocks([
+    { type: 'sub_start', startedAt: 1 },
+    { type: 'sub_tool_call', name: 'Read', args: {} },
+  ]);
+  assert.equal(status, 'running');
+});
+
 test('an unmatched tool result still lands on the newest open call', () => {
   const { blocks } = subSessionBlocks([
     { type: 'sub_tool_call', name: 'grep', args: {} },
@@ -78,4 +86,15 @@ test('errors, choices, user turns and abort status are rendered', () => {
 test('empty content segments do not create blank blocks', () => {
   const { blocks } = subSessionBlocks([{ type: 'sub_content', content: '\n\n' }, { type: 'sub_reasoning', content: '  ' }]);
   assert.deepEqual(blocks, []);
+});
+
+// A replayed run can stop without a sub_end, so a duration derived from its start
+// would keep counting forever. The tab asks the shared renderer to omit it.
+test('the replayed sub-agent turn never shows an elapsed-time header', async () => {
+  const [view, conversation] = await Promise.all([
+    readFile(new URL('../src/components/SubAgentView.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/Conversation.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.match(view, /showDuration=\{false\}/);
+  assert.match(conversation, /showDuration && message\.startedAt/);
 });
