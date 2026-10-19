@@ -14,6 +14,7 @@ import site.sorghum.loopra.web.model.WorktreeMergeResultDTO;
 import site.sorghum.loopra.web.model.WorktreeStatusDTO;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -80,7 +81,7 @@ public class WorktreeService {
             }
             try (Stream<Path> children = Files.list(base)) {
                 for (Path child : children.filter(Files::isDirectory).toList()) {
-                    Path normalized = child.toAbsolutePath().normalize();
+                    Path normalized = canonicalPath(child);
                     if (!registered.contains(normalized)) {
                         deleteRecursively(child);
                         log.info("[worktree] 已清理孤儿隔离分支目录: {}", child);
@@ -459,7 +460,7 @@ public class WorktreeService {
 
     /** 是否已注册到主仓库的 worktree 列表。 */
     private boolean isRegisteredWorktree(File main, Path wt) {
-        return registeredWorktrees(main).contains(wt.toAbsolutePath().normalize());
+        return registeredWorktrees(main).contains(canonicalPath(wt));
     }
 
     /** 解析 {@code git worktree list --porcelain} 返回已注册 worktree 路径集合。 */
@@ -468,15 +469,29 @@ public class WorktreeService {
         try {
             ProcessResult result = gitService.runGit(main, "git", "worktree", "list", "--porcelain");
             if (result.exitCode != 0) return paths;
-            for (String line : result.stdout.split("\n")) {
+            for (String line : result.stdout.split("\\R")) {
                 if (line.startsWith("worktree ")) {
-                    paths.add(Paths.get(line.substring("worktree ".length())).toAbsolutePath().normalize());
+                    paths.add(canonicalPath(Paths.get(line.substring("worktree ".length()).trim())));
                 }
             }
         } catch (Exception e) {
             log.warn("[worktree] 枚举 worktree 列表失败: {}", e.getMessage());
         }
         return paths;
+    }
+
+    /**
+     * 解析真实路径再做比较：Windows 下 git 会把 8.3 短名（如 {@code RUNNER~1}）
+     * 还原为长名输出，直接比较路径字符串会把已注册的 worktree 误判为未注册。
+     * 路径不存在时退回绝对规范化路径。
+     */
+    private static Path canonicalPath(Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        try {
+            return absolute.toRealPath();
+        } catch (IOException | RuntimeException e) {
+            return absolute;
+        }
     }
 
     /** 目录是否有未提交改动（status --porcelain 非空）。 */

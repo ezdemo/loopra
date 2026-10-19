@@ -100,6 +100,13 @@ final class AcpProcessTransport implements AcpClientTransport {
             owned.destroy();
             children.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
             if (owned.isAlive()) owned.destroyForcibly();
+            // Windows 下子进程工作目录/日志句柄要等进程真正退出才释放；不等的话
+            // 紧随其后的目录清理会报“文件正被另一个进程使用”。
+            try {
+                owned.waitFor(3, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
         readers.shutdownNow();
     }
