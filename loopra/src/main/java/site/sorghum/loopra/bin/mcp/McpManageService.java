@@ -1,10 +1,6 @@
 package site.sorghum.loopra.bin.mcp;
 
 import lombok.extern.slf4j.Slf4j;
-import org.noear.snack4.Feature;
-import org.noear.snack4.ONode;
-import org.noear.snack4.Options;
-import org.noear.snack4.json.JsonWriter;
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.ai.mcp.client.McpClientProvider;
 import org.noear.solon.annotation.Component;
@@ -15,7 +11,6 @@ import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.tool.solon.mcp.LoopraMcpSkill;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -64,7 +59,7 @@ public class McpManageService implements EventListener<AppLoadEndEvent> {
             if (data.servers != null) {
                 for (McpServerDTO server : data.servers) {
                     try {
-                        registerToSkill(server);
+                        if (server.enabled) registerToSkill(server);
                         serverStore.put(server.name, server);
                         log.debug("自动加载 MCP 服务器: {} (type={})", server.name, server.type);
                     } catch (Exception e) {
@@ -300,15 +295,7 @@ public class McpManageService implements EventListener<AppLoadEndEvent> {
     private void saveToFile() {
         try {
             Path path = configPath();
-            Files.createDirectories(path.getParent());
-
-            McpPersistenceData data = new McpPersistenceData();
-            data.servers = new ArrayList<>(serverStore.values());
-
-            String json = JsonWriter.write(
-                    ONode.ofBean(data),
-                    Options.of(Feature.Write_PrettyFormat));
-            Files.writeString(path, json, StandardCharsets.UTF_8);
+            McpConfigFile.write(path, serverStore.values());
         } catch (IOException e) {
             log.error("保存 MCP 配置失败", e);
         }
@@ -320,8 +307,9 @@ public class McpManageService implements EventListener<AppLoadEndEvent> {
             return null;
         }
         try {
-            String json = Files.readString(path, StandardCharsets.UTF_8);
-            return ONode.ofJson(json).toBean(McpPersistenceData.class);
+            McpPersistenceData data = new McpPersistenceData();
+            data.servers = McpConfigFile.read(path);
+            return data;
         } catch (IOException e) {
             log.warn("读取 MCP 配置失败: {}", path, e);
             return null;
