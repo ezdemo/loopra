@@ -1254,11 +1254,17 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
 }
 /* macOS draws the real traffic lights itself at a fixed device-pixel position
    (~64px wide, 12px tall), while `rem` follows the 界面缩放 setting on :root.
-   Every metric that has to line up with them is therefore pinned to px. */
+   Every metric that has to line up with them is therefore pinned to px.
+   The lights get their own 36px band above the sidebar (the band stays a drag
+   region), so the sidebar content starts below them; the right dock never sits
+   under native controls and starts at the very top. */
+.desktop-app.is-desktop-shell.is-native-controls .sidebar::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 36px; z-index: 0; -webkit-app-region: drag; }
+.desktop-app.is-desktop-shell.is-native-controls .sidebar-resize-handle { -webkit-app-region: no-drag; }
 .desktop-app.is-desktop-shell.is-native-controls .sidebar-brand,
-.desktop-app.is-desktop-shell.is-native-controls .conversation-header { height: 36px; flex-basis: 36px; }
-.desktop-app.is-desktop-shell.is-native-controls .sidebar-brand { padding-left: 80px; }
-.desktop-app.is-desktop-shell.is-native-controls .changes-panel { margin-top: 36px; }
+.desktop-app.is-desktop-shell.is-native-controls .conversation-header,
+.desktop-app.is-desktop-shell.is-native-controls .panel-header { height: 36px; flex-basis: 36px; }
+.desktop-app.is-desktop-shell.is-native-controls .sidebar-brand { margin-top: 36px; }
+.desktop-app.is-desktop-shell.is-native-controls .changes-panel { margin-top: 0; }
 .desktop-app.is-desktop-shell.is-native-controls[data-sidebar="closed"] .conversation-header { padding-left: 80px; }
 .desktop-app.is-desktop-shell { border: 0; border-radius: 0; }
 

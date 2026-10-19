@@ -63,13 +63,17 @@ test('the shell first row is the drag region with no-drag controls', () => {
   // reserves their width, and the overlay layout always does.
   assert.match(styles, /\[data-panel="closed"\] \.conversation-header \{ padding-right: 8\.25rem; \}/);
   assert.match(styles, /\.desktop-app\.is-desktop-shell \.changes-panel \{ margin-top: 2\.25rem; \}/);
-  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.changes-panel \{ margin-top: 36px; \}/);
+  // macOS: the traffic lights get their own band, the sidebar starts below it,
+  // and the right dock (which has no native controls over it) starts at the top.
+  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.changes-panel \{ margin-top: 0; \}/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar-brand \{ margin-top: 36px; \}/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar::before \{[^}]*-webkit-app-region: drag; \}/);
   assert.doesNotMatch(styles, /\.panel-header \{ padding-right: 8\.25rem/);
   // The OS draws the macOS traffic lights at a fixed device-pixel position, so
   // the metrics that line up with them must not follow the rem-based UI scale
   // (`:root { font-size: calc(16px * var(--ui-scale)) }`) or they drift onto the
   // title whenever 界面缩放 is below 100%.
-  const nativeMetrics = styles.match(/\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell\.is-native-controls \.conversation-header \{([^}]*)\}/)[1];
+  const nativeMetrics = styles.match(/\.desktop-app\.is-desktop-shell\.is-native-controls \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell\.is-native-controls \.conversation-header,\s*\.desktop-app\.is-desktop-shell\.is-native-controls \.panel-header \{([^}]*)\}/)[1];
   assert.match(nativeMetrics, /height: 36px;/);
   assert.match(styles, /padding-left: 80px;/);
   assert.doesNotMatch(nativeMetrics, /rem/);
