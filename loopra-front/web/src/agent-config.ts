@@ -59,3 +59,48 @@ export function isDangerousAgentMode(option: AgentConfigOption): boolean {
   const name = agentOptionLabel(option);
   return /bypass|free/i.test(value) || /bypass|完全自动/i.test(name);
 }
+
+/**
+ * Composer choices to carry into the next new conversation. Plan mode is
+ * turn-scoped, so a new conversation always starts outside it.
+ */
+export function newSessionSeed(options: AgentConfigOption[]): Record<string, string | boolean> {
+  return Object.fromEntries(options.filter(option => option.id !== 'plan').map(option => [option.id, option.currentValue]));
+}
+
+/**
+ * The saved choices the freshly prepared Agent still offers, as config changes.
+ * A retired model or a removed mode is skipped instead of failing the draft.
+ */
+export function seedChanges(options: AgentConfigOption[], saved: Record<string, string | boolean> | undefined) {
+  if (!saved) return [];
+  const changes: { id: string; value: string | boolean }[] = [];
+  for (const option of options) {
+    if (option.id === 'plan') continue;
+    const value = saved[option.id];
+    if (value === undefined || value === option.currentValue) continue;
+    if (option.type === 'boolean') {
+      if (typeof value === 'boolean') changes.push({ id: option.id, value });
+    } else if (typeof value === 'string' && option.options.some(choice => choice.value === value)) {
+      changes.push({ id: option.id, value });
+    }
+  }
+  return changes;
+}
+
+/**
+ * Apply the remembered choices to a prepared option list locally, so the
+ * composer can show the last preset while the writes are still in flight
+ * (otherwise the Agent's factory default flashes first).
+ */
+export function applySeed(options: AgentConfigOption[], saved: Record<string, string | boolean> | undefined) {
+  if (!saved) return options;
+  return options.map(option => {
+    if (option.id === 'plan') return option;
+    const value = saved[option.id];
+    const valid = option.type === 'boolean'
+      ? typeof value === 'boolean'
+      : typeof value === 'string' && option.options.some(choice => choice.value === value);
+    return valid && value !== option.currentValue ? { ...option, currentValue: value } : option;
+  });
+}

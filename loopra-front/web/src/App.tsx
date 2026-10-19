@@ -17,7 +17,7 @@ import type { FileChange, Message } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
 import type { AgentEngine } from './backend';
-import type { AgentConfigOption } from './agent-config';
+import { applySeed, newSessionSeed, seedChanges, type AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
@@ -100,6 +100,19 @@ export default function App() {
   // Home has no session yet, but its composer still advertises the selected
   // Agent's options. The prepared backend session is reused by the first send.
   const [newAgentConfig, setNewAgentConfig] = useState<{ key: string; options: AgentConfigOption[] } | null>(null);
+  // Read synchronously by sends that race the background seeding.
+  const newAgentConfigRef = useRef<{ key: string; options: AgentConfigOption[] } | null>(null);
+  const newConfigSeed = useRef<Promise<void> | null>(null);
+  function storeNewAgentConfig(next: { key: string; options: AgentConfigOption[] } | null) {
+    newAgentConfigRef.current = next;
+    setNewAgentConfig(next);
+  }
+  // The last new conversation's choices per backend and Agent. Existing sessions
+  // keep their own saved config; only a fresh draft is seeded from this record.
+  const [newSessionConfig, setNewSessionConfig] = useLocalState<Record<string, Record<string, string | boolean>>>('new-session-config', {});
+  // Last known option list per backend and Agent. The home composer shows it
+  // (disabled) while the Agent reconnects instead of collapsing into a spinner.
+  const [agentConfigCache, setAgentConfigCache] = useLocalState<Record<string, AgentConfigOption[]>>('agent-config-cache', {});
   const preparedNewSession = useRef<{ key: string; target: Session } | null>(null);
   const [agentConfigBusy, setAgentConfigBusy] = useState<string>();
   const [agentConfigError, setAgentConfigError] = useState('');
@@ -207,11 +220,44 @@ export default function App() {
     settingsQueue.current = result.catch(error => { notify(`保存失败：${error instanceof Error ? error.message : error}`); });
     return result;
   }
+  function newConfigKey(agent: string) { return `${server}::${agent}`; }
+  function cacheAgentConfig(agent: string, options: AgentConfigOption[]) {
+    setAgentConfigCache(current => ({ ...current, [newConfigKey(agent)]: options }));
+  }
+  function rememberNewConfig(agent: string, options: AgentConfigOption[]) {
+    setNewSessionConfig(current => ({ ...current, [newConfigKey(agent)]: newSessionSeed(options) }));
+  }
+  /** Native's non-ACP fallback writes the same choices through ComposerOptions. */
+  function rememberFallbackConfig(agent: string, next: ComposerOptions) {
+    setNewSessionConfig(current => ({ ...current, [newConfigKey(agent)]: {
+      model: next.modelId, mode: permissionValue(next.mode), effort: next.effort, fast: next.fast ? 'on' : 'off',
+    } }));
+  }
+  /**
+   * Re-apply the last new conversation's choices to a freshly prepared draft.
+   * A value the Agent no longer offers is skipped, so the draft always opens.
+   */
+  async function seedNewConfig(workspaceHash: string, sessionName: string, agent: string,
+      options: AgentConfigOption[]) {
+    let current = options;
+    for (const change of seedChanges(options, newSessionConfig[newConfigKey(agent)])) {
+      try {
+        const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
+          { workspaceHash, sessionName, configId: change.id, value: change.value });
+        current = result.configOptions;
+      } catch (error) {
+        // A retired model or a disabled mode must not block a new conversation.
+        console.warn('[agent-config] 忽略无法恢复的新会话配置', change.id, error);
+      }
+    }
+    return current;
+  }
   function saveOptions(next: ComposerOptions) {
     if (externalAgent) { setComposerOptions(next); return Promise.resolve(); }
     // Leaving plan mode discards any submitted plan, so confirm first (legacy togglePlan).
     if (!next.plan && composerOptions.plan && session) { setDiscardPlan(true); return Promise.resolve(); }
     return mutation(async () => {
+      if (!session) await newConfigSeed.current?.catch(() => {});
       const prepared = preparedNewSession.current;
       const target = session || (prepared?.key === agentConfigKey ? prepared.target : undefined) || await prepareAgentConfig();
       if (!target) return;
@@ -225,8 +271,14 @@ export default function App() {
         const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
           { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
         if (session) setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
-        else setNewAgentConfig(current => current && current.key === agentConfigKey ? { ...current, options: result.configOptions } : current);
+        else {
+          const draft = newAgentConfigRef.current;
+          if (draft?.key === agentConfigKey) storeNewAgentConfig({ ...draft, options: result.configOptions });
+          cacheAgentConfig(target.agentId || agentId, result.configOptions);
+        }
       }
+      // A fresh draft remembers its final choices for the next new conversation.
+      if (!session) rememberFallbackConfig(target.agentId || agentId, next);
       setComposerOptions(next);
     }).catch(() => {});
   }
@@ -247,7 +299,23 @@ export default function App() {
       if (!project) return;
       const target = remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, project);
       preparedNewSession.current = { key, target };
-      setNewAgentConfig({ key, options: prepared.configOptions });
+      // Show the Agent's controls immediately, already carrying the remembered
+      // choices, so the factory default never flashes before the writes land.
+      // The remembered choices are also applied to the draft in the background,
+      // and the first send waits for them, so opening the home page never blocks
+      // on a round trip per option. Seeding deliberately does not use the effect's
+      // abort signal: the state update above reruns the effect and would cancel
+      // the very requests that restore the draft.
+      storeNewAgentConfig({ key, options: applySeed(prepared.configOptions, newSessionConfig[newConfigKey(prepared.agentId)]) });
+      let seeding: Promise<void>;
+      seeding = seedNewConfig(workspaceHash, prepared.sessionName, prepared.agentId, prepared.configOptions)
+        .then(options => {
+          const draft = newAgentConfigRef.current;
+          if (draft?.key === key) storeNewAgentConfig({ key, options });
+          cacheAgentConfig(prepared.agentId, options);
+        })
+        .finally(() => { if (newConfigSeed.current === seeding) newConfigSeed.current = null; });
+      newConfigSeed.current = seeding;
     } catch (error) {
       if (signal?.aborted) return;
       const message = error instanceof Error ? error.message : String(error);
@@ -262,8 +330,12 @@ export default function App() {
     try {
       const prepared = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
         { workspaceHash: currentWorkspace.hash, sessionName: session?.name, agentId });
+      // Only a new draft is seeded; an existing session keeps its own saved config.
+      const options = session ? prepared.configOptions
+        : await seedNewConfig(currentWorkspace.hash, prepared.sessionName, prepared.agentId, prepared.configOptions);
       const target = session || remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, currentWorkspace);
-      setAgentConfigs(current => ({ ...current, [target.id]: prepared.configOptions }));
+      if (!session) cacheAgentConfig(prepared.agentId, options);
+      setAgentConfigs(current => ({ ...current, [target.id]: options }));
       // A fresh session goes to the top, matching the server's newest-first list.
       if (!session) { setSessions(current => [target, ...current]); setActiveId(target.id); }
       return target;
@@ -278,12 +350,20 @@ export default function App() {
     const prepared = preparedNewSession.current;
     const target = session || (prepared?.key === agentConfigKey ? prepared.target : undefined);
     if (!target) return;
+    // A background seed writes the same options; finish it first so this change wins.
+    if (!session) await newConfigSeed.current?.catch(() => {});
     setAgentConfigBusy(target.id);
     try {
       const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
         { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
       if (session) setAgentConfigs(current => ({ ...current, [target.id]: result.configOptions }));
-      else setNewAgentConfig(current => current && current.key === agentConfigKey ? { ...current, options: result.configOptions } : current);
+      else {
+        const draft = newAgentConfigRef.current;
+        if (draft?.key === agentConfigKey) storeNewAgentConfig({ ...draft, options: result.configOptions });
+        cacheAgentConfig(target.agentId || agentId, result.configOptions);
+        // A draft's change becomes the starting point for the next new conversation.
+        rememberNewConfig(target.agentId || agentId, result.configOptions);
+      }
       if (target.agentId === 'native' || !target.agentId) {
         // Native choices also feed the legacy settings page and plan review, so
         // mirror the Agent's authoritative config back into composer options.
@@ -344,6 +424,13 @@ export default function App() {
     const target = sessions.find(item => item.id === rename); if (!target) return;
     try { await api.request(sessionRoute(target, '/title'), 'PUT', { title: renameValue.trim() }); setSessions(current => current.map(item => item.id === rename ? { ...item, title: renameValue.trim() } : item)); setRename(null); notify('会话已重命名'); }
     catch (error) { notify(`重命名失败：${error instanceof Error ? error.message : error}`); }
+  }
+  /** Switching the Agent always starts a new conversation, and never mid-run. */
+  function switchAgent(id: string) {
+    if (id === agentId) return;
+    if (generatingId || remoteRun) { notify('任务运行中，结束后才能切换 Agent'); return; }
+    setNewAgentId(id);
+    newSession();
   }
   function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') { selectMainTab(null, nextWorkspace); if (narrow) setSidebar(false); historyRequest.current?.abort(); if (getModelCatalog(providers).some(model => model.id === defaultModel)) setComposerOptions(value => ({ ...value, modelId: defaultModel })); setActiveId(null); setWorkspace(nextWorkspace); setChanges(false); setDraft(''); setComposerContext(emptyContext); setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null); userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false); setTimeout(() => textarea.current?.focus(), 50); }
   // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
@@ -674,11 +761,20 @@ export default function App() {
         // (model, permission mode, effort…) survive into the first real turn.
         const prepared = preparedNewSession.current;
         if (prepared?.key === agentConfigKey) {
+          // Seeding may still be writing the last new-conversation choices; wait
+          // so the first turn never starts on the Agent's factory defaults.
+          await newConfigSeed.current?.catch(() => {});
+          const draft = newAgentConfigRef.current;
           target = { ...prepared.target, title: titleSource.slice(0, 60) };
-          const options = newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : undefined;
-          if (options) setAgentConfigs(current => ({ ...current, [target!.id]: options }));
+          const options = draft?.key === agentConfigKey ? draft.options : undefined;
+          if (options) {
+            setAgentConfigs(current => ({ ...current, [target!.id]: options }));
+            cacheAgentConfig(target!.agentId || agentId, options);
+            // Freeze the draft's final choices for the next new conversation.
+            rememberNewConfig(target!.agentId || agentId, options);
+          }
           preparedNewSession.current = null;
-          setNewAgentConfig(null);
+          storeNewAgentConfig(null);
         } else {
           const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
           target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId }, currentWorkspace);
@@ -845,9 +941,9 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
-    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : undefined, busy: !!agentConfigBusy, error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
+    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey), error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
     onAgentsRefresh={() => { void api.request<AgentEngine[]>('/agent-engines').then(setEngines).catch(() => {}); }}
-    agentId={agentId} engines={engines} onAgent={id => { if (id === agentId) return; if (generatingId) { notify('请先停止当前任务'); return; } setNewAgentId(id); newSession(); }}
+    agentId={agentId} engines={engines} onAgent={switchAgent}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !sessionsOpen && !helpOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
@@ -887,7 +983,8 @@ export default function App() {
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
           {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
-            onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}>{composer}</HomeView> : <>
+            onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}
+            engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun} onAgent={switchAgent}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{composer}</div>
@@ -895,7 +992,7 @@ export default function App() {
         </div></WorkspaceTabs>
       </main>
       {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} onOpenSubAgent={item => showSubAgent(item)} />}
+      {changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} onOpenSubAgent={item => showSubAgent(item)} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}

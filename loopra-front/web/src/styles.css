@@ -227,6 +227,18 @@ svg { flex-shrink: 0; }
 
 .workspace-selector { margin-left: .25rem; width: fit-content; margin-bottom: .5rem; z-index: 8; }
 
+/* Project and Agent switchers share one row above the composer. */
+.welcome-switchers { display: flex; align-items: center; gap: .25rem; margin-left: .25rem; margin-bottom: .5rem; }
+.welcome-switchers .workspace-selector { margin: 0; }
+.agent-selector { z-index: 8; }
+.agent-selector > button { height: 1.875rem; padding: 0 .625rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: .4375rem; background: transparent; color: var(--secondary); font-size: .8125rem; transition: background .12s, color .12s; }
+.agent-selector > button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.agent-selector > button:disabled { opacity: .55; cursor: default; }
+.dark .agent-selector > button { background: var(--soft); }
+.agent-dot { width: .4375rem; height: .4375rem; border-radius: 50%; background: var(--muted); }
+.agent-dot.external { background: var(--blue); }
+.agent-menu { left: 0; }
+
 .workspace-selector > button { height: 1.875rem; padding: 0 .625rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: .5rem; background: transparent; color: var(--secondary); font-size: .8125rem; transition: background .12s; }
 .workspace-selector > button:hover { background: var(--hover); color: var(--text); }
 
