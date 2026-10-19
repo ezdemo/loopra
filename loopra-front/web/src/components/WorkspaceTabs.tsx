@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
-import { FileCode2, MessageSquare, RefreshCw, X } from 'lucide-react';
+import { Bot, FileCode2, MessageSquare, RefreshCw, X } from 'lucide-react';
 import type { LoopraClient } from '../backend';
-import type { WorkspaceFile, WorkspaceTabs as TabsState } from '../workspace-tabs';
+import { subAgentTabKey, type WorkspaceFile, type WorkspaceTabs as TabsState } from '../workspace-tabs';
 import { watchWorkspaceChanges } from '../workspace-events';
 import { errorText, query } from './RemoteControls';
 import UnifiedDiff from './UnifiedDiff';
 import CodeViewer from './CodeViewer';
+import SubAgentView from './SubAgentView';
 
 type Props = {
   api: LoopraClient; workspaceHash: string; state: TabsState; children: ReactNode;
   onSelect: (path: string | null) => void; onClose: (path: string) => void;
   onOpen: (file: WorkspaceFile) => void; onAdd: (path: string, selection?: string) => void;
+  notify: (message: string) => void; onCloseSubAgent: (subSessionId: string) => void;
 };
 
-export default function WorkspaceTabs({ api, workspaceHash, state, children, onSelect, onClose, onOpen, onAdd }: Props) {
+export default function WorkspaceTabs({ api, workspaceHash, state, children, onSelect, onClose, onOpen, onAdd, notify, onCloseSubAgent }: Props) {
   const bar = useRef<HTMLElement>(null);
   const [revision, setRevision] = useState(0);
   useEffect(() => watchWorkspaceChanges(workspaceHash, () => setRevision(value => value + 1)), [workspaceHash]);
@@ -26,18 +28,33 @@ export default function WorkspaceTabs({ api, workspaceHash, state, children, onS
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
     tabs[next]?.click(); tabs[next]?.focus();
   }
+  const hasTabs = state.files.length + state.agents.length > 0;
   return <div className="workspace-center">
-    {state.files.length > 0 && <nav className="workspace-tabs" ref={bar} role="tablist" aria-label="主页面标签" onKeyDown={navigate}>
+    {hasTabs && <nav className="workspace-tabs" ref={bar} role="tablist" aria-label="主页面标签" onKeyDown={navigate}>
       <button type="button" className="workspace-chat-tab" role="tab" id="workspace-chat-tab" aria-controls="workspace-chat-view" aria-selected={state.active === null} tabIndex={state.active === null ? 0 : -1} onClick={() => onSelect(null)}><MessageSquare size={15} />会话</button>
       <div className="workspace-file-tabs">{state.files.map((file, index) => <div className="workspace-file-tab" key={file.path} data-active={state.active === file.path}>
         <button type="button" role="tab" id={`workspace-file-tab-${index}`} aria-controls={`workspace-file-view-${index}`} aria-selected={state.active === file.path} tabIndex={state.active === file.path ? 0 : -1} title={file.path} onClick={() => onSelect(file.path)}><FileCode2 size={14} /><span>{file.path.split('/').pop()}</span>{file.mode === 'diff' && <small>Diff</small>}</button>
         <button type="button" className="workspace-tab-close" aria-label={`关闭 ${file.path}`} onClick={() => onClose(file.path)}><X size={13} /></button>
-      </div>)}</div>
+      </div>)}
+        {state.agents.map((agent, index) => {
+          const key = subAgentTabKey(agent.subSessionId);
+          return <div className="workspace-file-tab workspace-subagent-tab" key={key} data-active={state.active === key}>
+            <button type="button" role="tab" id={`workspace-subagent-tab-${index}`} aria-controls={`workspace-subagent-view-${index}`} aria-selected={state.active === key} tabIndex={state.active === key ? 0 : -1} title={agent.label} onClick={() => onSelect(key)}><Bot size={14} /><span>{agent.label}</span></button>
+            <button type="button" className="workspace-tab-close" aria-label={`关闭 ${agent.label}`} onClick={() => onCloseSubAgent(agent.subSessionId)}><X size={13} /></button>
+          </div>;
+        })}
+      </div>
     </nav>}
-    <div className="workspace-chat-view" id="workspace-chat-view" role={state.files.length ? 'tabpanel' : undefined} aria-labelledby={state.files.length ? 'workspace-chat-tab' : undefined} hidden={state.active !== null}>{children}</div>
+    <div className="workspace-chat-view" id="workspace-chat-view" role={hasTabs ? 'tabpanel' : undefined} aria-labelledby={hasTabs ? 'workspace-chat-tab' : undefined} hidden={state.active !== null}>{children}</div>
     {state.files.map((file, index) => <div className="workspace-file-view" id={`workspace-file-view-${index}`} role="tabpanel" aria-labelledby={`workspace-file-tab-${index}`} hidden={state.active !== file.path} key={file.path}>
       <WorkspaceFileView api={api} workspaceHash={workspaceHash} file={file} revision={revision} active={state.active === file.path} onMode={mode => onOpen({ ...file, mode })} onAdd={onAdd} />
     </div>)}
+    {state.agents.map((agent, index) => {
+      const key = subAgentTabKey(agent.subSessionId);
+      return <div className="workspace-file-view workspace-subagent-view" id={`workspace-subagent-view-${index}`} role="tabpanel" aria-labelledby={`workspace-subagent-tab-${index}`} hidden={state.active !== key} key={key}>
+        <SubAgentView api={api} workspaceHash={workspaceHash} sessionName={agent.sessionName} subSessionId={agent.subSessionId} label={agent.label} notify={notify} onDiff={path => onOpen({ path, mode: 'diff' })} />
+      </div>;
+    })}
   </div>;
 }
 

@@ -9,7 +9,7 @@ export type AgentEngine = { id: string; name: string; available: boolean; detail
 export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };
-export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
 export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
 
 export function serverAddress(value: string) {
@@ -125,16 +125,24 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     let sub = blocks.find(block => block.id === subId && block.type === 'sub_agent');
     if (!sub || sub.type !== 'sub_agent') { sub = { id: subId, type: 'sub_agent', name: event.task || '子代理', status: '执行中', blocks: [] }; blocks.push(sub); }
     if (event.task) sub.name = event.task;
-    if (event.type === 'sub_end') sub.status = '成功';
+    if (event.type === 'sub_end') sub.status = event.status === 'error' ? '失败' : event.status === 'aborted' ? '失败' : '成功';
     else if (event.type === 'sub_error') sub.status = '失败';
     else sub.blocks = applyEvent({ ...message, id: subId, blocks: sub.blocks }, { ...event, type: event.type.slice(4) }).blocks || [];
   } else if (event.type === 'reasoning_started') {
     // Encrypted reasoning opens a slot without any visible delta (legacy Chat.vue).
     if (blocks.at(-1)?.type !== 'reasoning_started') blocks.push({ id, type: 'reasoning_started', content: '' });
   } else if (event.type === 'content' || event.type === 'reasoning') {
-    const last = blocks.at(-1);
-    if (last?.type === event.type) last.content += content;
-    else if (last?.type === 'reasoning_started' && event.type === 'reasoning') blocks[blocks.length - 1] = { id: last.id, type: 'reasoning', content };
+    // A background subagent inserts its own block in the middle of the parent turn.
+    // Keep extending the parent's previous Markdown block across it, otherwise the
+    // list/paragraph would be split into two messages and render as broken text.
+    let index = blocks.length - 1;
+    if (blocks[index]?.type !== event.type) {
+      while (index >= 0 && blocks[index].type === 'sub_agent') index--;
+    }
+    const target = index >= 0 ? blocks[index] : undefined;
+    if (target?.type === 'content' && event.type === 'content') target.content += content;
+    else if (target?.type === 'reasoning' && event.type === 'reasoning') target.content += content;
+    else if (target?.type === 'reasoning_started' && event.type === 'reasoning') blocks[index] = { id: target.id, type: 'reasoning', content };
     else if (content.trim()) blocks.push({ id, type: event.type, content });
   } else if (event.type === 'stream_reset') {
     // Retry invalidates only the current model segment, retaining completed tools.

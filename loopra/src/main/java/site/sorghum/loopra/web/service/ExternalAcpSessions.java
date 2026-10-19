@@ -8,6 +8,7 @@ import site.sorghum.loopra.bin.acp.AcpConfigOption;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.session.SessionStore;
+import site.sorghum.loopra.bin.session.SubAgentSessionStore;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.web.common.ServiceException;
 
@@ -35,6 +36,9 @@ final class ExternalAcpSessions implements AutoCloseable {
         Connection connection = acquire(key, cwd);
         List<String> directories = linkedProjectDirectories == null ? List.of() : List.copyOf(linkedProjectDirectories);
         AcpTranscriptOutput transcript = new AcpTranscriptOutput(output, store);
+        Path sessionsDir = store.sessionsDir();
+        ClaudeSubAgentRecorder recorder = sessionsDir == null ? null
+                : new ClaudeSubAgentRecorder(new SubAgentSessionStore(sessionsDir), name);
         boolean success = false;
         try {
             // A configuration read may have opened a session before linked projects were known.
@@ -49,6 +53,9 @@ final class ExternalAcpSessions implements AutoCloseable {
             if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(cwd), transcript);
             else connection.client.bindOutput(transcript);
             AcpWorkbenchClient client = connection.client;
+            // Nested Claude traffic is flattened onto the root session, so mirror it into the
+            // same sub-session store the native engine writes, and the replay panel can list it.
+            client.setSubAgentListener(recorder == null ? null : recorder::record);
             active.accept(client);
             open(connection, cwd, name, store, directories);
             ChatMessage user = message.getImages().isEmpty() ? ChatMessage.ofUser(message.getText())
@@ -66,8 +73,11 @@ final class ExternalAcpSessions implements AutoCloseable {
             success = true;
         } finally {
             boolean interrupted = Thread.interrupted();
-            try { transcript.finish(); }
-            finally {
+            try {
+                // Persist the last buffered subagent text before the turn's store is released.
+                if (recorder != null) recorder.finish();
+                transcript.finish();
+            } finally {
                 try {
                     if (connection.client != null) {
                         inactive.accept(connection.client);

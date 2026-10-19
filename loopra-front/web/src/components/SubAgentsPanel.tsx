@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { ChevronRight, RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronRight, ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { ConfirmAction, RemoteState, errorText, useRemote } from './RemoteControls';
 import { IconButton } from './ui';
@@ -10,8 +10,9 @@ import { continueSubSession, formatSubTime, subSessionBlocks, subSessionEventsPa
 // Ported from legacy `src/components/SubAgentPanel.vue` plus the desktop chat
 // tab's replay view: list the current session's sub-agent runs, replay their
 // stored events as blocks, delete a finished run, and continue an active one.
-export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify, onDiff }: {
+export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify, onDiff, onOpenTab }: {
   api: LoopraClient; workspaceHash: string; sessionName?: string; notify: (message: string) => void; onDiff?: (path: string) => void;
+  onOpenTab?: (item: SubSession) => void;
 }) {
   // Two revisions on purpose: polling only refreshes the list (event counts),
   // while the event revision re-reads the stored replay. Bumping the list alone
@@ -92,6 +93,7 @@ export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify
             <span className="subagent-row-main"><strong>{subSessionLabel(item)}</strong><small>{subStatusLabel(item.status)} · {formatSubTime(item.startedAt)} · {item.eventCount} 事件</small></span>
             <ChevronRight size="0.875rem" />
           </button>
+          {onOpenTab && <IconButton label={`在标签页打开 ${subSessionLabel(item)}`} className="subagent-open-tab" onClick={() => onOpenTab(item)}><ExternalLink size="0.8125rem" /></IconButton>}
           <IconButton label={`删除 ${subSessionLabel(item)}`} className="subagent-delete" onClick={() => setDeleting(item)}><Trash2 size="0.8125rem" /></IconButton>
         </li>)}</ul>
       </>}

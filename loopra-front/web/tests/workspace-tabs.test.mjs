@@ -18,14 +18,19 @@ async function compile(path, aliases = {}) {
   for (const [specifier, url] of Object.entries({ react: import.meta.resolve('react'), 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'lucide-react': import.meta.resolve('lucide-react'), ...aliases })) outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
   return dataUrl(outputText);
 }
-const model = await import(await compile('../src/workspace-tabs.ts'));
-const { emptyWorkspaceTabs, openWorkspaceFile, closeWorkspaceFile, updateWorkspaceFilePath } = model;
+const modelUrl = await compile('../src/workspace-tabs.ts');
+const model = await import(modelUrl);
+const { emptyWorkspaceTabs, openWorkspaceFile, closeWorkspaceFile, updateWorkspaceFilePath, ensureSubAgentTab, openSubAgentTab, closeSubAgentTab, subAgentTabKey } = model;
 const { highlightStub, codeViewerStub } = await import('./helpers/highlight.mjs');
 const diff = await compile('../src/diff.ts');
 const unifiedDiff = await compile('../src/components/UnifiedDiff.tsx', { '../diff': diff, '../highlight': highlightStub });
 const events = await compile('../src/workspace-events.ts');
 const controls = dataUrl(`export const errorText = cause => cause.message; export const query = values => new URLSearchParams(values).toString();`);
-const { default: WorkspaceTabs } = await import(await compile('../src/components/WorkspaceTabs.tsx', { './RemoteControls': controls, './UnifiedDiff': unifiedDiff, './CodeViewer': codeViewerStub, '../highlight': highlightStub, '../workspace-events': events }));
+const subAgentView = dataUrl(`
+const { createElement } = await import(${JSON.stringify(import.meta.resolve('react'))});
+export default ({ subSessionId, label }) => createElement('div', { className: 'subagent-view-stub' }, label + ':' + subSessionId);
+`);
+const { default: WorkspaceTabs } = await import(await compile('../src/components/WorkspaceTabs.tsx', { './RemoteControls': controls, './UnifiedDiff': unifiedDiff, './CodeViewer': codeViewerStub, './SubAgentView': subAgentView, '../workspace-tabs': modelUrl, '../highlight': highlightStub, '../workspace-events': events }));
 const click = async element => act(async () => element.click());
 const tab = name => [...document.querySelectorAll('.workspace-tabs [role="tab"]')].find(element => element.textContent === name);
 
@@ -39,16 +44,20 @@ async function mount({ failRead = false } = {}) {
   } };
   function Wrapper() {
     const [state, setState] = useState(emptyWorkspaceTabs); update = setState;
-    return createElement(WorkspaceTabs, { api, workspaceHash: 'project', state,
+    return createElement(WorkspaceTabs, { api, workspaceHash: 'project', state, notify: () => {},
       onSelect: active => setState(current => ({ ...current, active })),
       onClose: path => setState(current => closeWorkspaceFile(current, path)),
+      onCloseSubAgent: id => setState(current => closeSubAgentTab(current, id)),
       onOpen: file => setState(current => openWorkspaceFile(current, file)),
       onAdd: (path, text) => { references.push({ path, text }); setState(current => ({ ...current, active: null })); },
     }, createElement('textarea', { 'aria-label': '消息草稿', defaultValue: 'draft' }));
   }
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(createElement(Wrapper)));
-  return { calls, references, async open(file) { await act(async () => update(current => openWorkspaceFile(current, file))); }, async close() { await act(async () => root.unmount()); container.remove(); } };
+  return { calls, references,
+    async open(file) { await act(async () => update(current => openWorkspaceFile(current, file))); },
+    async openAgent(tab, select = false) { await act(async () => update(current => select ? openSubAgentTab(current, tab) : ensureSubAgentTab(current, tab))); },
+    async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 
 test('only the conversation has no tab bar; opening and closing the last file restores that layout', async () => {
@@ -112,6 +121,52 @@ test('file read failures can retry and a reference returns to the existing conve
     assert.deepEqual(view.references, [{ path: 'a.md', text: undefined }]);
     assert.equal(document.querySelector('.workspace-chat-view').hidden, false);
   } finally { await view.close(); }
+});
+
+test('sub-agent runs open in the tab bar next to the conversation without stealing focus', async () => {
+  const view = await mount();
+  try {
+    await view.openAgent({ subSessionId: 'run-1', sessionName: 'chat-1', label: '小瓜：修复登录' });
+    const label = tab('小瓜：修复登录');
+    assert.ok(label, 'a live sub-agent run gets its own tab');
+    assert.equal(document.querySelector('.workspace-subagent-tab').getAttribute('data-active'), 'false');
+    assert.equal(document.querySelector('.workspace-chat-view').hidden, false);
+    await click(label);
+    assert.equal(document.querySelector('.workspace-subagent-tab').getAttribute('data-active'), 'true');
+    assert.equal(document.querySelector('.workspace-chat-view').hidden, true);
+    assert.match(document.querySelector('.subagent-view-stub').textContent, /小瓜：修复登录:run-1/);
+    await click(document.querySelector('[aria-label="关闭 小瓜：修复登录"]'));
+    assert.equal(document.querySelector('.workspace-tabs'), null);
+    assert.equal(document.querySelector('.workspace-chat-view').hidden, false);
+  } finally { await view.close(); }
+});
+
+test('sub-agent tabs coexist with file tabs', async () => {
+  const view = await mount();
+  try {
+    await view.open({ path: 'src/a.ts', mode: 'content' });
+    await view.openAgent({ subSessionId: 'run-1', sessionName: 'chat-1', label: '测试代理' }, true);
+    assert.equal(document.querySelectorAll('.workspace-file-tab').length, 2);
+    assert.equal(document.querySelector('.workspace-subagent-tab').getAttribute('data-active'), 'true');
+    await view.open({ path: 'src/b.ts', mode: 'content' });
+    assert.equal(document.querySelectorAll('.workspace-subagent-tab').length, 1);
+  } finally { await view.close(); }
+});
+
+test('sub-agent tab helpers refresh, focus and pick a neighbour on close', () => {
+  let state = emptyWorkspaceTabs;
+  state = ensureSubAgentTab(state, { subSessionId: 'a', sessionName: 's', label: 'A' });
+  state = ensureSubAgentTab(state, { subSessionId: 'b', sessionName: 's', label: 'B' });
+  assert.equal(state.active, null, 'background runs must not steal the active view');
+  assert.deepEqual(state.agents.map(agent => agent.label), ['A', 'B']);
+  state = openSubAgentTab(state, { subSessionId: 'a', sessionName: 's', label: 'A2' });
+  assert.equal(state.active, subAgentTabKey('a'));
+  assert.equal(state.agents[0].label, 'A2');
+  assert.equal(state.agents.length, 2);
+  state = closeSubAgentTab(state, 'a');
+  assert.equal(state.active, subAgentTabKey('b'), 'closing the active tab selects its neighbour');
+  state = closeSubAgentTab(state, 'b');
+  assert.deepEqual(state, emptyWorkspaceTabs);
 });
 
 test('closing tabs selects a neighbor and renaming or deleting a directory updates descendant tabs', () => {

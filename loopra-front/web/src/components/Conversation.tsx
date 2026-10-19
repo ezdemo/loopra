@@ -35,7 +35,7 @@ function UserMessage({ message, onEdit, onRollback, busy, notify, onRawEvents }:
   </div></Enter>;
 }
 
-function AssistantMessage({ message, streaming, ...actions }: { message: Message; streaming: boolean } & MessageActions) {
+function AssistantMessage({ message, streaming, showDuration = true, ...actions }: { message: Message; streaming: boolean; showDuration?: boolean } & MessageActions) {
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
   const [clock, setClock] = useState(Date.now());
@@ -50,7 +50,9 @@ function AssistantMessage({ message, streaming, ...actions }: { message: Message
     const timer = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [streaming]);
-  const elapsed = message.startedAt ? Math.max(0, Math.round(((message.finishedAt || clock) - message.startedAt) / 1000)) : null;
+  // A replayed run has no trustworthy end time while it streams, so its header
+  // reads "思考过程" instead of a duration that would keep counting after a stop.
+  const elapsed = showDuration && message.startedAt ? Math.max(0, Math.round(((message.finishedAt || clock) - message.startedAt) / 1000)) : null;
   const duration = elapsed === null ? '' : elapsed < 60 ? elapsed + '秒' : Math.floor(elapsed / 60) + '分' + (elapsed % 60 ? elapsed % 60 + '秒' : '');
   const stats = messageFileStats(blocks);
   const answerText = final.map(block => block.type === 'content' ? block.content : block.type === 'tool_call' ? block.result || '' : '').filter(Boolean).join('\n\n') || message.text;
@@ -72,7 +74,7 @@ function AssistantMessage({ message, streaming, ...actions }: { message: Message
 
 // Long sessions mount only the visible slice (legacy `Chat.vue` virtualWindow);
 // measured heights keep the spacer sizes honest and the scroll position stable.
-export function Messages({ session, loading, scrollRef, offsetsRef, ...actions }: { session: Session; loading: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] } } & MessageActions) {
+export function Messages({ session, loading, scrollRef, offsetsRef, showDuration = true, ...actions }: { session: Session; loading: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
   const messages = getSessionMessages(session);
   const last = messages[messages.length - 1];
   const virtualized = messages.length > VIRTUALIZATION_THRESHOLD;
@@ -137,7 +139,7 @@ export function Messages({ session, loading, scrollRef, offsetsRef, ...actions }
 
   const render = (message: Message) => message.role === 'user'
     ? <UserMessage key={message.id} message={message} {...actions} />
-    : <AssistantMessage key={message.id} message={message} streaming={loading && message.id === last?.id} {...actions} />;
+    : <AssistantMessage key={message.id} message={message} streaming={loading && message.id === last?.id} showDuration={showDuration} {...actions} />;
   const visible = virtualized ? messages.slice(view.start, view.end) : messages;
   return <div className="loopra-conversation" aria-label="聊天内容"><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}

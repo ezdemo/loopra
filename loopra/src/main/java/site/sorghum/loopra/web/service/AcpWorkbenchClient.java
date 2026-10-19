@@ -27,11 +27,26 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Transport-independent ACP client; owns one active workbench turn and its permissions. */
 public final class AcpWorkbenchClient implements AutoCloseable {
+    /** Claude Code's flattened subagent transcript: child traffic stays on the root session. */
+    private static final String SUBAGENT_TRANSCRIPT = "subagent-transcript";
+    private static final String CLAUDE_META = "claudeCode";
+    private static final String PARENT_TOOL_USE_ID = "parentToolUseId";
+
     private final AcpSyncClient client;
     private volatile AgentOutput output;
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final Map<String, PendingPermission> permissions = new ConcurrentHashMap<>();
     private final Map<String, String> toolNames = new ConcurrentHashMap<>();
+    /** Raw input of each announced tool call, used to title a subagent's Agent/Task block. */
+    private final Map<String, Object> toolInputs = new ConcurrentHashMap<>();
+    /** Agent/Task tool calls that own a rendered subagent block. */
+    private final java.util.Set<String> subAgentIds = ConcurrentHashMap.newKeySet();
+    /** Parent calls whose subagent block already reported its end. */
+    private final java.util.Set<String> endedSubAgents = ConcurrentHashMap.newKeySet();
+    /** Nested tool call id -> the Agent/Task call that spawned it. */
+    private final Map<String, String> subToolParents = new ConcurrentHashMap<>();
+    /** Optional owner hook that persists subagent traffic for the right-hand replay panel. */
+    private volatile java.util.function.BiConsumer<String, Map<String, Object>> subAgentListener;
     /** ACP diff content by tool call; the final PostToolUse update replaces the preview. */
     private final Map<String, List<ToolCallDiff>> toolDiffs = new ConcurrentHashMap<>();
     private final java.util.Set<String> reportedFileChanges = ConcurrentHashMap.newKeySet();
@@ -104,6 +119,14 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         this.usageListener = listener;
     }
 
+    /**
+     * Registers the owner that persists subagent events (type + payload), so the
+     * workbench's subagent panel can replay them after the turn.
+     */
+    public void setSubAgentListener(java.util.function.BiConsumer<String, Map<String, Object>> listener) {
+        this.subAgentListener = listener;
+    }
+
     public synchronized List<AcpConfigOption> setConfigOption(String id, Object value) {
         if (sessionId == null) throw new ServiceException(409, "Agent 会话正在初始化");
         AcpConfigOption option = configuration.stream().filter(item -> item.id().equals(id)).findFirst()
@@ -132,7 +155,9 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
         initialized = client.initialize(new InitializeRequest(1,
                 new ClientCapabilities(new FileSystemCapability(false, false), false, null,
-                        Map.of(AcpAgentOutput.EXTENSION, true)),
+                        // Native events for Loopra; the historical Claude Code capability that keeps
+                        // a subagent's transcript on the root session so it can be nested in the UI.
+                        Map.of(AcpAgentOutput.EXTENSION, true, SUBAGENT_TRANSCRIPT, true)),
                 new Implementation("loopra-workbench", "26.9.91", "Loopra Workbench"), null));
         if (initialized.protocolVersion() == null || initialized.protocolVersion() != 1) {
             throw new IllegalStateException("Agent did not negotiate ACP v1");
@@ -174,7 +199,11 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     public PromptResponse prompt(UserMessage message, Map<String, Object> options) {
         if (cancelled.get()) return new PromptResponse(StopReason.CANCELLED);
         toolNames.clear();
+        toolInputs.clear();
         toolDiffs.clear();
+        // Subagent routing survives the turn: a background Agent can start before a prompt
+        // boundary and finish after the next one, and re-sending sub_start would truncate
+        // the replay. Its call ids are unique, so stale entries cannot collide.
         List<ContentBlock> blocks = new ArrayList<>();
         if (message.getText() != null) blocks.add(new TextContent(message.getText()));
         for (String image : message.getImages()) {
@@ -191,29 +220,145 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         if (replaying) return;
         if (sessionId != null && !sessionId.equals(notification.sessionId())) return;
         var update = notification.update();
+        // Claude Code keeps a subagent's transcript on the root session and stamps every
+        // nested update with the Agent/Task call that spawned it. Route those updates into
+        // the same `sub_*` events Native subagents emit, so the workbench nests them.
+        String subId = subAgentRoute(update);
         if (update instanceof AgentMessageChunk chunk) {
             if (nativeEvents && chunk.meta() != null && chunk.meta().get(AcpAgentOutput.EVENT) instanceof Map<?, ?> event) {
                 output.sendEvent(String.valueOf(event.get("type")), String.valueOf(event.get("data")));
-            } else if (chunk.content() instanceof TextContent text) output.onContentDelta(text.text());
+            } else if (chunk.content() instanceof TextContent text) {
+                if (subId == null) output.onContentDelta(text.text());
+                else sendSubEvent(subId, "sub_content", Map.of("token", text.text()));
+            }
         } else if (update instanceof AgentThoughtChunk chunk && chunk.content() instanceof TextContent text) {
-            output.onReasoningDelta(text.text());
+            if (subId == null) output.onReasoningDelta(text.text());
+            else sendSubEvent(subId, "sub_reasoning", Map.of("token", text.text()));
         } else if (update instanceof ToolCall call) {
             String name = toolName(call.title(), call.meta());
             toolNames.put(call.toolCallId(), name);
+            if (call.rawInput() != null) toolInputs.put(call.toolCallId(), call.rawInput());
             captureFileChanges(call.toolCallId(), call.content());
-            output.onToolCall(call.toolCallId(), name, ONode.serialize(call.rawInput()));
-            finishTool(call.toolCallId(), name, call.status(), call.rawOutput(), call.content());
+            if (subId == null) output.onToolCall(call.toolCallId(), name, ONode.serialize(call.rawInput()));
+            else sendSubEvent(subId, "sub_tool_call", Map.of("toolCallId", call.toolCallId(), "name", name,
+                    "args", call.rawInput() == null ? "{}" : ONode.serialize(call.rawInput())));
+            finishTool(call.toolCallId(), name, call.status(), call.rawOutput(), call.content(), subId);
+            finishSubAgent(call.toolCallId(), call.status(), call.rawOutput());
         } else if (update instanceof ToolCallUpdateNotification call) {
             String name = call.title() == null ? toolNames.getOrDefault(call.toolCallId(), "unknown")
                     : toolName(call.title(), call.meta());
             toolNames.put(call.toolCallId(), name);
+            if (call.rawInput() != null) toolInputs.put(call.toolCallId(), call.rawInput());
             captureFileChanges(call.toolCallId(), call.content());
             if (call.rawInput() != null || call.title() != null) {
-                output.onToolUpdate(call.toolCallId(), name, call.rawInput() == null ? null : ONode.serialize(call.rawInput()));
+                if (subId == null) {
+                    output.onToolUpdate(call.toolCallId(), name, call.rawInput() == null ? null : ONode.serialize(call.rawInput()));
+                } else {
+                    sendSubEvent(subId, "sub_tool_update", Map.of("toolCallId", call.toolCallId(), "name", name,
+                            "args", call.rawInput() == null ? "{}" : ONode.serialize(call.rawInput())));
+                }
             }
-            finishTool(call.toolCallId(), name, call.status(), call.rawOutput(), call.content());
+            finishTool(call.toolCallId(), name, call.status(), call.rawOutput(), call.content(), subId);
+            finishSubAgent(call.toolCallId(), call.status(), call.rawOutput());
         } else if (update instanceof UsageUpdate usage) {
             reportUsage(usage);
+        }
+    }
+
+    /** The Agent/Task call that owns this nested update, or null for root-session traffic. */
+    private String subAgentRoute(SessionUpdate update) {
+        Map<String, Object> meta = update instanceof AgentMessageChunk chunk ? chunk.meta()
+                : update instanceof AgentThoughtChunk chunk ? chunk.meta()
+                : update instanceof ToolCall call ? call.meta()
+                : update instanceof ToolCallUpdateNotification call ? call.meta() : null;
+        String parent = parentToolUseId(meta);
+        if (parent == null) return null;
+        String toolCallId = update instanceof ToolCall call ? call.toolCallId()
+                : update instanceof ToolCallUpdateNotification call ? call.toolCallId() : null;
+        if (parent.equals(toolCallId)) return null;
+        if (subAgentIds.add(parent)) {
+            endedSubAgents.remove(parent);
+            SubAgentInfo info = subAgentInfo(parent);
+            Map<String, Object> start = new java.util.LinkedHashMap<>();
+            start.put("task", info.task());
+            start.put("name", info.name());
+            if (info.title() != null) start.put("title", info.title());
+            start.put("startedAt", System.currentTimeMillis());
+            sendSubEvent(parent, "sub_start", start);
+        }
+        if (toolCallId != null) subToolParents.put(toolCallId, parent);
+        return parent;
+    }
+
+    private static String parentToolUseId(Map<String, Object> meta) {
+        if (meta == null || !(meta.get(CLAUDE_META) instanceof Map<?, ?> claude)) return null;
+        return claude.get(PARENT_TOOL_USE_ID) instanceof String id && !id.isBlank() ? id : null;
+    }
+
+    /** Claude's Agent input carries the description/subagent type; fall back to the call title. */
+    private SubAgentInfo subAgentInfo(String parentToolCallId) {
+        String description = null;
+        String name = null;
+        String prompt = null;
+        if (toolInputs.get(parentToolCallId) instanceof Map<?, ?> input) {
+            description = firstText(input, "description");
+            name = firstText(input, "subagent_type", "name");
+            prompt = firstText(input, "prompt");
+        }
+        String task = description != null ? description : prompt != null ? prompt : toolNames.get(parentToolCallId);
+        return new SubAgentInfo(task == null || task.isBlank() ? "子代理" : clip(task),
+                name == null ? "Claude" : clip(name), description == null ? null : clip(description));
+    }
+
+    private static String firstText(Map<?, ?> input, String... keys) {
+        for (String key : keys) {
+            if (input.get(key) instanceof String text && !text.isBlank()) return text;
+        }
+        return null;
+    }
+
+    private record SubAgentInfo(String task, String name, String title) {}
+
+    private static String clip(String text) {
+        String oneLine = text.replaceAll("\\s+", " ").trim();
+        return oneLine.length() > 80 ? oneLine.substring(0, 80) + "…" : oneLine;
+    }
+
+    /**
+     * Native subagent ids double as their stored session id. Claude's tool-use id
+     * is unique per Agent/Task call, so it is a stable file id after sanitizing.
+     */
+    private static String subSessionId(String parentToolCallId) {
+        String safe = parentToolCallId.replaceAll("[^A-Za-z0-9_-]", "_");
+        if (safe.isEmpty()) safe = "agent";
+        return safe.length() > 64 ? safe.substring(0, 64) : safe;
+    }
+
+    private void sendSubEvent(String subId, String type, Map<String, Object> payload) {
+        Map<String, Object> event = new java.util.LinkedHashMap<>();
+        event.put("subId", subId);
+        event.put("subSessionId", subSessionId(subId));
+        event.putAll(payload);
+        var listener = subAgentListener;
+        if (listener != null) listener.accept(type, event);
+        output.sendEvent(type, ONode.serialize(event));
+    }
+
+    private void finishSubAgent(String toolCallId, ToolCallStatus status, Object raw) {
+        if (status != ToolCallStatus.COMPLETED && status != ToolCallStatus.FAILED) return;
+        if (!subAgentIds.contains(toolCallId) || !endedSubAgents.add(toolCallId)) return;
+        Map<String, Object> end = new java.util.LinkedHashMap<>();
+        end.put("status", status == ToolCallStatus.FAILED ? "error" : "completed");
+        if (status == ToolCallStatus.FAILED) end.put("error", raw == null ? "" : String.valueOf(raw));
+        end.put("endedAt", System.currentTimeMillis());
+        sendSubEvent(toolCallId, "sub_end", end);
+    }
+
+    /** Close subagent records that never received a terminal Agent/Task update. */
+    private void endActiveSubAgents(String status) {
+        for (String id : subAgentIds) {
+            if (!endedSubAgents.add(id)) continue;
+            sendSubEvent(id, "sub_end", Map.of("status", status, "endedAt", System.currentTimeMillis()));
         }
     }
 
@@ -247,10 +392,14 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         output.sendEvent("usage", ONode.serialize(event));
     }
 
-    private void finishTool(String id, String name, ToolCallStatus status, Object raw, List<ToolCallContent> content) {
+    private void finishTool(String id, String name, ToolCallStatus status, Object raw,
+                            List<ToolCallContent> content, String subId) {
         if (status != ToolCallStatus.COMPLETED && status != ToolCallStatus.FAILED) return;
         String result = raw instanceof String value ? value : raw != null ? ONode.serialize(raw) : toolText(content);
-        output.onToolResult(id, name, result, status == ToolCallStatus.FAILED);
+        boolean failed = status == ToolCallStatus.FAILED;
+        if (subId == null) output.onToolResult(id, name, result, failed);
+        else sendSubEvent(subId, "sub_tool_result", Map.of("toolCallId", id, "name", name,
+                "result", result, "status", failed ? "failed" : "completed"));
         if (status == ToolCallStatus.COMPLETED) reportFileChanges(id);
     }
 
@@ -291,16 +440,19 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         if (cancelled.get() || !request.sessionId().equals(sessionId)
                 || request.options() == null || request.options().isEmpty()) return cancelledPermission();
         String id = UUID.randomUUID().toString();
-        Map<String, Object> event = Map.of("permissionRequestId", id,
-                "title", request.toolCall().title() == null ? "工具调用需要审批" : request.toolCall().title(),
-                "description", request.toolCall().rawInput() == null ? "" : ONode.serialize(request.toolCall().rawInput()),
-                "options", request.options().stream().map(option -> Map.of("title", option.name(), "value", option.optionId(),
-                        "kind", option.kind() == null ? "" : option.kind().name().toLowerCase(java.util.Locale.ROOT))).toList());
+        String subId = request.toolCall() == null ? null : subToolParents.get(request.toolCall().toolCallId());
+        Map<String, Object> event = new java.util.LinkedHashMap<>();
+        event.put("permissionRequestId", id);
+        if (subId != null) event.put("subId", subId);
+        event.put("title", request.toolCall().title() == null ? "工具调用需要审批" : request.toolCall().title());
+        event.put("description", request.toolCall().rawInput() == null ? "" : ONode.serialize(request.toolCall().rawInput()));
+        event.put("options", request.options().stream().map(option -> Map.of("title", option.name(), "value", option.optionId(),
+                "kind", option.kind() == null ? "" : option.kind().name().toLowerCase(java.util.Locale.ROOT))).toList());
         PendingPermission pending = new PendingPermission(request.options(), event, new CompletableFuture<>());
         permissions.put(id, pending);
         try {
             if (cancelled.get()) return cancelledPermission();
-            output.sendEvent("choice", ONode.serialize(event));
+            output.sendEvent(subId == null ? "choice" : "sub_choice", ONode.serialize(event));
             return pending.answer().join();
         } finally {
             permissions.remove(id);
@@ -328,6 +480,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     public void cancel() {
         cancelled.set(true);
         permissions.values().forEach(p -> p.answer().complete(cancelledPermission()));
+        endActiveSubAgents("aborted");
         if (sessionId != null) {
             try { client.cancel(new CancelNotification(sessionId)); }
             catch (RuntimeException ignored) { /* The Agent may have already exited; local approvals are released. */ }
@@ -336,6 +489,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     @Override public void close() {
         cancelled.set(true);
         permissions.values().forEach(p -> p.answer().complete(cancelledPermission()));
+        endActiveSubAgents("aborted");
         client.close();
     }
     private static RequestPermissionResponse cancelledPermission() { return new RequestPermissionResponse(new PermissionCancelled()); }

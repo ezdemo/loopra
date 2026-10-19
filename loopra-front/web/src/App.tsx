@@ -45,7 +45,8 @@ import { isDesktopWindow } from './desktop-shell';
 import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
 import { notifyWorkspaceChanged } from './workspace-events';
 import WorkspaceTabs from './components/WorkspaceTabs';
-import { closeWorkspaceFile, emptyWorkspaceTabs, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
+import { closeSubAgentTab, closeWorkspaceFile, emptyWorkspaceTabs, ensureSubAgentTab, openSubAgentTab, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
+import { subSessionLabel, type SubSession } from './sub-sessions';
 
 export default function App() {
   const [server, setServer] = useLocalState('backend-server', DEFAULT_SERVER);
@@ -189,6 +190,14 @@ export default function App() {
   function openFile(file: WorkspaceFile) { setWorkspaceEditors(current => ({ ...current, [editorKey]: openWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, file) })); if (narrow) setChanges(false); }
   function changeFilePath(from: string, to?: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: updateWorkspaceFilePath(current[editorKey] || emptyWorkspaceTabs, from, to) })); }
   function closeFile(path: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, path) })); }
+  function closeSubAgent(subSessionId: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeSubAgentTab(current[editorKey] || emptyWorkspaceTabs, subSessionId) })); }
+  /** Open a sub-agent run as a main-area tab (live runs auto-open one as well). */
+  function showSubAgent(item: Pick<SubSession, 'subSessionId' | 'name' | 'title' | 'task'>, sessionName = session?.name) {
+    if (!sessionName) return;
+    const label = subSessionLabel({ status: 'running', startedAt: 0, endedAt: 0, eventCount: 0, ...item });
+    setWorkspaceEditors(current => ({ ...current, [editorKey]: openSubAgentTab(current[editorKey] || emptyWorkspaceTabs,
+      { subSessionId: item.subSessionId, sessionName, label }) }));
+  }
   function mutation(task: () => Promise<void>) {
     const result = settingsQueue.current.then(async () => {
       if (activeRequest.current) throw new Error('请等待当前回复结束后再修改运行配置');
@@ -702,6 +711,13 @@ export default function App() {
         // Legacy Chat.vue opened the right panel's command tab when the agent
         // started a background shell, so the running process is visible.
         if ((event.type === 'tool_call' || event.type === 'sub_tool_call') && event.name === 'bash_start') window.dispatchEvent(new CustomEvent('loopra:bash-start'));
+        // Every sub-agent run gets its own tab next to the conversation and files.
+        // Opening it without selecting keeps the answer the user is watching in view.
+        if (event.type === 'sub_start' && event.subSessionId && target?.name) {
+          const label = event.name && event.title ? `${event.name}：${event.title}` : event.name || event.title || event.task || '子代理';
+          setWorkspaceEditors(current => ({ ...current, [editorKey]: ensureSubAgentTab(current[editorKey] || emptyWorkspaceTabs,
+            { subSessionId: event.subSessionId!, sessionName: target!.name!, label }) }));
+        }
         petAnswer = applyEvent(petAnswer, event);
         setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, event) : entry) } : item));
       }, controller.signal);
@@ -865,7 +881,7 @@ export default function App() {
           onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
           onHide={archiveSession} onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
-        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
+        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
           {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
@@ -877,7 +893,7 @@ export default function App() {
         </div></WorkspaceTabs>
       </main>
       {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} onOpenSubAgent={item => showSubAgent(item)} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}

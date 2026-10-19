@@ -11,7 +11,7 @@ export type SubSession = {
 export type SubSessionEvent = {
   type?: string; toolCallId?: string; subId?: string | number; subSessionId?: string; task?: string; name?: string; title?: string;
   content?: string; token?: string; args?: unknown; result?: unknown; error?: string; status?: string;
-  startedAt?: number; finishedAt?: number; description?: string;
+  startedAt?: number; endedAt?: number; finishedAt?: number; description?: string;
   options?: { title?: string; value?: string; summary?: string }[];
 };
 
@@ -67,7 +67,9 @@ function argsObject(value: unknown): Record<string, unknown> {
  */
 export function subSessionBlocks(events: SubSessionEvent[]) {
   const blocks: ChatBlock[] = [];
-  let status = 'completed';
+  // No `sub_end` yet means the run is still going (a finished record always ends
+  // with it); reporting "completed" here would stop live sub-agent tabs from polling.
+  let status = 'running';
   let sequence = 0;
   const nextId = () => `sub-${sequence++}`;
   events.forEach(event => {

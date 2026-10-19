@@ -3,6 +3,7 @@ package site.sorghum.loopra.bin.session;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -42,6 +43,12 @@ public interface SessionStore {
     default void setAcpUsage(String name, AcpUsage usage) throws IOException {
         throw new UnsupportedOperationException("ACP usage storage is unavailable");
     }
+
+    /**
+     * 会话文件所在目录；子代理执行记录（{@code .sub} 目录）也挂在这里。
+     * 非文件存储实现可返回 {@code null}，表示不支持子代理回放。
+     */
+    default Path sessionsDir() { return null; }
 
     /**
      * 获取当前会话名

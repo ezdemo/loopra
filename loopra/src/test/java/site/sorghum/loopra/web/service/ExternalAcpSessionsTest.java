@@ -7,6 +7,7 @@ import org.noear.solon.core.handle.ContextEmpty;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.session.JsonlSessionStore;
 import site.sorghum.loopra.bin.session.SessionStore;
+import site.sorghum.loopra.bin.session.SubAgentSessionStore;
 import site.sorghum.loopra.tool.AgentOutput;
 
 import java.nio.file.Path;
@@ -65,6 +66,55 @@ class ExternalAcpSessionsTest {
                     && message.getFileChanges().stream().anyMatch(change -> "example.txt".equals(change.path())
                     && change.additions() == 1 && change.deletions() == 1 && !change.created())));
         } finally { store.shutdown(); }
+    }
+
+    @Test void claudeSubagentTrafficIsReportedAsNestedWorkbenchEvents() throws Exception {
+        var store = store();
+        List<String> events = new ArrayList<>();
+        Map<String, List<String>> payloads = new LinkedHashMap<>();
+        StringBuilder rootText = new StringBuilder();
+        AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
+            @Override public void sendEvent(String type, String data) {
+                events.add(type);
+                payloads.computeIfAbsent(type, ignored -> new ArrayList<>()).add(data);
+            }
+            @Override public void onContentDelta(String token) { rootText.append(token); }
+        };
+        try (var runtime = runtime()) {
+            prompt(runtime, store, "agent", output);
+        } finally { store.shutdown(); }
+
+        assertTrue(events.containsAll(List.of("sub_start", "sub_content", "sub_reasoning",
+                "sub_tool_call", "sub_tool_result", "sub_end")), events.toString());
+        assertTrue(payloads.get("sub_start").get(0).contains("\"subId\":\"task-1\""));
+        assertTrue(payloads.get("sub_start").get(0).contains("\"task\":\"Explore code\""));
+        assertTrue(payloads.get("sub_content").stream().anyMatch(data -> data.contains("\"token\":\"child says \"")));
+        assertTrue(payloads.get("sub_content").stream().anyMatch(data -> data.contains("\"token\":\"done.\"")));
+        assertTrue(payloads.get("sub_reasoning").get(0).contains("\"token\":\"child thinks\""));
+        assertTrue(payloads.get("sub_tool_call").get(0).contains("\"subId\":\"task-1\""));
+        assertTrue(payloads.get("sub_tool_call").get(0).contains("\"toolCallId\":\"child-1\""));
+        assertTrue(payloads.get("sub_tool_call").get(0).contains("\"name\":\"Read\""));
+        assertTrue(payloads.get("sub_tool_result").get(0).contains("\"toolCallId\":\"child-1\""));
+        assertTrue(payloads.get("sub_tool_result").get(0).contains("\"status\":\"completed\""));
+        assertTrue(payloads.get("sub_end").get(0).contains("\"subId\":\"task-1\""));
+        assertEquals("", rootText.toString(), "Subagent text must not leak into the root transcript");
+        assertTrue(events.indexOf("sub_start") < events.indexOf("sub_end"));
+
+        // The right-hand replay panel reads the sub-agent store, not the live stream.
+        var subStore = new SubAgentSessionStore(home.resolve("sessions"));
+        var listed = subStore.list("chat");
+        assertEquals(1, listed.size(), "Claude subagent run must be listable in the replay panel");
+        assertEquals("Explore code", listed.get(0).task());
+        assertEquals("Explore", listed.get(0).name());
+        assertEquals("completed", listed.get(0).status());
+        var recorded = subStore.events("chat", "task-1");
+        assertEquals("sub_start", recorded.get(0).get("type"));
+        assertEquals("sub_end", recorded.get(recorded.size() - 1).get("type"));
+        assertEquals("completed", recorded.get(recorded.size() - 1).get("status"));
+        assertTrue(recorded.stream().anyMatch(event -> "sub_content".equals(event.get("type"))
+                && String.valueOf(event.get("token")).contains("child says")));
+        assertTrue(recorded.stream().anyMatch(event -> "sub_tool_call".equals(event.get("type"))
+                && "child-1".equals(event.get("toolCallId"))));
     }
 
     @Test void contextUsageReportedByTheAgentIsPersistedAndStreamed() throws Exception {

@@ -108,6 +108,11 @@ public class JsonlSessionStore implements SessionStore {
         this.writer = null;
     }
 
+    @Override
+    public Path sessionsDir() {
+        return sessionsDir;
+    }
+
     // ---- 文件管理 ----
 
     private static String sanitize(String name) {

@@ -29,7 +29,7 @@ const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, ...rest }, children);
 `);
-const iconsStub = dataUrl('export const ChevronRight=()=>null;export const RefreshCw=()=>null;export const Trash2=()=>null;');
+const iconsStub = dataUrl('export const ChevronRight=()=>null;export const ExternalLink=()=>null;export const RefreshCw=()=>null;export const Trash2=()=>null;');
 const uiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const IconButton = ({ label, children, onClick }) => createElement('button', { type: 'button', 'aria-label': label, onClick }, children);
@@ -83,7 +83,7 @@ const events = [
 ];
 
 async function mount() {
-  globalThis.__calls = []; globalThis.__notify = [];
+  globalThis.__calls = []; globalThis.__notify = []; globalThis.__opened = [];
   const api = {
     assetUrl: path => `http://test.invalid/api${path}`,
     request: (path, method = 'GET') => {
@@ -98,6 +98,7 @@ async function mount() {
   await act(async () => root.render(createElement(Panel, {
     api, workspaceHash: 'hash1', sessionName: 'parent', notify: message => globalThis.__notify.push(message),
     onDiff: path => globalThis.__notify.push(`diff:${path}`),
+    onOpenTab: item => globalThis.__opened.push(item.subSessionId),
   })));
   return { container, root, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
@@ -125,6 +126,14 @@ test('clicking a run replays its stored events as blocks', async () => {
     assert.ok(globalThis.__calls.some(call => call.path === '/sub-sessions/sub-a/events?workspaceHash=hash1&sessionName=parent'));
     const rendered = [...view.container.querySelectorAll('.blocks p')].map(node => node.getAttribute('data-type') + ':' + node.textContent);
     assert.deepEqual(rendered, ['content:content:已修复', 'tool_call:tool_call:read']);
+  } finally { await view.close(); }
+});
+
+test('a run can be opened as a main-area tab', async () => {
+  const view = await mount();
+  try {
+    await click(view.container.querySelector('button[aria-label="在标签页打开 小瓜：修复登录"]'));
+    assert.deepEqual(globalThis.__opened, ['sub-a']);
   } finally { await view.close(); }
 });
 

@@ -189,6 +189,26 @@ test('sub-agent output stays isolated and approvals preserve backend IDs and val
   assert.equal(message.text, '');
 });
 
+test('background sub-agent blocks do not split the parent Markdown message', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  message = applyEvent(message, { type: 'content', content: '1. first\n' });
+  // Claude flattens nested traffic onto the root stream, so the sub-agent block
+  // appears in the middle of the parent's numbered list.
+  message = applyEvent(message, { type: 'sub_start', subId: 'task-1', task: 'Explore' });
+  message = applyEvent(message, { type: 'sub_content', subId: 'task-1', token: 'child' });
+  message = applyEvent(message, { type: 'sub_end', subId: 'task-1', status: 'completed' });
+  message = applyEvent(message, { type: 'content', content: '2. second' });
+  const contents = message.blocks.filter(block => block.type === 'content');
+  assert.equal(contents.length, 1);
+  assert.equal(contents[0].content, '1. first\n2. second');
+  assert.equal(message.text, '1. first\n2. second');
+  assert.equal(message.blocks[1].type, 'sub_agent');
+  assert.equal(message.blocks[1].status, '成功');
+
+  message = applyEvent(message, { type: 'sub_end', subId: 'task-2', status: 'error' });
+  assert.equal(message.blocks[2].status, '失败');
+});
+
 test('encrypted reasoning opens a slot that visible deltas replace', () => {
   let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
   message = applyEvent(message, { type: 'reasoning_started' });

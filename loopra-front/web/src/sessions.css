@@ -72,6 +72,9 @@
 .subagent-delete { position: absolute; right: 0.125rem; opacity: 0; transition: opacity 0.15s; background: var(--surface); }
 .subagent-list li:hover .subagent-delete, .subagent-delete:focus-within { opacity: 1; }
 .subagent-delete .icon-button:hover { color: var(--danger); }
+.subagent-open-tab { position: absolute; right: 1.5rem; opacity: 0; transition: opacity 0.15s; background: var(--surface); }
+.subagent-list li:hover .subagent-open-tab, .subagent-open-tab:focus-within { opacity: 1; }
+.subagent-open-tab .icon-button:hover { color: var(--blue); }
 .subagent-status { margin-left: auto; font-size: 0.6875rem; color: var(--success); }
 .subagent-status.running { color: var(--blue); }
 .subagent-status.error { color: var(--danger); }

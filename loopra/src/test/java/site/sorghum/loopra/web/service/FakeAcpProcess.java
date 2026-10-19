@@ -59,6 +59,28 @@ public final class FakeAcpProcess {
                         response(id, Map.of("stopReason", "end_turn"));
                         continue;
                     }
+                    if ("agent".equals(text)) {
+                        // Like the Claude adapter's flattened subagent transcript: nested
+                        // traffic stays on the root session and names its Agent/Task call.
+                        Map<String, Object> parent = Map.of("claudeCode", Map.of("parentToolUseId", "task-1"));
+                        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "task-1", "title", "Agent",
+                                "kind", "other", "status", "in_progress",
+                                "rawInput", Map.of("description", "Explore code", "subagent_type", "Explore")));
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "child says "),
+                                "_meta", parent));
+                        update(Map.of("sessionUpdate", "agent_thought_chunk", "content", Map.of("type", "text", "text", "child thinks"),
+                                "_meta", parent));
+                        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "child-1", "title", "Read",
+                                "kind", "read", "status", "in_progress", "rawInput", Map.of("path", "a.txt"), "_meta", parent));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "child-1",
+                                "status", "completed", "rawOutput", "file contents", "_meta", parent));
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "done."),
+                                "_meta", parent));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "task-1",
+                                "status", "completed", "rawOutput", "child result"));
+                        response(id, Map.of("stopReason", "end_turn"));
+                        continue;
+                    }
                     if (text.contains("echo-linked")) {
                         update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text",
                                 "text", "reply-linked:" + text.contains("本轮关联项目") + ":" + String.join(",", directories))));
