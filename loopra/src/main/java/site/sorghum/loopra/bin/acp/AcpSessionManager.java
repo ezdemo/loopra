@@ -59,6 +59,21 @@ public class AcpSessionManager implements AcpSessionBackend {
         }
     }
 
+    @Override public boolean supportsMcpServers() { return true; }
+
+    @Override public void setMcpServers(String sessionId, List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> servers) {
+        SessionEntry entry = sessions.get(sessionId);
+        if (entry == null) throw new IllegalArgumentException("Session not found");
+        if (!entry.lock().tryLock()) throw new IllegalStateException("会话正在运行");
+        try {
+            Map<String, com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> effective = new java.util.LinkedHashMap<>();
+            AcpMcpServers.managed(entry.workspace()).forEach(server -> effective.put(AcpMcpServers.name(server), server));
+            if (servers != null) servers.forEach(server -> effective.put(AcpMcpServers.name(server), server));
+            entry.agent().setAcpMcpServers(List.copyOf(effective.values()));
+        }
+        finally { entry.lock().unlock(); }
+    }
+
     /**
      * Each session owns its model provider so switching one session never changes another.
      */
@@ -342,6 +357,7 @@ public class AcpSessionManager implements AcpSessionBackend {
                 } else {
                     agent.flushSession();
                     LoopraAgent replacement = buildAgent(entry.workspace(), sessionId);
+                    replacement.setAcpMcpServers(agent.getAcpMcpServers());
                     replacement.getCtx().clearHistory(); replacement.bindSession(sessionId);
                     sessions.put(sessionId, new SessionEntry(sessionId, replacement, entry.workspace(), entry.lock()));
                     agent.dispose();

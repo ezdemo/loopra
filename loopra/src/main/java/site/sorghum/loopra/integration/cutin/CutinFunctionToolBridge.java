@@ -46,6 +46,8 @@ public final class CutinFunctionToolBridge implements Tool {
         return delegate.name();
     }
 
+    public boolean isMcpTool() { return delegate instanceof McpFunctionTool; }
+
     @Override
     public ToolDefinition definition() {
         return definition;
@@ -63,6 +65,7 @@ public final class CutinFunctionToolBridge implements Tool {
             }
             org.noear.solon.ai.chat.tool.ToolResult result = delegate.call(args);
             String content = result == null ? "" : result.getContent();
+            if (result != null && result.isError()) return ToolResult.failure(call.id(), content == null ? "" : content);
             return ToolResult.success(call.id(), content == null ? "" : content);
         } catch (HitlRequiredException exception) {
             throw exception;

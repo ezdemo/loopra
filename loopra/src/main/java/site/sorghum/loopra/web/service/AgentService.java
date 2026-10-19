@@ -963,7 +963,8 @@ public class AgentService implements ProjectRuntimeAccess {
                         }
                         boolean opened = false;
                         try {
-                            client.open(sessionKey.split("::", 2)[0]);
+                            client.open(sessionKey.split("::", 2)[0], null, List.of(),
+                                    site.sorghum.loopra.bin.acp.AcpMcpServers.managed(Path.of(sessionKey.split("::", 2)[0])));
                             opened = true;
                             Map<String, Object> options = new LinkedHashMap<>();
                             options.put("model", requestedModel);
@@ -1118,6 +1119,7 @@ public class AgentService implements ProjectRuntimeAccess {
         private final String name;
         private final String id = java.util.UUID.randomUUID().toString();
         private volatile LoopraAgent agent;
+        private List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> mcpServers = List.of();
         private volatile boolean cancelled;
         private volatile boolean started;
         private final java.util.concurrent.CompletableFuture<Void> finished = new java.util.concurrent.CompletableFuture<>();
@@ -1135,6 +1137,11 @@ public class AgentService implements ProjectRuntimeAccess {
         @Override public boolean loadOrRestoreSession(String sessionId, String cwd) {
             return id.equals(sessionId) && workspace.equals(cwd);
         }
+        @Override public boolean supportsMcpServers() { return true; }
+        @Override public void setMcpServers(String sessionId, List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> servers) {
+            if (!id.equals(sessionId)) throw new ServiceException("ACP 会话不存在");
+            mcpServers = servers == null ? List.of() : List.copyOf(servers);
+        }
         @Override public String handlePrompt(String sessionId, String text, List<String> images,
                                               AcpAgentOutput output, Map<String, Object> options) {
             if (!id.equals(sessionId)) throw new ServiceException("ACP 会话不存在");
@@ -1148,6 +1155,7 @@ public class AgentService implements ProjectRuntimeAccess {
                         (String) options.get("model"), (String) options.get("modelChannelId"),
                         (String) options.get("reasoningEffort"));
                 agent = getOrCreateAgent(key, settings);
+                agent.setAcpMcpServers(mcpServers);
                 turn.bind(agent, output);
                 if (options.get("fastMode") instanceof Boolean fast) agent.setFastMode(fast);
                 UserMessage message = UserMessage.of(text, images);

@@ -31,7 +31,7 @@ public final class LoopraAcpAgent {
         workbenchEvents = request.clientCapabilities() != null && request.clientCapabilities().meta() != null
                 && Boolean.TRUE.equals(request.clientCapabilities().meta().get(AcpAgentOutput.EXTENSION));
         return new InitializeResponse(1, new AgentCapabilities(true,
-                new SessionCapabilities(Map.of(), Map.of(), null), new McpCapabilities(false, false),
+                new SessionCapabilities(Map.of(), Map.of(), null), new McpCapabilities(sessions.supportsMcpServers(), sessions.supportsMcpServers()),
                 new PromptCapabilities(false, true, true), null, Map.of(AcpAgentOutput.EXTENSION, true)),
                 List.of(), new Implementation("loopra", "26.9.91", "Loopra Native"), null);
     }
@@ -40,6 +40,8 @@ public final class LoopraAcpAgent {
     public NewSessionResponse newSession(NewSessionRequest request) {
         if (request == null || request.cwd() == null) throw new IllegalArgumentException("cwd is required");
         String id = sessions.createSession(request.cwd(), null);
+        try { sessions.setMcpServers(id, request.mcpServers()); }
+        catch (RuntimeException error) { sessions.closeSession(id); throw error; }
         publishConfig(id);
         return new NewSessionResponse(id, null, null);
     }
@@ -50,6 +52,7 @@ public final class LoopraAcpAgent {
                 || !sessions.loadOrRestoreSession(request.sessionId(), request.cwd())) {
             throw new IllegalArgumentException("Session not found");
         }
+        sessions.setMcpServers(request.sessionId(), request.mcpServers());
         if (updates != null) replay(request.sessionId());
         publishConfig(request.sessionId());
         return new LoadSessionResponse(null, null);

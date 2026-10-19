@@ -58,6 +58,22 @@ JavaScript CLI 和 `/usr/bin/env node`，不修改用户的系统环境变量。
 进程异常退出会立即结束等待中的请求。关闭连接时清理所启动的进程及其子进程。
 隔离分支会话使用现有 Worktree 的执行目录，并校验恢复时的目录一致性。
 
+## 托管 MCP
+
+Claude Code 会话通过 ACP v1 的 `session/new` / `session/load` 接收 Loopra 管理的
+全局 `~/.loopra/mcp-servers.json` 和当前项目 `.loopra/mcp-servers.json`。
+兼容 `servers` 数组及标准 `mcpServers` 对象；同名服务器以项目配置为准，项目中
+`enabled: false` 可屏蔽同名全局服务器，禁用项不会发送给 Agent。
+
+stdio 的 command、args、env 及 HTTP/SSE 的 URL、headers 按协议传递；
+`streamable` / `streamable_stateless` 转为 ACP 的 `http`。发送前检查 Agent 的
+`mcpCapabilities`，不支持的传输会明确报错。工具执行审批仍由 Claude 的权限模式负责；
+Loopra Native 的工具禁用、只读覆盖和服务端自定义超时不属于 ACP 配置字段，不会传给 Claude。
+
+每轮及读取 Agent 配置时重新检查 MCP 配置。配置变化会在会话空闲时重建连接，并通过
+`session/load` 恢复已有远端会话；正在运行的回合不被中途替换。隔离分支使用主项目
+的托管配置、会话执行目录作为 ACP cwd。其他项目和关联项目的 MCP 不自动合并。
+
 ## 当前范围
 
 支持 ACP v1、多轮文字/图片、工具参数更新与结果、审批、取消、本地历史和重启恢复。

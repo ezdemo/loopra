@@ -34,6 +34,30 @@ public class ToolRegistry {
     /** 所有扫描到的工具（包括禁用的），用于前端展示 */
     private final LinkedHashMap<String, FunctionTool> allScannedTools = new LinkedHashMap<>();
 
+    /** Session-local contributions (for example MCP servers supplied over ACP). */
+    private List<FunctionTool> sessionTools = List.of();
+    @Getter private boolean sessionMcpManaged;
+
+    public synchronized void setSessionTools(java.util.Collection<FunctionTool> tools) {
+        sessionMcpManaged = true;
+        for (site.sorghum.cutin.core.tool.Tool external : cutinRegistry.externalTools()) {
+            if (external instanceof CutinFunctionToolBridge bridge && bridge.isMcpTool())
+                cutinRegistry.unregister(external.id(), external);
+        }
+        functionToolMap.values().removeIf(tool -> tool instanceof site.sorghum.loopra.tool.solon.mcp.McpFunctionTool);
+        allScannedTools.values().removeIf(tool -> tool instanceof site.sorghum.loopra.tool.solon.mcp.McpFunctionTool);
+        for (FunctionTool previous : sessionTools) {
+            functionToolMap.remove(previous.name(), previous);
+            allScannedTools.remove(previous.name(), previous);
+        }
+        sessionTools = List.copyOf(tools);
+        for (FunctionTool tool : sessionTools) register(tool, getCurrentDisabledTools());
+        cachedOpenAiTools = null;
+        syncCutinRegistry();
+    }
+
+    public List<FunctionTool> sessionTools() { return sessionTools; }
+
     /** cutin 引擎看到的动态工具视图，随本注册表热刷新。 */
     private final CutinToolRegistryView cutinRegistry = createCutinView();
 
@@ -208,6 +232,8 @@ public class ToolRegistry {
 
     private void register(FunctionTool tool, Set<String> disabled) {
         Objects.requireNonNull(tool, "tool");
+        if (sessionMcpManaged && tool instanceof site.sorghum.loopra.tool.solon.mcp.McpFunctionTool
+                && !sessionTools.contains(tool)) return;
         FunctionTool existing = allScannedTools.putIfAbsent(tool.name(), tool);
         if (existing != null && existing != tool) {
             log.warn("[tool] 忽略同名工具注册: name={}, existing={}, duplicate={}",
@@ -254,6 +280,8 @@ public class ToolRegistry {
         copy.toolPolicyProvider = this.toolPolicyProvider;
         // 复制会话环境
         copy.environment = this.environment;
+        copy.sessionTools = this.sessionTools;
+        copy.sessionMcpManaged = this.sessionMcpManaged;
         // 注册所有工具
         for (FunctionTool def : this.functionToolMap.values()) {
             copy.functionToolMap.put(def.name(), def);

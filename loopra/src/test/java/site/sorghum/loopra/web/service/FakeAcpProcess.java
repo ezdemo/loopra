@@ -7,6 +7,8 @@ import java.util.*;
 public final class FakeAcpProcess {
     private static String model = "alpha", mode = "default";
     private static List<String> directories = List.of();
+    private static String mcp = "[]";
+    private static String setup = "new";
     public static void main(String[] args) {
         Scanner input = new Scanner(System.in, java.nio.charset.StandardCharsets.UTF_8);
         Object promptId = null;
@@ -25,7 +27,8 @@ public final class FakeAcpProcess {
             }
             switch (method) {
                 case "initialize" -> response(id, Map.of("protocolVersion", 1,
-                        "agentCapabilities", Map.of("loadSession", true, "additionalDirectories", true)));
+                        "agentCapabilities", Map.of("loadSession", true, "additionalDirectories", true,
+                                "mcpCapabilities", Map.of("http", true, "sse", true))));
                 case "session/new" -> {
                     // Tests use this to keep a configuration request inside session setup,
                     // which is where a real Agent spawns its process and restores a session.
@@ -40,9 +43,13 @@ public final class FakeAcpProcess {
                         catch (InterruptedException e) { Thread.currentThread().interrupt(); }
                     }
                     directories = readDirectories(message);
+                    mcp = message.get("params").get("mcpServers").toJson();
+                    setup = "new";
                     response(id, Map.of("sessionId", "fake-session", "configOptions", config()));
                 }
                 case "session/load" -> {
+                    mcp = message.get("params").get("mcpServers").toJson();
+                    setup = "load";
                     directories = readDirectories(message);
                     update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "OLD REPLAY")));
                     response(id, Map.of("configOptions", config()));
@@ -63,6 +70,11 @@ public final class FakeAcpProcess {
                 case "session/prompt" -> {
                     String text = message.get("params").get("prompt").get(0).get("text").getString();
                     if ("exit".equals(text)) System.exit(0);
+                    if ("echo-mcp".equals(text)) {
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", setup + ":" + mcp)));
+                        response(id, Map.of("stopReason", "end_turn"));
+                        continue;
+                    }
                     if (text.contains("agent-switch")) {
                         // Simulates a permission-mode change initiated by the Agent itself
                         // (e.g. plan approval), i.e. not via session/set_config_option.

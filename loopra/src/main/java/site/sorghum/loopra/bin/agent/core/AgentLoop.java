@@ -777,6 +777,18 @@ public class AgentLoop implements
         return contextCompactor.refreshTools();
     }
 
+    void setSessionTools(java.util.Collection<org.noear.solon.ai.chat.tool.FunctionTool> tools) {
+        boolean gatewayActive = cutinPlugins() != null && cutinPlugins().pluginStates().stream()
+                .anyMatch(state -> "loopra-tool-gateway".equals(state.id()) && state.active());
+        // Unregister before replacing: the registrar restores the tool that preceded
+        // each registration, so doing this afterwards would resurrect closed clients.
+        if (gatewayActive) cutinPlugins().stopPlugin("loopra-tool-gateway");
+        registry.setSessionTools(tools);
+        if (gatewayActive) cutinPlugins().startPlugin("loopra-tool-gateway");
+        contextCompactor.invalidateSessionTools();
+        refreshTools();
+    }
+
     /**
      * 冻结本会话的 system 文本与工具定义；必须在首轮模型调用前执行。
      * <p>冻结后 system 逐字节稳定（易变状态已改由历史里的状态通知承载），

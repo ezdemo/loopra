@@ -9,6 +9,10 @@ import java.util.Map;
 public interface AcpSessionBackend {
     String createSession(String cwd, String sessionName);
     boolean loadOrRestoreSession(String sessionId, String cwd);
+    default boolean supportsMcpServers() { return false; }
+    default void setMcpServers(String sessionId, List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> servers) {
+        if (servers != null && !servers.isEmpty()) throw new IllegalArgumentException("Backend does not support MCP servers");
+    }
     String handlePrompt(String sessionId, String text, List<String> images,
                         AcpAgentOutput output, Map<String, Object> options) throws IOException;
     void cancelPrompt(String sessionId);

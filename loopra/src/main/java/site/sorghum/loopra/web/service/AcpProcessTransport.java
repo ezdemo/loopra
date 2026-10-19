@@ -23,6 +23,8 @@ final class AcpProcessTransport implements AcpClientTransport {
     private final Path cwd;
     private final Set<Object> pending = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final CountDownLatch closeFinished = new CountDownLatch(1);
+    private volatile Thread closingThread;
     private final ExecutorService readers = Executors.newFixedThreadPool(2, task -> {
         Thread thread = new Thread(task, "loopra-acp-stdio"); thread.setDaemon(true); return thread;
     });
@@ -91,7 +93,21 @@ final class AcpProcessTransport implements AcpClientTransport {
     @Override public <T> T unmarshalFrom(Object data, TypeRef<T> type) { return mapper.convertValue(data, type); }
     @Override public Mono<Void> closeGracefully() { return Mono.fromRunnable(this::close); }
     @Override public void close() {
-        if (!closed.compareAndSet(false, true)) return;
+        if (!closed.compareAndSet(false, true)) {
+            // EOF and the session owner may close concurrently. Do not return to
+            // the owner while the reader is still releasing the process and cwd.
+            if (closingThread != Thread.currentThread()) {
+                try { closeFinished.await(5, TimeUnit.SECONDS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            return;
+        }
+        closingThread = Thread.currentThread();
+        try { closeProcess(); }
+        finally { closeFinished.countDown(); }
+    }
+
+    private void closeProcess() {
         failRequests("ACP 连接已关闭");
         Process owned = process;
         if (owned != null) {

@@ -152,7 +152,12 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     }
 
     public String open(String cwd, String existingSessionId, List<String> additionalDirectories) {
+        return open(cwd, existingSessionId, additionalDirectories, List.of());
+    }
+
+    public String open(String cwd, String existingSessionId, List<String> additionalDirectories, List<McpServer> mcpServers) {
         List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
+        List<McpServer> servers = mcpServers == null ? List.of() : List.copyOf(mcpServers);
         initialized = client.initialize(new InitializeRequest(1,
                 new ClientCapabilities(new FileSystemCapability(false, false), false, null,
                         // Native events for Loopra; the historical Claude Code capability that keeps
@@ -164,6 +169,13 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         }
         nativeEvents = initialized.agentCapabilities() != null && initialized.agentCapabilities().meta() != null
                 && Boolean.TRUE.equals(initialized.agentCapabilities().meta().get(AcpAgentOutput.EXTENSION));
+        McpCapabilities mcp = initialized.agentCapabilities() == null ? null : initialized.agentCapabilities().mcpCapabilities();
+        for (McpServer server : servers) {
+            if (server instanceof McpServerHttp && (mcp == null || !Boolean.TRUE.equals(mcp.http())))
+                throw new IllegalStateException("Agent 不支持 HTTP MCP: " + site.sorghum.loopra.bin.acp.AcpMcpServers.name(server));
+            if (server instanceof McpServerSse && (mcp == null || !Boolean.TRUE.equals(mcp.sse())))
+                throw new IllegalStateException("Agent 不支持 SSE MCP: " + site.sorghum.loopra.bin.acp.AcpMcpServers.name(server));
+        }
         if (existingSessionId != null) {
             if (initialized.agentCapabilities() == null || !Boolean.TRUE.equals(initialized.agentCapabilities().loadSession())) {
                 throw new IllegalStateException("Agent 不支持恢复会话，请创建新会话");
@@ -171,12 +183,12 @@ public final class AcpWorkbenchClient implements AutoCloseable {
             sessionId = existingSessionId;
             replaying = true;
             try {
-                var loaded = client.loadSession(new LoadSessionRequest(existingSessionId, cwd, List.of(), directories));
+                var loaded = client.loadSession(new LoadSessionRequest(existingSessionId, cwd, servers, directories));
                 legacyConfiguration(loaded.modes(), loaded.models());
             }
             finally { replaying = false; }
         } else {
-            var created = client.newSession(new NewSessionRequest(cwd, List.of(), directories));
+            var created = client.newSession(new NewSessionRequest(cwd, servers, directories));
             sessionId = created.sessionId();
             legacyConfiguration(created.modes(), created.models());
         }

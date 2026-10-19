@@ -89,6 +89,11 @@ public final class LoopraToolGatewayPlugin implements LoopPlugin {
             }
         }
 
+        if (legacyRegistry != null && legacyRegistry.isSessionMcpManaged()) {
+            discovered.removeIf(tool -> tool instanceof site.sorghum.loopra.tool.solon.mcp.McpFunctionTool);
+            discovered.addAll(0, legacyRegistry.sessionTools());
+        }
+
         // 去重：同名工具保留首次发现
         java.util.Map<String, FunctionTool> dedup = new java.util.LinkedHashMap<>();
         for (FunctionTool t : discovered) {

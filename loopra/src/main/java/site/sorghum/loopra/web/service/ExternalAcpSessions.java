@@ -5,6 +5,8 @@ import com.agentclientprotocol.sdk.spec.AcpClientSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import site.sorghum.loopra.bin.acp.AcpConfigOption;
+import site.sorghum.loopra.bin.acp.AcpMcpServers;
+import com.agentclientprotocol.sdk.spec.AcpSchema.McpServer;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.session.SessionStore;
@@ -23,10 +25,17 @@ final class ExternalAcpSessions implements AutoCloseable {
     private static final int MAX_CONNECTIONS = 8;
     private final Map<String, Connection> connections = new HashMap<>();
     private final java.util.function.Function<Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> transportFactory;
+    private final java.util.function.BiFunction<String, Path, List<McpServer>> mcpResolver;
 
     ExternalAcpSessions() { this(ClaudeAcpProcess::create); }
     ExternalAcpSessions(java.util.function.Function<Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> factory) {
+        this(factory, (key, cwd) -> AcpMcpServers.managed(key.contains("::") ? Path.of(key.split("::", 2)[0]) : cwd));
+    }
+
+    ExternalAcpSessions(java.util.function.Function<Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> factory,
+                        java.util.function.BiFunction<String, Path, List<McpServer>> mcpResolver) {
         transportFactory = factory;
+        this.mcpResolver = mcpResolver;
     }
 
     void prompt(String key, Path cwd, String name, SessionStore store, UserMessage message,
@@ -41,6 +50,7 @@ final class ExternalAcpSessions implements AutoCloseable {
         ClaudeSubAgentRecorder[] recorderRef = new ClaudeSubAgentRecorder[1];
         boolean success = false;
         try {
+            refreshMcp(connection, key, cwd);
             List<String> directories = linkedProjectDirectories == null ? List.of() : List.copyOf(linkedProjectDirectories);
             AcpTranscriptOutput transcript = new AcpTranscriptOutput(output, store);
             transcriptRef[0] = transcript;
@@ -106,6 +116,7 @@ final class ExternalAcpSessions implements AutoCloseable {
         Connection connection = acquire(key, cwd, false);
         boolean success = false;
         try {
+            refreshMcp(connection, key, cwd);
             if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(cwd), AgentOutput.NOOP);
             // Configuration reads must not pretend the linked-directory set changed.
             open(connection, cwd, name, store, connection.directories);
@@ -124,6 +135,17 @@ final class ExternalAcpSessions implements AutoCloseable {
                 connection.lastUsed = System.nanoTime(); connection.lock.unlock();
                 if (interrupted) Thread.currentThread().interrupt();
             }
+        }
+    }
+
+    private void refreshMcp(Connection connection, String key, Path cwd) {
+        List<McpServer> desired = List.copyOf(mcpResolver.apply(key, cwd));
+        if (!connection.mcpServers.equals(desired)) {
+            // ACP binds MCP at new/load. Reconnect before the next turn to apply edits,
+            // including revoked servers, while retaining the persisted remote session id.
+            if (connection.client != null) connection.client.close();
+            connection.client = null;
+            connection.mcpServers = desired;
         }
     }
 
@@ -150,7 +172,7 @@ final class ExternalAcpSessions implements AutoCloseable {
         // Setup responses also carry configOptions. Keep persistence disabled until the
         // saved choices have been restored, otherwise defaults overwrite the user's picks.
         client.setConfigListener(null);
-        CompletableFuture<String> opening = CompletableFuture.supplyAsync(() -> client.open(cwd.toString(), restoreId, directories));
+        CompletableFuture<String> opening = CompletableFuture.supplyAsync(() -> client.open(cwd.toString(), restoreId, directories, connection.mcpServers));
         String id;
         try { id = opening.get(60, TimeUnit.SECONDS); }
         catch (Exception e) { opening.cancel(true); throw e; }
@@ -318,6 +340,7 @@ final class ExternalAcpSessions implements AutoCloseable {
         volatile boolean prompting;
         AcpWorkbenchClient client;
         List<String> directories = List.of();
+        List<McpServer> mcpServers = List.of();
         long lastUsed = System.nanoTime();
         Connection(Path cwd) { this.cwd = cwd; }
     }

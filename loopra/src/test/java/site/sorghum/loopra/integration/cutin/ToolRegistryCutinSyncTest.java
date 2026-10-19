@@ -24,6 +24,20 @@ import static org.junit.jupiter.api.Assertions.*;
 class ToolRegistryCutinSyncTest {
 
     @Test
+    void mcpFailureRemainsFailureAcrossCutinBridge() {
+        FunctionTool delegate = new org.noear.solon.ai.chat.tool.FunctionToolDesc("mcp_fail")
+                .inputSchema("{\"type\":\"object\"}").doHandle(args -> {
+                    var result = org.noear.solon.ai.chat.tool.ToolResult.success("remote failure");
+                    result.setError(true);
+                    return result;
+                });
+        ToolResult result = new CutinFunctionToolBridge(new McpFunctionTool(delegate)).call(
+                new ToolCall("failed-call", "mcp_fail", Map.of(), null), null);
+        assertFalse(result.ok());
+        assertEquals("remote failure", result.error());
+    }
+
+    @Test
     void registryChangesPropagateToCutinView() {
         ToolRegistry registry = new ToolRegistry();
         FunctionTool tool = simpleTool("ping");

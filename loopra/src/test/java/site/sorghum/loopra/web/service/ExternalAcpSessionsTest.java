@@ -39,6 +39,34 @@ class ExternalAcpSessionsTest {
         return store;
     }
 
+    @Test void managedMcpIsSentOnNewLoadAndChangedConfigurationReconnects() throws Exception {
+        Path config = home.resolve(".loopra/mcp-servers.json");
+        java.nio.file.Files.createDirectories(config.getParent());
+        java.nio.file.Files.writeString(config, "{\"servers\":[{\"name\":\"one\",\"type\":\"http\",\"url\":\"https://example.test/mcp\"}]}");
+        var store = store();
+        StringBuilder text = new StringBuilder();
+        AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
+            @Override public void onContentDelta(String token) { text.append(token); }
+        };
+        try {
+            try (var runtime = runtime()) {
+                prompt(runtime, store, "echo-mcp", output);
+                assertTrue(text.toString().startsWith("new:"));
+                assertTrue(text.toString().contains("\"name\":\"one\""), text.toString());
+                java.nio.file.Files.writeString(config, "{\"servers\":[{\"name\":\"two\",\"type\":\"stdio\",\"command\":\"node\",\"env\":{\"TEST\":\"value\"}}]}");
+                text.setLength(0);
+                prompt(runtime, store, "echo-mcp", output);
+                assertTrue(text.toString().startsWith("load:"), text.toString());
+                assertTrue(text.toString().contains("\"name\":\"two\""));
+                assertFalse(text.toString().contains("\"name\":\"one\""));
+            }
+            text.setLength(0);
+            try (var runtime = runtime()) { prompt(runtime, store, "echo-mcp", output); }
+            assertTrue(text.toString().startsWith("load:"));
+            assertTrue(text.toString().contains("\"name\":\"two\""));
+        } finally { store.shutdown(); }
+    }
+
     @Test void preservesConnectionAndRestoresRemoteSessionWithoutDuplicateReplay() throws Exception {
         var store = store();
         try {

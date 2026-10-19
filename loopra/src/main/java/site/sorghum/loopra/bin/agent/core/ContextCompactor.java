@@ -97,6 +97,11 @@ final class ContextCompactor implements LoopraCompactionHost, LoopraErrorRecover
         }
     }
 
+    void invalidateSessionTools() {
+        frozenTools = null;
+        gatewayEverStarted = false;
+    }
+
     ONode refreshTools() {
         ONode fixed = frozenTools;
         if (fixed != null) {

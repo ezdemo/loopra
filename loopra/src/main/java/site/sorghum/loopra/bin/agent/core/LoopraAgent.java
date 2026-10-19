@@ -92,6 +92,24 @@ public class LoopraAgent {
      */
     private EventListener<ConfigChangedEvent> configListener;
 
+    private site.sorghum.loopra.bin.acp.AcpMcpToolSet acpMcpTools;
+
+    public List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> getAcpMcpServers() {
+        return acpMcpTools == null ? List.of() : acpMcpTools.servers();
+    }
+
+    /** Called while the session is idle; replaces and closes only this session's MCP clients. */
+    public synchronized void setAcpMcpServers(List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> servers) {
+        List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> desired = servers == null ? List.of() : List.copyOf(servers);
+        if (acpMcpTools != null && acpMcpTools.servers().equals(desired)) return;
+        var replacement = new site.sorghum.loopra.bin.acp.AcpMcpToolSet(desired, environment.executionRoot());
+        var previous = acpMcpTools;
+        try { loop.setSessionTools(replacement.tools()); }
+        catch (RuntimeException error) { replacement.close(); throw error; }
+        acpMcpTools = replacement;
+        if (previous != null) previous.close();
+    }
+
     private LoopraAgent(Builder b) {
         this.commandRegistry = b.commandRegistry;
         this.environment = b.environment != null ? b.environment : SessionEnvironment.local(null);
@@ -703,6 +721,7 @@ public class LoopraAgent {
             }
         }
         loop.disposeCutinPlugins();
+        if (acpMcpTools != null) { acpMcpTools.close(); acpMcpTools = null; }
     }
 
     public void compact() throws IOException {
