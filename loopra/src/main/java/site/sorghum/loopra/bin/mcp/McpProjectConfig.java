@@ -11,7 +11,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -52,19 +51,11 @@ public final class McpProjectConfig {
         String json = Files.readString(configPath, StandardCharsets.UTF_8);
         ONode root = ONode.ofJson(json);
 
-        // 标准 MCP 配置：{"mcpServers": {"name": {...}}}
-        if (root.getOrNull("mcpServers") != null) {
-            return new LinkedHashMap<>(McpClientProviders.parseMcpServers(root));
-        }
-
-        // Loopra 现有的用户级持久化格式：{"servers": [{"name": ...}]}
-        ProjectPersistenceData persistence = root.toBean(ProjectPersistenceData.class);
-        if (persistence.servers != null) {
+        // Both sections may coexist when a library such as Magpie manages mcpServers.
+        // Standard entries take precedence on collisions without hiding other native servers.
+        if (root.getOrNull("servers") != null || root.getOrNull("mcpServers") != null) {
             Map<String, McpServerParameters> result = new LinkedHashMap<>();
-            for (McpServerDTO server : persistence.servers) {
-                if (server == null || server.name == null || server.name.isBlank()) {
-                    continue;
-                }
+            for (McpServerDTO server : McpConfigFile.read(root)) {
                 result.put(server.name, toParameters(server));
             }
             return result;
@@ -137,7 +128,4 @@ public final class McpProjectConfig {
         }
     }
 
-    private static class ProjectPersistenceData {
-        public List<McpServerDTO> servers;
-    }
 }
