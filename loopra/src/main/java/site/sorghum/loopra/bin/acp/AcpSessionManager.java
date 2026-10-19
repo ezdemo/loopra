@@ -219,8 +219,7 @@ public class AcpSessionManager implements AcpSessionBackend {
             // 执行 Agent 推理循环
             String result = AcpPromptExecutor.run(agent, output, () -> agent.chat(userMessage));
 
-            agent.getCurrentTurnFileChanges().forEach(changes -> output.sendEvent("file_changes",
-                    org.noear.snack4.ONode.serialize(Map.of("changes", changes))));
+            // 文件变更已随每个工具结果的标准 ACP diff 内容下发，不再重复发送扩展事件。
 
             // 刷入会话
             agent.flushSession();

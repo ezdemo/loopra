@@ -3,10 +3,12 @@ package site.sorghum.loopra.bin.acp;
 import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.spec.AcpSchema.*;
 import org.noear.snack4.ONode;
+import site.sorghum.loopra.bin.session.SessionFileChangeTracker.ToolChange;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.ChoiceOption;
 import site.sorghum.loopra.tool.LogLevel;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -60,12 +62,25 @@ public final class AcpAgentOutput implements AgentOutput {
         onToolResult(id, name, result, false);
     }
     @Override public synchronized void onToolResult(String id, String name, String result, boolean failed) {
+        onToolResult(id, name, result, failed, List.of());
+    }
+    @Override public synchronized void onToolResult(String id, String name, String result, boolean failed,
+                                                    List<ToolChange> fileChanges) {
         if (completed) return;
         activeTools.remove(id);
+        List<ToolCallContent> content = new ArrayList<>();
+        content.add(new ToolCallContentBlock("content", new TextContent(result == null ? "" : result)));
+        if (fileChanges != null) {
+            for (ToolChange change : fileChanges) {
+                // Standard ACP diff content, identical to the Claude Code adapter:
+                // `oldText == null` marks a file that this tool just created.
+                content.add(new ToolCallDiff("diff", change.path(),
+                        change.created() ? null : change.before(), change.after()));
+            }
+        }
         context.sendUpdate(context.getSessionId(), new ToolCallUpdateNotification("tool_call_update", id,
                 name, null, failed ? ToolCallStatus.FAILED : ToolCallStatus.COMPLETED,
-                List.of(new ToolCallContentBlock("content", new TextContent(result == null ? "" : result))),
-                null, null, result, Map.of("loopra.dev/toolName", name)));
+                content, null, null, result, Map.of("loopra.dev/toolName", name)));
     }
     @Override public void onUsage(int prompt, int generated, int total, int hit, int miss) {
         sendEvent("usage", ONode.serialize(Map.of("promptTokens", prompt, "completionTokens", generated,

@@ -1156,8 +1156,7 @@ public class AgentService implements ProjectRuntimeAccess {
                 if (cancelled) return "";
                 String reply = AcpPromptExecutor.run(agent, output, () -> turn.chat(message,
                         (String) options.get("action"), (String) options.get("linkedProjectContext")));
-                if (agent.noPendingHITL()) agent.getCurrentTurnFileChanges().forEach(changes ->
-                        output.sendEvent("file_changes", org.noear.snack4.ONode.serialize(Map.of("changes", changes))));
+                // 文件变更已随每个工具结果的标准 ACP diff 内容下发，不再重复发送扩展事件。
                 return reply;
             } finally { finished.complete(null); }
         }

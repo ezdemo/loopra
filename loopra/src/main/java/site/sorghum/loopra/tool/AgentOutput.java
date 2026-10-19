@@ -1,6 +1,7 @@
 package site.sorghum.loopra.tool;
 
 import org.noear.snack4.ONode;
+import site.sorghum.loopra.bin.session.SessionFileChangeTracker.ToolChange;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,6 +77,16 @@ public interface AgentOutput {
 
     default void onToolResult(String toolCallId, String name, String result, boolean failed) {
         onToolResult(name, result);
+    }
+
+    /**
+     * 工具结果事件（含本次工具调用产生的文件变更）。
+     * <p>ACP 输出实现会把 {@code fileChanges} 转为标准 {@code ToolCallDiff} 内容，
+     * 供客户端展示“修改了哪些文件”。</p>
+     */
+    default void onToolResult(String toolCallId, String name, String result, boolean failed,
+                              List<ToolChange> fileChanges) {
+        onToolResult(toolCallId, name, result, failed);
     }
 
     /**

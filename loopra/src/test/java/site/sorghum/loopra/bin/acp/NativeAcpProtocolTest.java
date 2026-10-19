@@ -103,6 +103,43 @@ class NativeAcpProtocolTest {
     }
 
     @Test
+    void nativeToolResultsReportChangesAsStandardAcpDiffContent() throws Exception {
+        Backend backend = new Backend(output -> {
+            output.onToolCall("edit-1", "write", "{\"path\":\"a.txt\"}");
+            output.onToolResult("edit-1", "write", "written", false, List.of(
+                    new site.sorghum.loopra.bin.session.SessionFileChangeTracker.ToolChange(
+                            "a.txt", "old line\n", "new line\n", false)));
+            return "done";
+        });
+        List<SessionUpdate> updates = new CopyOnWriteArrayList<>();
+        try (JsonRpcLoopback wire = new JsonRpcLoopback()) {
+            LoopraAcpAgent nativeAgent = new LoopraAcpAgent(backend);
+            AcpAgentSupport server = AcpAgentSupport.create(nativeAgent).transport(wire.agent()).build();
+            nativeAgent.setUpdateSender(server.getAgent()::sendSessionUpdate);
+            server.start();
+            try (var client = AcpClient.sync(wire.client())
+                    .sessionUpdateConsumer(event -> updates.add(event.update())).build()) {
+                client.initialize(new InitializeRequest(1, new ClientCapabilities()));
+                client.newSession(new NewSessionRequest("workspace", List.of()));
+                client.prompt(new PromptRequest("native-session", List.of(new TextContent("hello"))));
+                ToolCallUpdateNotification completed = updates.stream()
+                        .filter(ToolCallUpdateNotification.class::isInstance)
+                        .map(ToolCallUpdateNotification.class::cast)
+                        .filter(update -> update.status() == ToolCallStatus.COMPLETED)
+                        .findFirst().orElseThrow();
+                ToolCallDiff diff = completed.content().stream()
+                        .filter(ToolCallDiff.class::isInstance).map(ToolCallDiff.class::cast)
+                        .findFirst().orElseThrow();
+                // `type` is the wire discriminator; the SDK restores the subtype on decode.
+                assertEquals("a.txt", diff.path());
+                assertEquals("old line\n", diff.oldText());
+                assertEquals("new line\n", diff.newText());
+                assertTrue(completed.content().stream().anyMatch(ToolCallContentBlock.class::isInstance));
+            } finally { server.close(); }
+        }
+    }
+
+    @Test
     void imagesAndNativeOptionsSurviveSerialization() throws Exception {
         Backend backend = new Backend(output -> "done");
         try (Connection connection = new Connection(backend, new RecordingOutput())) {

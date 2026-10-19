@@ -15,10 +15,32 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class SessionFileChangeTracker {
     private static final ThreadLocal<String> CURRENT_SCOPE = new ThreadLocal<>();
+    private static final ThreadLocal<List<ToolChange>> CURRENT_TOOL = new ThreadLocal<>();
     private static final ConcurrentHashMap<String, ConcurrentHashMap<String, ChangeSnapshot>> CHANGES =
             new ConcurrentHashMap<>();
 
     private SessionFileChangeTracker() {
+    }
+
+    /**
+     * 单次工具调用产生的文件变更（原始 before/after 文本）。
+     * <p>ACP 以此为 {@code ToolCallDiff} 内容，{@code before == null} 表示新建文件。</p>
+     */
+    public record ToolChange(String path, String before, String after, boolean created) {
+    }
+
+    /** 开始记录当前线程上一次工具调用的文件变更。 */
+    public static void beginTool() {
+        CURRENT_TOOL.set(new ArrayList<>());
+    }
+
+    /** 结束记录并返回该工具调用合并后的变更（同一路径取首次 before、末次 after）。 */
+    public static List<ToolChange> endTool() {
+        List<ToolChange> changes = CURRENT_TOOL.get();
+        CURRENT_TOOL.remove();
+        if (changes == null || changes.isEmpty()) return List.of();
+        changes.sort(Comparator.comparing(ToolChange::path));
+        return List.copyOf(changes);
     }
 
     public static void beginTurn(Path workspace, String sessionId) {
@@ -35,13 +57,28 @@ public final class SessionFileChangeTracker {
     }
 
     public static void record(String filePath, String before, String after, boolean created) {
-        String scope = CURRENT_SCOPE.get();
-        if (scope == null || before.equals(after)) return;
+        if (before.equals(after)) return;
+        recordToolChange(filePath, before, after, created);
 
+        String scope = CURRENT_SCOPE.get();
+        if (scope == null) return;
         CHANGES.computeIfAbsent(scope, ignored -> new ConcurrentHashMap<>())
                 .compute(filePath, (ignored, existing) -> existing == null
                         ? new ChangeSnapshot(before, after, created)
                         : existing.withAfter(after));
+    }
+
+    private static void recordToolChange(String filePath, String before, String after, boolean created) {
+        List<ToolChange> changes = CURRENT_TOOL.get();
+        if (changes == null) return;
+        for (int i = 0; i < changes.size(); i++) {
+            ToolChange existing = changes.get(i);
+            if (existing.path().equals(filePath)) {
+                changes.set(i, new ToolChange(filePath, existing.before(), after, existing.created() || created));
+                return;
+            }
+        }
+        changes.add(new ToolChange(filePath, before, after, created));
     }
 
     /**
