@@ -3,95 +3,97 @@ package site.sorghum.loopra.bin.agent.core;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.noear.snack4.Feature;
 import org.noear.snack4.ONode;
-import org.noear.snack4.Options;
-import org.noear.snack4.json.JsonReader;
-import org.noear.snack4.json.util.FormatUtil;
-import org.noear.solon.ai.chat.interceptor.ToolRequest;
-import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.ai.chat.tool.ToolCall;
 import site.sorghum.cutin.core.context.Budget;
 import site.sorghum.cutin.core.context.DefaultLoopContext;
 import site.sorghum.cutin.core.context.Usage;
-import site.sorghum.cutin.core.event.LoopEvent;
-import site.sorghum.cutin.core.loop.*;
+import site.sorghum.cutin.core.loop.CancelReason;
+import site.sorghum.cutin.core.loop.DefaultLoopEngine;
+import site.sorghum.cutin.core.loop.InterceptPoint;
+import site.sorghum.cutin.core.loop.InterceptionResult;
+import site.sorghum.cutin.core.loop.LoopHandle;
+import site.sorghum.cutin.core.loop.LoopProgram;
+import site.sorghum.cutin.core.loop.LoopResult;
+import site.sorghum.cutin.core.loop.NodeType;
+import site.sorghum.cutin.core.loop.StepResult;
 import site.sorghum.cutin.core.model.ModelCallRequest;
 import site.sorghum.cutin.core.model.ModelRegistry;
 import site.sorghum.cutin.core.model.ModelResponse;
 import site.sorghum.cutin.core.model.StreamChunk;
 import site.sorghum.cutin.core.plugin.PluginBeanManager;
-import site.sorghum.cutin.core.state.LoopSnapshot;
-import site.sorghum.loopra.bin.agent.context.*;
+import site.sorghum.loopra.bin.agent.context.ContextTokenEstimate;
+import site.sorghum.loopra.bin.agent.context.ConversationContext;
+import site.sorghum.loopra.bin.agent.context.MessageHealer;
+import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.hitl.HitlManager;
 import site.sorghum.loopra.bin.agent.listener.AgentLoopListener;
 import site.sorghum.loopra.bin.agent.listener.NoOpAgentLoopListener;
-import site.sorghum.loopra.bin.agent.model.*;
+import site.sorghum.loopra.bin.agent.model.ChatMessage;
+import site.sorghum.loopra.bin.agent.model.PreparedMessages;
+import site.sorghum.loopra.bin.agent.model.StreamResult;
+import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
+import site.sorghum.loopra.bin.agent.model.ToolExecutionResult;
+import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.agent.output.ConsoleAgentOutput;
+import site.sorghum.loopra.bin.agent.prompt.StateNoticeRenderer;
 import site.sorghum.loopra.bin.agent.resilient.ReasonBreaker;
-import site.sorghum.loopra.bin.agent.resilient.Scavenger;
 import site.sorghum.loopra.bin.agent.resilient.StormBreaker;
 import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.bin.agent.spi.GoalGuard;
 import site.sorghum.loopra.bin.agent.spi.SessionUsageSink;
 import site.sorghum.loopra.bin.model.LoopraModelProvider;
 import site.sorghum.loopra.bin.model.ModelApiError;
-import site.sorghum.loopra.bin.model.UserMessageSanitizer;
-import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
-import site.sorghum.loopra.bin.session.SessionFileChangeTracker;
-import site.sorghum.loopra.bin.tool.ToolMetadata;
 import site.sorghum.loopra.bin.tool.ToolRegistry;
-import site.sorghum.loopra.integration.cutin.CutinFunctionToolBridge;
 import site.sorghum.loopra.integration.cutin.CutinMessageBridge;
-import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionHost;
-import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.LoopraPluginRuntime;
-import site.sorghum.loopra.integration.extpack.LoopraExtPackRuntime;
-import site.sorghum.loopra.integration.cutin.plugin.external.ExternalPluginStore;
-import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitHost;
+import site.sorghum.loopra.integration.cutin.plugin.compaction.LoopraCompactionPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.exit.LoopraExitPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.external.ExternalPluginStore;
 import site.sorghum.loopra.integration.cutin.plugin.httplog.LoopraHttpLogPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.plan.LoopraPlanHost;
 import site.sorghum.loopra.integration.cutin.plugin.plan.LoopraPlanPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraMessageHealingPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraModelPolicyPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraPolicyHost;
 import site.sorghum.loopra.integration.cutin.plugin.policy.LoopraToolPolicyPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.preflight.*;
-import site.sorghum.loopra.integration.cutin.plugin.rawlog.LoopraRawLogPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.reasoning.LoopraReasoningStartedHost;
-import site.sorghum.loopra.integration.cutin.plugin.reasoning.LoopraReasoningStartedPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecoveryHost;
-import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecoveryPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryHost;
-import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryPolicyPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionAffinityHost;
-import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionAffinityPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionHost;
-import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchEvent;
-import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchHost;
-import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraHitlPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraMessageSanitizerPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraPreflight;
+import site.sorghum.loopra.integration.cutin.plugin.preflight.LoopraUserMessagePlugin;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.LoopraPromptHost;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.LoopraPromptPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.prompt.PromptRegistry;
-import site.sorghum.loopra.integration.cutin.plugin.prompt.ToolContract;
+import site.sorghum.loopra.integration.cutin.plugin.rawlog.LoopraRawLogPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.reasoning.LoopraReasoningStartedHost;
+import site.sorghum.loopra.integration.cutin.plugin.reasoning.LoopraReasoningStartedPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.recovery.LoopraErrorRecoveryPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryHost;
+import site.sorghum.loopra.integration.cutin.plugin.retry.LoopraRetryPolicyPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionAffinityPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.session.LoopraSessionPlugin;
+import site.sorghum.loopra.integration.cutin.plugin.state.LoopraStateNoticeHost;
+import site.sorghum.loopra.integration.cutin.plugin.state.LoopraStateNoticePlugin;
 import site.sorghum.loopra.integration.cutin.plugin.tool.LoopraToolGatewayPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraTokenSpeedHost;
+import site.sorghum.loopra.integration.cutin.plugin.toolbatch.LoopraToolBatchPlugin;
 import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraTokenSpeedPlugin;
-import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraUsageHost;
 import site.sorghum.loopra.integration.cutin.plugin.usage.LoopraUsagePlugin;
-import site.sorghum.loopra.tool.*;
-import site.sorghum.loopra.tool.interact.FinishTool;
+import site.sorghum.loopra.integration.extpack.LoopraExtPackRuntime;
+import site.sorghum.loopra.tool.AgentLoopController;
+import site.sorghum.loopra.tool.AgentOutput;
+import site.sorghum.loopra.tool.LogLevel;
+import site.sorghum.loopra.tool.ToolResult;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 
@@ -99,7 +101,11 @@ import java.util.stream.Stream;
  * Agent 循环 —— 编排 prompt → LLM → 工具调用 → 反馈结果 → LLM 的循环。
  * <p>
  * 消息历史通过 {@link ConversationContext} 在内存中累积跨回合持久化。
- * HITL（人工审批）逻辑委托给 {@link HitlManager} 管理。
+ * 各职责按内聚拆分为同包协作类：{@link PlanModeController}（计划模式）、
+ * {@link UsageReporter}（用量上报）、{@link ContextCompactor}（上下文折叠）、
+ * {@link HitlController}（人工审批拦截/挂起）、{@link ToolDispatcher}（工具分发）、
+ * {@link SessionLifecycle}（会话生命周期）、{@link TurnExitController}（退出决策）、
+ * {@link CutinStreamSupport}（流快照解析）。本类保留循环编排与各插件宿主的薄门面。
  * </p>
  *
  * @author Sorghum
@@ -108,98 +114,38 @@ import java.util.stream.Stream;
 public class AgentLoop implements
         AgentLoopController,
         LoopraPolicyHost,
-        LoopraCompactionHost,
-        LoopraUsageHost,
-        LoopraTokenSpeedHost,
-        LoopraSessionAffinityHost,
-        LoopraExitHost,
-        LoopraErrorRecoveryHost,
         LoopraRetryHost,
-        LoopraSessionHost,
-        LoopraPlanHost,
-        LoopraToolBatchHost,
         LoopraReasoningStartedHost,
-        LoopraPreflightHost,
         LoopraPromptHost,
+        LoopraStateNoticeHost,
         LoopraToolGatewayPlugin.LoopraToolHost {
-
-    // ==================== 配置读取（带 null-safe 默认值） ====================
-
-    /** 默认最大上下文字符数（200k 约 256k tokens 的保守估计，覆盖主流模型上下文窗口） */
-    private static final int DEFAULT_MAX_CONTEXT_CHARS = 200_000;
-    /** 折叠后保留尾部字符数（80k 确保折叠后仍有足够上下文供后续推理） */
-    private static final int DEFAULT_KEEP_TAIL_CHARS = 80_000;
-    /** 工具执行超时秒数（1080s=18min，覆盖长时间工具调用如大型构建/测试） */
-    private static final int DEFAULT_TOOL_TIMEOUT_SEC = 1080;
-    /** 子代理完整执行超时秒数（默认 1 小时） */
-    private static final int DEFAULT_SUB_AGENT_TIMEOUT_SEC = 3600;
-    /** Storm 断路器自愈最大尝试次数 */
-    private static final int DEFAULT_MAX_SELF_CORRECTION = 5;
-    /** 流式响应等待超时秒数（防止 HTTP 流永不结束导致线程挂起） */
-    private static final int DEFAULT_STREAM_LATCH_TIMEOUT_SEC = 300;
-    /** 服务端确认上下文超限时最多执行两次折叠恢复。 */
-    private static final int MAX_CONTEXT_RECOVERIES = 2;
-    /** 工具任务必须由可中断的 Future 承载，CompletableFuture.cancel(true) 不会中断运行线程。 */
-    private static final AtomicInteger TOOL_THREAD_COUNTER = new AtomicInteger();
-    private static final ExecutorService TOOL_EXECUTOR = Executors.newCachedThreadPool(r -> {
-        Thread thread = new Thread(r, "loopra-tool-" + TOOL_THREAD_COUNTER.incrementAndGet());
-        thread.setDaemon(true);
-        return thread;
-    });
-
-    private int maxTotalChars() {
-        return config != null ? config.maxContextChars() : DEFAULT_MAX_CONTEXT_CHARS;
-    }
-
-    private int keepTailChars() {
-        return config != null ? config.keepTailChars() : DEFAULT_KEEP_TAIL_CHARS;
-    }
-
-    private int toolTimeoutSec() {
-        return config != null ? config.toolTimeoutSec() : DEFAULT_TOOL_TIMEOUT_SEC;
-    }
-
-    private int subAgentTimeoutSec() {
-        return config != null ? config.subAgentTimeoutSec() : DEFAULT_SUB_AGENT_TIMEOUT_SEC;
-    }
-
-    private int maxSelfCorrectionAttempts() {
-        return config != null ? config.maxSelfCorrectionAttempts() : DEFAULT_MAX_SELF_CORRECTION;
-    }
 
     // ==================== 核心字段 ====================
 
     private final LoopraModelProvider modelProvider;
     private final ToolRegistry registry;
     private final AgentConfig config;
-    private volatile boolean terminateOnNoToolCall;
     @Getter
     private final ConversationContext ctx;
     private final ReasonBreaker reasonBreaker = new ReasonBreaker();
     private final StormBreaker stormBreaker;
-    private final AtomicBoolean cutinSuppression = new AtomicBoolean(false);
-    private ToolCallValidator toolCallValidator;
-    /** Goal 守卫（由上层注入）；null 时等价于无开放 Goal，守卫全部放行。 */
-    @Setter
-    private volatile GoalGuard goalGuard;
-    /** Goal 生命周期只由拥有会话的主代理约束，子代理共享 sessionId 但不拥有 Goal。 */
-    @Setter
-    private volatile boolean goalGuardEnabled = true;
-    /** 子代理可冻结这两部分，确保其整个生命周期内模型请求前缀完全一致。 */
-    private volatile ONode frozenTools;
-    private volatile String frozenToolInstructions;
-    /**
-     * 计划模式 —— 会话级状态：仅允许只读工具（工具列表过滤 + 执行拒绝 + 指令感知）。
-     * 由 /plan、/execute 命令切换；不修改共享的 ToolRegistry，因此不影响同项目的其他会话。
-     */
-    private volatile boolean planMode = false;
-    /**
-     * 计划模式下经 submit_plan 提交、待用户审查的执行计划。
-     * /execute 批准时取出并注入为执行依据（取出即清空）。
-     */
-    private volatile String pendingPlan = null;
+    /** 计划模式与待审查计划，委托给 {@link PlanModeController}。 */
+    private final PlanModeController planModeController = new PlanModeController(this);
+    /** cutin 用量上报与 token 速率推送，委托给 {@link UsageReporter}。 */
+    private final UsageReporter usageReporter;
+    /** 上下文压力与折叠，委托给 {@link ContextCompactor}。 */
+    private final ContextCompactor contextCompactor = new ContextCompactor(this);
+    /** HITL 拦截与挂起恢复，委托给 {@link HitlController}。 */
+    private final HitlController hitlController = new HitlController(this);
+    /** 工具分发、取消与自纠错，委托给 {@link ToolDispatcher}。 */
+    private final ToolDispatcher toolDispatcher = new ToolDispatcher(this);
+    /** 会话生命周期与回合回调，委托给 {@link SessionLifecycle}。 */
+    private final SessionLifecycle sessionLifecycle;
+    /** 回合退出决策与 Goal 守卫，委托给 {@link TurnExitController}。 */
+    private final TurnExitController turnExitController = new TurnExitController(this);
     @Getter
     private final HitlManager hitlManager;
+    private final ToolApprovalReviewer toolApprovalReviewer;
 
     @Setter
     private SessionUsageSink sessionUsageSink;
@@ -231,21 +177,6 @@ public class AgentLoop implements
     @Getter
     private volatile Path workspace;
 
-    /** 当前正在执行的工具 Future 数组（用于 abort 时取消） */
-    private volatile Future<ChatMessage>[] activeToolFutures = null;
-
-    /** 当前工具的显式取消控制器（用于停止子代理等长运行任务） */
-    private volatile ToolExecutionControl[] activeToolControls = null;
-
-    /** 工具工作线程对应的取消控制器。 */
-    private final ThreadLocal<ToolExecutionControl> currentToolControl = new ThreadLocal<>();
-
-    /** 已脱离单次工具 Future、但仍需随用户停止而终止的资源。 */
-    private final ConcurrentHashMap<String, Runnable> abortResources = new ConcurrentHashMap<>();
-
-    /** 任务完成标志 —— finish 工具设置，非空时主循环将退出并返回该内容 */
-    private volatile String finishContent = null;
-
     @Getter
     private volatile String sessionId;
 
@@ -255,25 +186,15 @@ public class AgentLoop implements
         modelProvider.setSessionAffinity(sessionId);
     }
 
-    /** 上次触发 tool-gateway 重启时的禁用集合快照；用于跳过每轮无效重启。 */
-    private volatile Set<String> lastGatewayDisabled = Collections.emptySet();
-
-    /** gateway 是否已按最新禁用列表重启过；首次调用 refreshTools 时会重启一次。 */
-    private volatile boolean gatewayEverStarted = false;
-
     /** Prompt 插件化：切片注册表（供外部插件热插拔） */
     @Getter
     private final PromptRegistry promptRegistry = new PromptRegistry();
 
-    /**
-     * 是否在工具批次结束时提取文件变更。
-     * 子代理与父代理共用同一会话范围时关闭此开关，防止子循环提前取走父轮次的变更记录。
-     */
-    @Setter
-    private volatile boolean drainFileChanges = true;
-
     /** 主循环是否正在执行中（防止巡检线程与主循环冲突） */
     private final AtomicBoolean running = new AtomicBoolean(false);
+
+    /** 本循环是否为子代理循环；影响状态通知的措辞（子代理无 submit_plan）。 */
+    private volatile boolean subAgentLoop = false;
 
     /**
      * cutin 引擎 —— loopra 主循环的编排状态机。
@@ -285,9 +206,6 @@ public class AgentLoop implements
     private final DefaultLoopEngine cutinEngine;
     private final PluginBeanManager cutinPlugins;
     private volatile LoopHandle activeCutinHandle;
-    private volatile LoopHandle suspendedCutinHandle;
-    private volatile DefaultLoopContext suspendedCutinContext;
-    private volatile LoopState suspendedCutinState;
     private volatile LoopState runningCutinState;
 
     /**
@@ -299,12 +217,78 @@ public class AgentLoop implements
         return running.get();
     }
 
-    private Path workingDirectory() {
+    Path workingDirectory() {
         Path environmentRoot = registry.getEnvironment() == null
             ? null
             : registry.getEnvironment().executionRoot();
         Path root = environmentRoot != null ? environmentRoot : workspace;
         return root == null ? null : root.toAbsolutePath().normalize();
+    }
+
+    // ==================== 协作类访问口（包级私有，仅供同包协作者使用） ====================
+
+    DefaultLoopEngine cutinEngine() {
+        return cutinEngine;
+    }
+
+    LoopHandle activeCutinHandle() {
+        return activeCutinHandle;
+    }
+
+    void activeCutinHandle(LoopHandle handle) {
+        this.activeCutinHandle = handle;
+    }
+
+    AgentLoopListener listener() {
+        return listener;
+    }
+
+    void lastPromptTokens(int value) {
+        this.lastPromptTokens = value;
+    }
+
+    void lastContextEstimate(ContextTokenEstimate estimate) {
+        this.lastContextEstimate = estimate;
+    }
+
+    ConversationContext ctx() {
+        return ctx;
+    }
+
+    PluginBeanManager cutinPlugins() {
+        return cutinPlugins;
+    }
+
+    PlanModeController planModeController() {
+        return planModeController;
+    }
+
+    boolean userAbortRequested() {
+        return userAbortRequested;
+    }
+
+    Runnable externalAbortSource() {
+        return externalAbortSource;
+    }
+
+    LoopState runningCutinState() {
+        return runningCutinState;
+    }
+
+    ToolDispatcher toolDispatcher() {
+        return toolDispatcher;
+    }
+
+    TurnExitController turnExitController() {
+        return turnExitController;
+    }
+
+    ToolApprovalReviewer toolApprovalReviewer() {
+        return toolApprovalReviewer;
+    }
+
+    HitlController hitlController() {
+        return hitlController;
     }
 
     // ==================== 构造器 ====================
@@ -315,15 +299,21 @@ public class AgentLoop implements
         this.registry = Objects.requireNonNull(registry, "registry must not be null");
         this.ctx = ctx;
         this.config = config;
-        this.terminateOnNoToolCall = config == null || config.terminateOnNoToolCall();
         this.hitlManager = new HitlManager("free");
-        this.hitlManager.setConfig(config);
         this.stormBreaker = StormBreaker.fromConfig(config);
+        this.usageReporter = new UsageReporter(this::lastPromptTokens, this::getSessionUsageSink,
+                modelProvider::getModel, this::listener, this::getOutput);
+        this.sessionLifecycle = new SessionLifecycle(() -> {
+            stormBreaker.reset();
+            reasonBreaker.reset();
+            resetUserAbort();
+        }, toolDispatcher::resetCutinSuppression, this::getSessionUsageSink,
+                this::getSessionId, this::setSessionId);
         Path executionRoot = registry.getEnvironment() == null
                 ? null
                 : registry.getEnvironment().executionRoot();
-        this.toolCallValidator = ToolCallValidator.fromConfig(config, executionRoot);
         this.cutinEngine = new DefaultLoopEngine(registry.cutinRegistry(), new ModelRegistry());
+        this.toolApprovalReviewer = new ToolApprovalReviewer(this, ToolCallValidator.fromConfig(config, executionRoot));
         this.cutinEngine.registrar().addModelProvider(modelProvider);
         this.cutinPlugins = createCutinPlugins();
     }
@@ -351,27 +341,119 @@ public class AgentLoop implements
         return promptRegistry;
     }
 
+    /**
+     * 汇总当前会话实际生效的系统提示词。
+     * <p>
+     * 与模型调用前 {@link LoopraPromptPlugin} 的切片聚合结果一致，供前端
+     * 「查看系统提示词」使用。切片提供者可能依赖循环上下文，这里用一个
+     * 空上下文预览，不会污染正在运行的会话。
+     * </p>
+     */
+    public String effectiveSystemPrompt() {
+        DefaultLoopContext preview = cutinEngine == null
+                ? null
+                : cutinEngine.newContext("prompt-preview", Map.of(), workingDirectory());
+        String assembled = promptRegistry.assemble(preview);
+        return assembled == null ? "" : assembled;
+    }
+
     @Override
     public Path workspace() {
         SessionEnvironment env = registry.getEnvironment();
         return env == null ? null : env.executionRoot();
     }
 
+    /**
+     * 子代理自拼的 system（{@code ConversationContext} 的前缀）。
+     * <p>主循环的前缀是空串，因此这里返回空串，prompt 插件据此判定
+     * 「现有 system 不是外部注入的」。</p>
+     */
     @Override
-    public String dynamicToolContractTail() {
-        // Goal 指令 + Plan Mode 指令：随会话状态实时变化，由 tool-contract 切片注入 system
-        StringBuilder tail = new StringBuilder();
+    public String systemPrefix() {
+        return ctx.prefixSystem();
+    }
+
+    // ========== LoopraStateNoticeHost 实现（易变状态移出 system） ==========
+
+    @Override
+    public String stateNoticeBody() {
+        StringBuilder body = new StringBuilder();
         String goal = currentGoalInstruction();
         if (!goal.isBlank()) {
-            tail.append(goal);
+            body.append(goal.strip());
         }
-        if (planMode) {
-            if (!tail.isEmpty()) {
-                tail.append("\n\n");
+        if (planModeController.isPlanMode()) {
+            if (body.length() > 0) {
+                body.append("\n\n");
             }
-            tail.append(PLAN_MODE_INSTRUCTIONS);
+            body.append(StateNoticeRenderer.planModeBody(isSubAgentLoop()));
         }
-        return tail.toString();
+        return body.toString();
+    }
+
+    @Override
+    public String appendStateNotice(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        ChatMessage notice = ctx.addSystemNotice(content);
+        return StateNoticeRenderer.fingerprintOf(notice.getContent());
+    }
+
+    @Override
+    public String replaceLastStateNotice(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        List<ChatMessage> history = ctx.getHistory();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage message = history.get(i);
+            if (!StateNoticeRenderer.isNotice(message.getContent())) {
+                continue;
+            }
+            message.setContent(content);
+            ctx.rewriteSession();
+            return StateNoticeRenderer.fingerprintOf(content);
+        }
+        return null;
+    }
+
+    @Override
+    public String lastStateNoticeFingerprint() {
+        List<ChatMessage> history = ctx.getHistory();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            String fingerprint = StateNoticeRenderer.fingerprintOf(history.get(i).getContent());
+            if (fingerprint != null) {
+                return fingerprint;
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public boolean modelProducedSinceLastNotice() {
+        List<ChatMessage> history = ctx.getHistory();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage message = history.get(i);
+            if (StateNoticeRenderer.isNotice(message.getContent())) {
+                return false;
+            }
+            if (message.isAssistant() || message.isTool()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 主循环不是子代理；子循环由 {@link SubAgent} 创建后调用 {@link #markSubAgentLoop()} 标记。 */
+    @Override
+    public boolean isSubAgentLoop() {
+        return subAgentLoop;
+    }
+
+    /** 标记本循环为子代理循环（由 {@link SubAgent} 在冻结前缀前调用）。 */
+    void markSubAgentLoop() {
+        this.subAgentLoop = true;
     }
 
     private PluginBeanManager createCutinPlugins() {
@@ -381,28 +463,30 @@ public class AgentLoop implements
         plugins.registerBean("promptRegistry", promptRegistry);
         plugins.registerBean("loopraToolHost", (LoopraToolGatewayPlugin.LoopraToolHost) this);
         plugins.registerBean("promptRegistryTyped", promptRegistry);
+        plugins.registerBean("loopraStateNoticeHost", (LoopraStateNoticeHost) this);
         // Prompt / Tool 插件化（优先级最高，最先拦截）
         plugins.registerPlugin(new LoopraPromptPlugin(this, promptRegistry));
         plugins.registerPlugin(new LoopraToolGatewayPlugin(this));
+        plugins.registerPlugin(new LoopraStateNoticePlugin(this));
         plugins.registerPlugin(new LoopraHttpLogPlugin(modelProvider));
         plugins.registerPlugin(new LoopraRawLogPlugin());
-        plugins.registerPlugin(new LoopraMessageSanitizerPlugin(this));
-        plugins.registerPlugin(new LoopraHitlPlugin(this));
-        plugins.registerPlugin(new LoopraUserMessagePlugin(this));
-        plugins.registerPlugin(new LoopraUsagePlugin(this));
-        plugins.registerPlugin(new LoopraTokenSpeedPlugin(this));
-        plugins.registerPlugin(new LoopraSessionAffinityPlugin(this));
-        plugins.registerPlugin(new LoopraCompactionPlugin(this));
+        plugins.registerPlugin(new LoopraMessageSanitizerPlugin(hitlController));
+        plugins.registerPlugin(new LoopraHitlPlugin(hitlController));
+        plugins.registerPlugin(new LoopraUserMessagePlugin(hitlController));
+        plugins.registerPlugin(new LoopraUsagePlugin(usageReporter));
+        plugins.registerPlugin(new LoopraTokenSpeedPlugin(usageReporter));
+        plugins.registerPlugin(new LoopraSessionAffinityPlugin(sessionLifecycle));
+        plugins.registerPlugin(new LoopraCompactionPlugin(contextCompactor));
         plugins.registerPlugin(new LoopraReasoningStartedPlugin(this));
         plugins.registerPlugin(new LoopraModelPolicyPlugin(this));
         plugins.registerPlugin(new LoopraMessageHealingPlugin());
         plugins.registerPlugin(new LoopraToolPolicyPlugin(this));
-        plugins.registerPlugin(new LoopraExitPlugin(this));
-        plugins.registerPlugin(new LoopraErrorRecoveryPlugin(this));
+        plugins.registerPlugin(new LoopraExitPlugin(turnExitController));
+        plugins.registerPlugin(new LoopraErrorRecoveryPlugin(contextCompactor));
         plugins.registerPlugin(new LoopraRetryPolicyPlugin(this));
-        plugins.registerPlugin(new LoopraSessionPlugin(this));
-        plugins.registerPlugin(new LoopraPlanPlugin(this));
-        plugins.registerPlugin(new LoopraToolBatchPlugin(this));
+        plugins.registerPlugin(new LoopraSessionPlugin(sessionLifecycle));
+        plugins.registerPlugin(new LoopraPlanPlugin(planModeController));
+        plugins.registerPlugin(new LoopraToolBatchPlugin(toolDispatcher));
         // 外置插件：startAll 前按清单加载，与内置插件同场竞技
         new ExternalPluginStore().loadInto(plugins);
         plugins.startAll();
@@ -414,7 +498,7 @@ public class AgentLoop implements
 
     /** 仅测试注入：覆盖由配置生成的工具调用校验器，避免为测试保留专用构造器。 */
     void setToolCallValidator(ToolCallValidator toolCallValidator) {
-        this.toolCallValidator = Objects.requireNonNull(toolCallValidator, "toolCallValidator must not be null");
+        toolApprovalReviewer.setAiReviewer(toolCallValidator);
     }
 
     void disposeCutinPlugins() {
@@ -504,26 +588,9 @@ public class AgentLoop implements
         modelProvider.setFastMode(fastMode);
     }
 
-    @Override
-    public boolean terminateOnNoToolCall() {
-        return terminateOnNoToolCall;
-    }
-
-    /** 运行时更新无工具调用时的结束策略。 */
-    public void setTerminateOnNoToolCall(boolean enabled) {
-        this.terminateOnNoToolCall = enabled;
-    }
-
-    /** 手动触发上下文折叠（/compact 命令） */
+    /** 手动触发上下文折叠（/compact 命令）；实际折叠逻辑在 {@link ContextCompactor}。 */
     public void compactNow() throws IOException {
-        ContextCompactionPolicy policy = ContextCompactionPolicy.from(config);
-        int contextWindow = modelProvider.getMaxContextTokens();
-        int retainTokens = Math.max(1, (int) Math.floor(contextWindow * policy.retainRatio()));
-        if (foldOldestRange(ctx.buildMessages(), retainTokens, "compact")) {
-            output.onLog(LogLevel.INFO, "[compact] 已折叠较早历史（保留最近 ~" + retainTokens + " tokens）");
-        } else {
-            output.onLog(LogLevel.INFO, "[compact] 无需折叠（历史不足以形成可折叠范围）");
-        }
+        contextCompactor.compactNow();
     }
 
     /**
@@ -605,26 +672,23 @@ public class AgentLoop implements
         if (handle != null) {
             handle.cancel(CancelReason.USER);
         }
-        cancelAllFutures(activeToolFutures, activeToolControls);
-        cancelAbortResources();
+        toolDispatcher.cancelActiveToolCalls();
+        toolDispatcher.cancelAbortResources();
     }
 
     @Override
     public void finish(String content) {
-        if (content == null || content.isBlank()) {
-            // 尝试从上下文获取最后一条 assistant 回复作为回退
-            String lastAssistant = ctx.getLastAssistantContent();
-            if (lastAssistant != null && !lastAssistant.isBlank()) {
-                content = lastAssistant;
-                log.info("[loop] finish content 为空，使用最后一条 assistant 回复作为回退");
-            } else {
-                content = "(completed)";
-                log.info("[loop] finish content 为空且无 assistant 回复可回退，使用默认值");
-            }
-        }
-        this.finishContent = content;
-        modelProvider.abortStream();
-        log.info("[loop] 工具请求完成任务，即将退出循环");
+        turnExitController.finish(content);
+    }
+
+    /** 设置 Goal 守卫实例；实际状态由 {@link TurnExitController} 持有。 */
+    public void setGoalGuard(GoalGuard goalGuard) {
+        turnExitController.setGoalGuard(goalGuard);
+    }
+
+    /** 开关 Goal 守卫（子代理关闭）；实际状态由 {@link TurnExitController} 持有。 */
+    public void setGoalGuardEnabled(boolean enabled) {
+        turnExitController.setGoalGuardEnabled(enabled);
     }
 
     @Override
@@ -657,58 +721,33 @@ public class AgentLoop implements
 
     @Override
     public void registerToolCancellation(Runnable cancellation) {
-        ToolExecutionControl control = currentToolControl.get();
-        if (control != null) {
-            control.register(cancellation);
-        }
+        toolDispatcher.registerToolCancellation(cancellation);
     }
 
     @Override
     public void clearToolCancellation() {
-        ToolExecutionControl control = currentToolControl.get();
-        if (control != null) {
-            control.clearCancellation();
-        }
+        toolDispatcher.clearToolCancellation();
     }
 
     @Override
     public void registerAbortResource(String resourceId, Runnable cancellation) {
-        if (resourceId == null || resourceId.isBlank() || cancellation == null) return;
-        if (userAbortRequested) {
-            runAbortResource(resourceId, cancellation);
-            return;
-        }
-        abortResources.put(resourceId, cancellation);
-        if (userAbortRequested && abortResources.remove(resourceId, cancellation)) {
-            runAbortResource(resourceId, cancellation);
-        }
+        toolDispatcher.registerAbortResource(resourceId, cancellation);
     }
 
     @Override
     public void clearAbortResource(String resourceId) {
-        if (resourceId != null) abortResources.remove(resourceId);
+        toolDispatcher.clearAbortResource(resourceId);
     }
 
-    private void cancelAbortResources() {
-        abortResources.forEach((resourceId, cancellation) -> {
-            if (abortResources.remove(resourceId, cancellation)) {
-                runAbortResource(resourceId, cancellation);
-            }
-        });
-    }
-
-    private static void runAbortResource(String resourceId, Runnable cancellation) {
-        try {
-            cancellation.run();
-        } catch (Exception e) {
-            log.warn("[abort] 取消工具资源失败: {}, {}", resourceId, e.getMessage());
-        }
+    /** 设置是否提取文件变更；实际状态由 {@link ToolDispatcher} 持有。 */
+    public void setDrainFileChanges(boolean enabled) {
+        toolDispatcher.drainFileChanges(enabled);
     }
 
     // ==================== 内部辅助方法 ====================
 
     /** 安全调用 output 方法，异常记录 warn 日志（用于 onLog/onError/onToolCall/onToolResult 等） */
-    private void safeOutput(String tag, Runnable action) {
+    void safeOutput(String tag, Runnable action) {
         try {
             action.run();
         } catch (Exception e) {
@@ -717,7 +756,7 @@ public class AgentLoop implements
     }
 
     /** 安全调用 output 方法，异常记录 debug 日志（用于 SSE delta 回调，断开是预期行为） */
-    private void safeOutputDebug(String tag, Runnable action) {
+    void safeOutputDebug(String tag, Runnable action) {
         try {
             action.run();
         } catch (Exception e) {
@@ -726,7 +765,7 @@ public class AgentLoop implements
     }
 
     /** 安全调用 listener 方法，异常记录 warn 日志 */
-    private void safeListener(String tag, Runnable action) {
+    void safeListener(String tag, Runnable action) {
         try {
             action.run();
         } catch (Exception e) {
@@ -734,179 +773,61 @@ public class AgentLoop implements
         }
     }
 
-    private static ChatMessage toolResult(String id, String result) {
-        return ChatMessage.tool(id, result);
-    }
-
-    private static ChatMessage timedToolResult(String id, String result, long startedAt) {
-        return ChatMessage.tool(id, result, startedAt, System.currentTimeMillis());
-    }
-
-    private static ChatMessage timedToolResult(ChatMessage result, long startedAt) {
-        result.setToolTiming(startedAt, System.currentTimeMillis());
-        return result;
-    }
-
     public ONode refreshTools() {
-        ONode fixed = frozenTools;
-        if (fixed != null) {
-            return fixed;
-        }
-        boolean gatewayActive = cutinPlugins != null && cutinPlugins.pluginStates().stream()
-                .anyMatch(s -> "loopra-tool-gateway".equals(s.id()) && s.active());
-        if (!gatewayActive) {
-            // 网关禁用 = 下线全部工具：清空 legacy 与 cutin 视图，模型请求的 tools 为空数组。
-            // 视图区分 loopra 同步区与外部注册区（拓展包桥接、插件工具），
-            // 外部注册工具不随 syncCutinRegistry 清除，需 clearTools 整体清空兜底。
-            registry.clearTools();
-            ONode empty = registry.toOpenAiTools();
-            return planMode ? filterReadOnlyTools(empty) : empty;
-        }
-        registry.refresh();
-        // 同步 cutin 工具网关：仅当禁用列表变化（或首次）时重启以按最新禁用列表重新注册 cutin Tool，
-        // 避免每轮模型调用都 stop/start 网关 + 全量扫描；禁用列表不变时 registry.refresh 已同步视图。
-        try {
-            if (cutinPlugins != null) {
-                Set<String> disabled = registry.currentDisabledTools();
-                boolean disabledChanged = !disabled.equals(lastGatewayDisabled);
-                if (!gatewayEverStarted || disabledChanged) {
-                    cutinPlugins.stopPlugin("loopra-tool-gateway");
-                    cutinPlugins.startPlugin("loopra-tool-gateway");
-                    lastGatewayDisabled = disabled;
-                    gatewayEverStarted = true;
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[tool-gateway] refresh restart failed: {}", e.getMessage());
-        }
-        ONode tools = registry.toOpenAiTools();
-        return planMode ? filterReadOnlyTools(tools) : tools;
+        return contextCompactor.refreshTools();
     }
-
-    /** 固定后续请求的 system 附加指令和工具定义；必须在首轮模型调用前执行。 */
-    public void freezePromptPrefix() {
-        frozenToolInstructions = buildToolInstructions();
-        ONode tools = registry.toOpenAiTools();
-        frozenTools = ONode.ofJson((planMode ? filterReadOnlyTools(tools) : tools).toJson());
-    }
-
-    private String currentToolInstructions() {
-        String fixed = frozenToolInstructions;
-        String base = fixed != null ? fixed : buildToolInstructions();
-        return planMode ? base + "\n\n" + PLAN_MODE_INSTRUCTIONS : base;
-    }
-
-    // ==================== 计划模式 ====================
 
     /**
-     * 计划模式动态指令 —— 激活时追加到工具协作约定末尾。
-     * 放在动态尾部而非 system prompt 固定前缀，避免模式切换破坏前缀缓存稳定性。
+     * 冻结本会话的 system 文本与工具定义；必须在首轮模型调用前执行。
+     * <p>冻结后 system 逐字节稳定（易变状态已改由历史里的状态通知承载），
+     * 折叠阈值与估算也读同一份快照。语义细节见
+     * {@link ContextCompactor#freezePromptPrefix()}。</p>
      */
-    private static final String PLAN_MODE_INSTRUCTIONS = """
-            ## Plan Mode（当前处于计划模式）
+    public void freezePromptPrefix() {
+        contextCompactor.freezePromptPrefix();
+    }
 
-            - 仅只读工具可用：写入/修改/执行类工具已从工具列表移除，任何此类调用都会被直接拒绝
-            - 不要尝试修改文件、执行命令等任何改变操作，也不要尝试绕过此限制
-            - 先用只读工具充分探索，理解现状、明确目标、影响面与风险
-            - 探索完成后用 `submit_plan` 工具提交完整执行计划供用户审查，然后向用户简要总结计划要点并结束本轮
-            - 用户批准计划后系统会退出计划模式并按计划执行
-            """;
+    // ==================== 计划模式（委托 PlanModeController） ====================
 
     @Override
     public boolean isPlanMode() {
-        return planMode;
+        return planModeController.isPlanMode();
     }
 
-    /**
-     * 切换计划模式（会话级状态，仅影响本循环）。
-     * <p>切换在下一步立即生效：工具列表过滤为只读集合、非只读调用被拒绝、
-     * 计划模式指令注入工具约定。持久化与事件通知由上层（LoopraAgent）负责。</p>
-     */
+    /** 切换计划模式（会话级状态，仅影响本循环）。 */
     public void setPlanMode(boolean enabled) {
-        this.planMode = enabled;
+        planModeController.setPlanMode(enabled);
     }
 
-    /**
-     * 保存 submit_plan 提交的任务计划，并通过 plan_submitted 事件通知前端。
-     */
+    /** 保存 submit_plan 提交的任务计划，并通过 plan_submitted 事件通知前端。 */
     @Override
     public void submitPlan(String planMarkdown) {
-        this.pendingPlan = planMarkdown;
-        emitPlanPersistence(planMarkdown);
-        ONode data = ONode.ofJson("{}").asObject();
-        data.set("plan", planMarkdown != null ? planMarkdown : "");
-        safeOutput("planSubmitted", () -> output.sendEvent("plan_submitted", data.toJson()));
+        planModeController.submitPlan(planMarkdown);
     }
 
     /** 获取待审查计划（不移除）。 */
     public String getPendingPlan() {
-        return pendingPlan;
+        return planModeController.getPendingPlan();
     }
 
     /** 静默恢复持久化的待审查计划，不触发事件或重复写盘。 */
     public void restorePendingPlan(String planMarkdown) {
-        this.pendingPlan = planMarkdown;
+        planModeController.restorePendingPlan(planMarkdown);
     }
 
     /** 清除待审查计划并同步持久化。 */
     public void clearPendingPlan() {
-        this.pendingPlan = null;
-        emitPlanPersistence(null);
+        planModeController.clearPendingPlan();
     }
 
     /** 取出并清空待审查计划（/execute 批准时调用）。 */
     public String consumePendingPlan() {
-        String plan = pendingPlan;
-        clearPendingPlan();
-        return plan;
+        return planModeController.consumePendingPlan();
     }
 
-    private void emitPlanPersistence(String planMarkdown) {
-        if (cutinEngine != null) {
-            String eventType = planMarkdown == null
-                    ? LoopraPlanHost.PLAN_CLEARED
-                    : LoopraPlanHost.PLAN_SUBMITTED;
-            String loopId = activeCutinHandle != null
-                    ? activeCutinHandle.id()
-                    : "plan";
-            cutinEngine.events().emit(new LoopEvent(
-                    eventType,
-                    loopId,
-                    null,
-                    Map.of("plan", planMarkdown == null ? "" : planMarkdown)
-            ));
-            return;
-        }
-        persistPendingPlan(planMarkdown);
-    }
-
-    @Override
-    public void persistPendingPlan(String planMarkdown) {
-        SessionUsageSink sink = sessionUsageSink;
-        if (sink == null) return;
-        try {
-            sink.persistPendingPlan(planMarkdown);
-        } catch (Exception e) {
-            log.warn("[plan] 持久化待审查计划失败: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * 将工具列表过滤为只读集合（不修改注册表及其缓存，返回新节点）。
-     * 注册表中找不到对应 FunctionTool 的条目一律剔除（保守策略）。
-     */
+    /** 过滤为只读工具集合；实际过滤逻辑在 {@link PlanModeController}。 */
     private ONode filterReadOnlyTools(ONode tools) {
-        if (tools == null || !tools.isArray()) {
-            return tools;
-        }
-        Map<String, FunctionTool> available = registry.all();
-        ONode filtered = ONode.ofJson(tools.toJson()).asArray();
-        filtered.getArray().removeIf(item -> {
-            String name = item.get("function").get("name").getString();
-            FunctionTool tool = name != null ? available.get(name) : null;
-            return tool == null || !ToolMetadata.isReadOnly(tool);
-        });
-        return filtered;
+        return planModeController.filterReadOnlyTools(tools);
     }
 
     /**
@@ -917,11 +838,7 @@ public class AgentLoop implements
      * <p>供历史会话在未执行新一轮模型请求时按持久化消息生成预估。</p>
      */
     public ContextTokenEstimate estimateCurrentContext() {
-        ONode tools = refreshTools();
-        ContextTokenEstimate estimate = ContextTokenEstimator.estimate(
-                ctx.buildMessages(), tools, currentToolInstructions());
-        lastContextEstimate = estimate;
-        return estimate;
+        return contextCompactor.estimateCurrentContext();
     }
 
     public StormBreaker stormBreaker() {
@@ -933,45 +850,14 @@ public class AgentLoop implements
     }
 
     public void markCutinStormSuppressed() {
-        cutinSuppression.set(true);
+        toolDispatcher.markCutinStormSuppressed();
     }
 
-    @Override
-    public void beginCutinLoop() {
-        stormBreaker.reset();
-        reasonBreaker.reset();
-        resetUserAbort();
-    }
-
-    @Override
-    public void endCutinLoop() {
-        cutinSuppression.set(false);
-    }
-
-    @Override
+    /**
+     * cutin 路径下的用量上报入口，实际处理在 {@link UsageReporter}。
+     */
     public void reportCutinUsage(Usage usage) {
-        propagateUsage(usage);
-    }
-
-    @Override
-    public String sessionAffinity() {
-        return sessionId;
-    }
-
-    @Override
-    public void emitTokenSpeed(long completionTokens, double tokensPerSecond, double avgTokensPerSecond, boolean done) {
-        safeOutputDebug("tokenSpeed", () -> {
-            if (output instanceof site.sorghum.loopra.web.service.SseAgentOutput sse) {
-                sse.onTokenSpeed(completionTokens, tokensPerSecond, avgTokensPerSecond, done);
-            } else {
-                output.sendEvent("token_speed", "{\"completionTokens\":" + completionTokens + ",\"tokensPerSecond\":" + tokensPerSecond + ",\"avgTokensPerSecond\":" + avgTokensPerSecond + ",\"done\":" + done + "}");
-            }
-        });
-    }
-
-    @Override
-    public void emitTokenSpeed(long completionTokens, double tokensPerSecond, boolean done) {
-        emitTokenSpeed(completionTokens, tokensPerSecond, tokensPerSecond, done);
+        usageReporter.reportCutinUsage(usage);
     }
 
     @Override
@@ -979,197 +865,19 @@ public class AgentLoop implements
         ctx.addUser("[ReasonBreaker] 检测到思考循环，已提前终止本轮推理。请停止当前思路，尝试不同的方法。");
     }
 
-    @Override
-    public boolean continueAfterExit(DefaultLoopContext context) {
-        String reason = String.valueOf(context.variables().getOrDefault("loopraExitReason", ""));
-        return switch (reason) {
-            case "finish" -> {
-                String requested = takeFinishContentIfAllowed();
-                if (requested != null) {
-                    context.putVariable("loopraTurnResult", requested);
-                    yield false;
-                }
-                yield true;
-            }
-            case "no_tool" -> decideNoToolExit(context);
-            default -> false;
-        };
-    }
-
-    private boolean decideNoToolExit(DefaultLoopContext context) {
-        String candidate = String.valueOf(
-                context.variables().getOrDefault("loopraNoToolCandidate", ""));
-        Object rawStreak = context.variables().getOrDefault("loopraNoToolStreak", 1);
-        int streak = rawStreak instanceof Number number ? number.intValue() : 1;
-        GoalGuard.GoalView openGoal = loadOpenGoalQuietly();
-        boolean shouldExit = (openGoal != null && !openGoal.requiresAgentWork())
-                || (terminateOnNoToolCall() && openGoal == null)
-                || streak >= 3;
-        if (shouldExit) {
-            String prefix = openGoal != null ? "[Goal 尚未关闭，后续回合可继续]\n" : "";
-            context.putVariable("loopraTurnResult", prefix + candidate);
-            return false;
-        }
-        ctx.addUser(openGoal != null
-                ? "[Goal guard] Goal 尚未关闭。请继续执行当前步骤，记录证据，并调用 goal_complete 后再结束。"
-                : FinishTool.TIPS);
-        return true;
-    }
-
-    private GoalGuard.GoalView loadOpenGoalQuietly() {
-        try {
-            return loadOpenGoal();
-        } catch (Exception exception) {
-            log.warn("[goal] 读取当前 Goal 失败: {}", exception.getMessage());
-            return null;
-        }
-    }
-
-    @Override
-    public int maxContextRecoveries() {
-        return MAX_CONTEXT_RECOVERIES;
-    }
-
-    @Override
-    public boolean compactAfterContextOverflow(int recoveryAttempt) {
-        return tryCompactAfterContextOverflow(recoveryAttempt);
-    }
-
-    @Override
-    public void afterTurn() {
-        SessionUsageSink sink = sessionUsageSink;
-        if (sink != null) {
-            try {
-                sink.afterTurn();
-            } catch (Exception exception) {
-                log.warn("[session] 回合提交回调失败: {}", exception.getMessage());
-            }
-        }
-    }
-
-    @Override
-    public void beforeTurn(String userMessage) {
-        if (userMessage.isBlank() || sessionUsageSink == null) {
-            return;
-        }
-        try {
-            String sessionId = sessionUsageSink.beforeTurn(userMessage);
-            if (sessionId != null && !sessionId.isBlank()) {
-                setSessionId(sessionId);
-            }
-        } catch (Exception exception) {
-            log.warn("[session] 回合开始回调失败: {}", exception.getMessage());
-        }
-    }
-
-    @Override
-    public UserMessage sanitizePreflightMessage(UserMessage message) {
-        return UserMessageSanitizer.sanitize(message, modelProvider, workingDirectory());
-    }
-
-    @Override
-    public void appendPreflightUserMessage(UserMessage message) {
-        ctx.addUser(message);
-    }
-
-    @Override
-    public void clearSuspendedCutinState() {
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-    }
-
-    @Override
-    public HitlState hitlState() {
-        return hitlManager.getState();
-    }
-
-    @Override
-    public boolean hasSuspendedCutin() {
-        return suspendedCutinHandle != null && suspendedCutinContext != null;
-    }
-
-    @Override
-    public boolean hasSandboxPending() {
-        return hitlManager.hasSandboxPending();
-    }
-
-    @Override
-    public String resumeApprovedTurn() throws IOException {
-        return hitlManager.hasSandboxPending()
-            ? resumeCutinSandboxHITL()
-            : resumeCutinHITL();
-    }
-
-    @Override
-    public String rejectTurn() {
-        return hitlManager.hasSandboxPending()
-            ? denyCutinSandboxHITL()
-            : denyCutinHITL();
-    }
-
-    @Override
-    public String suspendSandboxHITLIfPending(DefaultLoopContext context) {
-        if (hitlManager.getState() != HitlState.PENDING || !hitlManager.hasSandboxPending()) {
-            return null;
-        }
-        Object resumeState = context.artifacts().get("loopraSandboxResume");
-        if (resumeState instanceof HitlManager.PendingSandboxState sandboxState) {
-            hitlManager.storeSandboxContent(sandboxState.content(), sandboxState.reasoningContent());
-        } else if (context.artifacts().get("loopraModel") instanceof CutinStreamSnapshot snapshot) {
-            hitlManager.storeSandboxContent(snapshot.content(), snapshot.reasoningContent());
-        }
-        return hitlManager.interceptForSandboxHITL(output);
-    }
-
-    @Override
-    public void applySelfCorrection(DefaultLoopContext context, ToolExecutionResult result) {
-        LoopState state = runningCutinState;
-        int updated = handleSelfCorrection(
-                result.toolResults(), result.anySuppressed(),
-                state == null ? 0 : state.selfCorrectionAttempts);
-        if (updated < 0) {
-            String fallback = "所有工具调用均被风暴断路器抑制，无法继续执行。请换用其他方式完成任务。";
-            ctx.addAssistant(fallback, null, null);
-            context.putVariable("loopraExitReason", "self_correction");
-            context.putVariable("loopraTurnResult", fallback);
-            return;
-        }
-        if (state != null) {
-            state.selfCorrectionAttempts = updated;
-        }
-    }
-
     /**
-     * cutin 扩展点使用的上下文折叠入口：复用 Loopra 原有折叠策略，
-     * 折叠结果回写 cutin context，由 BEFORE_MODEL 拦截器交给模型网关。
+     * cutin 扩展点使用的上下文折叠入口，实际逻辑在 {@link ContextCompactor}。
      */
+    @Override
     public PreparedMessages prepareCutinMessages(DefaultLoopContext context, int step) {
-        try {
-            ONode tools = refreshTools();
-            PreparedMessages prepared = prepareMessages(step, tools);
-            context.replaceMessages(CutinMessageBridge.toCutin(prepared.messages()));
-            return prepared;
-        } catch (IOException exception) {
-            log.warn("[cutin] BEFORE_MODEL 折叠失败，按当前上下文继续: {}", exception.getMessage());
-            List<ChatMessage> fallback = ctx.buildMessages();
-            try {
-                ONode tools = refreshTools();
-                lastContextEstimate = ContextTokenEstimator.estimate(fallback, tools, currentToolInstructions());
-            } catch (Exception ignored) {
-            }
-            return new PreparedMessages(fallback, false);
-        }
+        return contextCompactor.prepareCutinMessages(context, step);
     }
 
     public site.sorghum.cutin.core.tool.ToolResult rejectCutinTool(
             site.sorghum.cutin.core.tool.ToolCall call,
             String message,
             String reason) {
-        String result = rejectedToolResult(message, reason);
-        safeListener("toolResult", () -> listener.onToolResult(call.toolId(), result));
-        safeOutputDebug("toolResult", () -> output.onToolResult(call.toolId(), result));
-        return site.sorghum.cutin.core.tool.ToolResult.failure(call.id(), result);
+        return toolDispatcher.rejectCutinTool(call, message, reason);
     }
 
     /**
@@ -1177,126 +885,16 @@ public class AgentLoop implements
      * 文本即向用户展示的审批提示。
      */
     public String interceptHITLFromCutin(ModelResponse response) {
-        if (response == null || response.message() == null) {
-            return null;
-        }
-        ONode toolCalls = toolCallsFromCutinMessage(response.message());
-        if (toolCalls == null || !toolCalls.isArray() || toolCalls.getArray().isEmpty()) {
-            return null;
-        }
-        // HITL 暂存的响应稍后会在独立的 tool 节点重放；先按当前历史归一化，
-        // 避免审批期间把模型重放的旧 call_id 原样带入 provider。
-        toolCalls = MessageHealer.normalizeIncomingToolCallIds(
-                toolCalls, messagesForToolCallNormalization());
-        String content = response.message().content();
-        String reasoning = metadataString(response.message(), "reasoning_content");
-        if (!hitlManager.isHitlMode() || !hitlManager.requiresHITL(toolCalls)) {
-            return null;
-        }
-
-        if (toolCallValidator.enabled()) {
-            ToolCallValidator.Decision decision = validateHITLToolCalls(toolCalls);
-            if (decision.requiresHuman()) {
-                hitlManager.setSandboxPending(toolCalls, decision.reason());
-                hitlManager.storeSandboxContent(content, reasoning);
-                return hitlManager.interceptForSandboxHITL(output);
-            }
-            if (decision.failed()) {
-                safeOutput("toolValidator", () -> output.onLog(LogLevel.WARN,
-                        "[tool-validator] " + decision.reason() + "，回退人工审批"));
-                String hitlPrompt = hitlManager.interceptForHITL(
-                        toolCalls, content, reasoning, output);
-                return hitlPrompt;
-            }
-            if (!decision.allowed()) {
-                String denyMsg = "工具调用未通过 AI 审批: " + decision.reason();
-                safeOutput("toolValidator", () -> output.onLog(LogLevel.WARN,
-                        "[tool-validator] " + denyMsg));
-                ctx.addAssistant(denyMsg, null, null);
-                return denyMsg;
-            }
-            safeOutput("toolValidator", () -> output.onLog(LogLevel.INFO,
-                    "[tool-validator] AI 审批通过，继续执行工具调用"));
-            return null;
-        }
-        return hitlManager.interceptForHITL(toolCalls, content, reasoning, output);
-    }
-
-    private static ONode toolCallsFromCutinMessage(site.sorghum.cutin.core.context.Message message) {
-        ONode calls = ONode.ofJson("[]").asArray();
-        for (site.sorghum.cutin.core.tool.ToolCall call : message.toolCalls()) {
-            ONode item = calls.addNew().asObject();
-            item.set("id", call.id());
-            item.set("type", "function");
-            ONode function = item.getOrNew("function");
-            function.set("name", call.toolId());
-            function.set("arguments", ONode.ofBean(call.arguments()).toJson());
-        }
-        return calls;
-    }
-
-    private static String metadataString(site.sorghum.cutin.core.context.Message message, String key) {
-        Object value = message.metadata(key);
-        return value == null ? null : String.valueOf(value);
+        return hitlController.interceptHITLFromCutin(response);
     }
 
     /** 获取用于新模型工具调用 ID 分配的当前历史；兼容无上下文的轻量测试入口。 */
-    private List<ChatMessage> messagesForToolCallNormalization() {
+    List<ChatMessage> messagesForToolCallNormalization() {
         return ctx == null ? List.of() : ctx.buildMessages();
     }
 
-    private String buildToolInstructions() {
-        // 静态文案与 LoopraPromptPlugin 的 tool-contract 切片共用 ToolContract 单一来源
-        return ToolContract.build(terminateOnNoToolCall(), currentGoalInstruction());
-    }
-
-    private String currentGoalInstruction() {
-        if (!goalGuardEnabled || goalGuard == null) return "";
-        try {
-            return goalGuard.instruction(loadOpenGoal());
-        } catch (Exception e) {
-            log.warn("[goal] 读取当前 Goal 失败", e);
-            return "## Goal 状态不可用\n持久化 Goal 暂时无法读取。不要声称目标已完成；可以说明错误并结束当前回合。"
-                    + "若持续无法读取，可提示用户执行 `/goal reset` 清除损坏快照后重试。";
-        }
-    }
-
-    private GoalGuard.GoalView loadOpenGoal() throws IOException {
-        if (goalGuard == null || sessionId == null || sessionId.isBlank()
-                || registry.getEnvironment() == null || registry.getEnvironment().stateRoot() == null) {
-            return null;
-        }
-        Path stateRoot = registry.getEnvironment().stateRoot();
-        return goalGuard.openGoal(stateRoot, sessionId);
-    }
-
-    private String takeFinishContentIfAllowed() {
-        String requested = finishContent;
-        finishContent = null;
-        if (requested == null || !goalGuardEnabled || goalGuard == null) return requested;
-        try {
-            GoalGuard.GoalView goal = loadOpenGoal();
-            if (goal == null || !goal.requiresAgentWork()) return requested;
-            String reminder = "[Goal guard] 当前 Goal 仍在推进：" + goal.title()
-                    + "（" + goal.progressText() + "）。请继续当前步骤并调用 goal_complete；"
-                    + "只有确实需要用户输入或外部状态变化时才调用 goal_block。";
-            injectUserMessage(reminder);
-            safeOutput("goalFinishGuard", () -> output.onLog(LogLevel.WARN, reminder));
-            modelProvider.resetStreamAbort();
-            return null;
-        } catch (Exception e) {
-            String reminder = "[Goal guard] 无法读取持久化 Goal 状态，已拒绝 finish：" + e.getMessage()
-                    + "。若持续无法读取，可提示用户执行 `/goal reset` 清除损坏快照后重试。";
-            injectUserMessage(reminder);
-            safeOutput("goalFinishGuard", () -> output.onLog(LogLevel.ERROR, reminder));
-            modelProvider.resetStreamAbort();
-            return null;
-        }
-    }
-
-    private void discardFinishRequest() {
-        finishContent = null;
-        modelProvider.resetStreamAbort();
+    String currentGoalInstruction() {
+        return turnExitController.currentGoalInstruction();
     }
 
     // ==================== 主入口：run() ====================
@@ -1379,155 +977,11 @@ public class AgentLoop implements
         runningCutinState = state;
         try {
             LoopResult result = handle.result().join();
-            return finishCutinResult(state, cutinContext, handle, result);
+            return hitlController.finishCutinResult(state, cutinContext, handle, result);
         } finally {
             activeCutinHandle = null;
             runningCutinState = null;
         }
-    }
-
-    private String finishCutinResult(LoopState state, DefaultLoopContext cutinContext,
-                                     LoopHandle handle, LoopResult result) throws IOException {
-        if (state.ioError != null) {
-            throw state.ioError;
-        }
-        Object turnError = cutinContext.artifacts().get(LoopraPreflight.ERROR_ARTIFACT);
-        if (turnError instanceof IOException exception) {
-            throw exception;
-        }
-        if (state.result != null) {
-            return state.result;
-        }
-        Map<String, Object> finalVariables = result.finalSnapshot() == null
-                ? cutinContext.variables()
-                : result.finalSnapshot().variables();
-        Object turnResult = finalVariables.get(LoopraPreflight.RESULT_VARIABLE);
-        String turnContent = turnResult == null ? "" : String.valueOf(turnResult);
-        if (!turnContent.isBlank()) {
-            return turnContent;
-        }
-        if (result.status() == LoopResult.Status.COMPLETED
-                || result.status() == LoopResult.Status.CANCELLED
-                || result.status() == LoopResult.Status.ABORTED) {
-            String last = ctx.getLastAssistantContent();
-            return last != null && !last.isEmpty() ? last : "⏹️ 已停止生成";
-        }
-        if (result.status() == LoopResult.Status.SUSPENDED) {
-            suspendedCutinHandle = handle;
-            suspendedCutinContext = cutinContext;
-            suspendedCutinState = state;
-            return result.message() != null && !result.message().isBlank()
-                    ? result.message()
-                    : "⏸️ 已暂停，等待外部输入";
-        }
-        throw new IOException("[loop] cutin loop failed: " + result.message());
-    }
-
-    private String resumeCutinHITL() throws IOException {
-        hitlManager.drainPendingHITL();
-        hitlManager.resetState();
-        LoopHandle handle = suspendedCutinHandle;
-        DefaultLoopContext context = suspendedCutinContext;
-        LoopState state = suspendedCutinState;
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        if (handle == null || context == null || state == null) {
-            throw new IOException("[loop] cutin HITL 恢复状态丢失");
-        }
-        Object raw = context.variables().get("loopraPendingModelResponse");
-        if (!(raw instanceof ModelResponse response)) {
-            throw new IOException("[loop] cutin HITL 未找到待审批模型响应");
-        }
-        CutinStreamSnapshot snapshot = cutinSnapshotFromResponse(response);
-        LoopSnapshot base = handle.snapshot();
-        ReentryRequest request = new ReentryRequest(
-                "tool",
-                base.stateVersion(),
-                Map.of(),
-                Map.of("loopraModel", snapshot),
-                "hitl-approved");
-        activeCutinHandle = handle;
-        try {
-            LoopResult result = handle.reenter(request).join();
-            return finishCutinResult(state, context, handle, result);
-        } finally {
-            activeCutinHandle = null;
-        }
-    }
-
-    private String denyCutinHITL() {
-        hitlManager.drainPendingHITL();
-        hitlManager.resetState();
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        discardFinishRequest();
-        String denyMsg = "工具调用已被用户拒绝。";
-        ctx.addAssistant(denyMsg, null, null);
-        return denyMsg;
-    }
-
-    private String resumeCutinSandboxHITL() throws IOException {
-        HitlManager.PendingSandboxState sandboxState = hitlManager.drainSandboxHITL();
-        hitlManager.resetState();
-        LoopHandle handle = suspendedCutinHandle;
-        DefaultLoopContext context = suspendedCutinContext;
-        LoopState state = suspendedCutinState;
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        if (handle == null || context == null || state == null
-                || sandboxState == null || sandboxState.toolCalls() == null) {
-            throw new IOException("[loop] cutin 沙箱 HITL 恢复状态丢失");
-        }
-        LoopSnapshot base = handle.snapshot();
-        if (base == null) {
-            throw new IOException("[loop] cutin 沙箱 HITL 检查点丢失");
-        }
-        ReentryRequest request = new ReentryRequest(
-                "tool",
-                base.stateVersion(),
-                Map.of("loopraSandboxApproved", Boolean.TRUE),
-                Map.of("loopraSandboxResume", sandboxState),
-                "sandbox-hitl-approved");
-        activeCutinHandle = handle;
-        try {
-            LoopResult result = handle.reenter(request).join();
-            return finishCutinResult(state, context, handle, result);
-        } finally {
-            activeCutinHandle = null;
-        }
-    }
-
-    private String denyCutinSandboxHITL() {
-        HitlManager.PendingSandboxState sandboxState = hitlManager.drainSandboxHITL();
-        hitlManager.resetState();
-        suspendedCutinHandle = null;
-        suspendedCutinContext = null;
-        suspendedCutinState = null;
-        discardFinishRequest();
-        if (sandboxState != null) {
-            ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
-                    sandboxState.toolCalls(), messagesForToolCallNormalization());
-            List<ToolCallEntry> tcList = parseToolCallsFromONode(normalizedToolCalls);
-            ctx.addAssistant(sandboxState.content(), tcList, sandboxState.reasoningContent());
-        }
-        String denyMsg = "沙箱越界已被用户拒绝。";
-        ctx.addAssistant(denyMsg, null, null);
-        return denyMsg;
-    }
-
-    private static CutinStreamSnapshot cutinSnapshotFromResponse(ModelResponse response) {
-        Object thinking = response.message().metadata("thinking_blocks");
-        return new CutinStreamSnapshot(
-                response.message().content(),
-                metadataString(response.message(), "reasoning_content"),
-                response.message().toolCalls(),
-                thinking instanceof List<?> list ? list.stream().map(String::valueOf).toList() : List.of(),
-                response.usage() == null ? Usage.ZERO : response.usage(),
-                null,
-                metadataString(response.message(), "response_reasoning"));
     }
 
     private StepResult modelStep(DefaultLoopContext context, LoopState state) {
@@ -1569,7 +1023,7 @@ public class AgentLoop implements
         );
         CutinStreamSnapshot snapshot;
         try (Stream<StreamChunk> chunks = context.models().stream(request, context)) {
-            snapshot = collectCutinStream(chunks);
+            snapshot = CutinStreamSupport.collect(chunks);
         }
 
         Runnable extSource2 = externalAbortSource;
@@ -1593,7 +1047,7 @@ public class AgentLoop implements
         safeOutputDebug("contentComplete", output::onContentComplete);
         context.addUsage(snapshot.usage());
 
-        ONode toolCalls = scavengeToolCalls(snapshot.toolCalls(), snapshot.reasoningContent(), snapshot.content());
+        ONode toolCalls = CutinStreamSupport.scavengeToolCalls(snapshot.toolCalls(), snapshot.reasoningContent(), snapshot.content());
         toolCalls = MessageHealer.normalizeIncomingToolCallIds(
                 toolCalls, messagesForToolCallNormalization());
         boolean hasToolCalls = toolCalls != null && toolCalls.isArray() && !toolCalls.getArray().isEmpty();
@@ -1618,8 +1072,8 @@ public class AgentLoop implements
                 }
             }
             try {
-                if (goalGuardEnabled && goalGuard != null) {
-                    loadOpenGoal();
+                if (turnExitController.goalGuardActive()) {
+                    turnExitController.loadOpenGoal();
                 }
             } catch (Exception e) {
                 String reminder = "[Goal guard] 无法读取持久化 Goal 状态：" + e.getMessage()
@@ -1690,26 +1144,14 @@ public class AgentLoop implements
                 }
             }
         }
-        for (ChatMessage tr : ter.toolResults()) {
-            ctx.addToolResult(tr);
-        }
-
-        if (finishContent != null) {
-            context.putVariable("loopraExitReason", "finish");
-            return StepResult.Exit.INSTANCE;
-        }
-        if ("self_correction".equals(String.valueOf(
-                context.variables().get("loopraExitReason")))) {
-            return StepResult.Exit.INSTANCE;
-        }
-        return new StepResult.Goto("model");
+        return completeToolStep(context, ter);
     }
 
     private StepResult replaySandboxToolStep(DefaultLoopContext context,
                                              HitlManager.PendingSandboxState sandboxState) {
         ONode normalizedToolCalls = MessageHealer.normalizeIncomingToolCallIds(
                 sandboxState.toolCalls(), messagesForToolCallNormalization());
-        List<ToolCallEntry> tcList = parseToolCallsFromONode(normalizedToolCalls);
+        List<ToolCallEntry> tcList = CutinStreamSupport.parseToolCallsFromONode(normalizedToolCalls);
         ctx.addAssistant(sandboxState.content(), tcList, sandboxState.reasoningContent());
         reasonBreaker.reset();
         stormBreaker.reset();
@@ -1728,10 +1170,17 @@ public class AgentLoop implements
                             : afterBatch.decision().reason());
         }
         ctx.setLatestAssistantFileChanges(ter.fileChanges());
+        // 越界授权只用于本次重放，下一批工具必须重新按其自身目标判定。
+        context.putArtifact("loopraSandboxResume", Boolean.FALSE);
+        context.putVariable("loopraSandboxApproved", Boolean.FALSE);
+        return completeToolStep(context, ter);
+    }
+
+    private StepResult completeToolStep(DefaultLoopContext context, ToolExecutionResult ter) {
         for (ChatMessage tr : ter.toolResults()) {
             ctx.addToolResult(tr);
         }
-        if (finishContent != null) {
+        if (turnExitController.pendingFinishContent() != null) {
             context.putVariable("loopraExitReason", "finish");
             return StepResult.Exit.INSTANCE;
         }
@@ -1742,823 +1191,27 @@ public class AgentLoop implements
         return new StepResult.Goto("model");
     }
 
-    private static CutinStreamSnapshot collectCutinStream(Stream<StreamChunk> chunks) {
-        StringBuilder content = new StringBuilder();
-        StringBuilder reasoning = new StringBuilder();
-        java.util.List<site.sorghum.cutin.core.tool.ToolCall> toolCalls = new ArrayList<>();
-        java.util.List<String> thinkingBlocks = new ArrayList<>();
-        site.sorghum.cutin.core.context.Usage[] usage =
-                {site.sorghum.cutin.core.context.Usage.ZERO};
-        String[] error = {null};
-        String[] responseReasoning = {null};
-        chunks.forEach(chunk -> {
-            if (chunk.content() != null) {
-                content.append(chunk.content());
-            }
-            if (chunk.reasoning() != null) {
-                reasoning.append(chunk.reasoning());
-            }
-            toolCalls.addAll(chunk.toolCalls());
-            thinkingBlocks.addAll(chunk.thinkingBlocks());
-            usage[0] = usage[0].add(chunk.usage());
-            Object terminalError = chunk.metadata().get("error");
-            if (terminalError != null && chunk.terminal()) {
-                error[0] = String.valueOf(terminalError);
-            }
-            Object reasoningMeta = chunk.metadata().get("response_reasoning");
-            if (reasoningMeta != null) {
-                responseReasoning[0] = String.valueOf(reasoningMeta);
-            }
-            Object reasoningContent = chunk.metadata().get("reasoning_content");
-            if (reasoningContent != null && reasoning.length() == 0) {
-                reasoning.append(String.valueOf(reasoningContent));
-            }
-        });
-        String reasoningStr = reasoning.length() == 0 ? null : reasoning.toString();
-        if (responseReasoning[0] != null) {
-            try {
-                org.noear.snack4.ONode item = org.noear.snack4.ONode.ofJson(responseReasoning[0]);
-                org.noear.snack4.ONode summary = item.get("summary");
-                if (summary != null && summary.isArray()) {
-                    StringBuilder sb = new StringBuilder();
-                    for (org.noear.snack4.ONode part : summary.getArray()) {
-                        String text = part.get("text").getString();
-                        if (text != null) sb.append(text);
-                    }
-                    if (sb.length() > 0) {
-                        reasoningStr = sb.toString();
-                    }
-                }
-            } catch (RuntimeException ignored) {
-            }
-        }
-        return new CutinStreamSnapshot(
-            content.length() == 0 ? null : content.toString(),
-            reasoningStr,
-            toolCalls,
-            thinkingBlocks,
-            usage[0],
-            error[0],
-            responseReasoning[0]
-        );
+    static final class LoopState {
+        int step;
+        int noToolCallStreak;
+        int selfCorrectionAttempts;
+        String result;
+        IOException ioError;
     }
-
-    /**
-     * cutin 路径下的用量上报：统一从这里出口，
-     * 否则会话的 lastPromptTokens / 上下文长度展示和用量统计不会更新。
-     */
-    private void propagateUsage(site.sorghum.cutin.core.context.Usage usage) {
-        int promptTokens = Math.toIntExact(usage.promptTokens());
-        int completionTokens = Math.toIntExact(usage.completionTokens());
-        int totalTokens = promptTokens + completionTokens;
-        int cacheHit = Math.toIntExact(usage.cacheReadTokens());
-        int cacheMiss = Math.toIntExact(usage.cacheMissTokens());
-        lastPromptTokens = promptTokens;
-        if (sessionUsageSink != null) {
-            sessionUsageSink.updateLastPromptTokens(promptTokens);
-        }
-        String currentModel = modelProvider.getModel();
-        safeListener("usage", () -> listener.onUsage(
-                currentModel, promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss));
-        safeOutputDebug("usage", () -> output.onUsage(
-                currentModel, promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss));
-    }
-
-    private record CutinStreamSnapshot(
-        String content,
-        String reasoningContent,
-        java.util.List<site.sorghum.cutin.core.tool.ToolCall> cutinToolCalls,
-        java.util.List<String> thinkingBlocks,
-        site.sorghum.cutin.core.context.Usage usage,
-        String errorMessage,
-        String responseReasoning
-    ) {
-        boolean error() {
-            return errorMessage != null;
-        }
-
-        ONode toolCalls() {
-            ONode calls = ONode.ofJson("[]").asArray();
-            for (site.sorghum.cutin.core.tool.ToolCall call : cutinToolCalls) {
-                ONode item = calls.addNew().asObject();
-                item.set("id", call.id());
-                item.set("type", "function");
-                ONode function = item.getOrNew("function");
-                function.set("name", call.toolId());
-                function.set("arguments", ONode.ofBean(call.arguments()).toJson());
-            }
-            return calls;
-        }
-
-        CutinStreamSnapshot withToolCalls(ONode scavengedToolCalls) {
-            java.util.List<site.sorghum.cutin.core.tool.ToolCall> calls = new ArrayList<>();
-            if (scavengedToolCalls != null && scavengedToolCalls.isArray()) {
-                for (ONode node : scavengedToolCalls.getArray()) {
-                    String id = node.get("id").getString();
-                    ONode function = node.get("function");
-                    String name = function.get("name").getString();
-                    ONode arguments = function.get("arguments");
-                    Map<String, Object> args = new HashMap<>();
-                    if (arguments.isString()) {
-                        try {
-                            Object bean = ONode.ofJson(arguments.getString()).toBean(Map.class);
-                            if (bean instanceof Map<?, ?> map) {
-                                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                                    args.put(String.valueOf(entry.getKey()), entry.getValue());
-                                }
-                            }
-                        } catch (RuntimeException ignored) {
-                             // 格式错误的 JSON 保留空参数
-                        }
-                    } else if (arguments.isObject()) {
-                        Object bean = arguments.toBean(Map.class);
-                        if (bean instanceof Map<?, ?> map) {
-                            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                                args.put(String.valueOf(entry.getKey()), entry.getValue());
-                            }
-                        }
-                    }
-                    calls.add(new site.sorghum.cutin.core.tool.ToolCall(id, name, args, id));
-                }
-            }
-            return new CutinStreamSnapshot(content, reasoningContent, calls, thinkingBlocks, usage, errorMessage, responseReasoning);
-        }
-
-        StreamResult toStreamResult() {
-            return new StreamResult(content, reasoningContent, toolCalls(), error(), errorMessage);
-        }
-    }
-
-    private static final class LoopState {
-        private int step;
-        private int noToolCallStreak;
-        private int selfCorrectionAttempts;
-        private String result;
-        private IOException ioError;
-    }
-
-    /**
-     * 从 ONode 解析工具调用列表（不含暂存副作用）。
-     */
-    private static List<ToolCallEntry> parseToolCallsFromONode(ONode toolCalls) {
-        List<ToolCallEntry> tcList = new ArrayList<>();
-        if (toolCalls == null || !toolCalls.isArray()) return tcList;
-        for (ONode tc : toolCalls.getArray()) {
-            String tcId = tc.get("id").getString();
-            ONode func = tc.get("function");
-            String tcName = func.get("name").getString();
-            if (tcName == null || tcName.isEmpty()) continue;
-            String tcArgs = func.get("arguments").getString();
-            if (tcArgs == null) tcArgs = "{}";
-            String responseReasoning = tc.get("response_reasoning").getString();
-            tcList.add(new ToolCallEntry(tcId, tcName, tcArgs, responseReasoning));
-        }
-        return tcList;
-    }
-
-    /**
-     * 服务端确认上下文超限时执行一次兜底折叠，避免估算误差导致请求持续失败。
-     * 不依赖压力阈值，直接按有效用量的 1/4、1/8 收缩保留预算。
-     */
-    private boolean tryCompactAfterContextOverflow(int recoveryAttempt) {
-        try {
-            ContextCompactionPolicy policy = ContextCompactionPolicy.from(config);
-            ContextPressure pressure = ContextPressureMeter.measure(
-                    ctx.buildMessages(), null, null, lastPromptTokens,
-                    modelProvider.getMaxContextTokens(), policy);
-            int retainTokens = Math.max(1,
-                    pressure.effectivePromptTokens() / (4 * recoveryAttempt));
-            if (!foldOldestRange(ctx.buildMessages(), retainTokens, "context")) {
-                safeOutput("contextOverflow", () -> output.onLog(LogLevel.WARN,
-                        "[context] 服务端确认上下文超限，但当前历史无法进一步折叠"));
-                return false;
-            }
-            safeOutput("contextOverflow", () -> output.onLog(LogLevel.WARN,
-                    "[context] 服务端确认上下文超限，已折叠历史并重试本轮请求（保留最近 ~"
-                            + retainTokens + " tokens）"));
-            return true;
-        } catch (IOException e) {
-            log.warn("[context] 上下文超限后的兜底折叠失败: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * 折叠最旧的可折叠范围。选择器和摘要器共享自动、手动、溢出三条路径。
-     *
-     * @return true 表示历史已实际缩小并替换
-     */
-    private boolean foldOldestRange(List<ChatMessage> messages, int retainTokens, String logTag)
-            throws IOException {
-        List<ChatMessage> history = ctx.getHistory();
-        CompactionRangeSelector.Selection selection =
-                CompactionRangeSelector.select(history, retainTokens);
-        if (selection == null) {
-            log.debug("[{}] 无可折叠范围（retainTokens={}）", logTag, retainTokens);
-            return false;
-        }
-        List<ChatMessage> folded = ContextFolding.foldRange(messages, selection, modelProvider, workspace);
-        if (folded.size() >= ctx.size()) {
-            log.warn("[{}] 折叠未缩小历史，跳过本次折叠", logTag);
-            return false;
-        }
-        ctx.compact(folded);
-        lastPromptTokens = 0;
-        lastContextEstimate = null;
-        return true;
-    }
-
-    // ==================== 步骤 1: 消息准备 ====================
 
     static int effectivePromptTokens(int offlineEstimate, int lastPromptTokens) {
         return Math.max(offlineEstimate, lastPromptTokens);
     }
 
-    private PreparedMessages prepareMessages(int step, ONode tools) throws IOException {
-        List<ChatMessage> messages = ctx.buildMessages();
-        MessageHealer.HealResult healResult = MessageHealer.heal(messages);
-        messages = healResult.messages();
+    // ==================== 步骤 6: 工具执行（委托 ToolDispatcher） ====================
 
-        String instr = currentToolInstructions();
-
-        boolean foldedThisStep = false;
-        ContextCompactionPolicy compactionPolicy = ContextCompactionPolicy.from(config);
-        ContextPressure pressure = ContextPressureMeter.measure(
-                messages, tools, instr, lastPromptTokens,
-                modelProvider.getMaxContextTokens(), compactionPolicy);
-        if (pressure.shouldCompact()) {
-            ToolResultPruner.Config prunerConfig = ToolResultPruner.Config.from(config);
-            ToolResultPruner.PruneResult pruned = ToolResultPruner.prune(ctx.getHistory(), prunerConfig);
-            if (pruned.changed()) {
-                ctx.compact(pruned.messages());
-                foldedThisStep = true;
-                lastPromptTokens = 0;
-                messages = ctx.buildMessages();
-                pressure = ContextPressureMeter.measure(
-                        messages, tools, instr, lastPromptTokens,
-                        modelProvider.getMaxContextTokens(), compactionPolicy);
-                try {
-                    output.onLog(LogLevel.INFO, "[prune] 裁剪 " + pruned.prunedCount()
-                            + " 条 tool result，释放约 " + pruned.charsRemoved() + " 字符");
-                } catch (Exception e) {
-                    log.warn("[prune] output.onLog异常: {}", e.getMessage());
-                }
-            }
-        }
-        int compactionAttempts = 0;
-        int maxCompactionAttempts = 1 + compactionPolicy.compactionRetries();
-        while (pressure.shouldCompact() && compactionAttempts < maxCompactionAttempts) {
-            compactionAttempts++;
-            try {
-                output.onLog(LogLevel.INFO, "[fold] 触发折叠(" + compactionAttempts + "/"
-                        + maxCompactionAttempts + "): estimatedTokens="
-                        + pressure.effectivePromptTokens()
-                        + " threshold=" + pressure.thresholdTokens()
-                        + " maxCtx=" + pressure.contextWindow());
-            } catch (Exception e) {
-                log.warn("[fold] output.onLog异常: {}", e.getMessage());
-            }
-            if (!foldOldestRange(messages, pressure.retainTokens(), "fold")) break;
-            foldedThisStep = true;
-            messages = ctx.buildMessages();
-            pressure = ContextPressureMeter.measure(
-                    messages, tools, instr, lastPromptTokens,
-                    modelProvider.getMaxContextTokens(), compactionPolicy);
-        }
-
-        try {
-            output.onLog(LogLevel.DEBUG, "step=" + step + " messages.size=" + messages.size()
-                    + " lastPromptTokens=" + lastPromptTokens + " threshold=" + pressure.thresholdTokens());
-        } catch (Exception e) {
-            log.warn("[prepare] output.onLog异常: {}", e.getMessage());
-        }
-
-        // 工具协作约定已由 LoopraPromptPlugin 的 tool-contract(600) 切片注入，此处不再重复拼接；
-        // 保留 instr 仅用于 token 估算的压缩阈值判断（与原语义一致）
-        lastContextEstimate = ContextTokenEstimator.estimate(messages, tools, null);
-
-        return new PreparedMessages(messages, foldedThisStep);
-    }
-
-    // ==================== 步骤 4: Scavenger 回收 ====================
-
-    private ONode scavengeToolCalls(ONode toolCalls, String reasoningContent, String content) {
-        boolean hasToolCalls = toolCalls != null && toolCalls.isArray() && !toolCalls.getArray().isEmpty();
-        if (hasToolCalls) return toolCalls;
-        if (reasoningContent == null && content == null) return toolCalls;
-
-        List<Scavenger.ToolCall> scavenged = Scavenger.scavenge(reasoningContent, content, new ArrayList<>());
-        if (scavenged.isEmpty()) return toolCalls;
-
-        ONode fakeTcArray = ONode.ofJson("[]").asArray();
-        for (Scavenger.ToolCall tc : scavenged) {
-            ONode tcn = fakeTcArray.addNew();
-            String idSuffix = tc.id() != null ? ""
-                    : "_" + Integer.toHexString(tc.arguments().hashCode())
-                    + "_" + System.nanoTime();
-            tcn.set("id", tc.id() != null ? tc.id() : "scavenged_" + tc.name() + idSuffix);
-            tcn.set("type", "function");
-            ONode fn = tcn.getOrNew("function");
-            fn.set("name", tc.name());
-            fn.set("arguments", tc.arguments());
-        }
-        return fakeTcArray;
-    }
-
-    // ==================== 步骤 6: 工具执行 ====================
-
+    /** 工具调用执行入口；实际分发/收集逻辑在 {@link ToolDispatcher}。 */
     ToolExecutionResult executeToolCalls(ONode toolCalls) {
-        return executeToolCalls(toolCalls, null);
+        return toolDispatcher.executeToolCalls(toolCalls, null);
     }
 
     ToolExecutionResult executeToolCalls(ONode toolCalls, DefaultLoopContext cutinContext) {
-        if (toolCalls == null){
-            return new ToolExecutionResult(Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
-        }
-
-        List<ONode> tcArray = toolCalls.getArray();
-
-        // 1. 解析并过滤工具调用
-        ParsedToolCalls parsed = parseAndFilterToolCalls(tcArray);
-        List<ONode> finalTcArray = parsed.nodeList();
-        if (cutinContext != null) {
-            cutinEngine.intercept(
-                    site.sorghum.cutin.core.loop.InterceptPoint.BEFORE_TOOL_BATCH,
-                    "tool",
-                    cutinContext,
-                    parsed.tcList());
-        }
-
-        // 2. 异步并行分发
-        DispatchResult dispatch = dispatchToolCallsAsync(finalTcArray, cutinContext);
-
-        // 3. 等待并收集结果
-        List<ChatMessage> toolResults = collectToolResults(
-                dispatch.futures(), dispatch.controls(), finalTcArray, cutinContext);
-
-        // 4. 沙箱越界 HITL
-        HitlRequiredException hitlEx = dispatch.hitlRef().get();
-        if (hitlEx != null) {
-            hitlManager.setSandboxPending(toolCalls, hitlEx.getDetails());
-            safeOutput("hitl", () -> output.onLog(LogLevel.WARN,
-                    "[hitl] 沙箱越界触发强制审批: " + hitlEx.getDetails()));
-        }
-
-        Path executionRoot = registry.getEnvironment() == null
-                ? null : registry.getEnvironment().executionRoot();
-        List<FileChange> fileChanges = drainFileChanges
-                ? SessionFileChangeTracker.drain(executionRoot, getSessionId())
-                : List.of();
-        boolean anySuppressed = dispatch.anySuppressed().get() || cutinSuppression.getAndSet(false);
-        return new ToolExecutionResult(parsed.tcList(), toolResults, fileChanges, anySuppressed);
-    }
-
-    private record ParsedToolCalls(List<ToolCallEntry> tcList, List<ONode> nodeList) {}
-
-    /**
-     * 解析并过滤工具调用列表，同时触发 onToolCall 回调。
-     *
-     * @return 包含过滤后的 ToolCallEntry 列表和对应 ONode 列表的记录
-     */
-    private ParsedToolCalls parseAndFilterToolCalls(List<ONode> tcArray) {
-        List<ToolCallEntry> tcList = new ArrayList<>();
-        List<ONode> filteredTcList = new ArrayList<>();
-        for (ONode tc : tcArray) {
-            String tcId = tc.get("id").getString();
-            ONode func = tc.get("function");
-            String tcName = func.get("name").getString();
-            if (tcName == null || tcName.isEmpty()) {
-                safeOutput("tool", () -> output.onLog(LogLevel.WARN,
-                        "跳过无效 tool call: name=" + tcName + " id=" + tcId));
-                continue;
-            }
-            String tcArgs = func.get("arguments").getString();
-            if (tcArgs == null) tcArgs = "{}";
-            String responseReasoning = tc.get("response_reasoning").getString();
-
-            tcList.add(new ToolCallEntry(tcId, tcName, tcArgs, responseReasoning));
-            filteredTcList.add(tc);
-
-            final String finalTcName = tcName;
-            final String finalTcArgs = tcArgs;
-            safeListener("toolCall", () -> listener.onToolCall(finalTcName, finalTcArgs));
-            safeOutputDebug("toolCall", () -> output.onToolCall(finalTcName, finalTcArgs));
-        }
-        return new ParsedToolCalls(tcList, filteredTcList);
-    }
-
-    /**
-     * 异步并行分发所有工具调用，返回 Future 数组和共享状态引用。
-     */
-    private static final class ToolExecutionControl {
-        private final AtomicBoolean cancelled = new AtomicBoolean(false);
-        private final AtomicLong startedAt = new AtomicLong(0L);
-        private final AtomicReference<Runnable> cancellation = new AtomicReference<>();
-
-        void markStarted(long timestamp) {
-            startedAt.compareAndSet(0L, timestamp);
-        }
-
-        long startedAt() {
-            return startedAt.get();
-        }
-
-        boolean isCancelled() {
-            return cancelled.get();
-        }
-
-        void register(Runnable action) {
-            if (action == null) return;
-            if (cancelled.get()) {
-                runCancellation(action);
-                return;
-            }
-            cancellation.set(action);
-            if (cancelled.get() && cancellation.compareAndSet(action, null)) {
-                runCancellation(action);
-            }
-        }
-
-        void clearCancellation() {
-            cancellation.set(null);
-        }
-
-        void cancel() {
-            cancelled.set(true);
-            Runnable action = cancellation.getAndSet(null);
-            if (action != null) {
-                runCancellation(action);
-            }
-        }
-
-        private static void runCancellation(Runnable action) {
-            try {
-                action.run();
-            } catch (Exception e) {
-                log.warn("[tool] 显式取消动作执行失败: {}", e.getMessage());
-            }
-        }
-    }
-
-    private record DispatchResult(Future<ChatMessage>[] futures,
-                                  ToolExecutionControl[] controls,
-                                  AtomicBoolean anySuppressed,
-                                  AtomicReference<HitlRequiredException> hitlRef) {}
-
-    private DispatchResult dispatchToolCallsAsync(List<ONode> tcArray) {
-        return dispatchToolCallsAsync(tcArray, null);
-    }
-
-    private DispatchResult dispatchToolCallsAsync(List<ONode> tcArray, DefaultLoopContext cutinContext) {
-        int tcCount = tcArray.size();
-        @SuppressWarnings("unchecked")
-        Future<ChatMessage>[] futures = new Future[tcCount];
-        ToolExecutionControl[] controls = new ToolExecutionControl[tcCount];
-        final AtomicBoolean anySuppressed = new AtomicBoolean(false);
-        final AtomicReference<HitlRequiredException> hitlRef = new AtomicReference<>(null);
-        for (int i = 0; i < tcCount; i++) {
-            final int idx = i;
-            controls[i] = new ToolExecutionControl();
-            futures[i] = TOOL_EXECUTOR.submit(() -> {
-                // 同步外部中断源（子代理检查父级 abort 状态，确保父级中断后工具不继续执行）
-                Runnable extAbort = externalAbortSource;
-                if (extAbort != null) {
-                    extAbort.run();
-                }
-                // 用户已中断 → 立即返回，不执行工具
-                ToolExecutionControl control = controls[idx];
-                if (userAbortRequested || control.isCancelled()) {
-                    ONode tc = tcArray.get(idx);
-                    String tcId = tc.get("id").getString();
-                    return toolResult(tcId,
-                            "{\"error\":\"用户已中断\",\"aborted\":true}");
-                }
-
-                currentToolControl.set(control);
-                Path executionRoot = cutinContext == null
-                        ? workingDirectory()
-                        : cutinContext.workingDirectory() != null
-                            ? cutinContext.workingDirectory()
-                            : workingDirectory();
-                SessionFileChangeTracker.bind(executionRoot, getSessionId());
-                try {
-                    ONode tc = tcArray.get(idx);
-                    ToolCall toolCall = getToolCall(tc);
-                    FunctionTool fc = registry.get(toolCall.getName());
-                    // 拓展包/插件贡献的工具只注册在 cutin 视图（CutinToolRegistryView
-                    // 外部注册区），存在性检查须同时覆盖两侧，避免“已注册却报工具不存在”。
-                    if (fc == null && !registry.cutinRegistry().find(toolCall.getName()).isPresent()) {
-                        String result = "工具不存在";
-                        safeListener("toolResult", () -> listener.onToolResult(toolCall.getName(), result));
-                        safeOutputDebug("toolResult", () -> output.onToolResult(toolCall.getName(), result));
-                        return toolResult(toolCall.getId(), "工具不存在");
-                    }
-
-                    // 计划模式硬约束：非只读工具直接拒绝。
-                    // 正常情况下写工具已从工具列表移除，此处兼容模型凭记忆幻觉调用的兑底；
-                    // 仅存在于 cutin 视图的外部工具（fc == null）不受 legacy 策略约束，由 cutin 拦截链负责。
-                    if (fc != null && cutinContext == null && planMode && !ToolMetadata.isReadOnly(fc)) {
-                        String result = rejectedToolResult(
-                                "当前处于计划模式，仅允许只读工具；本次调用已被拒绝。请继续使用只读工具探索，完成后用 submit_plan 提交计划。",
-                                "plan_mode");
-                        safeListener("toolResult", () -> listener.onToolResult(toolCall.getName(), result));
-                        safeOutputDebug("toolResult", () -> output.onToolResult(toolCall.getName(), result));
-                        return toolResult(toolCall.getId(), result);
-                    }
-
-                    String argumentsJson = toolCall.getArgumentsStr();
-                    if (fc != null && cutinContext == null && !ToolMetadata.isStormExempt(fc)) {
-                        boolean readOnly = ToolMetadata.isReadOnly(fc);
-                        StormBreaker.SuppressResult suppression =
-                                stormBreaker.inspect(toolCall.getName(), argumentsJson, readOnly);
-                        if (suppression.suppressed()) {
-                            anySuppressed.set(true);
-                            String result = rejectedToolResult(suppression.reason(), "storm");
-                            safeListener("toolResult", () -> listener.onToolResult(toolCall.getName(), result));
-                            safeOutputDebug("toolResult", () -> output.onToolResult(toolCall.getName(), result));
-                            return toolResult(toolCall.getId(), result);
-                        }
-                    }
-
-                    // 收集工具调用上下文；终端工具通过 __cwd 获取实际执行目录。
-                    ToolContext.setCurrentController(AgentLoop.this);
-                    String executionPath = executionRoot == null
-                            ? null
-                            : executionRoot.toAbsolutePath().normalize().toString();
-                    Path environmentStateRoot = registry.getEnvironment() == null
-                            ? null
-                            : registry.getEnvironment().stateRoot();
-                    String statePath = environmentStateRoot != null
-                            ? environmentStateRoot.toAbsolutePath().normalize().toString()
-                            : executionPath;
-                    HashMap<String, Object> extraMap = new HashMap<>();
-                    extraMap.put("__cwd", executionPath);
-                    extraMap.put("ctx", new ToolContext(
-                            new HashMap<>(),
-                            executionPath,
-                            statePath,
-                            this.getSessionId()
-                    ));
-
-                    ToolRequest req = new ToolRequest(null,extraMap, toolCall.getArguments());
-                    long toolStartedAt = System.currentTimeMillis();
-                    control.markStarted(toolStartedAt);
-                    CutinFunctionToolBridge.setCallContext(extraMap);
-                    try {
-                        // 工具执行委托给 cutin 工具链；FunctionTool 通过桥接器镜像到
-                        // CutinToolRegistryView，行为不变但走 cutin 的 ToolRegistry 分发。
-                        site.sorghum.cutin.core.tool.ToolResult cutinResult;
-                        site.sorghum.cutin.core.tool.ToolCall cutinCall =
-                                new site.sorghum.cutin.core.tool.ToolCall(
-                                        toolCall.getId(),
-                                        toolCall.getName(),
-                                        toolCall.getArguments(),
-                                        toolCall.getId()
-                                );
-                        cutinResult = cutinContext != null
-                                ? cutinContext.tools().call(cutinCall, cutinContext)
-                                : registry.cutinRegistry().call(cutinCall, null);
-                        String rawResult = cutinResult.ok()
-                                ? String.valueOf(cutinResult.content())
-                                : cutinResult.error();
-                        ImageToolResult.ImageResult imageResult = ("read_image".equals(toolCall.getName())
-                                || "browser_screenshot".equals(toolCall.getName()))
-                                ? ImageToolResult.parseResult(rawResult) : null;
-                        String result = imageResult == null ? rawResult : imageResult.summary();
-                        safeListener("toolResult", () -> listener.onToolResult(toolCall.getName(), result));
-                        safeOutputDebug("toolResult", () -> output.onToolResult(toolCall.getName(), result));
-                        ChatMessage toolMessage = imageResult == null ? ChatMessage.tool(toolCall.getId(), result)
-                                : ChatMessage.toolWithImage(toolCall.getId(), result,
-                                imageResult.dataUri(), imageResult.detail());
-                        return timedToolResult(toolMessage, toolStartedAt);
-                    } catch (HitlRequiredException e) {
-                        hitlRef.compareAndSet(null, e);
-                        return toolResult(toolCall.getId(),
-                                "[HITL_PENDING:" + e.getReason() + "] " + e.getDetails());
-                    } catch (Throwable e) {
-                        String result = e.getMessage();
-                        safeListener("toolResult", () -> listener.onToolResult(toolCall.getName(), result));
-                        safeOutputDebug("toolResult", () -> output.onToolResult(toolCall.getName(), result));
-                        return timedToolResult(toolCall.getId(), result, toolStartedAt);
-                    }
-                } finally {
-                    CutinFunctionToolBridge.clearCallContext();
-                    SessionFileChangeTracker.clearBinding();
-                    currentToolControl.remove();
-                    ToolContext.clearCurrentController();
-                }
-            });
-        }
-        return new DispatchResult(futures, controls, anySuppressed, hitlRef);
-    }
-
-    ToolCallValidator.Decision validateHITLToolCalls(ONode toolCalls) {
-        if (toolCalls == null || !toolCalls.isArray()) {
-            return ToolCallValidator.Decision.deny("工具调用格式无效");
-        }
-        for (ONode node : toolCalls.getArray()) {
-            ToolCall toolCall = getToolCall(node);
-            if (toolCall.getName() == null || toolCall.getName().isBlank()) {
-                return ToolCallValidator.Decision.deny("工具名称为空");
-            }
-            ToolCallValidator.Decision decision = toolCallValidator.validate(
-                    toolCall.getName(), ONode.ofBean(toolCall.getArguments()).toJson());
-            if (decision.requiresHuman()) {
-                return ToolCallValidator.Decision.requireHuman(
-                        toolCall.getName() + ": " + decision.reason());
-            }
-            if (decision.failed()) {
-                return ToolCallValidator.Decision.failed(
-                        toolCall.getName() + ": " + decision.reason());
-            }
-            if (!decision.allowed()) {
-                return ToolCallValidator.Decision.deny(toolCall.getName() + ": " + decision.reason());
-            }
-        }
-        return ToolCallValidator.Decision.allow();
-    }
-
-    private static String rejectedToolResult(String message, String reason) {
-        return ONode.ofJson("{}")
-                .asObject()
-                .set("error", message)
-                .set("rejectedReason", reason)
-                .toJson();
-    }
-
-    /**
-     * 等待所有工具 Future 完成（带超时保护），收集结果。
-     * 如果用户请求中断，立即取消未完成的 Future 并返回。
-     */
-    private List<ChatMessage> collectToolResults(Future<ChatMessage>[] futures,
-                                                 ToolExecutionControl[] controls,
-                                                 List<ONode> tcArray,
-                                                 DefaultLoopContext cutinContext) {
-        this.activeToolControls = controls;
-        this.activeToolFutures = futures;
-        long startedAt = System.nanoTime();
-        long regularDeadline = startedAt + TimeUnit.SECONDS.toNanos(Math.max(1, toolTimeoutSec()));
-        long subAgentDeadline = startedAt + TimeUnit.SECONDS.toNanos(Math.max(1, subAgentTimeoutSec()));
-        List<ChatMessage> results = new ArrayList<>(Collections.nCopies(futures.length, null));
-
-        try {
-            // 先处理普通工具，确保它们不会因同批次长运行子代理而获得更长超时。
-            for (int pass = 0; pass < 2; pass++) {
-                boolean waitForSubAgent = pass == 1;
-                for (int i = 0; i < futures.length; i++) {
-                    boolean subAgentCall = isSubAgentCall(tcArray.get(i));
-                    if (subAgentCall != waitForSubAgent) continue;
-
-                    if (userAbortRequested) {
-                        cancelAllFutures(futures, controls);
-                        interceptToolCancel(cutinContext, futures.length);
-                        return buildAbortedResults(futures, tcArray);
-                    }
-
-                    int timeoutSec = subAgentCall ? subAgentTimeoutSec() : toolTimeoutSec();
-                    long deadline = subAgentCall ? subAgentDeadline : regularDeadline;
-                    long remaining = deadline - System.nanoTime();
-                    String timeoutLabel = subAgentCall ? "子代理" : "工具";
-                    try {
-                        if (remaining <= 0) {
-                            throw new TimeoutException(timeoutLabel + " execution deadline exceeded");
-                        }
-                        results.set(i, futures[i].get(remaining, TimeUnit.NANOSECONDS));
-                    } catch (TimeoutException e) {
-                        cancelFuture(futures[i], controls[i]);
-                        int resultIndex = i;
-                        if (cutinContext != null) {
-                            cutinEngine.intercept(
-                                    InterceptPoint.ON_TOOL_TIMEOUT,
-                                    "tool",
-                                    cutinContext,
-                                    new LoopraToolBatchEvent(
-                                            toolName(tcArray.get(resultIndex)),
-                                            timeoutSec,
-                                            subAgentCall,
-                                            0));
-                        } else {
-                            safeOutput("toolTimeout", () -> output.onLog(LogLevel.WARN,
-                                    "[tool] " + timeoutLabel + "执行超时（" + timeoutSec
-                                            + "s），已请求停止: " + toolName(tcArray.get(resultIndex))));
-                        }
-                        results.set(i, timeoutResult(tcArray.get(i), timeoutLabel, timeoutSec, controls[i]));
-                    } catch (CancellationException e) {
-                        if (userAbortRequested) {
-                            cancelAllFutures(futures, controls);
-                            interceptToolCancel(cutinContext, futures.length);
-                            return buildAbortedResults(futures, tcArray);
-                        }
-                        results.set(i, timeoutResult(tcArray.get(i), timeoutLabel, timeoutSec, controls[i]));
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        cancelAllFutures(futures, controls);
-                        interceptToolCancel(cutinContext, futures.length);
-                        return buildAbortedResults(futures, tcArray);
-                    } catch (ExecutionException e) {
-                        results.set(i, toolResult(tcArray.get(i).get("id").getString(),
-                                "[ERROR] " + e.getMessage()));
-                    }
-                }
-            }
-        } finally {
-            this.activeToolFutures = null;
-            this.activeToolControls = null;
-        }
-        return results;
-    }
-
-    private void interceptToolCancel(DefaultLoopContext cutinContext, int count) {
-        if (cutinContext != null) {
-            cutinEngine.intercept(
-                    InterceptPoint.ON_TOOL_CANCEL,
-                    "tool",
-                    cutinContext,
-                    new LoopraToolBatchEvent("", 0, false, count));
-        }
-    }
-
-    private static boolean isSubAgentCall(ONode toolCall) {
-        return "sub_agent".equals(toolName(toolCall));
-    }
-
-    private static String toolName(ONode toolCall) {
-        return toolCall.get("function").get("name").getString();
-    }
-
-    private static ChatMessage timeoutResult(ONode toolCall, String label, int timeoutSec,
-                                             ToolExecutionControl control) {
-        String content = ONode.ofJson("{}")
-                .asObject()
-                .set("error", label + "执行超时（" + timeoutSec + "s）")
-                .set("rejectedReason", "timeout")
-                .toJson();
-        long startedAt = control == null ? 0L : control.startedAt();
-        return startedAt > 0L
-                ? ChatMessage.tool(toolCall.get("id").getString(), content,
-                startedAt, System.currentTimeMillis())
-                : toolResult(toolCall.get("id").getString(), content);
-    }
-
-    private static void cancelFuture(Future<ChatMessage> future,
-                                     ToolExecutionControl control) {
-        if (control != null) control.cancel();
-        if (future != null && !future.isDone()) future.cancel(true);
-    }
-
-    private static void cancelAllFutures(Future<ChatMessage>[] futures,
-                                         ToolExecutionControl[] controls) {
-        if (futures == null) return;
-        for (int i = 0; i < futures.length; i++) {
-            ToolExecutionControl control = controls != null && i < controls.length ? controls[i] : null;
-            cancelFuture(futures[i], control);
-        }
-    }
-
-    /**
-     * 构建用户中断时的工具结果（全部标记为 aborted）。
-     */
-    private List<ChatMessage> buildAbortedResults(Future<ChatMessage>[] futures,
-                                                  List<ONode> tcArray) {
-        List<ChatMessage> results = new ArrayList<>();
-        for (int i = 0; i < futures.length; i++) {
-            ONode tc = tcArray.get(i);
-            String tcId = tc.get("id").getString();
-            results.add(toolResult(tcId,
-                    "{\"error\":\"用户已中断\",\"aborted\":true}"));
-        }
-        return results;
-    }
-
-     // ==================== 自纠错 ====================
-
-    private int handleSelfCorrection(List<ChatMessage> toolResults,
-                                     boolean anySuppressed, int selfCorrectionAttempts) {
-        if (!anySuppressed) return selfCorrectionAttempts;
-
-        boolean allSuppressed = true;
-        for (ChatMessage tr : toolResults) {
-            String r = tr.getContent();
-            if (r == null || !r.contains("\"rejectedReason\":\"storm\"")) {
-                allSuppressed = false;
-                break;
-            }
-        }
-        if (!allSuppressed) return selfCorrectionAttempts;
-
-        selfCorrectionAttempts++;
-        if (selfCorrectionAttempts > maxSelfCorrectionAttempts()) {
-            safeOutput("selfCorrect", () -> output.onLog(LogLevel.WARN,
-                    "[self-correct] 已达自愈尝试上限（" + maxSelfCorrectionAttempts() + "次），停止循环"));
-            return -1;
-        }
-
-        final int currentAttempts = selfCorrectionAttempts;
-        safeOutput("selfCorrect", () -> output.onLog(LogLevel.INFO,
-                "[self-correct] 所有工具调用被 storm 抑制，第" + currentAttempts + "次自愈尝试"));
-        ctx.addUser("[系统提示：你刚刚重复调用了相同的工具。请换一种方式完成任务，"
-                + "或直接用文本回答。]");
-        return selfCorrectionAttempts;
+        return toolDispatcher.executeToolCalls(toolCalls, cutinContext);
     }
 
     // ==================== 内部辅助 ====================
@@ -2583,36 +1236,4 @@ public class AgentLoop implements
         safeOutput("abort", () -> output.onLog(LogLevel.INFO, "[abort] 用户请求中断，停止推理循环"));
     }
 
-
-    public ToolCall getToolCall(ONode n1) {
-        String callId = n1.get("id").getString();
-
-        String index = n1.get("index").getString();
-
-        ONode n1f = n1.get("function");
-        String name = n1f.get("name").getString(); //可能是空的
-        ONode n1fArgs = n1f.get("arguments");
-        String argStr = n1fArgs.getString();
-
-        if (n1fArgs.isString()) {
-            //有可能是 json string（还可能只是流的中间消息）
-            if (FormatUtil.hasNestedJsonBlock(argStr)) {
-                JsonReader reader = new JsonReader(argStr, Options.of(Feature.Read_AutoRepair));
-                n1fArgs = reader.readLast();
-
-                if (n1fArgs == null) {
-                    log.warn("Parse tool arguments failed: {}", argStr);
-                }
-            }
-        }
-
-        Map<String, Object> argMap = new HashMap<>();
-        if (n1fArgs != null) {
-            if (n1fArgs.isObject()) {
-                argMap = n1fArgs.toBean(Map.class);
-            }
-        }
-
-        return new ToolCall(index, callId, name, argStr, argMap);
-    }
 }

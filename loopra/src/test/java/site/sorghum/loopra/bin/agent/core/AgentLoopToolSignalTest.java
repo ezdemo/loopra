@@ -32,15 +32,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class AgentLoopToolSignalTest {
 
     @Test
-    void terminateOnNoToolCallCanBeUpdatedAtRuntime() {
-        AgentLoop loop = new AgentLoop(stubProvider(), registryWith(tool("status", args -> "ok")), null, null);
-
-        assertTrue(loop.terminateOnNoToolCall());
-        loop.setTerminateOnNoToolCall(false);
-        assertFalse(loop.terminateOnNoToolCall());
-    }
-
-    @Test
     void resetUserAbortAlsoClearsModelStreamAbort() {
         TestLoopraProvider client = TestLoopraProvider.builder().model("test").build();
         AgentLoop loop = new AgentLoop(client, registryWith(tool("status", args -> "ok")), null, null);
@@ -93,6 +84,7 @@ class AgentLoopToolSignalTest {
                     "write", "SANDBOX_ESCAPE", "outside workspace", Map.of("path", "../secret"));
         }));
         AgentLoop loop = new AgentLoop(stubProvider(), registry, null, null);
+        loop.setHitlMode("approval");
 
         ToolExecutionResult result = loop.executeToolCalls(
                 toolCalls("write", "{\"path\":\"../secret\"}"));
@@ -107,12 +99,27 @@ class AgentLoopToolSignalTest {
     }
 
     @Test
+    void freeModeDoesNotTurnToolExecutionErrorsIntoApprovalPrompts() {
+        ToolRegistry registry = registryWith(tool("write", args -> {
+            throw new HitlRequiredException("write", "SANDBOX_ESCAPE", "tool cannot access path", Map.of());
+        }));
+        AgentLoop loop = new AgentLoop(stubProvider(), registry, null, null);
+        try {
+            ToolExecutionResult result = loop.executeToolCalls(toolCalls("write", "{}"));
+            assertFalse(loop.hasPendingHITL());
+            assertFalse(loop.getHitlManager().hasSandboxPending());
+            assertTrue(result.toolResults().get(0).getContent().contains("tool cannot access path"));
+            assertFalse(result.toolResults().get(0).getContent().contains("HITL_PENDING"));
+        } finally { loop.disposeCutinPlugins(); }
+    }
+
+    @Test
     void sandboxHitlApprovalReplaysInsideCutinLoop() throws Exception {
         AtomicInteger calls = new AtomicInteger();
-        ToolRegistry registry = registryWith(tool("write", args -> {
+        ToolRegistry registry = registryWith(tool("read", args -> {
             if (calls.incrementAndGet() == 1) {
                 throw new HitlRequiredException(
-                        "write", "SANDBOX_ESCAPE", "outside workspace", Map.of("path", "../secret"));
+                        "read", "SANDBOX_ESCAPE", "outside workspace", Map.of("path", "../secret"));
             }
             return "done";
         }));
@@ -120,12 +127,13 @@ class AgentLoopToolSignalTest {
                 new PromptPrefix("system", new ONode().asArray()));
         AgentLoop loop = new AgentLoop(
                 TestLoopraProvider.toolCallsFirstThenAnswer(
-                        toolCalls("write", "{\"path\":\"../secret\"}"), "done"),
+                        toolCalls("read", "{\"path\":\"../secret\"}"), "done"),
                 registry, context, null);
         loop.freezePromptPrefix();
+        loop.setHitlMode("approval");
         loop.setOutput(AgentOutput.NOOP);
 
-        String first = loop.run(UserMessage.of("please write"));
+        String first = loop.run(UserMessage.of("please read"));
 
         assertTrue(first.contains("沙箱越界"));
         assertTrue(loop.getHitlManager().hasSandboxPending());

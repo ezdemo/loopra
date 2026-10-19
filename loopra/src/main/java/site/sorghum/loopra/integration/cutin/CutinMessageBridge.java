@@ -11,6 +11,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static site.sorghum.loopra.bin.agent.model.ToolCallEntry.parseArguments;
+
 /**
   * Loopra 公共 {@link ChatMessage} 模型与 cutin 不可变 {@link Message} 模型之间的消息转换。
  */
@@ -200,31 +202,4 @@ public final class CutinMessageBridge {
         return result;
     }
 
-    private static Map<String, Object> parseArguments(Object arguments) {
-        if (arguments == null) {
-            return Map.of();
-        }
-        if (arguments instanceof Map<?, ?> map) {
-            Map<String, Object> result = new HashMap<>();
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                result.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-            return result;
-        }
-        if (arguments instanceof String json && !json.isBlank()) {
-            try {
-                Object bean = org.noear.snack4.ONode.ofJson(json).toBean(Map.class);
-                if (bean instanceof Map<?, ?> map) {
-                    Map<String, Object> result = new HashMap<>();
-                    for (Map.Entry<?, ?> entry : map.entrySet()) {
-                        result.put(String.valueOf(entry.getKey()), entry.getValue());
-                    }
-                    return result;
-                }
-            } catch (RuntimeException ignored) {
-                 // 落入空参数分支
-            }
-        }
-        return Map.of();
-    }
 }

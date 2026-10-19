@@ -9,7 +9,7 @@ import java.nio.file.Path;
  * GoalGuard 的 Goal 状态机实现 —— 将内核 SPI 桥接到 harness 的 Goal 持久化与指令生成。
  * <p>
  * 由 LoopraAgent 在构造 AgentLoop 后注入，使内核无需感知 Goal 模型即可享受
- * Goal 指令注入与 finish/无工具守卫能力。
+ * Goal 指令注入与无工具守卫能力。
  * </p>
  *
  * @author Sorghum

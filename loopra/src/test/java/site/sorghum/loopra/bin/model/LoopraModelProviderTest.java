@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,6 +45,36 @@ class LoopraModelProviderTest {
     void supportsAnthropicProtocol() {
         LoopraModelProvider provider = provider("anthropic", "anthropic", "claude-3-7-sonnet");
         assertInstanceOf(AnthropicMessagesProvider.class, provider.provider());
+    }
+
+    /** 模型请求应标识为 LoopraAgent，而不是 JDK 的 Java-http-client。 */
+    @Test
+    void identifiesModelCallsWithLoopraUserAgent() throws Exception {
+        AtomicReference<String> userAgent = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            userAgent.set(exchange.getRequestHeaders().getFirst("User-Agent"));
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            LoopraModelProvider provider = new LoopraModelProvider(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/v1/chat/completions",
+                    "test-key", "gpt-5", "none", "channel", "chat_completions", "", 32768);
+            provider.call(new ModelCallRequest(
+                    "gpt-5", List.of(new Message("user", "hi")), List.of(), Map.of()));
+
+            assertTrue(userAgent.get().startsWith("LoopraAgent"), userAgent.get());
+            assertFalse(userAgent.get().contains("Java-http-client"), userAgent.get());
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

@@ -13,7 +13,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Web 层需求池管理器 —— 需求存储 + AI 执行器。
@@ -388,6 +392,22 @@ public class RequirementManager {
      * </p>
      */
     private void executeRequirement(String id) {
+        runRequirement(id, (workspacePath, requirement) -> {
+            agentService.executeRequirement(workspacePath, requirement.getSessionName(),
+                    buildSystemPrompt(requirement),
+                    "请执行需求。执行期间用户评论会作为消息进入本会话，可回复；完成后必须调用 finish_requirement 声明结果。", true,
+                    requirement.getModel(), requirement.getModelChannelId(), requirement.getReasoningEffort(), requirement.getHitl());
+        }, "需求执行异常", "执行异常: ");
+    }
+
+    private void resumeRequirement(String id, boolean approved) {
+        runRequirement(id, (workspacePath, requirement) ->
+                agentService.resolveRequirementApproval(workspacePath, requirement.getSessionName(), approved),
+                "审批后恢复执行异常", "审批后执行异常: ");
+    }
+
+    private void runRequirement(String id, java.util.function.BiConsumer<String, Requirement> action,
+                                String errorLabel, String errorSummary) {
         String workspacePath = null;
         try {
             Requirement requirement = store.get(id);
@@ -398,10 +418,7 @@ public class RequirementManager {
             if (workspacePath == null) {
                 throw new IllegalStateException("需求所属项目不存在: " + requirement.getProjectHash());
             }
-            agentService.executeRequirement(workspacePath, requirement.getSessionName(),
-                    buildSystemPrompt(requirement),
-                    "请执行需求。执行期间用户评论会作为消息进入本会话，可回复；完成后必须调用 finish_requirement 声明结果。", true,
-                    requirement.getModel(), requirement.getModelChannelId(), requirement.getReasoningEffort(), requirement.getHitl());
+            action.accept(workspacePath, requirement);
 
             if (agentService.hasPendingRequirementApproval(workspacePath, requirement.getSessionName())) {
                 requirement.setApprovalPending(true);
@@ -420,12 +437,12 @@ public class RequirementManager {
                 store.upsert(current);
             }
         } catch (Exception e) {
-            log.error("[requirement] 需求执行异常: {}", e.getMessage());
+            log.error("[requirement] {}: {}", errorLabel, e.getMessage());
             Requirement current = store.get(id);
             if (current != null && "doing".equals(current.getStatus())) {
                 current.setStatus("failed");
                 current.setApprovalPending(false);
-                current.setSummary("执行异常: " + e.getMessage());
+                current.setSummary(errorSummary + e.getMessage());
                 current.setUpdatedAt(System.currentTimeMillis());
                 store.upsert(current);
             }
@@ -434,53 +451,6 @@ public class RequirementManager {
         }
 
         // 执行结束（done/failed）→ 在评论区追加一条 AI 结束评论（✅/❌ 前缀，前端据此展示）
-        Requirement finalState = store.get(id);
-        if (finalState != null && workspacePath != null
-                && ("done".equals(finalState.getStatus()) || "failed".equals(finalState.getStatus()))) {
-            appendFinishComment(finalState, workspacePath);
-        }
-    }
-
-    private void resumeRequirement(String id, boolean approved) {
-        String workspacePath = null;
-        try {
-            Requirement requirement = store.get(id);
-            if (requirement == null) {
-                return;
-            }
-            workspacePath = agentService.resolveProjectPath(requirement.getProjectHash());
-            if (workspacePath == null) {
-                throw new IllegalStateException("需求所属项目不存在: " + requirement.getProjectHash());
-            }
-            agentService.resolveRequirementApproval(workspacePath, requirement.getSessionName(), approved);
-            if (agentService.hasPendingRequirementApproval(workspacePath, requirement.getSessionName())) {
-                requirement.setApprovalPending(true);
-                requirement.setUpdatedAt(System.currentTimeMillis());
-                store.upsert(requirement);
-                return;
-            }
-            Requirement current = store.get(id);
-            if (current != null && "doing".equals(current.getStatus())) {
-                current.setStatus("done");
-                current.setApprovalPending(false);
-                current.setSummary("AI 执行完成（未显式调用 finish_requirement，已按正常完成处理）");
-                current.setUpdatedAt(System.currentTimeMillis());
-                store.upsert(current);
-            }
-        } catch (Exception e) {
-            log.error("[requirement] 审批后恢复执行异常: {}", e.getMessage());
-            Requirement current = store.get(id);
-            if (current != null && "doing".equals(current.getStatus())) {
-                current.setStatus("failed");
-                current.setApprovalPending(false);
-                current.setSummary("审批后执行异常: " + e.getMessage());
-                current.setUpdatedAt(System.currentTimeMillis());
-                store.upsert(current);
-            }
-        } finally {
-            runningIds.remove(id);
-        }
-
         Requirement finalState = store.get(id);
         if (finalState != null && workspacePath != null
                 && ("done".equals(finalState.getStatus()) || "failed".equals(finalState.getStatus()))) {

@@ -26,6 +26,19 @@ import java.util.Arrays;
 public class LoopraWebApp {
 
     public static void main(String[] args) {
+        // Select protocol-only stdio before Solon or any banner writes to stdout.
+        boolean stdio = Arrays.asList(args).contains("--loopra.acp=true")
+                && Arrays.stream(args).noneMatch(arg -> {
+                    String prefix = "--loopra.acp.ws.port=";
+                    if (!arg.startsWith(prefix)) return false;
+                    try { return Integer.parseInt(arg.substring(prefix.length())) > 0; }
+                    catch (NumberFormatException ignored) { return false; }
+                });
+        if (stdio) {
+            try { site.sorghum.loopra.bin.acp.LoopraAcpMain.main(args); }
+            catch (Exception exception) { throw new IllegalStateException("ACP stdio failed", exception); }
+            return;
+        }
         System.out.println(
                 "args:" + Arrays.toString(args)
         );

@@ -2,310 +2,162 @@ package site.sorghum.loopra.bin.acp;
 
 import com.agentclientprotocol.sdk.agent.SyncPromptContext;
 import com.agentclientprotocol.sdk.annotation.*;
-import com.agentclientprotocol.sdk.spec.AcpSchema;
 import com.agentclientprotocol.sdk.spec.AcpSchema.*;
-import lombok.extern.slf4j.Slf4j;
-import site.sorghum.loopra.bin.acp.AcpAgentOutput.AcpNotificationSender;
+import org.noear.snack4.ONode;
+import site.sorghum.loopra.bin.agent.model.ChatMessage;
 
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.BiConsumer;
 
-/**
- * ACP Agent 实现 —— 通过 ACP 协议暴露 Loopra 的完整能力。
- * <p>
- * 使用 ACP SDK 的注解式风格，通过 {@link AcpSessionManager} 将 ACP 协议方法
- * 映射到 Loopra 的核心引擎（AgentLoop）。
- * </p>
- *
- * <h3>协议映射</h3>
- * <pre>
- * ACP 方法        → Loopra 实现
- * initialize      → 返回协议版本 + 能力声明
- * session/new     → 创建 LoopraAgent 实例
- * session/prompt  → LoopraAgent.chat() + 流式输出
-  * session/cancel  → LoopraAgent.abort()
-  * session/close   → LoopraAgent.dispose()
- * session/list    → 列出活跃会话
- * </pre>
- *
- * @author Sorghum
- */
-@AcpAgent(name = "loopra", version = "26.6.29")
-@Slf4j
-public class LoopraAcpAgent {
+/** The Native engine's ACP v1 server, shared by the workbench and external clients. */
+@AcpAgent(name = "loopra", version = "26.9.91")
+public final class LoopraAcpAgent {
+    private final AcpSessionBackend sessions;
+    private volatile boolean workbenchEvents;
+    private BiConsumer<String, SessionUpdate> updates;
 
-    /** ACP 会话管理器 */
-    private final AcpSessionManager sessionManager;
+    public LoopraAcpAgent(AcpSessionBackend sessions) { this.sessions = sessions; }
 
-    public LoopraAcpAgent(AcpSessionManager sessionManager) {
-        this.sessionManager = sessionManager;
-    }
+    public void setUpdateSender(BiConsumer<String, SessionUpdate> updates) { this.updates = updates; }
 
-    // ==================== ACP 初始化 ====================
-
-    /**
-     * 处理 initialize 请求 —— 协商协议版本和交换能力声明。
-     */
     @Initialize
-    public InitializeResponse initialize(InitializeRequest req) {
-        log.info("[acp] 收到 initialize 请求: protocolVersion={}, clientInfo={}",
-                req != null ? req.protocolVersion() : null,
-                req != null ? req.clientInfo() : null);
-
-        // 会话能力：支持 list 和 close（标记为空对象 {}，Jackson 需要 Map）
-        Object emptyMarker = Collections.emptyMap();
-        SessionCapabilities sessionCaps = new SessionCapabilities(emptyMarker, emptyMarker, null);
-
-        AgentCapabilities capabilities = new AgentCapabilities(
-                true,               // 是否支持加载会话
-                sessionCaps,        // 会话能力
-                new McpCapabilities(false, false),  // MCP 能力（http=false, sse=false）
-                new PromptCapabilities(false, true, true), // 提示词能力（audio=false, embeddedContext=true, image=true）
-                null,               // 提供商
-                null                // 元数据扩展
-        );
-
-        return new InitializeResponse(
-                AcpSchema.LATEST_PROTOCOL_VERSION,
-                capabilities,
-                List.of(),          // 认证方式：无需认证
-                new Implementation("loopra", "Loopra", "26.6.29"),
-                null                // 元数据扩展
-        );
+    public InitializeResponse initialize(InitializeRequest request) {
+        if (request == null || request.protocolVersion() == null || request.protocolVersion() < 1) {
+            throw new IllegalArgumentException("ACP protocolVersion must support v1");
+        }
+        workbenchEvents = request.clientCapabilities() != null && request.clientCapabilities().meta() != null
+                && Boolean.TRUE.equals(request.clientCapabilities().meta().get(AcpAgentOutput.EXTENSION));
+        return new InitializeResponse(1, new AgentCapabilities(true,
+                new SessionCapabilities(Map.of(), Map.of(), null), new McpCapabilities(false, false),
+                new PromptCapabilities(false, true, true), null, Map.of(AcpAgentOutput.EXTENSION, true)),
+                List.of(), new Implementation("loopra", "26.9.91", "Loopra Native"), null);
     }
 
-    // ==================== 会话管理 ====================
-
-    /**
-     * 处理 session/new —— 创建新的 Loopra 会话。
-     */
     @NewSession
-    public NewSessionResponse newSession(NewSessionRequest req) {
-        String cwd = req != null ? req.cwd() : System.getProperty("user.dir");
-        log.info("[acp] 创建新会话: cwd={}", cwd);
-
-        String sessionId = sessionManager.createSession(cwd, null);
-
-        return new NewSessionResponse(sessionId, null, null);
+    public NewSessionResponse newSession(NewSessionRequest request) {
+        if (request == null || request.cwd() == null) throw new IllegalArgumentException("cwd is required");
+        String id = sessions.createSession(request.cwd(), null);
+        publishConfig(id);
+        return new NewSessionResponse(id, null, null);
     }
 
-    /**
-     * 处理 session/load —— 加载已有会话（支持从磁盘恢复）。
-     * <p>
-     * 加载优先级：内存缓存 → 磁盘持久化文件。
-     * 如果磁盘上有 {@code {sessionId}.jsonl}，自动重建 LoopraAgent
-     * 并恢复历史消息和 token 用量，实现重启后会话无缝恢复。
-     * </p>
-     */
     @LoadSession
-    public LoadSessionResponse loadSession(LoadSessionRequest req) {
-        if (req == null || req.sessionId() == null) {
-            throw new IllegalArgumentException("sessionId is required");
+    public LoadSessionResponse loadSession(LoadSessionRequest request) {
+        if (request == null || request.sessionId() == null
+                || !sessions.loadOrRestoreSession(request.sessionId(), request.cwd())) {
+            throw new IllegalArgumentException("Session not found");
         }
-        String sessionId = req.sessionId();
-        String cwd = req.cwd();
-        log.info("[acp] 加载会话: sessionId={}, cwd={}", sessionId, cwd);
-
-        // 尝试从内存或磁盘恢复
-        boolean restored = sessionManager.loadOrRestoreSession(sessionId, cwd);
-        if (!restored) {
-            log.warn("[acp] 会话不存在: {}", sessionId);
-            throw new IllegalArgumentException("Session not found: " + sessionId);
-        }
-
+        if (updates != null) replay(request.sessionId());
+        publishConfig(request.sessionId());
         return new LoadSessionResponse(null, null);
     }
 
-    /**
-     * 处理 session/list —— 列出所有活跃会话。
-     */
-    @ListSessions
-    public ListSessionsResponse listSessions() {
-        List<AcpSessionManager.SessionInfo> acpSessions = sessionManager.listSessions();
-        List<SessionInfo> sessions = acpSessions.stream()
-                .map(s -> new SessionInfo(s.sessionId(), s.cwd()))
-                .toList();
-        return new ListSessionsResponse(sessions, null, null);
+    @SetSessionConfigOption
+    public SetSessionConfigOptionResponse setConfigOption(SetSessionConfigOptionRequest request) {
+        if (request == null || request.sessionId() == null) throw new IllegalArgumentException("sessionId is required");
+        sessions.setConfigOption(request.sessionId(), request.configId(), request.value());
+        return new SetSessionConfigOptionResponse(publishConfig(request.sessionId()));
     }
 
-    /**
-     * 处理 session/close —— 关闭并释放会话资源。
-     */
+    @SetSessionMode
+    public SetSessionModeResponse setMode(SetSessionModeRequest request) {
+        sessions.setConfigOption(request.sessionId(), "mode", request.modeId());
+        publishConfig(request.sessionId());
+        return new SetSessionModeResponse();
+    }
+
+    private List<SessionConfigOption> publishConfig(String id) {
+        var config = sessions.configOptions(id);
+        if (updates != null && !config.isEmpty()) updates.accept(id, new ConfigOptionUpdate("config_option_update", config));
+        return config;
+    }
+
+    @ListSessions
+    public ListSessionsResponse listSessions() {
+        return new ListSessionsResponse(sessions.listSessions().stream()
+                .map(s -> new SessionInfo(s.sessionId(), s.cwd())).toList());
+    }
+
     @CloseSession
-    public CloseSessionResponse closeSession(CloseSessionRequest req) {
-        if (req != null && req.sessionId() != null) {
-            log.info("[acp] 关闭会话: sessionId={}", req.sessionId());
-            sessionManager.closeSession(req.sessionId());
-        }
+    public CloseSessionResponse closeSession(CloseSessionRequest request) {
+        if (request != null && request.sessionId() != null) sessions.closeSession(request.sessionId());
         return new CloseSessionResponse();
     }
 
-    // ==================== 核心推理 ====================
-
-    /**
-     * 处理 session/prompt —— 将用户消息发送给 Loopra 处理。
-     */
     @Prompt
-    public PromptResponse handlePrompt(PromptRequest req, SyncPromptContext ctx) {
-        if (req == null) {
-            return PromptResponse.refusal();
-        }
-
-        String sessionId = req.sessionId();
-        log.debug("[acp] 收到 prompt: sessionId={}", sessionId);
-
+    public PromptResponse handlePrompt(PromptRequest request, SyncPromptContext context) throws IOException {
+        if (request == null || request.sessionId() == null) throw new IllegalArgumentException("sessionId is required");
+        AcpAgentOutput output = new AcpAgentOutput(context, workbenchEvents);
         try {
-            // 1. 提取文本内容
-            String text = extractText(req);
-
-            // 2. 提取图片内容
-            List<String> images = extractImages(req);
-
-            // 3. 创建 ACP 输出适配器，包装 SyncPromptContext
-            AcpNotificationSender sender = new SyncContextNotificationSender(ctx);
-            AcpAgentOutput output = new AcpAgentOutput(sender);
-
-            // 4. 执行 Agent 推理循环
-            sessionManager.handlePrompt(sessionId, text, images, output);
-
-            // 5. 标记完成
+            String reply = sessions.handlePrompt(request.sessionId(), extractText(request), extractImages(request),
+                    output, workbenchEvents && request.meta() != null ? request.meta() : Map.of());
+            boolean cancelled = sessions.isCancelled(request.sessionId()) || output.isPermissionCancelled();
+            publishConfig(request.sessionId());
+            if (!cancelled && !output.hasPendingChoice() && reply != null && !reply.isEmpty()) {
+                if (workbenchEvents) output.sendEvent("complete", ONode.serialize(Map.of("content", reply)));
+                // Commands may return an answer without sending any model chunks.
+                else if (!output.hasContent()) output.onContentDelta(reply);
+            }
+            return new PromptResponse(cancelled ? StopReason.CANCELLED : StopReason.END_TURN);
+        } finally {
             output.markCompleted();
-
-            return PromptResponse.endTurn();
-
-        } catch (IllegalArgumentException e) {
-            log.error("[acp] 会话不存在: {}", e.getMessage());
-            return PromptResponse.refusal();
-        } catch (Exception e) {
-            log.error("[acp] prompt 处理异常: {}", e.getMessage(), e);
-            ctx.sendMessage("处理请求时出错: " + e.getMessage());
-            return PromptResponse.endTurn();
         }
     }
 
-    // ==================== 中断与取消 ====================
-
-    /**
-     * 处理 session/cancel —— 中断正在进行的 prompt。
-     */
     @Cancel
-    public void handleCancel(CancelNotification req) {
-        if (req != null && req.sessionId() != null) {
-            log.info("[acp] 取消 prompt: sessionId={}", req.sessionId());
-            sessionManager.cancelPrompt(req.sessionId());
-        }
+    public void handleCancel(CancelNotification request) {
+        if (request != null && request.sessionId() != null) sessions.cancelPrompt(request.sessionId());
     }
 
-    // ==================== 内容提取 ====================
-
-    /**
-     * 从 PromptRequest 中提取纯文本内容。
-     */
-    private String extractText(PromptRequest req) {
-        List<ContentBlock> blocks = req.prompt();
-        if (blocks == null || blocks.isEmpty()) {
-            return "";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (ContentBlock block : blocks) {
-            if (block instanceof TextContent text) {
-                if (sb.length() > 0) sb.append("\n");
-                sb.append(text.text());
-            } else if (block instanceof Resource resource) {
-                // 嵌入式资源可能包含文件内容
-                EmbeddedResourceResource res = resource.resource();
-                if (res instanceof TextResourceContents textRes) {
-                    if (sb.length() > 0) sb.append("\n");
-                    if (textRes.uri() != null) {
-                        sb.append("[文件: ").append(textRes.uri()).append("]\n");
-                    }
-                    if (textRes.text() != null) {
-                        sb.append(textRes.text());
-                    }
+    private void replay(String sessionId) {
+        for (ChatMessage message : sessions.history(sessionId)) {
+            if (message.isWebHidden()) continue;
+            if (message.isUser() && message.getContent() != null) {
+                updates.accept(sessionId, new UserMessageChunk("user_message_chunk", new TextContent(message.getContent())));
+            } else if (message.isAssistant()) {
+                if (message.getReasoningContent() != null) updates.accept(sessionId,
+                        new AgentThoughtChunk("agent_thought_chunk", new TextContent(message.getReasoningContent())));
+                if (message.getContent() != null) updates.accept(sessionId,
+                        new AgentMessageChunk("agent_message_chunk", new TextContent(message.getContent())));
+                if (message.getToolCalls() != null) for (var call : message.getToolCalls()) {
+                    updates.accept(sessionId, new ToolCall("tool_call", call.id(), call.name(), ToolKind.OTHER,
+                            ToolCallStatus.PENDING, null, null, call.arguments(), null, null));
                 }
+            } else if (message.isTool()) {
+                updates.accept(sessionId, new ToolCallUpdateNotification("tool_call_update", message.getToolCallId(),
+                        null, null, ToolCallStatus.COMPLETED, List.of(new ToolCallContentBlock("content",
+                        new TextContent(message.getContent() == null ? "" : message.getContent()))),
+                        null, null, message.getContent(), null));
             }
         }
-        return sb.toString();
     }
 
-    /**
-     * 从 PromptRequest 中提取图片内容（base64 data 或 URI）。
-     */
-    private List<String> extractImages(PromptRequest req) {
-        List<ContentBlock> blocks = req.prompt();
-        if (blocks == null || blocks.isEmpty()) {
-            return List.of();
+    private String extractText(PromptRequest request) {
+        StringBuilder text = new StringBuilder();
+        if (request.prompt() == null) return "";
+        for (ContentBlock block : request.prompt()) {
+            String value = null;
+            if (block instanceof TextContent content) value = content.text();
+            else if (block instanceof Resource resource && resource.resource() instanceof TextResourceContents content) {
+                value = (content.uri() == null ? "" : "[文件: " + content.uri() + "]\n") + content.text();
+            } else if (block instanceof ResourceLink link) value = "[文件: " + link.uri() + "]";
+            if (value != null) { if (!text.isEmpty()) text.append('\n'); text.append(value); }
         }
+        return text.toString();
+    }
 
+    private List<String> extractImages(PromptRequest request) {
         List<String> images = new ArrayList<>();
-        for (ContentBlock block : blocks) {
-            if (block instanceof ImageContent img) {
-                if (img.data() != null && !img.data().isEmpty()) {
-                    String mimeType = img.mimeType() != null ? img.mimeType() : "image/png";
-                    images.add("data:" + mimeType + ";base64," + img.data());
-                } else if (img.uri() != null && !img.uri().isEmpty()) {
-                    images.add(img.uri());
-                }
+        if (request.prompt() != null) for (ContentBlock block : request.prompt()) {
+            if (block instanceof ImageContent image) {
+                if (image.data() != null && !image.data().isEmpty()) images.add("data:"
+                        + (image.mimeType() == null ? "image/png" : image.mimeType()) + ";base64," + image.data());
+                else if (image.uri() != null) images.add(image.uri());
             }
         }
         return images;
-    }
-
-    // ==================== 内部类 ====================
-
-    /**
-     * 将 ACP SDK 的 SyncPromptContext 适配为 AcpAgentOutput.AcpNotificationSender。
-     */
-    private static class SyncContextNotificationSender implements AcpNotificationSender {
-
-        private final SyncPromptContext ctx;
-
-        SyncContextNotificationSender(SyncPromptContext ctx) {
-            this.ctx = ctx;
-        }
-
-        @Override
-        public void sendMessage(String text) {
-            try {
-                ctx.sendMessage(text);
-            } catch (Exception e) {
-                log.debug("[acp] 发送消息块失败（可能连接已断开）: {}", e.getMessage());
-            }
-        }
-
-        @Override
-        public void sendThought(String text) {
-            try {
-                ctx.sendThought(text);
-            } catch (Exception e) {
-                log.debug("[acp] 发送思考块失败: {}", e.getMessage());
-            }
-        }
-
-        @Override
-        public void sendContentComplete() {
-            // SyncPromptContext 不需要显式的内容完成信号
-        }
-
-        @Override
-        public void sendToolCall(String name, String args) {
-            log.debug("[acp] 工具调用: name={}", name);
-        }
-
-        @Override
-        public void sendToolResult(String name, String result) {
-            log.debug("[acp] 工具结果: name={}", name);
-        }
-
-        @Override
-        public void sendError(String error) {
-            try {
-                ctx.sendMessage("错误: " + error);
-            } catch (Exception e) {
-                log.warn("[acp] 发送错误失败: {}", e.getMessage());
-            }
-        }
     }
 }

@@ -197,16 +197,6 @@ class LoopraConfigTest {
     }
 
     @Test
-    void terminatesOnNoToolCallByDefault() throws Exception {
-        assertTrue(config("{}").terminateOnNoToolCall());
-    }
-
-    @Test
-    void supportsContinuingAfterNoToolCallWhenConfigured() throws Exception {
-        assertFalse(config("{\"terminateOnNoToolCall\":false}").terminateOnNoToolCall());
-    }
-
-    @Test
     void usesDefaultMaxTokensWhenModelEntryOmitsIt() throws Exception {
         assertEquals(32768, config("{}").modelMaxTokens("main", "model"));
     }

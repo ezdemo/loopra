@@ -9,7 +9,7 @@ import site.sorghum.cutin.core.plugin.LoopPlugin;
 import site.sorghum.cutin.core.plugin.LoopRegistrar;
 
 /**
-  * 在 cutin 退出关口执行 Loopra 的 finish / GoalGuard / 无工具终止策略。
+  * 在 cutin 退出关口执行 Loopra 的 GoalGuard / 无工具终止策略。
   * 策略本身位于 {@link LoopraExitHost} 之后，自定义宿主无需改动引擎即可替换。
  */
 @AgentPlugin(id = "loopra-exit", remark = "处理循环退出信号，确保任务可以安全结束。")

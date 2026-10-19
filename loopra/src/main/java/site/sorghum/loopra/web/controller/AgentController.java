@@ -5,12 +5,28 @@ import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.talents.mount.SkillDir;
-import org.noear.solon.annotation.*;
+import org.noear.solon.annotation.Body;
+import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Inject;
+import org.noear.solon.annotation.Mapping;
+import org.noear.solon.annotation.Param;
+import org.noear.solon.annotation.Post;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.tool.solon.common.LoopraSkillProvider;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.common.WebErrorMessages;
-import site.sorghum.loopra.web.model.*;
+import site.sorghum.loopra.web.model.AgentStatusDTO;
+import site.sorghum.loopra.web.model.ApiResponse;
+import site.sorghum.loopra.web.model.BashSessionDTO;
+import site.sorghum.loopra.web.model.BashSessionLogDTO;
+import site.sorghum.loopra.web.model.BashSessionTerminateRequest;
+import site.sorghum.loopra.web.model.CommandMetaDTO;
+import site.sorghum.loopra.web.model.PlanModeRequest;
+import site.sorghum.loopra.web.model.ProjectCapabilitiesDTO;
+import site.sorghum.loopra.web.model.PromptDTO;
+import site.sorghum.loopra.web.model.SessionStatusDTO;
+import site.sorghum.loopra.web.model.SkillMetaDTO;
 import site.sorghum.loopra.web.service.AgentService;
 
 import java.util.Collection;
@@ -36,9 +52,7 @@ public class AgentController {
     @Get
     @Mapping("/status")
     public ApiResponse<AgentStatusDTO> status() {
-        if (!agentService.isReady()) {
-            throw new ServiceException("Agent 未初始化，请检查 ~/.loopra/config.json 配置");
-        }
+        // 未就绪时也返回 ready=false，前端据此引导用户配置模型
         return ApiResponse.ok(agentService.getStatus());
     }
 
@@ -176,7 +190,7 @@ public class AgentController {
     @Post
     @Mapping("/mode")
     public ApiResponse<java.util.Map<String, Object>> updateMode(@Body PlanModeRequest request) {
-        if (!agentService.isReady()) {
+        if (!agentService.isNativeReady()) {
             throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
         }
         if (request == null || request.getSessionName() == null || request.getSessionName().isBlank()) {
@@ -195,6 +209,20 @@ public class AgentController {
             throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
         }
         return ApiResponse.ok(agentService.getCommandMetaList());
+    }
+
+    @ApiOperation(value = "获取当前会话的系统提示词",
+            notes = "返回切片聚合后的完整 system 内容（含项目文档、环境信息与工具协作约定）")
+    @Get
+    @Mapping("/prompt")
+    public ApiResponse<PromptDTO> prompt(
+            @ApiParam(value = "项目 hash") @Param(value = "workspaceHash", required = false) String workspaceHash,
+            @ApiParam(value = "会话名称") @Param(value = "sessionName", required = false) String sessionName) {
+        if (!agentService.isNativeReady()) {
+            throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        }
+        String workspacePath = workspaceHash != null ? agentService.resolveProjectPath(workspaceHash) : null;
+        return ApiResponse.ok(agentService.getSystemPrompt(workspacePath, sessionName));
     }
 
     @ApiOperation(value = "获取当前项目能力", notes = "返回当前项目会话可见的项目 Skill 与项目级 MCP 摘要")

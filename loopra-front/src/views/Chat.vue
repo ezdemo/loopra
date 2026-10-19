@@ -1,5 +1,28 @@
 <template>
   <div class="chat">
+    <label v-if="!props.subAgent" class="agent-engine-selector">
+      Agent
+      <select v-model="agentEngine" aria-label="选择 Agent" :disabled="streaming || sessionTaskRunning || messages.length > 0" @change="rememberAgentEngine">
+        <option v-for="engine in agentEngines" :key="engine.id" :value="engine.id" :disabled="!engine.available">{{ engine.name }}{{ engine.available ? '' : '（未配置）' }}</option>
+      </select>
+      <small v-if="agentEngine === 'claude-code'">使用本机 Claude 配置与审批</small>
+    </label>
+    <div v-if="!props.subAgent" class="agent-session-config" :aria-busy="agentConfigBusy">
+      <button v-if="!agentConfigOptions || agentConfigError" class="btn btn-ghost btn-sm" :disabled="agentConfigBusy" :title="agentConfigError" @click="prepareAgentConfiguration">{{ agentConfigBusy ? '正在加载配置…' : agentConfigError ? '重试 Agent 配置' : '配置 Agent' }}</button>
+      <template v-else>
+        <label v-for="option in agentConfigOptions" :key="option.id" :title="option.description">
+          {{ option.name }}
+          <select :aria-label="option.name" :value="String(option.currentValue)" :disabled="agentConfigBusy" @change="changeAgentConfiguration(option.id, option.type === 'boolean' ? $event.target.value === 'true' : $event.target.value)">
+            <template v-if="option.type === 'boolean'"><option value="false">关闭</option><option value="true">开启</option></template>
+            <template v-else>
+              <option v-if="!option.options.some(value => value.value === option.currentValue)" :value="option.currentValue">{{ option.currentValue }}</option>
+              <option v-for="value in option.options" :key="value.value" :value="value.value">{{ value.group ? `${value.group} / ` : '' }}{{ value.name }}</option>
+            </template>
+          </select>
+        </label>
+        <small v-if="!agentConfigOptions.length">Agent 未提供配置选项</small>
+      </template>
+    </div>
     <!-- 可选头部 -->
     <div v-if="!hideHeader" class="chat-head">
       <span class="chat-head-title">对话</span>
@@ -90,13 +113,13 @@
                 </button>
               </div>
             </div>
-            <ChatInput ref="welcomeInput" welcome-mode v-model:input-text="welcomeText" :usage="usage" :current-model="currentModel" :default-model="defaultModel" :default-model-channel-id="defaultModelChannelId" :setting-default-model="settingDefaultModel" :available-models="availableModels"
+            <ChatInput ref="welcomeInput" welcome-mode unified-agent-config :external-agent="agentEngine !== 'native'" v-model:input-text="welcomeText" :usage="usage" :current-model="currentModel" :default-model="defaultModel" :default-model-channel-id="defaultModelChannelId" :setting-default-model="settingDefaultModel" :available-models="availableModels"
                        :initially-empty="props.initiallyEmpty"
-                       :current-reasoning-effort="currentReasoningEffort" :terminate-on-no-tool-call="terminateOnNoToolCall" :fast-mode="currentFastMode" :current-permission="currentPermission"
+                       :current-reasoning-effort="currentReasoningEffort" :fast-mode="currentFastMode" :current-permission="currentPermission"
                        :workspace-hash="welcomeWorkspaceHash" :session-name="props.sessionName" :plan-mode="planMode"
                        :session-running="sessionTaskRunning" :session-busy="sessionBusy" :session-status-stopping="sessionStatusStopping"
                        :current-skill="currentSkill" @send="sendWelcomeMessage" @toggle-plan="togglePlan" @switch-model="handleSwitchModel" @set-default-model="handleSetDefaultModel"
-                       @switch-reasoning-effort="handleSwitchReasoningEffort" @switch-terminate-on-no-tool-call="handleSwitchTerminateOnNoToolCall" @switch-fast-mode="handleSwitchFastMode"
+                       @switch-reasoning-effort="handleSwitchReasoningEffort" @switch-fast-mode="handleSwitchFastMode"
                        @switch-permission="handleSwitchPermission" @switch-skill="handleSwitchSkill" @picker-open="handleWelcomePickerOpen" @refresh-models="loadUsage" @manage-models="$emit('manageModels')" />
           </div>
         </section>
@@ -299,6 +322,8 @@
     <Transition name="welcome-input-drop">
     <ChatInput v-if="props.sessionName && (props.subAgent || messages.length > 0)"
         ref="chatInput"
+        unified-agent-config
+        :external-agent="agentEngine !== 'native'"
         v-model:inputText="inputText"
         :streaming="streaming"
         :usage="usage"
@@ -308,7 +333,6 @@
         :setting-default-model="settingDefaultModel"
         :availableModels="availableModels"
         :currentReasoningEffort="currentReasoningEffort"
-        :terminateOnNoToolCall="terminateOnNoToolCall"
         :fast-mode="currentFastMode"
         :workspaceHash="props.workspaceHash"
         :sessionName="props.sessionName"
@@ -335,7 +359,6 @@
         @switchModel="handleSwitchModel"
         @set-default-model="handleSetDefaultModel"
         @switchReasoningEffort="handleSwitchReasoningEffort"
-        @switchTerminateOnNoToolCall="handleSwitchTerminateOnNoToolCall"
         @switchFastMode="handleSwitchFastMode"
         @refreshModels="loadUsage"
         @continue="continueChat"
@@ -486,7 +509,6 @@ const handleSetDefaultModel = async (modelName, channelId) => {
 
 // ============= 推理强度切换 =============
 const currentReasoningEffort = ref('max')
-const terminateOnNoToolCall = ref(true)
 const currentFastMode = ref(false)
 
 const handleSwitchReasoningEffort = async (value) => {
@@ -510,18 +532,6 @@ const handleSwitchReasoningEffort = async (value) => {
     await configAPI.updateConfig({reasoningEffort})
   } catch (e) {
     console.error('持久化推理强度失败:', e)
-  }
-}
-
-const handleSwitchTerminateOnNoToolCall = async (value) => {
-  if (value === terminateOnNoToolCall.value) return
-  try {
-    const r = await configAPI.updateConfig({terminateOnNoToolCall: value})
-    if (r.success) {
-      terminateOnNoToolCall.value = value
-    }
-  } catch (e) {
-    console.error('更新无工具调用结束策略失败:', e)
   }
 }
 
@@ -586,6 +596,53 @@ const inputText = ref('')
 const chatInput = ref(null)
 const welcomeInput = ref(null)
 const welcomeText = ref('')
+const agentEngine = ref(localStorage.getItem('loopra-agent-engine') || 'native')
+const agentEngines = ref([{id: 'native', name: 'Loopra Native', available: true}])
+const rememberAgentEngine = () => { localStorage.setItem('loopra-agent-engine', agentEngine.value); agentConfigOptions.value = null; if (props.sessionName) void prepareAgentConfiguration() }
+const setAgentEngine = (id) => { agentEngine.value = id || 'native'; localStorage.setItem('loopra-agent-engine', agentEngine.value); agentConfigOptions.value = null }
+const agentConfigOptions = ref(null)
+const agentConfigBusy = ref(false)
+const agentConfigError = ref('')
+const prepareAgentConfiguration = async () => {
+  const workspaceHash = props.workspaceHash || welcomeWorkspaceHash.value
+  if (!workspaceHash) return
+  if (!props.sessionName) { emit('startTask', {prompt: '', workspaceHash, agentId: agentEngine.value, configOnly: true}); return }
+  const sessionName = props.sessionName
+  agentConfigBusy.value = true; agentConfigError.value = ''
+  try {
+    const result = await agentAPI.prepare({workspaceHash, sessionName, agentId: agentEngine.value})
+    if (sessionName === props.sessionName && workspaceHash === props.workspaceHash) agentConfigOptions.value = result.data.configOptions
+  } catch (error) { agentConfigError.value = error.message || String(error) }
+  finally { agentConfigBusy.value = false }
+}
+const changeAgentConfiguration = async (configId, value) => {
+  const workspaceHash = props.workspaceHash, sessionName = props.sessionName
+  if (!workspaceHash || !sessionName) return
+  agentConfigBusy.value = true
+  try {
+    const result = await agentAPI.configure({workspaceHash, sessionName, configId, value})
+    if (workspaceHash === props.workspaceHash && sessionName === props.sessionName) {
+      agentConfigOptions.value = result.data.configOptions
+      if (agentEngine.value === 'native') await syncPlanMode()
+    }
+  } catch (error) { message.error(error.message || '保存 Agent 配置失败') }
+  finally { agentConfigBusy.value = false }
+}
+const loadAgentEngine = async () => {
+  const workspaceHash = props.workspaceHash
+  const sessionName = props.sessionName
+  try {
+    const response = await agentAPI.engines()
+    agentEngines.value = response.data
+    if (workspaceHash && sessionName) {
+      const selected = await agentAPI.engineSession(workspaceHash, sessionName)
+      if (workspaceHash !== props.workspaceHash || sessionName !== props.sessionName) return
+      agentEngine.value = selected.data.hasMessages || selected.data.agentId !== 'native' ? selected.data.agentId : (localStorage.getItem('loopra-agent-engine') || selected.data.agentId)
+      await prepareAgentConfiguration()
+    }
+  } catch { /* Older servers retain the Native entry. */ }
+}
+onMounted(loadAgentEngine)
 const welcomeWorkspaceHash = ref('')
 const welcomeWorkspaceMenuOpen = ref(false)
 const welcomeWorkspaceRow = ref(null)
@@ -740,7 +797,7 @@ const sendWelcomeMessage = async (images, messageText) => {
 
   if (!welcomeWorkspaceHash.value) return
   welcomeText.value = ''
-  emit('startTask', {prompt, workspaceHash: welcomeWorkspaceHash.value})
+  emit('startTask', {prompt, workspaceHash: welcomeWorkspaceHash.value, agentId: agentEngine.value})
 }
 
 // 快照检查点：msgId -> snapshotId 映射（用于消息关联和撤回按钮显示）
@@ -1323,6 +1380,23 @@ const pollSessionStatus = async (token, workspaceHash, sessionName) => {
     // 运行期间每次状态采样都刷新一次持久化历史；停止后再做一次最终刷新。
     if (running || sessionStatusObservedRunning) {
       await loadHistory(sessionName, true, workspaceHash, token)
+      if (running && isCurrentSessionStatus(token, workspaceHash, sessionName)) {
+        const pending = await chatAPI.permissions(workspaceHash, sessionName)
+        if (isCurrentSessionStatus(token, workspaceHash, sessionName) && pending?.success) {
+          for (const permission of pending.data || []) {
+            let last = messages.value.at(-1)
+            if (!last || last.role !== 'assistant') {
+              last = { role: 'assistant', content: '', blocks: [] }
+              messages.value.push(last)
+            }
+            last.blocks ||= []
+            if (!last.blocks.some(block => block.permissionRequestId === permission.permissionRequestId)) {
+              last.blocks.push({ type: 'choice', question: permission.title, options: permission.options,
+                permissionRequestId: permission.permissionRequestId })
+            }
+          }
+        }
+      }
     }
     if (!running) {
       sessionStatusObservedRunning = false
@@ -1465,7 +1539,6 @@ const loadUsage = async (override) => {
         || legacySessionReasoningEfforts.value[sessionKey]
         || sessionSettings.reasoningEffort
         || configRes.value.data?.reasoningEffort || 'max'
-      terminateOnNoToolCall.value = configRes.value.data?.terminateOnNoToolCall !== false
       currentFastMode.value = sessionFastModes.value[sessionKey]
         ?? configRes.value.data?.fastMode ?? false
       currentPermission.value = configRes.value.data?.hitl || 'free'
@@ -1519,6 +1592,7 @@ const formatTime = (t) => {
 
 // 监听 workspace 和 session 变化，重新加载 usage 和计划状态
 watch([() => props.workspaceHash, () => props.sessionName], ([ws, sess]) => {
+  void loadAgentEngine()
   startSessionStatusPolling(ws, sess)
   if (ws || sess) loadUsage()
   syncPlanMode()
@@ -1935,6 +2009,15 @@ const formatHitlQuestion = (title) => {
 }
 
 const sendChoice = async (value, block) => {
+  if (block?.permissionRequestId) {
+    try {
+      await chatAPI.permission({ workspaceHash: props.workspaceHash, sessionName: props.sessionName,
+        permissionRequestId: block.permissionRequestId, optionId: value })
+      block.resolved = true
+      block.selectedTitle = (block.options || []).find(option => option.value === value)?.title || value
+    } catch (error) { console.error('ACP 审批失败:', error) }
+    return
+  }
   // 子代理 HITL 审批：调用 REST API 而非发送聊天消息
   if (block?.subId != null) {
     // 解析 action：/agree → approve, /deny → deny
@@ -2126,6 +2209,10 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
 
   try {
     const processStreamEvent = (data) => {
+          if (data.type === 'config_options') {
+            if (sessionName === props.sessionName && targetWorkspaceHash === props.workspaceHash) agentConfigOptions.value = data.configOptions || []
+            return
+          }
           // 模式事件不依赖消息气泡，直接更新会话状态（需在 msg 守卫前处理）
           if (data.type === 'mode_changed') {
             if (sessionName === props.sessionName) {
@@ -2223,6 +2310,12 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             if (lb?.type === 'content') lb.content += (data.content || '')
             // 纯空白正文（思考间隙流出的 \n\n）不创建独立块，避免拆散连续思考
             else if ((data.content || '').trim()) msg.blocks.push({type: 'content', content: data.content || ''})
+          } else if (data.type === 'tool_update') {
+            const call = msg.blocks.find(block => block.type === 'tool_call' && block.toolCallId === data.toolCallId)
+            if (call) {
+              if (data.name) call.name = data.name
+              if (data.args != null) { try { call.args = typeof data.args === 'string' ? JSON.parse(data.args) : data.args } catch { call.args = data.args } }
+            }
           } else if (data.type === 'tool_call') {
             let name = data.name || '', args = data.args || data.arguments || ''
             if (typeof args === 'string') try {
@@ -2232,6 +2325,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             if (name === 'bash_start') notifyBashStart()
             msg.blocks.push({
               type: 'tool_call',
+              toolCallId: data.toolCallId,
               name: name || 'unknown',
               status: '执行中',
               args,
@@ -2247,9 +2341,9 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             let matched = false
             if (targetName) {
               for (let i = msg.blocks.length - 1; i >= 0; i--) {
-                if (msg.blocks[i].type === 'tool_call' && msg.blocks[i].name === targetName && !msg.blocks[i].result) {
+                if (msg.blocks[i].type === 'tool_call' && (data.toolCallId ? msg.blocks[i].toolCallId === data.toolCallId : msg.blocks[i].name === targetName && !msg.blocks[i].result)) {
                   msg.blocks[i].result = rn;
-                  msg.blocks[i].status = '成功';
+                  msg.blocks[i].status = data.status === 'failed' ? '失败' : '成功';
                   msg.blocks[i].toolFinishedAt = Date.now();
                   msg.blocks[i].toolDurationMs = msg.blocks[i].toolFinishedAt - msg.blocks[i].toolStartedAt;
                   msg.blocks[i].expanded = false;
@@ -2259,11 +2353,11 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
               }
             }
             // 按 name 没匹配到，fallback 到从后往前找第一个无结果的
-            if (!matched) {
+            if (!matched && !data.toolCallId) {
               for (let i = msg.blocks.length - 1; i >= 0; i--) {
                 if (msg.blocks[i].type === 'tool_call' && !msg.blocks[i].result) {
                   msg.blocks[i].result = rn;
-                  msg.blocks[i].status = '成功';
+                  msg.blocks[i].status = data.status === 'failed' ? '失败' : '成功';
                   msg.blocks[i].toolFinishedAt = Date.now();
                   msg.blocks[i].toolDurationMs = msg.blocks[i].toolFinishedAt - msg.blocks[i].toolStartedAt;
                   msg.blocks[i].expanded = false;
@@ -2283,6 +2377,11 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             // 更新 usage 数据
             if (data.promptTokens !== undefined) {
               usage.value = {...usage.value, ...data}
+            }
+          } else if (data.type === 'permission_resolved') {
+            for (const block of msg.blocks) if (block.type === 'choice' && block.permissionRequestId === data.permissionRequestId) {
+              block.resolved = true
+              block.selectedTitle = block.options.find(option => option.value === data.optionId)?.title || '已取消'
             }
           } else if (data.type === 'choice') {
             // 选项按钮（如 HITL 审批、ask_choice）
@@ -2323,7 +2422,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
                   return opt
                 })
               }
-              msg.blocks.push({type: 'choice', options, question, description})
+              msg.blocks.push({type: 'choice', options, question, description, permissionRequestId: data.permissionRequestId})
             }
           } else if (data.type === 'log') {
             // 系统日志（如 [compact] 折叠结果）→ 仅展示 INFO 及以上级别
@@ -2422,10 +2521,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
           workspaceHash: targetWorkspaceHash,
           sessionName,
           images,
-          model: selectedModel.model,
-          modelChannelId: selectedModel.channelId,
-          reasoningEffort: selectedReasoningEffort,
-          fastMode: selectedFastMode,
+          agentId: sessionName === props.sessionName ? agentEngine.value : undefined,
           action: requestAction,
           linkedProjectHashes
         }
@@ -2633,7 +2729,7 @@ const clearMessages = () => {
 /** 继续生成：触发 /continue，后端不追加用户消息，直接复用现有上下文继续推理 */
 const continueChat = async () => {
   if (!props.sessionName || streaming.value || sessionBusy.value) return
-  inputText.value = '/continue'
+  inputText.value = agentEngine.value === 'native' ? '/continue' : '请继续完成刚才的任务。'
   nextTick(() => sendMessage())
 }
 
@@ -2897,10 +2993,18 @@ const setDraft = async (text) => {
 
 const enablePlanMode = () => setPlanMode(true)
 
-defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, startWelcomePrompt, appendFileSelection, appendElementInspection, exportChat, refreshHistory, focusComposer, setDraft, enablePlanMode})
+defineExpose({clearMessages, resetLocalMessages, loadSession, sendCommand, startWelcomePrompt, appendFileSelection, appendElementInspection, exportChat, refreshHistory, focusComposer, setDraft, enablePlanMode, setAgentEngine, prepareAgentConfiguration})
 </script>
 
 <style scoped>
+.agent-engine-selector {
+  display: flex; align-items: center; gap: 8px; padding: 6px 16px;
+  color: var(--text-2); font-size: 12px;
+}
+.agent-engine-selector select { background: var(--bg-2); color: inherit; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.agent-session-config { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 16px 6px; font-size: 12px; color: var(--text-2); }
+.agent-session-config label { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.agent-session-config select { min-width: 0; max-width: 220px; padding: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); color: inherit; }
 .chat {
   --conversation-content-max-width: 1000px;
   --conversation-composer-max-width: 1040px;

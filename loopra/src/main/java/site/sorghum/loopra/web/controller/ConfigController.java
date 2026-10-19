@@ -9,15 +9,30 @@ import okhttp3.Request;
 import okhttp3.Response;
 import org.noear.dami2.Dami;
 import org.noear.snack4.ONode;
-import org.noear.solon.annotation.*;
+import org.noear.solon.annotation.Body;
+import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Delete;
+import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Inject;
+import org.noear.solon.annotation.Mapping;
+import org.noear.solon.annotation.Param;
+import org.noear.solon.annotation.Post;
+import org.noear.solon.annotation.Put;
+import site.sorghum.cutin.integrations.model.ProviderInterceptor;
 import site.sorghum.loopra.bin.config.ConfigChangedEvent;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.mcp.McpServerExportService;
-import site.sorghum.cutin.integrations.model.ProviderInterceptor;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.common.WebErrorMessages;
-import site.sorghum.loopra.web.model.*;
+import site.sorghum.loopra.web.model.ApiResponse;
+import site.sorghum.loopra.web.model.ConfigDTO;
+import site.sorghum.loopra.web.model.DashboardDTO;
+import site.sorghum.loopra.web.model.ModelInfoDTO;
+import site.sorghum.loopra.web.model.ModelListDTO;
+import site.sorghum.loopra.web.model.ProjectInfoDTO;
+import site.sorghum.loopra.web.model.ProjectSwitchDTO;
+import site.sorghum.loopra.web.model.UsageDTO;
 import site.sorghum.loopra.web.service.AgentService;
 import site.sorghum.loopra.web.service.DashboardService;
 
@@ -25,7 +40,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -86,7 +105,6 @@ public class ConfigController {
                 maskedKey,
                 cfg.price(),
                 cfg.activePet(),
-                cfg.terminateOnNoToolCall(),
                 cfg.fastMode(),
                 cfg.modelChannels().stream().map(channel -> new ConfigDTO.ModelChannelConfig(
                         channel.id(), channel.name(), channel.baseUrl(), maskApiKey(channel.apiKey()),
@@ -137,7 +155,7 @@ public class ConfigController {
                     || "proxy".equals(key) || "proxyAddress".equals(key)) continue;
             // 只发布已知的运行时配置键
             if ("model".equals(key) || "reasoningEffort".equals(key) || "hitl".equals(key)
-                    || "terminateOnNoToolCall".equals(key) || "fastMode".equals(key) || "disabledTools".equals(key)) {
+                    || "fastMode".equals(key) || "disabledTools".equals(key)) {
                 Dami.bus().send("config.changed", new ConfigChangedEvent(key, entry.getValue()));
             }
         }
@@ -324,8 +342,19 @@ public class ConfigController {
     @Get
     @Mapping("/workspaces")
     public ApiResponse<List<ProjectInfoDTO>> listProjects() {
-        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        // 仅读取项目目录，不依赖 Agent；未配置 apiKey 时前端仍需要它来完成连接并进入模型配置
         return ApiResponse.ok(agentService.listProjects());
+    }
+
+    @ApiOperation(value = "修改项目展示名称", notes = "仅修改展示名称；displayName 为空字符串时恢复文件夹名称")
+    @Put
+    @Mapping("/workspaces/{hash}/name")
+    public ApiResponse<ProjectInfoDTO> renameProject(
+            @ApiParam(value = "项目 hash") @Param("hash") String hash,
+            @ApiParam @Body Map<String, String> body) {
+        if (!agentService.isReady()) throw new ServiceException(WebErrorMessages.AGENT_NOT_READY);
+        if (body == null || !body.containsKey("displayName")) throw new ServiceException("缺少展示名称 displayName");
+        return ApiResponse.ok(agentService.renameProject(hash, body.get("displayName")));
     }
 
     @ApiOperation(value = "删除项目", notes = "根据 hash 删除指定项目记录")

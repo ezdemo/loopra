@@ -117,9 +117,8 @@ public class LoopraAgent {
                     case "model", "reasoningEffort" -> {
                         // 会话级变更由 AgentService 按会话显式应用。
                     }
-                    case "fastMode" -> setFastMode(Boolean.parseBoolean(String.valueOf(e.value())));
-                    case "hitl" -> setHitlMode(String.valueOf(e.value()));
-                    case "terminateOnNoToolCall" -> setTerminateOnNoToolCall(Boolean.parseBoolean(String.valueOf(e.value())));
+                    case "fastMode" -> { if (!hasSessionConfig("fast")) setFastMode(Boolean.parseBoolean(String.valueOf(e.value()))); }
+                    case "hitl" -> { if (!hasSessionConfig("mode")) setHitlMode(String.valueOf(e.value())); }
                     case "disabledTools", "toolReadOnlyOverrides" -> refreshTools();
                     default -> log.warn("[bus] 未知配置键: {}", e.key());
                 }
@@ -133,6 +132,11 @@ public class LoopraAgent {
     /**
      * 解析系统提示词：优先使用显式设置的 systemPrompt，否则回退到硬编码默认值。
      */
+    private boolean hasSessionConfig(String id) {
+        SessionStore store = ctx.getSessionStore();
+        return store != null && store.currentName() != null && store.getAgentConfig(store.currentName()).containsKey(id);
+    }
+
     private static String resolvePrompt(Builder b) {
         if (b.systemPrompt != null) return b.systemPrompt;
         return Builder.DEFAULT_SYSTEM_PROMPT;
@@ -302,6 +306,9 @@ public class LoopraAgent {
             // 恢复持久化的计划模式与待审查计划（静默恢复，不发事件；
             // Agent 重建/会话切换后不丢失只读约束和待批准计划）
             restorePlanState(loop, name);
+            var settings = ctx.getSessionStore().getAgentConfig(name);
+            if (settings.containsKey("mode")) setHitlMode(settings.get("mode"));
+            if (settings.containsKey("fast")) setFastMode("on".equals(settings.get("fast")));
         }
     }
 
@@ -376,6 +383,11 @@ public class LoopraAgent {
     /** 根据已加载的会话历史重算离线上下文构成。 */
     public ContextTokenEstimate estimateCurrentContext() {
         return loop != null ? loop.estimateCurrentContext() : null;
+    }
+
+    /** 当前会话实际生效的完整系统提示词（切片聚合结果）。 */
+    public String effectiveSystemPrompt() {
+        return loop != null ? loop.effectiveSystemPrompt() : "";
     }
 
     /**
@@ -500,11 +512,6 @@ public class LoopraAgent {
     /** 运行时切换快速模式（热更新，OpenAI service_tier=fast，仅 OpenAI 协议生效）。 */
     public void setFastMode(boolean fastMode) {
         loop.setFastMode(fastMode);
-    }
-
-    /** 运行时更新无工具调用时的结束策略。 */
-    public void setTerminateOnNoToolCall(boolean enabled) {
-        loop.setTerminateOnNoToolCall(enabled);
     }
 
     // ========== 计划模式（Plan Mode） ==========

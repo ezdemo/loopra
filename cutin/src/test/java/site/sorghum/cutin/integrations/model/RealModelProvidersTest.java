@@ -18,6 +18,9 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -29,6 +32,39 @@ import static org.junit.jupiter.api.Assertions.*;
  * 请求映射、响应解析、流式增量、工具调用与用量统计。
  */
 class RealModelProvidersTest {
+
+    /** 配置 userAgent 后应覆盖 Java HttpClient 的默认客户端标识。 */
+    @Test
+    void providerSendsConfiguredUserAgent() throws Exception {
+        AtomicReference<String> userAgent = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            userAgent.set(exchange.getRequestHeaders().getFirst("User-Agent"));
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = """
+                {"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{}}
+                """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ModelProviderConfig config = new ModelProviderConfig(
+                "user-agent",
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                "key",
+                "gpt-5",
+                Map.of("userAgent", "LoopraAgent/1.2.3")
+            );
+            new OpenAiChatCompletionsProvider(config).call(new ModelCallRequest(
+                "gpt-5", List.of(new Message("user", "hi")), List.of(), Map.of()));
+            assertEquals("LoopraAgent/1.2.3", userAgent.get());
+        } finally {
+            server.stop(0);
+        }
+    }
 
     /** Chat Completions Provider 应正确映射请求、工具调用与用量。 */
     @Test
@@ -605,6 +641,55 @@ class RealModelProvidersTest {
             assertEquals("let me think", streamed.toString(), "摘要应仅通过增量交付一次");
         } finally {
             server.stop(0);
+        }
+    }
+
+    /** 上游尚未结束时就应向调用方交付思考增量，不能等到流尾再发送。 */
+    @Test
+    void reasoningDeltasAreDeliveredBeforeUpstreamCompletes() throws Exception {
+        for (boolean responses : List.of(false, true)) {
+            CountDownLatch reasoningReceived = new CountDownLatch(1);
+            AtomicBoolean deliveredBeforeCompletion = new AtomicBoolean();
+            HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+            server.createContext(responses ? "/responses" : "/chat/completions", exchange -> {
+                try (exchange) {
+                    exchange.getRequestBody().readAllBytes();
+                    exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+                    exchange.sendResponseHeaders(200, 0);
+                    String event = responses
+                        ? "{\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"先分析\"}"
+                        : "{\"choices\":[{\"delta\":{\"reasoning_content\":\"先分析\"}}]}";
+                    exchange.getResponseBody().write(("data: " + event + "\n\n").getBytes(StandardCharsets.UTF_8));
+                    exchange.getResponseBody().flush();
+                    deliveredBeforeCompletion.set(reasoningReceived.await(5, TimeUnit.SECONDS));
+                    exchange.getResponseBody().write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            server.start();
+            try {
+                ModelProviderConfig config = new ModelProviderConfig(
+                    "stream-test", "http://127.0.0.1:" + server.getAddress().getPort(),
+                    "key", "reasoning-model", Map.of());
+                ModelProvider provider = responses
+                    ? new OpenAiResponsesProvider(config) : new OpenAiChatCompletionsProvider(config);
+                StringBuilder reasoning = new StringBuilder();
+                try (Stream<StreamChunk> stream = provider.stream(new ModelCallRequest(
+                    "reasoning-model", List.of(new Message("user", "hi")), List.of(), Map.of()))) {
+                    stream.forEach(chunk -> {
+                        if (chunk.reasoning() != null && !chunk.reasoning().isEmpty()) {
+                            reasoning.append(chunk.reasoning());
+                            reasoningReceived.countDown();
+                        }
+                    });
+                }
+                assertTrue(deliveredBeforeCompletion.get(),
+                    (responses ? "Responses" : "Chat Completions") + " 必须在上游结束前交付思考分片");
+                assertEquals("先分析", reasoning.toString());
+            } finally {
+                server.stop(0);
+            }
         }
     }
 

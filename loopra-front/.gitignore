@@ -110,6 +110,7 @@ secrets.json
 # 测试文件
 test-results/
 playwright-report/
+.qa/
 
 # 文档生成
 docs/api/

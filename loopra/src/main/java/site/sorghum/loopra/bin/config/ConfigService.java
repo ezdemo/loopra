@@ -9,10 +9,18 @@ import org.noear.solon.annotation.Init;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 配置服务 —— 统一管理 config.json 的读写。
@@ -81,10 +89,10 @@ public class ConfigService {
         try {
             config.updateAndSave(Map.of("disabledTools",
                     toolNames != null ? new ArrayList<>(toolNames) : Collections.emptyList()));
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新禁用工具列表，共 {} 个工具", toolNames != null ? toolNames.size() : 0);
         } catch (IOException e) {
-            log.error("[config] 更新禁用工具列表失败", e);
+            throw new UncheckedIOException("更新禁用工具列表失败", e);
         }
     }
 
@@ -116,7 +124,7 @@ public class ConfigService {
             ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新禁用插件列表，共 {} 个插件", pluginIds != null ? pluginIds.size() : 0);
         } catch (IOException e) {
-            throw new IllegalStateException("保存插件配置失败", e);
+            throw new UncheckedIOException("保存插件配置失败", e);
         }
     }
 
@@ -139,10 +147,10 @@ public class ConfigService {
         }
         try {
             config.updateAndSave(Map.of("toolReadOnlyOverrides", current));
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新工具只读分类: tool={}, readOnly={}", toolName, readOnly);
         } catch (IOException e) {
-            log.error("[config] 更新工具只读分类失败: tool={}", toolName, e);
+            throw new UncheckedIOException("更新工具只读分类失败", e);
         }
     }
 
@@ -162,10 +170,10 @@ public class ConfigService {
         try {
             config.updateAndSave(Map.of("autoWhitelist",
                     toolNames != null ? new ArrayList<>(toolNames) : Collections.emptyList()));
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.info("[config] 已更新自动放行白名单，共 {} 个工具", toolNames != null ? toolNames.size() : 0);
         } catch (IOException e) {
-            log.error("[config] 更新自动放行白名单失败", e);
+            throw new UncheckedIOException("更新自动放行白名单失败", e);
         }
     }
 
@@ -217,6 +225,51 @@ public class ConfigService {
         return Collections.emptyList();
     }
 
+    // ==================== 会话排序 ====================
+
+    /** 配置文件中每个工作区会话排序的键前缀。 */
+    private static final String SESSION_ORDER_PREFIX = "sessionOrder:";
+
+    /**
+     * 获取按工作区保存的会话排序（工作区 hash -> 会话名有序列表）。
+     * 未保存过排序或读取失败时返回空映射，调用方应保持原本的列表顺序。
+     * <p>配置文件中使用 {@code sessionOrder:<hash>} 作为一级键，值直接是数组，
+     * 避免嵌套 Map 在通用配置写入时把列表降级成字符串。</p>
+     */
+    public static Map<String, List<String>> getSessionOrder() {
+        try {
+            Path configPath = LoopraConfig.getConfigPath();
+            if (Files.exists(configPath)) {
+                String json = new String(Files.readAllBytes(configPath), StandardCharsets.UTF_8);
+                ONode node = ONode.ofJson(json);
+                if (node == null || !node.isObject()) return Collections.emptyMap();
+                Map<String, List<String>> order = new LinkedHashMap<>();
+                for (Map.Entry<String, ONode> entry : node.getObject().entrySet()) {
+                    if (!entry.getKey().startsWith(SESSION_ORDER_PREFIX)) continue;
+                    ONode value = entry.getValue();
+                    if (value == null || !value.isArray()) continue;
+                    List<String> names = new ArrayList<>();
+                    for (ONode item : value.getArray()) {
+                        String name = item.getString();
+                        if (name != null && !name.isBlank()) names.add(name);
+                    }
+                    order.put(entry.getKey().substring(SESSION_ORDER_PREFIX.length()), names);
+                }
+                return order;
+            }
+        } catch (Exception e) {
+            log.warn("[config] 读取会话排序失败，返回空排序: {}", e.getMessage());
+        }
+        return Collections.emptyMap();
+    }
+
+    /** 保存单个工作区的会话排序；其他工作区的排序保持不变。 */
+    public static synchronized void setSessionOrder(String workspaceHash, List<String> order) {
+        if (workspaceHash == null || workspaceHash.isBlank()) return;
+        updateConfig(Map.of(SESSION_ORDER_PREFIX + workspaceHash,
+                order == null ? Collections.emptyList() : new ArrayList<>(order)));
+    }
+
     // ==================== 通用配置更新 ====================
 
     /**
@@ -225,10 +278,10 @@ public class ConfigService {
     public static synchronized void updateConfig(Map<String, Object> updates) {
         try {
             config.updateAndSave(updates);
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.debug("[config] 已更新配置项: {}", updates.keySet());
         } catch (IOException e) {
-            log.error("[config] 更新配置失败", e);
+            throw new UncheckedIOException("更新配置失败", e);
         }
     }
 
@@ -240,10 +293,10 @@ public class ConfigService {
     public static synchronized void removeConfigKey(String key) {
         try {
             config.removeAndSave(key);
-        ConfigService.config = loadAndInitializeProject();
+            ConfigService.config = loadAndInitializeProject();
             log.debug("[config] 已移除配置项: {}", key);
         } catch (IOException e) {
-            log.error("[config] 移除配置项失败: {}", key, e);
+            throw new UncheckedIOException("移除配置项失败", e);
         }
     }
 }

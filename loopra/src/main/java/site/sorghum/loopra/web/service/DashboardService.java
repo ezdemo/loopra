@@ -12,11 +12,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * 数据面板服务 —— 读取每日用量日志并聚合为 Dashboard 数据。
@@ -27,20 +34,34 @@ import java.util.*;
 @Component
 public class DashboardService {
 
-    private static final Path DAILY_USAGE_FILE = Paths.get(
-            System.getProperty("user.home"), ".loopra", "usage_daily.jsonl");
-
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private final Path usageFile;
+    private final Clock clock;
+    private final Supplier<Map<String, Map<String, Double>>> prices;
+    private final Supplier<ModelPriceProvider> priceProvider;
+
+    public DashboardService() {
+        this(Paths.get(System.getProperty("user.home"), ".loopra", "usage_daily.jsonl"),
+                Clock.systemDefaultZone(), UsageCostCalculator::loadPrices, ModelMetaPriceProvider::getInstance);
+    }
+
+    DashboardService(Path usageFile, Clock clock, Supplier<Map<String, Map<String, Double>>> prices,
+                     Supplier<ModelPriceProvider> priceProvider) {
+        this.usageFile = usageFile;
+        this.clock = clock;
+        this.prices = prices;
+        this.priceProvider = priceProvider;
+    }
 
     /**
      * 获取数据面板统计。
      *
      * @param days 统计天数（1-365）
-      * @return 面板 DTO
+     * @return 面板 DTO
      */
     public DashboardDTO getDashboard(int days) {
         int n = (days > 0) ? Math.min(days, 365) : 30;
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         LocalDate startDate = today.minusDays(n - 1);
 
         // 1. 读取日志
@@ -51,7 +72,7 @@ public class DashboardService {
 
         // 2. 解析并聚合：date -> model -> [prompt, completion, cacheHit, cacheMiss, requests]
         Map<String, Map<String, long[]>> dailyAgg = new LinkedHashMap<>();
-         // modelTotal：模型 -> [输入 token, 输出 token, 缓存命中 token, 请求数]
+        // modelTotal：模型 -> [输入 token, 输出 token, 缓存命中 token, 请求数]
         Map<String, long[]> modelTotal = new LinkedHashMap<>();
         long totalRequests = 0;
 
@@ -69,8 +90,8 @@ public class DashboardService {
                 long cacheMiss = node.get("cacheMiss").getLong();
 
                 LocalDate date = Instant.ofEpochMilli(ts)
-                        .atZone(ZoneId.systemDefault()).toLocalDate();
-                if (date.isBefore(startDate)) continue;
+                        .atZone(clock.getZone()).toLocalDate();
+                if (date.isBefore(startDate) || date.isAfter(today)) continue;
 
                 String dateStr = date.format(DATE_FMT);
                 long[] dmu = dailyAgg
@@ -90,19 +111,20 @@ public class DashboardService {
 
                 totalRequests++;
             } catch (Exception ignored) {
+                // 单条用量记录解析失败不阻断统计
             }
         }
 
         // 3. 价格配置：优先用户配置，其次 ModelMetaPriceProvider
-        Map<String, Map<String, Double>> configPrices = UsageCostCalculator.loadPrices();
-        ModelPriceProvider provider = ModelMetaPriceProvider.getInstance();
+        Map<String, Map<String, Double>> configPrices = prices.get();
+        ModelPriceProvider provider = priceProvider.get();
 
         // 合并价格：config 优先，provider 补充
-        Map<String, Map<String, Double>> allPrices = new LinkedHashMap<>(configPrices);
-        if (provider != null) {
-            for (String mName : modelTotal.keySet()) {
-                allPrices.computeIfAbsent(mName, provider::getModelPrice);
-            }
+        Map<String, Map<String, Double>> allPrices = new LinkedHashMap<>();
+        if (configPrices != null) allPrices.putAll(configPrices);
+        for (String model : modelTotal.keySet()) {
+            Map<String, Double> resolved = UsageCostCalculator.resolvePrice(configPrices, model, provider);
+            if (resolved != null && !resolved.isEmpty()) allPrices.put(model, resolved);
         }
 
         // 4. 构建每日统计
@@ -129,18 +151,17 @@ public class DashboardService {
                 dayCacheMiss += v[3];
                 dayRequests += v[4];
 
-                dayCost += UsageCostCalculator.calc(allPrices, mName, v[0], v[1], v[2]);
+                dayCost += UsageCostCalculator.calculate(allPrices.get(mName), v[0], v[1], v[2]).totalCost();
 
                 breakdown.put(mName, new DashboardDTO.ModelUsage(
                         v[0], v[1], v[2], v[3], v[0] + v[1]));
             }
 
-            dayCost = round4(dayCost);
             if (!dayModels.isEmpty()) activeDates.add(dateStr);
 
             dailyStats.add(new DashboardDTO.DailyStat(
                     dateStr, dayPrompt, dayCompletion, dayCacheHit, dayCacheMiss,
-                    dayPrompt + dayCompletion, dayCost, dayRequests, breakdown));
+                    dayPrompt + dayCompletion, round4(dayCost), dayRequests, breakdown));
 
             globalPrompt += dayPrompt;
             globalCompletion += dayCompletion;
@@ -154,7 +175,7 @@ public class DashboardService {
         for (Map.Entry<String, long[]> entry : modelTotal.entrySet()) {
             String mName = entry.getKey();
             long[] v = entry.getValue();
-            double mCost = round4(UsageCostCalculator.calc(allPrices, mName, v[0], v[1], v[2]));
+            double mCost = round4(UsageCostCalculator.calculate(allPrices.get(mName), v[0], v[1], v[2]).totalCost());
             modelStats.add(new DashboardDTO.ModelStat(
                     mName, v[0], v[1], v[2], v[0] + v[1], mCost, v[3]));
         }
@@ -169,8 +190,8 @@ public class DashboardService {
 
     private List<String> readLogFile() {
         try {
-            if (!Files.exists(DAILY_USAGE_FILE)) return Collections.emptyList();
-            return Files.readAllLines(DAILY_USAGE_FILE, StandardCharsets.UTF_8);
+            if (!Files.exists(usageFile)) return Collections.emptyList();
+            return Files.readAllLines(usageFile, StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.warn("[dashboard] 读取每日用量日志失败: {}", e.getMessage());
             return Collections.emptyList();
@@ -188,6 +209,6 @@ public class DashboardService {
     }
 
     private static double round4(double v) {
-        return Math.round(v * 10000.0) / 10000.0;
+        return UsageCostCalculator.round4(v);
     }
 }

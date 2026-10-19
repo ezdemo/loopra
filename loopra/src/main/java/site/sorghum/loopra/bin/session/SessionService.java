@@ -140,6 +140,7 @@ public class SessionService implements SessionUsageSink {
             // 保存按模型分别累计的用量
             store.saveModelUsage(name, modelUsage);
         } catch (IOException ignored) {
+            // 用量落盘失败不影响会话主流程
         }
     }
 

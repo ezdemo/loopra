@@ -92,6 +92,7 @@ export const applySubAgentEvent = (container, data, options = {}) => {
     }
     container.blocks.push({
       type: 'tool_call',
+      toolCallId: data.toolCallId,
       name: name || 'unknown',
       status: '执行中',
       args,
@@ -111,14 +112,14 @@ export const applySubAgentEvent = (container, data, options = {}) => {
     if (targetName) {
       for (let j = container.blocks.length - 1; j >= 0; j--) {
         const b = container.blocks[j]
-        if (b.type === 'tool_call' && b.name === targetName && !b.result) {
+        if (b.type === 'tool_call' && (data.toolCallId ? b.toolCallId === data.toolCallId : b.name === targetName && !b.result)) {
           fillToolResult(b, rn, data)
           matched = true
           break
         }
       }
     }
-    if (!matched) {
+    if (!matched && !data.toolCallId) {
       for (let j = container.blocks.length - 1; j >= 0; j--) {
         const b = container.blocks[j]
         if (b.type === 'tool_call' && !b.result) {
@@ -179,7 +180,7 @@ export const applySubAgentEvent = (container, data, options = {}) => {
 
 const fillToolResult = (block, result, data = {}) => {
   block.result = result
-  block.status = '成功'
+  block.status = data.status === 'failed' ? '失败' : '成功'
   if (data.finishedAt) {
     block.toolDurationMs = data.finishedAt - (block.toolStartedAt || data.finishedAt)
   } else {

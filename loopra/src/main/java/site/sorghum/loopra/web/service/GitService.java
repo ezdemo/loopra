@@ -11,21 +11,29 @@ import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.model.ModelContextUtils;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.common.entity.ProcessResult;
-import site.sorghum.loopra.web.model.*;
+import site.sorghum.loopra.web.model.GitCommitDTO;
+import site.sorghum.loopra.web.model.GitCommitResultDTO;
+import site.sorghum.loopra.web.model.GitDiffContentDTO;
+import site.sorghum.loopra.web.model.GitDiffDTO;
+import site.sorghum.loopra.web.model.GitFileChangeDTO;
+import site.sorghum.loopra.web.model.GitFileContentDTO;
+import site.sorghum.loopra.web.model.GitGenerateMessageDTO;
+import site.sorghum.loopra.web.model.GitStatusDTO;
+import site.sorghum.loopra.web.model.WorkingFileContentDTO;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Git 操作服务 —— 封装所有 Git 命令执行逻辑、项目解析和数据处理。
@@ -62,16 +70,6 @@ public class GitService {
     private static final int RECENT_COMMIT_LOG_COUNT = 3;
     /** Git 命令超时秒数 */
     private static final int GIT_COMMAND_TIMEOUT_SEC = 10;
-    /** 单个 Git 输出流在内存中保留的最大字符数 */
-    private static final int MAX_GIT_OUTPUT_CHARS = 10 * 1024 * 1024;
-    /** 命令结束后等待输出流消费完成的最大秒数 */
-    private static final int GIT_OUTPUT_DRAIN_TIMEOUT_SEC = 1;
-    /** Git 子进程的标准输出与错误输出必须并发消费，避免管道缓冲区写满。 */
-    private static final ExecutorService GIT_IO_EXECUTOR = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "loopra-git-io");
-        thread.setDaemon(true);
-        return thread;
-    });
     /** 默认 Git 提交作者名 */
     private static final String DEFAULT_AUTHOR_NAME = "Loopra";
     /** 默认 Git 提交作者邮箱 */
@@ -115,24 +113,35 @@ public class GitService {
         String workspacePath = resolveWorkspace(workspaceHash);
 
         String branch = runGitSimple(workspacePath, "rev-parse", "--abbrev-ref", "HEAD");
-        String raw = runGitSimple(workspacePath, "status", "--porcelain");
-
-        List<GitFileChangeDTO> changed = new ArrayList<>();
-        List<GitFileChangeDTO> untracked = new ArrayList<>();
-        parsePorcelainStatus(raw, changed, untracked);
-
-        return new GitDiffDTO(
-                branch != null ? branch.trim() : "unknown",
-                changed, untracked,
-                changed.size() + untracked.size()
-        );
+        try {
+            WorkspaceChanges changes = readWorkspaceChanges(new File(workspacePath));
+            return new GitDiffDTO(branch != null ? branch.trim() : "unknown", changes.changed(), changes.untracked(),
+                    changes.changed().size() + changes.untracked().size());
+        } catch (Exception error) {
+            throw new ServiceException("无法读取项目 Git 改动: " + error.getMessage());
+        }
     }
 
     /**
      * Git 综合状态检测 —— 四阶段检测：git 可用性 → 仓库状态 → 分支名 → 变更文件。
      */
     public GitStatusDTO getStatus(String workspaceHash) throws Exception {
-        File workspaceDir = new File(resolveWorkspace(workspaceHash));
+        GitStatusDTO status = getStatusAt(resolveWorkspace(workspaceHash));
+        if (!status.initialized()) return status;
+
+        // 项目级配置只对主工作区有意义；隔离分支复用同一份模型配置。
+        Map<String, String> config = getGitConfig(workspaceHash);
+        return new GitStatusDTO(status.gitAvailable(), true, status.branch(), status.workspacePath(),
+                status.changed(), status.untracked(), config.get("model"), config.get("modelChannelId"),
+                status.ahead(), status.behind(), status.upstream());
+    }
+
+    /**
+     * 读取任意工作目录的 Git 状态（会话隔离分支使用）。
+     * 目录必须由后端从 workspaceHash + sessionName 解析后传入。
+     */
+    public GitStatusDTO getStatusAt(String path) throws Exception {
+        File workspaceDir = new File(path);
 
         // 1. 检测 git 是否可用
         try {
@@ -158,53 +167,59 @@ public class GitService {
         String branch = branchResult.stdout.trim();
         if (branch.isEmpty()) branch = "master";
 
-        // 4. 解析 git status --porcelain=v1
-        ProcessResult statusResult = runGit(workspaceDir, "git", "status", "--porcelain=v1");
-        List<GitFileChangeDTO> changed = new ArrayList<>();
-        List<GitFileChangeDTO> untracked = new ArrayList<>();
-        parsePorcelainStatus(statusResult.stdout, changed, untracked);
+        // 4. 展开未跟踪目录，只返回当前项目内、相对项目的文件路径。
+        WorkspaceChanges changes = readWorkspaceChanges(workspaceDir);
 
-        // 5. 获取配置的模型与渠道
-        Map<String, String> config = getGitConfig(workspaceHash);
-        String model = config.get("model");
-        String modelChannelId = config.get("modelChannelId");
+        // 5. 分支跟踪信息（没有 upstream 时保持 0/0）。
+        int[] aheadBehind = trackingCounts(workspaceDir);
+        String upstream = runGitSimple(workspaceDir.getAbsolutePath(),
+                "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}");
 
         return new GitStatusDTO(true, true, branch,
-                workspaceDir.getAbsolutePath(), changed, untracked, model, modelChannelId);
+                workspaceDir.getAbsolutePath(), changes.changed(), changes.untracked(), null, null,
+                aheadBehind[0], aheadBehind[1], upstream == null ? null : upstream.trim());
+    }
+
+    /** HEAD 与 upstream 的领先/落后数量；无 upstream 时返回 {0, 0}。 */
+    private int[] trackingCounts(File workspaceDir) {
+        ProcessResult result;
+        try {
+            result = runGit(workspaceDir, "git", "rev-list", "--left-right", "--count", "HEAD...@{upstream}");
+        } catch (Exception e) {
+            return new int[]{0, 0};
+        }
+        if (result.exitCode != 0 || result.stdout == null) return new int[]{0, 0};
+        String[] parts = result.stdout.trim().split("\\s+");
+        if (parts.length < 2) return new int[]{0, 0};
+        try {
+            // 左=HEAD 独有（领先），右=upstream 独有（落后）。
+            return new int[]{Integer.parseInt(parts[0]), Integer.parseInt(parts[1])};
+        } catch (NumberFormatException e) {
+            return new int[]{0, 0};
+        }
     }
 
     /**
-     * 解析 git status --porcelain 输出，将结果填充到 changed 和 untracked 列表中。
-     * <p>
-     * 自动处理重命名（R old -> new）、带引号文件名和尾部斜杠。
-     * </p>
+     * NUL 分隔保留中文、空格、引号及换行等文件名，不依赖 Git 的显示转义。
+     * porcelain 路径始终相对仓库根目录；剥离 prefix 后才是项目内路径。
      */
-    private void parsePorcelainStatus(String porcelainOutput,
+    private void parsePorcelainStatus(String porcelainOutput, String prefix,
                                        List<GitFileChangeDTO> changed,
                                        List<GitFileChangeDTO> untracked) {
-        if (porcelainOutput == null || porcelainOutput.trim().isEmpty()) return;
-        for (String line : porcelainOutput.split("\n")) {
-            if (line.trim().isEmpty() || line.length() < MIN_STATUS_LINE_LENGTH) continue;
+        if (porcelainOutput == null || porcelainOutput.isEmpty()) return;
+        String[] entries = porcelainOutput.split("\0", -1);
+        for (int index = 0; index < entries.length; index++) {
+            String line = entries[index];
+            if (line.length() < MIN_STATUS_LINE_LENGTH) continue;
 
             String indexStatus = String.valueOf(line.charAt(0));
             String workStatus = String.valueOf(line.charAt(1));
-            String filename = line.substring(3).trim();
-
-            // 处理重命名：R  old -> new
-            if (filename.contains(" -> ")) {
-                String[] parts = filename.split(" -> ", 2);
-                filename = parts[1];
-            }
-
-            // 去掉文件名前后的引号
-            if (filename.startsWith("\"") && filename.endsWith("\"")) {
-                filename = filename.substring(1, filename.length() - 1);
-            }
-
-            // 去掉尾部斜杠
-            if (filename.endsWith("/")) {
-                filename = filename.substring(0, filename.length() - 1);
-            }
+            String filename = line.substring(3);
+            // -z 重命名/复制记录先给出新路径，下一条是旧路径。
+            if ("RC".contains(indexStatus) || "RC".contains(workStatus)) index++;
+            if (!filename.startsWith(prefix)) continue;
+            filename = filename.substring(prefix.length());
+            if (filename.isEmpty()) continue;
 
             if ("?".equals(indexStatus) && "?".equals(workStatus)) {
                 untracked.add(new GitFileChangeDTO(filename, indexStatus, workStatus, "U"));
@@ -215,14 +230,34 @@ public class GitService {
         }
     }
 
+    private record WorkspaceChanges(List<GitFileChangeDTO> changed, List<GitFileChangeDTO> untracked) { }
+
+    private WorkspaceChanges readWorkspaceChanges(File workspaceDir) throws Exception {
+        ProcessResult prefixResult = runGit(workspaceDir, "git", "rev-parse", "--show-prefix");
+        if (prefixResult.exitCode != 0) throw new ServiceException("当前项目不在 Git 仓库中");
+        String prefix = prefixResult.stdout.replaceFirst("\\r?\\n$", "");
+        ProcessResult status = runGit(workspaceDir, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".");
+        if (status.exitCode != 0) throw new ServiceException("读取 Git 改动失败: " + status.stderr);
+        List<GitFileChangeDTO> changed = new ArrayList<>(), untracked = new ArrayList<>();
+        parsePorcelainStatus(status.stdout, prefix, changed, untracked);
+        return new WorkspaceChanges(changed, untracked);
+    }
+
     /**
      * 获取 Git Diff 内容 —— 分别执行未暂存变更和已暂存变更的 diff 查询，合并输出。
      * 对于未跟踪文件，返回文件内容作为新增的 diff。
      * 如果非 Git 管理或没有 diff，返回文件原文内容。
      */
     public GitDiffContentDTO getDiffContent(String workspaceHash, String path) throws Exception {
-        File workspaceDir = new File(resolveWorkspace(workspaceHash));
+        return getDiffContentAt(new File(resolveWorkspace(workspaceHash)), path);
+    }
 
+    /** 读取任意工作目录内文件相对 HEAD 的 diff（会话隔离分支使用）。 */
+    public GitDiffContentDTO getDiffContentAt(String dirPath, String path) throws Exception {
+        return getDiffContentAt(new File(dirPath), path);
+    }
+
+    private GitDiffContentDTO getDiffContentAt(File workspaceDir, String path) throws Exception {
         // 安全校验：防止路径穿越
         path = validatePath(workspaceDir, path);
 
@@ -391,11 +426,16 @@ public class GitService {
      * 读取项目当前文件内容，用于前端代码预览，不依赖 Git 状态或提交历史。
      */
     public WorkingFileContentDTO getWorkingFileContent(String workspaceHash, String path) throws Exception {
+        return getWorkingFileContentAt(resolveWorkspace(workspaceHash), path);
+    }
+
+    /** 读取任意工作目录内的当前文件内容（会话隔离分支使用）。 */
+    public WorkingFileContentDTO getWorkingFileContentAt(String dirPath, String path) throws Exception {
         if (path == null || path.isBlank()) {
             throw new ServiceException("Invalid path");
         }
 
-        java.nio.file.Path workspace = java.nio.file.Paths.get(resolveWorkspace(workspaceHash)).toAbsolutePath().normalize();
+        java.nio.file.Path workspace = java.nio.file.Paths.get(dirPath).toAbsolutePath().normalize();
         String filePath = path.trim().replaceFirst(":\\d+$", "");
         java.nio.file.Path requested = java.nio.file.Paths.get(filePath);
         java.nio.file.Path file = (requested.isAbsolute() ? requested : workspace.resolve(requested)).normalize();
@@ -418,8 +458,16 @@ public class GitService {
      * </p>
      */
     public GitCommitDTO.ListWrapper getCommitHistory(String workspaceHash, Integer limit) {
-        String workspacePath = resolveWorkspace(workspaceHash);
+        return getCommitHistoryAt(resolveWorkspace(workspaceHash), limit);
+    }
+
+    /**
+     * 读取任意工作目录的提交历史（会话隔离分支使用）。
+     */
+    public GitCommitDTO.ListWrapper getCommitHistoryAt(String path, Integer limit) {
+        String workspacePath = path;
         if (limit == null || limit <= 0) limit = 50;
+        limit = Math.max(1, Math.min(limit, 100));
 
         // 自定义格式: 完整哈希|短哈希|作者|邮箱|日期|消息
         // 使用 %x1F (Unit Separator) 作为字段分隔，避免消息中的特殊字符干扰
@@ -548,6 +596,79 @@ public class GitService {
     }
 
     /**
+     * 在任意工作目录提交全部改动（自动 add -A），供会话隔离分支使用。
+     * 与桌面端旧实现保持一致：仓库没有作者配置时回退到 Loopra 默认身份。
+     */
+    public GitCommitResultDTO commitEnvironment(String path, String body) throws Exception {
+        ONode json = parseJsonBody(body, "environment commit");
+        return commitAtPath(path, readStringField(json, "message"), readStringListField(json, "files"));
+    }
+
+    public GitCommitResultDTO commitAtPath(String path, String message) throws Exception {
+        return commitAtPath(path, message, null);
+    }
+
+    public GitCommitResultDTO commitAtPath(String path, String message, List<String> files) throws Exception {
+        File workspaceDir = new File(path);
+        if (message == null || message.trim().isEmpty()) {
+            throw new ServiceException("提交信息不能为空");
+        }
+        ProcessResult check = runGit(workspaceDir, "git", "rev-parse", "--is-inside-work-tree");
+        if (check.exitCode != 0) {
+            throw new ServiceException("Not a git repository");
+        }
+
+        ProcessResult addResult;
+        if (files != null && !files.isEmpty()) {
+            List<String> valid = validatePaths(workspaceDir, files);
+            List<String> addCmd = new ArrayList<>(Arrays.asList("git", "add", "--"));
+            addCmd.addAll(valid);
+            addResult = runGit(workspaceDir, addCmd.toArray(new String[0]));
+        } else {
+            addResult = runGit(workspaceDir, "git", "add", "-A");
+        }
+        if (addResult.exitCode != 0) {
+            throw new ServiceException("git add failed: " + addResult.stderr);
+        }
+
+        String name = runGitSimple(workspaceDir.getAbsolutePath(), "config", "user.name");
+        String email = runGitSimple(workspaceDir.getAbsolutePath(), "config", "user.email");
+        List<String> commitCmd = new ArrayList<>();
+        commitCmd.add("git");
+        commitCmd.add("-c");
+        commitCmd.add("user.name=" + (name == null || name.trim().isEmpty() ? DEFAULT_AUTHOR_NAME : name.trim()));
+        commitCmd.add("-c");
+        commitCmd.add("user.email=" + (email == null || email.trim().isEmpty() ? DEFAULT_AUTHOR_EMAIL : email.trim()));
+        commitCmd.add("commit");
+        commitCmd.add("-m");
+        commitCmd.add(message.trim());
+        ProcessResult commitResult = runGit(workspaceDir, commitCmd.toArray(new String[0]));
+        if (commitResult.exitCode != 0) {
+            throw new ServiceException("git commit failed: " + commitResult.stderr);
+        }
+        return new GitCommitResultDTO(commitResult.stdout.trim().isEmpty()
+                ? commitResult.stderr.trim() : commitResult.stdout.trim());
+    }
+
+    /**
+     * 在任意工作目录执行 git push（沿用已配置的 upstream）。
+     */
+    public String pushAtPath(String path) throws Exception {
+        File workspaceDir = new File(path);
+        ProcessResult check = runGit(workspaceDir, "git", "rev-parse", "--is-inside-work-tree");
+        if (check.exitCode != 0) {
+            throw new ServiceException("Not a git repository");
+        }
+        ProcessResult result = runGit(workspaceDir, 60, "git", "push");
+        String output = (result.stdout == null ? "" : result.stdout.trim());
+        String error = (result.stderr == null ? "" : result.stderr.trim());
+        if (result.exitCode != 0) {
+            throw new ServiceException("git push failed: " + (error.isEmpty() ? output : error));
+        }
+        return output.isEmpty() ? (error.isEmpty() ? "已推送" : error) : output;
+    }
+
+    /**
      * 获取提交作者配置（优先级：已保存配置 > git config > Loopra 默认）。
      */
     public Map<String, String> getGitConfig(String workspaceHash) {
@@ -670,10 +791,18 @@ public class GitService {
     }
 
     /**
-     * 切换文件状态：未追踪 → 变更（git add），或变更 → 未追踪（git reset HEAD --）。
+     * 暂存或取消暂存文件及目录；可用 staged 显式指定目标状态。
      */
     public Map<String, Object> toggleFile(String workspaceHash, String body) throws Exception {
-        File workspaceDir = new File(resolveWorkspace(workspaceHash));
+        return toggleFileAt(new File(resolveWorkspace(workspaceHash)), body);
+    }
+
+    /** 在任意工作目录暂存/取消暂存文件（会话隔离分支使用）。 */
+    public Map<String, Object> toggleFileAt(String dirPath, String body) throws Exception {
+        return toggleFileAt(new File(dirPath), body);
+    }
+
+    private Map<String, Object> toggleFileAt(File workspaceDir, String body) throws Exception {
         ProcessResult check = runGit(workspaceDir, "git", "rev-parse", "--is-inside-work-tree");
         if (check.exitCode != 0) {
             throw new ServiceException("Not a git repository");
@@ -684,25 +813,31 @@ public class GitService {
             throw new ServiceException("Path is required");
         }
 
-        // 检查文件当前状态
+        // 批量目录操作显式指定目标状态，避免混合暂存状态被逐个反转。
+        ONode request = parseJsonBody(body, "toggle");
+        Boolean requestedStage = null;
+        if (request != null && request.hasKey("staged")) {
+            if (!request.get("staged").isBoolean()) throw new ServiceException("staged 必须为布尔值");
+            requestedStage = request.get("staged").getBoolean();
+        }
         ProcessResult statusResult = runGit(workspaceDir, "git", "status", "--porcelain", "--", path);
-        String statusLine = statusResult.stdout.trim();
+        if (statusResult.exitCode != 0) throw new ServiceException("读取文件状态失败: " + statusResult.stderr);
+        // 保留 XY 状态的前导空格：' M' 是未暂存，'M ' 才是已暂存。
+        String statusLine = statusResult.stdout;
+        boolean stage = requestedStage != null ? requestedStage
+                : !statusLine.isBlank() && (statusLine.charAt(0) == ' ' || statusLine.charAt(0) == '?');
 
         ProcessResult result;
         String newState;
 
-        if (statusLine.isEmpty() || statusLine.startsWith("M") || statusLine.startsWith("A") ||
-                statusLine.startsWith("D") || statusLine.startsWith("R")) {
-            // 已暂存或已追踪的变更 → 取消暂存
-            result = runGit(workspaceDir, "git", "reset", "HEAD", "--", path);
+        if (!stage) {
+            // 首次提交之前还没有 HEAD，只移除索引项，保留工作区文件。
+            ProcessResult head = runGit(workspaceDir, "git", "rev-parse", "--verify", "HEAD");
+            result = head.exitCode == 0 ? runGit(workspaceDir, "git", "reset", "HEAD", "--", path)
+                    : runGit(workspaceDir, "git", "rm", "--cached", "-r", "-f", "--", path);
             newState = "untracked";
-        } else if (statusLine.startsWith("?")) {
-            // 未追踪 → 暂存
-            result = runGit(workspaceDir, "git", "add", "--", path);
-            newState = "changed";
         } else {
-            // 其他情况（如  M 未暂存修改）→ 暂存
-            result = runGit(workspaceDir, "git", "add", "--", path);
+            result = runGit(workspaceDir, "git", "add", "-A", "--", path);
             newState = "changed";
         }
 
@@ -932,26 +1067,9 @@ public class GitService {
      * 获取项目中所有变更文件列表（含暂存、未暂存、未跟踪）。
      */
     private List<String> getChangedFiles(File workspaceDir) throws Exception {
-        ProcessResult result = runGit(workspaceDir, "git", "status", "--porcelain");
-        if (result.exitCode != 0 || result.stdout == null || result.stdout.trim().isEmpty()) {
-            return List.of();
-        }
-        List<String> fileList = new ArrayList<>();
-        for (String line : result.stdout.split("\n")) {
-            if (line.trim().isEmpty() || line.length() < MIN_STATUS_LINE_LENGTH) continue;
-            String filename = line.substring(3).trim();
-            // 处理重命名
-            if (filename.contains(" -> ")) {
-                filename = filename.split(" -> ", 2)[1];
-            }
-            if (filename.startsWith("\"") && filename.endsWith("\"")) {
-                filename = filename.substring(1, filename.length() - 1);
-            }
-            if (!fileList.contains(filename)) {
-                fileList.add(filename);
-            }
-        }
-        return fileList;
+        WorkspaceChanges changes = readWorkspaceChanges(workspaceDir);
+        return java.util.stream.Stream.concat(changes.changed().stream(), changes.untracked().stream())
+                .map(GitFileChangeDTO::path).distinct().toList();
     }
 
     /**
@@ -1078,62 +1196,10 @@ public class GitService {
      * （worktree add / merge）使用更长超时，同时禁用终端交互提示。
      */
     public ProcessResult runGit(File workDir, long timeoutSec, String... command) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.directory(workDir);
-        pb.redirectErrorStream(false);
-        pb.environment().put("GIT_TERMINAL_PROMPT", "0");
-
-        Process proc = pb.start();
-        Future<String> stdout = GIT_IO_EXECUTOR.submit(() -> readStream(proc.getInputStream()));
-        Future<String> stderr = GIT_IO_EXECUTOR.submit(() -> readStream(proc.getErrorStream()));
-        try {
-            boolean finished = proc.waitFor(timeoutSec, TimeUnit.SECONDS);
-            if (!finished) {
-                proc.destroyForcibly();
-                proc.waitFor();
-                return processResult(-1, "", "Command timed out after " + timeoutSec + " seconds");
-            }
-
-            return processResult(proc.exitValue(), awaitOutput(stdout), awaitOutput(stderr));
-        } finally {
-            if (proc.isAlive()) {
-                proc.destroyForcibly();
-            }
-            stdout.cancel(true);
-            stderr.cancel(true);
-        }
+        return GitCommandRunner.run(workDir, timeoutSec, command);
     }
 
-    private ProcessResult processResult(int exitCode, String stdout, String stderr) {
-        ProcessResult result = new ProcessResult();
-        result.exitCode = exitCode;
-        result.stdout = stdout;
-        result.stderr = stderr;
-        return result;
-    }
 
-    private String awaitOutput(Future<String> output) throws Exception {
-        return output.get(GIT_OUTPUT_DRAIN_TIMEOUT_SEC, TimeUnit.SECONDS);
-    }
-
-    private String readStream(InputStream input) throws IOException {
-        StringBuilder output = new StringBuilder();
-        try (input) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                String chunk = new String(buffer, 0, read, StandardCharsets.UTF_8);
-                int remaining = MAX_GIT_OUTPUT_CHARS - output.length();
-                if (remaining > 0) {
-                    output.append(chunk, 0, Math.min(remaining, chunk.length()));
-                }
-            }
-        }
-        if (output.length() >= MAX_GIT_OUTPUT_CHARS) {
-            output.append("\n... (Git output truncated)");
-        }
-        return output.toString();
-    }
 
 
 }

@@ -1,0 +1,37 @@
+.composer-task-anchor { position: relative; }
+.composer-task-anchor.has-tasks { margin-top: 2.25rem; }
+.background-tasks-trigger { position: absolute; bottom: calc(100% + .5rem); left: .75rem; display: inline-flex; align-items: center; gap: .375rem; height: 1.75rem; padding: 0 .625rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 .125rem .375rem #00000008; color: var(--secondary); font-size: .75rem; white-space: nowrap; }
+.background-tasks-trigger:hover { background: var(--hover); color: var(--text); }
+.background-tasks-trigger.active { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 35%, var(--line)); background: color-mix(in srgb, var(--blue) 6%, var(--surface)); }
+.background-tasks-trigger:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.background-tasks-unread { width: .375rem; height: .375rem; border-radius: 50%; background: var(--blue); }
+.background-tasks-popover { position: absolute; left: 0; bottom: calc(100% + 2.75rem); width: min(42rem, 100%); z-index: 40; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 .25rem 1rem #00000010, 0 .75rem 2.5rem #00000018; outline: none; }
+.background-tasks-popover.below { top: 0; bottom: auto; }
+.background-tasks-popover .terminal-panel { height: auto; max-height: var(--background-tasks-height, 25rem); border-top: 0; }
+.background-tasks-popover .terminal-panel header { flex-shrink: 0; flex-wrap: wrap; height: auto; min-height: 2.75rem; gap: .5rem; padding: .375rem .75rem; }
+.background-tasks-popover .terminal-panel header > span { font-size: .8125rem; }
+.background-tasks-popover .terminal-panel header > .icon-button { margin-left: 0; }
+.background-tasks-popover .terminal-summary { flex: 1; min-width: 0; font-size: .6875rem; }
+.background-tasks-popover .bash-list { flex-shrink: 1; max-height: none; min-height: 0; overflow: auto; border-bottom: 0; }
+.background-tasks-popover .terminal-output { min-height: 0; height: 12rem; overflow: auto; overscroll-behavior: contain; }
+.background-tasks-popover .panel-empty { margin: 0; padding: 1.25rem; }
+.background-tasks-popover .bash-row { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; align-items: stretch; gap: 0; padding: 0; background: var(--surface); }
+.background-tasks-popover .bash-row:last-child { border-bottom: 0; }
+.background-tasks-popover .bash-select { display: flex; align-items: flex-start; gap: .625rem; min-width: 0; width: 100%; padding: .875rem 1rem; color: var(--text); text-align: left; }
+.background-tasks-popover .bash-select:focus-visible { outline: 2px solid var(--blue); outline-offset: -3px; }
+.background-tasks-popover .bash-select > .bash-dot { flex-shrink: 0; margin-top: .375rem; }
+.background-tasks-popover .bash-main { min-width: 0; gap: .25rem; }
+.background-tasks-popover .bash-command strong { font-weight: 500; line-height: 1.5; }
+.background-tasks-popover .bash-task-actions { display: flex; align-items: center; justify-content: center; padding: .625rem; }
+.background-tasks-popover .bash-task-actions > span { color: var(--muted); font-size: .6875rem; }
+.background-tasks-popover .bash-terminate { flex-shrink: 0; min-width: 3.5rem; border: 1px solid color-mix(in srgb, var(--danger, var(--danger)) 22%, transparent); border-radius: var(--radius-md); }
+
+.app-dialog.background-task-log-modal { width: min(60rem, calc(100vw - 2rem)) !important; max-width: 60rem !important; height: min(40rem, calc(100dvh - 2rem)); max-height: calc(100dvh - 2rem) !important; margin: 0 !important; border: 1px solid var(--line); border-radius: var(--radius-xl) !important; padding: 0 !important; background: var(--surface) !important; color: var(--text); overflow: hidden; box-shadow: 0 1.25rem 3rem #0002; }
+.background-task-log-modal .app-dialog-header { display: flex; align-items: center; flex-shrink: 0; padding: 1.25rem 3.25rem 1rem 1.25rem; }
+.background-task-log-modal .app-dialog-header h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.background-task-log-modal .app-dialog-body { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; gap: .75rem; padding: 0 1.25rem 1.25rem; font-size: .8125rem; }
+.background-task-log-modal .app-dialog-footer { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; gap: .5rem; padding: .875rem 1.25rem; border-top: 1px solid var(--line); }
+.background-task-log-info { display: grid; flex-shrink: 0; gap: .375rem; font-size: .8125rem; }
+.background-task-log-info code { max-height: 6rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.background-task-log-info small { color: var(--muted); overflow-wrap: anywhere; }
+.background-task-log-output { flex: 1; min-height: 0; margin: 0; padding: 1rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--soft); border-radius: var(--radius-md); font: .8125rem/1.6 var(--code-font, monospace); }

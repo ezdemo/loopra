@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
  * @author Sorghum
  */
 @Slf4j
-public class AcpSessionManager {
+public class AcpSessionManager implements AcpSessionBackend {
 
     /** ACP sessionId → LoopraAgent（内存缓存，重启即失） */
     private final Map<String, SessionEntry> sessions = new ConcurrentHashMap<>();
@@ -45,52 +45,29 @@ public class AcpSessionManager {
     /** 共享配置 */
     private LoopraConfig config;
 
-    /** 共享 LoopraModelProvider（所有会话复用，减少资源消耗） */
-    private volatile LoopraModelProvider sharedModelProvider;
+    private final java.util.function.Function<SessionStore.SessionModelSettings, LoopraModelProvider> providerFactory;
 
-    public AcpSessionManager() {
+    public AcpSessionManager() { this(null); }
+    public AcpSessionManager(java.util.function.Function<SessionStore.SessionModelSettings, LoopraModelProvider> providerFactory) {
+        this.providerFactory = providerFactory;
         try {
+            // Standalone ACP does not start Solon, so no @Init method initializes ConfigService.
+            if (ConfigService.getConfig() == null) ConfigService.reload();
             this.config = ConfigService.getConfig();
-            initSharedModelProvider();
         } catch (Exception e) {
             log.warn("[acp] 无法加载配置，使用默认值: {}", e.getMessage());
         }
     }
 
     /**
-     * 根据配置创建共享 LoopraModelProvider。
+     * Each session owns its model provider so switching one session never changes another.
      */
-    private void initSharedModelProvider() {
-        if (config == null) {
-            log.warn("[acp] 配置为空，无法创建 LoopraModelProvider");
-            return;
-        }
-        String apiUrl = config.apiUrl();
-        String apiKey = config.apiKey();
-        if (apiUrl == null || apiKey == null || apiKey.isEmpty()) {
-            log.warn("[acp] API 配置不完整，LoopraModelProvider 暂不可用");
-            return;
-        }
-        String model = config.model();
-        this.sharedModelProvider = new LoopraModelProvider(apiUrl, apiKey, model, config.reasoningEffort(),
-                config.modelChannelId(), config.apiProtocol(), config.specialCompatibility(),
-                config.activeModelMaxTokens());
-        log.info("[acp] 共享 LoopraModelProvider 初始化完成: model={}, apiUrl={}", model, apiUrl);
-    }
-
-    /**
-     * 确保共享 LoopraModelProvider 已初始化，未初始化则尝试从配置重建。
-     */
-    private void ensureModelProvider() {
-        if (sharedModelProvider == null) {
-            ConfigService.reload();
-            this.config = ConfigService.getConfig();
-            initSharedModelProvider();
-            if (sharedModelProvider == null) {
-                throw new IllegalStateException(
-                    "LoopraModelProvider 未初始化，请检查 ~/.loopra/config.json 中的 apiKey 和 baseUrl 配置");
-            }
-        }
+    private LoopraModelProvider modelProvider(SessionStore.SessionModelSettings settings) {
+        if (providerFactory != null) return providerFactory.apply(settings);
+        var channel = config.modelChannel(settings.modelChannelId());
+        if (channel == null || channel.apiKey() == null || channel.apiKey().isBlank()) throw new IllegalStateException("请配置 Native 模型渠道和密钥");
+        return new LoopraModelProvider(channel.apiUrl(), channel.apiKey(), settings.model(), settings.reasoningEffort(),
+                channel.id(), channel.apiProtocol(), channel.specialCompatibility(), config.modelMaxTokens(channel.id(), settings.model()));
     }
 
     /**
@@ -105,16 +82,20 @@ public class AcpSessionManager {
     /**
      * 构建轻量级 LoopraAgent。
      */
-    private LoopraAgent buildAgent(Path workspacePath) {
-        ensureModelProvider();
-
-        LoopraAgent.Builder builder = LoopraAgent.builder();
-        builder.modelProvider(sharedModelProvider);
-        if (config != null) {
-            builder.config(config);
+    private LoopraAgent buildAgent(Path workspacePath, String name) {
+        SessionStore store = new JsonlSessionStore(ProjectRegistry.getOrCreate(workspacePath.toString()).getSessionsDir(workspacePath.toString()));
+        var saved = store.getModelSettings(name);
+        var settings = new SessionStore.SessionModelSettings(saved.model() == null ? config.model() : saved.model(),
+                saved.modelChannelId() == null ? config.modelChannelId() : saved.modelChannelId(),
+                saved.reasoningEffort() == null ? config.reasoningEffort() : saved.reasoningEffort());
+        try {
+            LoopraAgent agent = LoopraAgent.builder().modelProvider(modelProvider(settings)).sessionStore(store)
+                    .config(config).environment(SessionEnvironment.local(workspacePath)).buildLightweight();
+            agent.setReasoningEffort(settings.reasoningEffort());
+            agent.setFastMode(config.fastMode());
+            return agent;
         }
-        builder.environment(SessionEnvironment.local(workspacePath));
-        return builder.buildLightweight();
+        catch (RuntimeException error) { store.shutdown(); throw error; }
     }
 
     // ==================== 会话生命周期 ====================
@@ -131,7 +112,7 @@ public class AcpSessionManager {
      * @return 生成的 ACP sessionId
      */
     public String createSession(String cwd, String sessionName) {
-        String sessionId = sessionName != null ? sessionName : "acp-" + UUID.randomUUID().toString().substring(0, 8);
+        String sessionId = sessionName != null ? sessionName : "acp-" + UUID.randomUUID().toString();
 
         // 如果已在内存中，直接返回
         if (sessions.containsKey(sessionId)) {
@@ -140,12 +121,12 @@ public class AcpSessionManager {
         }
 
         Path workspacePath = resolveWorkspace(cwd);
-        LoopraAgent agent = buildAgent(workspacePath);
+        LoopraAgent agent = buildAgent(workspacePath, sessionId);
 
         // ★ 关键：将 ACP sessionId 绑定为 Loopra 会话名
         // 这样所有聊天消息都会以 {sessionId}.jsonl 持久化到磁盘
-        agent.getCtx().getSessionStore().bindTo(sessionId);
-        agent.setSessionId(sessionId);
+        agent.getCtx().clearHistory();
+        agent.bindSession(sessionId);
 
         sessions.put(sessionId, new SessionEntry(sessionId, agent, workspacePath));
         log.info("[acp] 创建会话: sessionId={}, workspace={}", sessionId, workspacePath);
@@ -168,14 +149,13 @@ public class AcpSessionManager {
         // 1. 检查内存缓存
         if (sessions.containsKey(sessionId)) {
             log.debug("[acp] 从内存加载会话: {}", sessionId);
-            return true;
+            return sessions.get(sessionId).workspace().toAbsolutePath().normalize().equals(resolveWorkspace(cwd).toAbsolutePath().normalize());
         }
 
         Path workspacePath = resolveWorkspace(cwd);
 
         // 2. 检查磁盘持久化文件
         try {
-            String hash = ProjectRegistry.computeProjectHash(workspacePath.toAbsolutePath().toString());
             Path sessionFile = ProjectRegistry.getOrCreate(workspacePath.toString())
                     .getSessionsDir(workspacePath.toString())
                     .resolve(sanitize(sessionId) + ".jsonl");
@@ -188,28 +168,14 @@ public class AcpSessionManager {
             log.info("[acp] 从磁盘恢复会话: sessionId={}, file={}", sessionId, sessionFile);
 
             // 3. 重建 LoopraAgent
-            LoopraAgent agent = buildAgent(workspacePath);
+            LoopraAgent agent = buildAgent(workspacePath, sessionId);
 
             // 4. 绑定会话名并加载历史
-            agent.getCtx().getSessionStore().bindTo(sessionId);
-            agent.setSessionId(sessionId);
-
-            // 5. 从 JSONL 加载历史消息并注入上下文
-            List<ChatMessage> history = agent.getCtx().getSessionStore().load(sessionId);
-            if (history != null && !history.isEmpty()) {
-                // Healing：修复可能截断的消息
-                var healResult = MessageHealer.heal(history);
-                for (ChatMessage msg : healResult.messages()) {
-                    agent.getCtx().injectHistory(msg);
-                }
-                log.info("[acp] 已恢复 {} 条历史消息", healResult.messages().size());
-            }
-
-            // 6. 恢复 token 用量
-            long[] usage = agent.getCtx().getSessionStore().loadUsage(sessionId);
-            if (usage != null && usage.length >= 4) {
-                agent.addUsage((int) usage[0], (int) usage[1], (int) usage[2], (int) usage[3]);
-            }
+            agent.getCtx().clearHistory();
+            agent.bindSession(sessionId);
+            var healed = MessageHealer.heal(agent.getCtx().getHistory());
+            agent.getCtx().clearHistory();
+            for (ChatMessage message : healed.messages()) agent.getCtx().injectHistory(message);
 
             sessions.put(sessionId, new SessionEntry(sessionId, agent, workspacePath));
             return true;
@@ -224,13 +190,20 @@ public class AcpSessionManager {
      * 处理 ACP session/prompt。
      */
     public String handlePrompt(String sessionId, String promptText, List<String> images,
-                                AcpAgentOutput output) throws IOException {
+                               AcpAgentOutput output) throws IOException {
+        return handlePrompt(sessionId, promptText, images, output, Map.of());
+    }
+
+    @Override
+    public String handlePrompt(String sessionId, String promptText, List<String> images,
+                                AcpAgentOutput output, Map<String, Object> options) throws IOException {
         SessionEntry entry = sessions.get(sessionId);
         if (entry == null) {
             throw new IllegalArgumentException("ACP 会话不存在: " + sessionId);
         }
 
         LoopraAgent agent = entry.agent();
+        if (!entry.lock().tryLock()) throw new IllegalStateException("会话正在运行");
 
         // 设置 ACP 输出适配器（流式推送 session/update 通知）
         agent.setOutput(output);
@@ -244,7 +217,9 @@ public class AcpSessionManager {
             UserMessage userMessage = UserMessage.of(promptText, images);
 
             // 执行 Agent 推理循环
-            String result = agent.chat(userMessage);
+            String result = AcpPromptExecutor.run(agent, output, () -> agent.chat(userMessage));
+
+            // 文件变更已随每个工具结果的标准 ACP diff 内容下发，不再重复发送扩展事件。
 
             // 刷入会话
             agent.flushSession();
@@ -252,7 +227,9 @@ public class AcpSessionManager {
 
             return result;
         } finally {
+            agent.setOutput(site.sorghum.loopra.tool.AgentOutput.NOOP);
             LoopraModelProvider.CURRENT_LOG_SESSION.remove();
+            entry.lock().unlock();
         }
     }
 
@@ -294,9 +271,19 @@ public class AcpSessionManager {
     }
 
     /**
-     * SessionInfo 简略信息。
+     * 供 ACP session/load 回放当前 Native 会话历史。
      */
-    public record SessionInfo(String sessionId, String cwd) {}
+    @Override
+    public List<ChatMessage> history(String sessionId) {
+        LoopraAgent agent = getAgent(sessionId);
+        return agent == null ? List.of() : List.copyOf(agent.getCtx().getHistory());
+    }
+
+    @Override
+    public boolean isCancelled(String sessionId) {
+        LoopraAgent agent = getAgent(sessionId);
+        return agent != null && agent.isAbortRequested();
+    }
 
     /**
      * 获取指定会话的 LoopraAgent。
@@ -326,7 +313,54 @@ public class AcpSessionManager {
     /**
      * 会话条目记录。
      */
-    public record SessionEntry(String sessionId, LoopraAgent agent, Path workspace) {}
+    public record SessionEntry(String sessionId, LoopraAgent agent, Path workspace, java.util.concurrent.locks.ReentrantLock lock) {
+        SessionEntry(String id, LoopraAgent agent, Path workspace) { this(id, agent, workspace, new java.util.concurrent.locks.ReentrantLock()); }
+    }
+
+    @Override public List<com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigOption> configOptions(String sessionId) {
+        LoopraAgent agent = getAgent(sessionId);
+        if (agent == null) throw new IllegalArgumentException("Session not found");
+        var values = new java.util.LinkedHashMap<>(agent.getCtx().getSessionStore().getAgentConfig(sessionId));
+        values.put("mode", agent.getHitlMode());
+        return NativeAcpConfig.options(config, new SessionStore.SessionModelSettings(agent.getModel(), agent.getModelChannelId(),
+                agent.getReasoningEffort()), values, agent.isPlanMode());
+    }
+
+    @Override public void setConfigOption(String sessionId, String id, Object value) {
+        SessionEntry entry = sessions.get(sessionId);
+        if (entry == null) throw new IllegalArgumentException("Session not found");
+        if (!entry.lock().tryLock()) throw new IllegalStateException("请等待当前回复结束后再修改 Native 配置");
+        try {
+            NativeAcpConfig.validate(configOptions(sessionId), id, value);
+            LoopraAgent agent = entry.agent();
+            SessionStore store = agent.getCtx().getSessionStore();
+            if ("model".equals(id)) {
+                var settings = NativeAcpConfig.modelSettings(config, value, agent.getReasoningEffort());
+                store.setModelSettings(sessionId, settings.model(), settings.modelChannelId(), settings.reasoningEffort());
+                if (java.util.Objects.equals(agent.getModelChannelId(), settings.modelChannelId())) {
+                    agent.setModel(settings.model()); agent.setMaxTokens(config.modelMaxTokens(settings.modelChannelId(), settings.model()));
+                } else {
+                    agent.flushSession();
+                    LoopraAgent replacement = buildAgent(entry.workspace(), sessionId);
+                    replacement.getCtx().clearHistory(); replacement.bindSession(sessionId);
+                    sessions.put(sessionId, new SessionEntry(sessionId, replacement, entry.workspace(), entry.lock()));
+                    agent.dispose();
+                }
+            } else if ("effort".equals(id)) {
+                store.setModelSettings(sessionId, agent.getModel(), agent.getModelChannelId(), (String) value);
+                agent.setReasoningEffort((String) value);
+            } else if ("plan".equals(id)) {
+                if ("off".equals(value)) agent.clearPendingPlan();
+                agent.setPlanMode("on".equals(value));
+            } else {
+                var values = new java.util.LinkedHashMap<>(store.getAgentConfig(sessionId));
+                values.put(id, (String) value); store.setAgentConfig(sessionId, values);
+                if ("mode".equals(id)) agent.setHitlMode((String) value);
+                if ("fast".equals(id)) agent.setFastMode("on".equals(value));
+            }
+        } catch (IOException e) { throw new IllegalStateException("保存 Agent 配置失败", e); }
+        finally { entry.lock().unlock(); }
+    }
 
     // ==================== 工具方法 ====================
 

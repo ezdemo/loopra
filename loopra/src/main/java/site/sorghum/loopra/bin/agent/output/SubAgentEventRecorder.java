@@ -186,6 +186,34 @@ public class SubAgentEventRecorder implements AgentOutput {
     }
 
     @Override
+    public void onToolCall(String id, String name, String args) {
+        delegate.onToolCall(id, name, args);
+        flushReasoning();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("subId", subId);
+        payload.put("subSessionId", subSessionId);
+        payload.put("toolCallId", id);
+        payload.put("name", name);
+        payload.put("args", parseJson(args));
+        payload.put("startedAt", System.currentTimeMillis());
+        record("sub_tool_call", payload);
+    }
+
+    @Override
+    public void onToolResult(String id, String name, String result, boolean failed) {
+        delegate.onToolResult(id, name, result, failed);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("subId", subId);
+        payload.put("subSessionId", subSessionId);
+        payload.put("toolCallId", id);
+        payload.put("name", name);
+        payload.put("result", result == null ? "" : result);
+        payload.put("status", failed ? "failed" : "completed");
+        payload.put("finishedAt", System.currentTimeMillis());
+        record("sub_tool_result", payload);
+    }
+
+    @Override
     public void onToolResult(String name, String result) {
         delegate.onToolResult(name, result);
         Map<String, Object> payload = new LinkedHashMap<>();

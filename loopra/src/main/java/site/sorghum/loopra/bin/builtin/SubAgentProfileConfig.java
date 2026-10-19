@@ -1,7 +1,6 @@
 package site.sorghum.loopra.bin.builtin;
 
 import org.noear.solon.ai.chat.tool.FunctionTool;
-import site.sorghum.loopra.bin.tool.ToolMetadata;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -62,30 +61,12 @@ public class SubAgentProfileConfig {
      * 显式配置了 allowedTools 时以其为准，不再叠加 readOnly 过滤。
      */
     public Set<String> allowedTools(Collection<FunctionTool> tools) {
-        if (allowedTools != null && !allowedTools.isEmpty()) {
-            return new LinkedHashSet<>(allowedTools);
-        }
-        if (!readOnly) {
-            return null;
-        }
-        Set<String> allowed = new LinkedHashSet<>();
-        if (tools != null) {
-            for (FunctionTool tool : tools) {
-                if (ToolMetadata.isReadOnly(tool)) {
-                    allowed.add(tool.name());
-                }
-            }
-        }
-        return allowed;
+        return allowedTools != null && !allowedTools.isEmpty()
+                ? new LinkedHashSet<>(allowedTools)
+                : SubAgentProfile.allowedTools(readOnly, tools);
     }
 
     public String buildSystemPrompt(String task, String extraInstructions) {
-        StringBuilder prompt = new StringBuilder(instructions)
-                .append("\n\n## 当前任务\n")
-                .append(task);
-        if (extraInstructions != null && !extraInstructions.isBlank()) {
-            prompt.append("\n\n## 补充要求\n").append(extraInstructions);
-        }
-        return prompt.toString();
+        return SubAgentProfile.buildSystemPrompt(instructions, task, extraInstructions);
     }
 }

@@ -6,20 +6,17 @@ import org.noear.snack4.ONode;
 import org.noear.snack4.Options;
 import org.noear.snack4.json.JsonWriter;
 import org.noear.solon.hotplug.PluginPackage;
+import site.sorghum.loopra.integration.JarFiles;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +43,7 @@ public final class ExtPackStore {
     private final Path extPackDirectory;
     /** 安装清单文件。 */
     private final Path manifestFile;
+    private final JarFiles jarFiles;
     /** 运行态：id → 已加载/启动的包。 */
     private final Map<String, RunningPack> running = new ConcurrentHashMap<>();
 
@@ -57,6 +55,7 @@ public final class ExtPackStore {
     /** 使用自定义目录创建仓库（测试用）。 */
     public ExtPackStore(Path extPackDirectory) {
         this.extPackDirectory = extPackDirectory;
+        this.jarFiles = new JarFiles(extPackDirectory, "拓展包");
         this.manifestFile = extPackDirectory.resolve("extpacks.json");
     }
 
@@ -312,96 +311,23 @@ public final class ExtPackStore {
     }
 
     /** 校验并规范化拓展包来源：以 .jar 结尾的 HTTP(S) 直链或本地 jar 文件路径。 */
-    private static String requireJarSource(String sourceUrl) {
-        if (sourceUrl == null || sourceUrl.isBlank()) {
-            throw new IllegalArgumentException("拓展包来源不能为空");
-        }
-        String trimmed = sourceUrl.trim();
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            String lower = trimmed.toLowerCase();
-            int query = lower.indexOf('?');
-            String pathPart = query >= 0 ? lower.substring(0, query) : lower;
-            if (!pathPart.endsWith(".jar")) {
-                throw new IllegalArgumentException("仅支持以 .jar 结尾的直链: " + trimmed);
-            }
-            return trimmed;
-        }
-        // 本地路径：校验存在且是普通文件
-        Path local = Paths.get(trimmed);
-        if (!Files.isRegularFile(local)) {
-            throw new IllegalArgumentException("本地拓展包 jar 不存在: " + trimmed);
-        }
-        if (!local.getFileName().toString().toLowerCase().endsWith(".jar")) {
-            throw new IllegalArgumentException("仅支持以 .jar 结尾的插件文件: " + trimmed);
-        }
-        return local.toAbsolutePath().toString();
+    private String requireJarSource(String sourceUrl) {
+        return jarFiles.requireSource(sourceUrl);
     }
 
     /** 从来源文件名 {id}-{version}.jar 推断 id 与版本（兼容 / 与 \ 分隔符）。 */
     static String[] inferIdAndVersion(String source) {
-        String path = source.toLowerCase();
-        int query = path.indexOf('?');
-        if (query >= 0) {
-            path = path.substring(0, query);
-        }
-        int nameStart = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-        String fileName = path.substring(nameStart + 1, path.length() - ".jar".length());
-        int split = fileName.lastIndexOf('-');
-        if (split > 0) {
-            return new String[]{fileName.substring(0, split), fileName.substring(split + 1)};
-        }
-        return new String[]{fileName, "unknown"};
+        return JarFiles.inferIdAndVersion(source);
     }
 
     /** 获取拓展包 jar 到安装目录：URL 走下载，本地路径走复制；返回本地路径。 */
     private Path acquireJar(String source, String id, String version) {
-        if (source.startsWith("http://") || source.startsWith("https://")) {
-            return download(source, id, version);
-        }
-        return copyLocalJar(Paths.get(source));
-    }
-
-    /** 复制本地 jar 到安装目录，返回本地路径。 */
-    private Path copyLocalJar(Path source) {
-        try {
-            Files.createDirectories(extPackDirectory);
-            Path target = extPackDirectory.resolve(source.getFileName().toString());
-            Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            return target;
-        } catch (IOException exception) {
-            throw new IllegalStateException("拓展包 jar 复制失败: " + source, exception);
-        }
-    }
-
-    /** 下载 jar 到安装目录，返回本地路径。 */
-    private Path download(String url, String id, String version) {
-        try {
-            site.sorghum.cutin.core.plugin.PluginPackageInfo info =
-                new site.sorghum.cutin.core.plugin.PluginPackageInfo(id, version, url);
-            return new site.sorghum.cutin.core.plugin.PluginInstaller(extPackDirectory).install(info);
-        } catch (IOException exception) {
-            throw new IllegalStateException("拓展包下载失败: " + url, exception);
-        }
+        return jarFiles.acquire(source, id, version);
     }
 
     /** 计算文件 SHA-256 摘要（十六进制小写）。 */
     static String sha256(Path file) {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 unavailable", exception);
-        }
-        try (InputStream input = Files.newInputStream(file)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) > 0) {
-                digest.update(buffer, 0, read);
-            }
-        } catch (IOException exception) {
-            throw new IllegalStateException("读取文件失败: " + file, exception);
-        }
-        return HexFormat.of().formatHex(digest.digest());
+        return JarFiles.sha256(file);
     }
 
     /** 读取清单；文件缺失或损坏时返回空清单。 */

@@ -219,6 +219,43 @@ class SharedContextStoreTest {
                 () -> workspace.writeKV(fileRoot, "key", "value", "tester"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"kv", "document", "delete", "clear"})
+    void failedMutationRestoresBothStoresAndAllowsRetry(String operation) throws Exception {
+        Path project = tempDir.resolve("rollback-" + operation);
+        workspace.writeKV(project, "shared", "original value", "tester");
+        workspace.writeDoc(project, "shared", "original document", "text/plain", "tester");
+        Path file = project.resolve(".loopra/workspace/workspace.json");
+        String persisted = Files.readString(file);
+        Files.delete(file);
+        Files.createDirectory(file);
+        // A nonempty directory at the destination makes replacement fail on every platform.
+        Files.writeString(file.resolve("blocker"), "block");
+        try {
+            assertThrows(IllegalStateException.class, () -> {
+                switch (operation) {
+                    case "kv" -> workspace.writeKV(project, "shared", "changed", "tester");
+                    case "document" -> workspace.writeDoc(project, "shared", "changed", "text/html", "tester");
+                    case "delete" -> workspace.delete(project, "shared");
+                    case "clear" -> workspace.clear(project);
+                    default -> fail("Unknown mutation");
+                }
+            });
+            assertEquals("original value", workspace.readKV(project, "shared").orElseThrow());
+            assertEquals(1, workspace.getKVBucket(project, "shared").orElseThrow().getVersion());
+            DocumentBucket document = workspace.readDoc(project, "shared").orElseThrow();
+            assertEquals("original document", document.getContent());
+            assertEquals("text/plain", document.getMimeType());
+            assertEquals(1, document.getVersion());
+        } finally {
+            Files.delete(file.resolve("blocker"));
+            Files.delete(file);
+            Files.writeString(file, persisted);
+        }
+        workspace.writeKV(project, "retry", "succeeded", "tester");
+        assertTrue(Files.readString(file).contains("succeeded"));
+    }
+
     // ==================== 读取不存在的条目 ====================
 
     @Test

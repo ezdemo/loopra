@@ -27,9 +27,25 @@ public interface LoopraPromptHost {
     PromptRegistry promptRegistry();
 
     /**
-     * 工具协作约定的动态尾部（Goal 指令、Plan Mode 指令等），
-     * 由 {@code AgentLoop} 按当前会话状态实时提供；无动态内容时返回空字符串。
+     * 声明式 system 前缀 —— 子代理自拼 system 时由宿主提供，主循环返回空串。
+     * <p>
+     * 供 {@code LoopraPromptPlugin} 识别「已有 system 是不是本宿主提供的」，
+     * 取代按提示词正文嗅探（正文一改就失效）。
+     * </p>
      */
+    default String systemPrefix() {
+        return "";
+    }
+
+    /**
+     * 工具协作约定的动态尾部（Goal 指令、Plan Mode 指令等）。
+     *
+     * @deprecated 易变状态不再进入 system —— Goal 与计划模式改由
+     *             {@code LoopraStateNoticePlugin} 以历史中的状态通知注入
+     *             （见 {@code StateNoticeRenderer}）。保留此默认方法只为兼容
+     *             未同步升级的外置插件，实现方应直接忽略它。
+     */
+    @Deprecated(since = "26.9.91", forRemoval = true)
     default String dynamicToolContractTail() {
         return "";
     }

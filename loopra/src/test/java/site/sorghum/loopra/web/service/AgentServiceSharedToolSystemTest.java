@@ -3,19 +3,27 @@ package site.sorghum.loopra.web.service;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import org.junit.jupiter.api.io.TempDir;
+import site.sorghum.cutin.core.plugin.PluginBeanManager;
 import site.sorghum.loopra.bin.agent.core.AgentLoop;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
+import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.config.ConfigService;
+import site.sorghum.loopra.bin.session.SessionStore.SessionModelSettings;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
+import site.sorghum.loopra.tool.AgentOutput;
+import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.model.SessionSettingsDTO;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -157,6 +165,156 @@ class AgentServiceSharedToolSystemTest {
         assertNull(agent.getCtx().getSessionStore().getPendingPlan(sessionName));
     }
 
+    @Test
+    void evictionAndShutdownReleaseAgentPlugins() throws Exception {
+        AgentService service = new AgentService();
+        for (String operation : new String[]{"one", "all", "shutdown"}) {
+            LoopraAgent agent = getOrCreateAgent(service, workspaceA, operation);
+            Field pluginsField = AgentLoop.class.getDeclaredField("cutinPlugins");
+            pluginsField.setAccessible(true);
+            PluginBeanManager plugins = (PluginBeanManager) pluginsField.get(loopOf(agent));
+            assertTrue(plugins.pluginStates().stream().anyMatch(state -> state.active()));
+
+            switch (operation) {
+                case "one" -> service.evictAgent(workspaceA.toString(), operation);
+                case "all" -> service.evictAllAgents();
+                default -> service.close();
+            }
+
+            assertEquals(0, service.getCacheSize());
+            assertTrue(plugins.pluginStates().stream().noneMatch(state -> state.active()), operation);
+        }
+    }
+
+    @Test
+    void factoryKeepsSelectedChannelAndIsolatedRootsWhileReusingTools() throws Exception {
+        ConfigService.updateConfig(Map.of(
+                "model", "global-model", "modelChannelId", "main", "modelChannels", List.of(
+                        Map.of("id", "main", "models", List.of("global-model")),
+                        Map.of("id", "secondary", "baseUrl", "https://secondary.test/v1",
+                                "apiKey", "test-key", "apiProtocol", "responses",
+                                "specialCompatibility", "opencode", "models", List.of(
+                                        Map.of("name", "chosen-model", "maxTokens", 4096))))));
+        SessionEnvironment environment = SessionEnvironment.isolated(workspaceA, workspaceB);
+        var tools = ToolSystemInitializer.initializePluginized(environment, null);
+        AtomicReference<SessionEnvironment> toolEnvironment = new AtomicReference<>();
+        SessionAgentFactory factory = new SessionAgentFactory(() -> null,
+                (workspace, session) -> {
+                    assertEquals(workspaceA.toString(), workspace);
+                    assertEquals("chosen-session", session);
+                    return environment;
+                }, resolved -> {
+                    toolEnvironment.set(resolved);
+                    return tools;
+                });
+
+        LoopraAgent agent = factory.create(workspaceA.toString(), "chosen-session",
+                new SessionModelSettings("chosen-model", "secondary", "low"), null, ConfigService.getConfig());
+        try {
+            assertSame(environment, agent.getEnvironment());
+            assertSame(environment, toolEnvironment.get());
+            assertSame(tools.toolRegistry(), loopOf(agent).getToolRegistry());
+            assertEquals("chosen-session", agent.getCtx().getSessionStore().currentName());
+            assertSame(AgentOutput.NOOP, agent.getOutput());
+            var provider = loopOf(agent).getModelProvider();
+            assertEquals("chosen-model", provider.getModel());
+            assertEquals("secondary", provider.getModelChannelId());
+            assertEquals("low", provider.getReasoningEffort());
+            assertEquals("https://secondary.test/v1/responses", provider.apiUrl());
+            assertEquals("opencode", provider.getSpecialCompatibility());
+            assertEquals(4096, provider.getMaxTokens());
+        } finally {
+            agent.dispose();
+        }
+    }
+
+    @Test
+    void factoryRejectsUnknownChannelBeforeCreatingWorkspaceOrTools() {
+        SessionAgentFactory factory = new SessionAgentFactory(() -> {
+            fail("commands must not be accessed");
+            return null;
+        }, (workspace, session) -> {
+            fail("workspace must not be created");
+            return null;
+        }, environment -> {
+            fail("tools must not be initialized");
+            return null;
+        });
+
+        ServiceException error = assertThrows(ServiceException.class, () -> factory.create(
+                workspaceA.toString(), "session", new SessionModelSettings("model", "missing", "low"),
+                null, ConfigService.getConfig()));
+        assertEquals(400, error.getCode());
+    }
+
+    @Test
+    void changingModelWithinAChannelKeepsTheAgentAndUpdatesItsLimits() throws Exception {
+        configureModelChannels();
+        AgentService service = new AgentService();
+        try {
+            service.updateSessionSettings(workspaceA.toString(), "switch", "first-model", "main", "low");
+            LoopraAgent original = getOrCreateAgent(service, workspaceA, "switch");
+            original.getCtx().injectHistory(ChatMessage.ofUser("keep this conversation"));
+
+            service.updateSessionSettings(workspaceA.toString(), "switch", "second-model", "main", "high");
+            LoopraAgent updated = getOrCreateAgent(service, workspaceA, "switch");
+
+            assertSame(original, updated);
+            assertEquals("second-model", updated.getModel());
+            assertEquals("high", updated.getReasoningEffort());
+            assertEquals(8192, loopOf(updated).getModelProvider().getMaxTokens());
+            assertTrue(updated.getCtx().getHistory().stream()
+                    .anyMatch(message -> "keep this conversation".equals(message.getContent())));
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
+    void failedChannelRebuildDoesNotLeaveADisposedAgentInCacheAndCanRecover() throws Exception {
+        configureModelChannels();
+        AtomicBoolean failEnvironment = new AtomicBoolean();
+        AgentService service = new AgentService() {
+            @Override
+            public boolean isSessionWorktreeMode(String workspace, String session) {
+                if (failEnvironment.get()) throw new IllegalStateException("environment unavailable");
+                return false;
+            }
+        };
+        try {
+            service.updateSessionSettings(workspaceA.toString(), "switch", "first-model", "main", "low");
+            LoopraAgent original = getOrCreateAgent(service, workspaceA, "switch");
+            original.getCtx().getSessionStore().append(ChatMessage.ofUser("persisted conversation"));
+
+            service.updateSessionSettings(workspaceA.toString(), "switch", "other-model", "secondary", "high");
+            failEnvironment.set(true);
+            InvocationTargetException error = assertThrows(InvocationTargetException.class,
+                    () -> getOrCreateAgent(service, workspaceA, "switch"));
+            assertInstanceOf(IllegalStateException.class, error.getCause());
+            assertEquals(0, service.getCacheSize());
+
+            failEnvironment.set(false);
+            LoopraAgent recovered = getOrCreateAgent(service, workspaceA, "switch");
+            assertNotSame(original, recovered);
+            assertEquals("secondary", recovered.getModelChannelId());
+            assertEquals("other-model", recovered.getModel());
+            assertTrue(recovered.getCtx().getHistory().stream()
+                    .anyMatch(message -> "persisted conversation".equals(message.getContent())));
+        } finally {
+            service.close();
+        }
+    }
+
+    private static void configureModelChannels() {
+        ConfigService.updateConfig(Map.of("model", "first-model", "modelChannelId", "main",
+                "modelChannels", List.of(
+                        Map.of("id", "main", "baseUrl", "https://main.test/v1", "models", List.of(
+                                Map.of("name", "first-model", "maxTokens", 1024),
+                                Map.of("name", "second-model", "maxTokens", 8192))),
+                        Map.of("id", "secondary", "baseUrl", "https://secondary.test/v1",
+                                "models", List.of("other-model")))));
+    }
+
     private static LoopraAgent getOrCreateAgent(AgentService service, Path workspace, String sessionName) throws Exception {
         Method keyMethod = AgentService.class.getDeclaredMethod("generateSessionKey", String.class, String.class);
         keyMethod.setAccessible(true);
@@ -173,9 +331,7 @@ class AgentServiceSharedToolSystemTest {
     }
 
     private static boolean hasPlanExecutionStarted(AgentService service, LoopraAgent agent) throws Exception {
-        Method method = AgentService.class.getDeclaredMethod("hasPlanExecutionStarted", LoopraAgent.class);
-        method.setAccessible(true);
-        return (boolean) method.invoke(service, agent);
+        return SessionTurn.hasPlanExecutionStarted(agent);
     }
 
     private static ToolSystemInitializer.ToolSystem getOrCreate(AgentService service, Path workspace) throws Exception {

@@ -5,7 +5,6 @@ import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -21,6 +20,9 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static site.sorghum.loopra.bin.util.ImageBytes.detectMimeType;
+import static site.sorghum.loopra.bin.util.ImageBytes.readLimited;
 
 /**
  * 用户消息清洗器 —— 根据模型的多模态支持情况清洗用户消息。
@@ -299,20 +301,6 @@ public class UserMessageSanitizer {
         return new ImageData(bytes, normalized, extensionForMime(normalized));
     }
 
-    private static byte[] readLimited(InputStream input) throws IOException {
-        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                if (output.size() + read > MAX_IMAGE_BYTES) {
-                    throw new IOException("图片大小超过 5 MiB 限制");
-                }
-                output.write(buffer, 0, read);
-            }
-            return output.toByteArray();
-        }
-    }
-
     private static String normalizeMimeType(String value) {
         if (value == null) return null;
         String mimeType = value.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
@@ -348,26 +336,6 @@ public class UserMessageSanitizer {
         String name = query < 0 ? value : value.substring(0, query);
         int dot = name.lastIndexOf('.');
         return dot < 0 ? "" : name.substring(dot + 1);
-    }
-
-    private static String detectMimeType(byte[] bytes) {
-        if (bytes.length >= 8 && bytes[0] == (byte) 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G'
-                && bytes[4] == '\r' && bytes[5] == '\n' && bytes[6] == 0x1a && bytes[7] == '\n') {
-            return "image/png";
-        }
-        if (bytes.length >= 3 && bytes[0] == (byte) 0xff && bytes[1] == (byte) 0xd8 && bytes[2] == (byte) 0xff) {
-            return "image/jpeg";
-        }
-        if (bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F'
-                && ((bytes[3] == '8' && bytes[4] == '7' && bytes[5] == 'a')
-                || (bytes[3] == '8' && bytes[4] == '9' && bytes[5] == 'a'))) {
-            return "image/gif";
-        }
-        if (bytes.length >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
-                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
-            return "image/webp";
-        }
-        return null;
     }
 
     private static void copyMetadata(UserMessage source, UserMessage target) {

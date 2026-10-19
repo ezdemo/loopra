@@ -1,5 +1,6 @@
 package site.sorghum.loopra.web.common;
 
+import lombok.extern.slf4j.Slf4j;
 import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.model.ModelPriceProvider;
 import site.sorghum.loopra.web.service.ModelMetaPriceProvider;
@@ -8,10 +9,11 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Token 费用计算工具 —— 纯函数，无状态，供 AgentService / DashboardService 等复用。
+ * Token 费用计算与价格选择，供会话用量和面板统计复用。
  *
  * @author Sorghum
  */
+@Slf4j
 public final class UsageCostCalculator {
 
     private UsageCostCalculator() {}
@@ -28,31 +30,53 @@ public final class UsageCostCalculator {
      */
     public static double calc(Map<String, Map<String, Double>> prices,
                               String model, long prompt, long completion, long cacheHit) {
-        if (model == null || model.isEmpty()) return 0;
+        return calculate(resolvePrice(prices, model, ModelMetaPriceProvider.getInstance()),
+                prompt, completion, cacheHit).totalCost();
+    }
 
-        // 优先从用户配置中获取价格
-        Map<String, Double> mp = null;
-        if (prices != null) {
-            mp = prices.get(model);
+    /** 显式配置（包括零价）优先；缺失或空配置才查询提供者。单个模型查询失败不阻断其他模型。 */
+    public static Map<String, Double> resolvePrice(Map<String, Map<String, Double>> prices,
+                                                   String model, ModelPriceProvider provider) {
+        if (model == null || model.isBlank()) return null;
+        Map<String, Double> configured = prices == null ? null : prices.get(model);
+        if (configured != null && !configured.isEmpty()) return configured;
+        if (provider == null) return null;
+        try {
+            return provider.getModelPrice(model);
+        } catch (RuntimeException exception) {
+            log.warn("[usage] 查询模型价格失败: {}", model, exception);
+            return null;
+        }
+    }
+
+    /** 纯计算：输入已包含缓存命中量，费用先保留精度，汇总完成后再舍入。 */
+    public static CostBreakdown calculate(Map<String, Double> price,
+                                          long prompt, long completion, long cacheHit) {
+        if (price == null || price.isEmpty()) return CostBreakdown.UNPRICED;
+        long input = Math.max(0, prompt);
+        long cached = Math.min(input, Math.max(0, cacheHit));
+        return new CostBreakdown(
+                (input - cached) / 1_000_000.0 * rate(price, "input"),
+                cached / 1_000_000.0 * rate(price, "cache"),
+                Math.max(0, completion) / 1_000_000.0 * rate(price, "output"), true);
+    }
+
+    private static double rate(Map<String, Double> price, String key) {
+        Double value = price.get(key);
+        return value != null && Double.isFinite(value) && value >= 0 ? value : 0;
+    }
+
+    public record CostBreakdown(double inputCost, double cacheCost, double outputCost, boolean hasPrice) {
+        public static final CostBreakdown UNPRICED = new CostBreakdown(0, 0, 0, false);
+
+        public double totalCost() {
+            return inputCost + cacheCost + outputCost;
         }
 
-        // 如果用户配置中没有，尝试从 ModelPriceProvider 获取
-        if (mp == null || mp.isEmpty()) {
-            ModelPriceProvider provider = ModelMetaPriceProvider.getInstance();
-            if (provider != null) {
-                mp = provider.getModelPrice(model);
-            }
+        public CostBreakdown plus(CostBreakdown other) {
+            return new CostBreakdown(inputCost + other.inputCost, cacheCost + other.cacheCost,
+                    outputCost + other.outputCost, hasPrice || other.hasPrice);
         }
-        
-        if (mp == null || mp.isEmpty()) return 0;
-
-        double inputRate = mp.getOrDefault("input", 0.0);
-        double cacheRate = mp.getOrDefault("cache", 0.0);
-        double outputRate = mp.getOrDefault("output", 0.0);
-        long nonCacheInput = Math.max(0, prompt - cacheHit);
-        return nonCacheInput / 1_000_000.0 * inputRate
-                + cacheHit / 1_000_000.0 * cacheRate
-                + completion / 1_000_000.0 * outputRate;
     }
 
     /**

@@ -11,7 +11,11 @@ import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.solon.common.LoopraSkillProvider;
 
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * Solon 工具扫描提供者 —— 统一管理工具扫描逻辑。
@@ -20,7 +24,7 @@ import java.util.*;
  * <ol>
  *   <li>Solon IoC 容器中所有 {@code AgentTool} 接口的实现 Bean</li>
  *   <li>Skill 文件系统中注册的工具（通过 {@link LoopraSkillProvider} 加载）</li>
- *   <li>Solon IoC 容器中所有 {@link SolonToTools} Bean（技能网关：MCP/LSP/OpenAPI/WebFetch 等）</li>
+ *   <li>Solon IoC 容器中所有 {@link SolonToTools} Bean（技能网关：MCP/OpenAPI/WebFetch 等）</li>
  * </ol>
  * 启动时自动安装到 {@link ToolScanUtil}，供 loopra-model 内核的工具系统使用。
  * </p>

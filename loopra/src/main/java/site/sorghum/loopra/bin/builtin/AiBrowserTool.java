@@ -1,6 +1,6 @@
 package site.sorghum.loopra.bin.builtin;
 
-import okhttp3.*;
+
 import org.noear.snack4.ONode;
 import org.noear.solon.ai.annotation.ToolMapping;
 import org.noear.solon.ai.chat.tool.AbsToolProvider;
@@ -9,13 +9,23 @@ import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Param;
 import site.sorghum.loopra.bin.browser.AiBrowserBridgeService;
-import site.sorghum.loopra.tool.*;
+import site.sorghum.loopra.tool.AgentLoopController;
+import site.sorghum.loopra.tool.AgentOutput;
+import site.sorghum.loopra.tool.ErrorCodes;
+import site.sorghum.loopra.tool.SolonToTools;
+import site.sorghum.loopra.tool.ToolContext;
 
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 /**
  * 调用 Electron AI 浏览器的本地桥接服务。
@@ -201,14 +211,7 @@ public class AiBrowserTool extends AbsToolProvider implements SolonToTools {
     }
 
     static boolean isBrowserFailure(String result) {
-        if (result == null) return false;
-        if (result.startsWith("BROWSER_UNAVAILABLE:") || result.startsWith("BROWSER_ERROR:")) return true;
-        try {
-            ONode success = ONode.ofJson(result).get("success");
-            return success != null && !success.isNull() && success.isValue() && !success.getBoolean();
-        } catch (Exception ignored) {
-            return false;
-        }
+        return AiBrowserBridgeService.isBrowserFailure(result);
     }
 
     private String failure(String code, String message) {

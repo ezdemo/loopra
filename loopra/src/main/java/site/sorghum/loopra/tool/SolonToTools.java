@@ -8,7 +8,7 @@ import java.util.Collections;
 /**
  * Solon 工具集合提供者 —— 将一组 {@link FunctionTool} 及其系统提示词贡献给工具扫描。
  * <p>
- * 内置工具与 Skill（MCP/LSP/OpenAPI/WebFetch 等）实现此接口，
+ * 内置工具与 Skill（MCP/OpenAPI/WebFetch 等）实现此接口，
  * 由上层工具扫描统一收集。
  * </p>
  *

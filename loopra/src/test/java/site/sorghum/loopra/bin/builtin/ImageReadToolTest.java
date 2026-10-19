@@ -231,7 +231,6 @@ class ImageReadToolTest {
             @Override public int toolTimeoutSec() { return 60; }
             @Override public int subAgentTimeoutSec() { return 600; }
             @Override public int maxSelfCorrectionAttempts() { return 1; }
-            @Override public boolean terminateOnNoToolCall() { return true; }
             @Override public int stormWindowSize() { return 8; }
             @Override public int stormThreshold() { return 4; }
             @Override public String validationModel() { return ""; }

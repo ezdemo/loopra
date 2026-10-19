@@ -1,3 +1,11 @@
+# Web 工作台入口更新
+
+默认 Web 页面已替换为 React + TypeScript + NextUI 工作台，代码位于 `web/`。在本目录执行 `pnpm dev`，访问 `http://127.0.0.1:3000/`；`pnpm test:web` 验证新界面，`pnpm build` 类型检查并构建 Web 与兼容入口。详细说明见 [web/README.md](web/README.md)。需要 Node.js 20.19+ 或 22.12+（建议 Node.js 22/24）。
+
+原 Vue 高级控制台保留在 `/legacy.html`，Electron 子窗口继续使用原 Vue 实现。以下原有文档描述这些兼容页面及桌面功能。
+
+---
+
 # Loopra Frontend
 
 > 智能 AI 代码助手前端界面 - 企业级设计，美观大气

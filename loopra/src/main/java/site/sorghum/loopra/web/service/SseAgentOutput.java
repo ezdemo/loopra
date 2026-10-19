@@ -4,6 +4,7 @@ import org.noear.snack4.ONode;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.ChoiceOption;
 import site.sorghum.loopra.tool.LogLevel;
+import site.sorghum.loopra.tool.TokenSpeed;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -55,6 +56,18 @@ public class SseAgentOutput implements AgentOutput {
     }
 
     @Override
+    public void onToolCall(String id, String name, String args) {
+        emitter.send("tool_call", ONode.serialize(Map.of("toolCallId", id, "name", name,
+                "args", args == null ? "{}" : args)));
+    }
+
+    @Override
+    public void onToolResult(String id, String name, String result, boolean failed) {
+        emitter.send("tool_result", ONode.serialize(Map.of("toolCallId", id, "name", name,
+                "result", result == null ? "" : result, "status", failed ? "failed" : "completed")));
+    }
+
+    @Override
     public void onToolResult(String name, String result) {
         emitter.sendToolResult(name, result);
     }
@@ -69,6 +82,11 @@ public class SseAgentOutput implements AgentOutput {
     public void onUsage(String model, int promptTokens, int completionTokens, int totalTokens,
                         int cacheHit, int cacheMiss) {
         emitter.sendUsage(promptTokens, completionTokens, totalTokens, cacheHit, cacheMiss);
+    }
+
+    @Override
+    public void onTokenSpeed(TokenSpeed speed) {
+        emitter.sendTokenSpeed(speed.completionTokens(), speed.tokensPerSecond(), speed.avgTokensPerSecond(), speed.done());
     }
 
     public void onTokenSpeed(long completionTokens, double tokensPerSecond, double avgTokensPerSecond, boolean done) {

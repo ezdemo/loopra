@@ -16,7 +16,12 @@ import site.sorghum.loopra.tool.AgentLoopController;
 import site.sorghum.loopra.tool.AgentOutput;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -255,9 +260,6 @@ public class SubAgent {
         this.subLoop = new AgentLoop(modelProvider, registry, ctx, effectiveConfig);
         this.subLoop.setHitlMode(this.hitlMode);
         AgentLoop subLoop = this.subLoop;
-        if (parentController != null) {
-            subLoop.setTerminateOnNoToolCall(parentController.terminateOnNoToolCall());
-        }
         if (abortRequested.get()) {
             subLoop.requestUserAbort();
             return;
@@ -283,6 +285,8 @@ public class SubAgent {
         if (parentController != null && parentController.isPlanMode()) {
             subLoop.setPlanMode(true);
         }
+        // 标记为子循环：状态通知渲染时据此避开 submit_plan 指引（子代理无该工具）
+        subLoop.markSubAgentLoop();
         subLoop.freezePromptPrefix();
     }
 

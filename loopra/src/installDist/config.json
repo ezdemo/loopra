@@ -8,7 +8,7 @@
   "fastMode": false,
   "lang": "ZH",
   "hitl": false,
-  "disabledTools": ["lsp"],
+  "disabledTools": [],
   "blockedPaths": [],
   "availableModels": [
     "deepseek-v4-flash",

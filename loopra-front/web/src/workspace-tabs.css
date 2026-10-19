@@ -1,0 +1,50 @@
+.workspace-center { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace-tabs { display: flex; flex: 0 0 2.5rem; min-width: 0; border-bottom: 1px solid var(--line); background: var(--surface); }
+.workspace-tabs button { display: inline-flex; align-items: center; gap: .4375rem; height: 100%; border: 0; border-radius: 0; background: transparent; color: var(--secondary); font: inherit; font-size: .75rem; white-space: nowrap; cursor: pointer; }
+.workspace-tabs button[role="tab"] { padding: 0 .875rem; }
+.workspace-tabs button[role="tab"][aria-selected="true"] { color: var(--blue); }
+.workspace-tabs button:focus-visible { outline: 1px solid var(--blue); outline-offset: -2px; }
+.workspace-chat-tab { flex-shrink: 0; position: relative; border-inline-end: 1px solid var(--line) !important; }
+.workspace-chat-tab[aria-selected="true"]::after,
+.workspace-file-tab[data-active="true"]::after { content: ''; position: absolute; inset: auto 0 -1px; height: 2px; background: var(--blue); }
+.workspace-file-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.workspace-file-tab { position: relative; display: flex; flex-shrink: 0; min-width: 0; border-inline-end: 1px solid var(--line); }
+.workspace-file-tab:hover, .workspace-file-tab[data-active="true"] { background: var(--soft); }
+.workspace-file-tab button[role="tab"] { padding-inline-end: .375rem; }
+.workspace-file-tab button[role="tab"] span { display: block; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-file-tab small { flex-shrink: 0; margin-left: .125rem; padding: 0 .3125rem; border-radius: 999px; background: var(--hover); color: var(--muted); font-size: .625rem; line-height: 1.125rem; }
+/* Sub-agent run tabs mirror file tabs; the bot icon keeps them distinguishable. */
+.workspace-subagent-tab button[role="tab"] > svg { color: var(--blue); }
+.workspace-subagent-view-body { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+/* The replay mirrors `.chat-scroll`: the same message list inside a scrolling pane. */
+.workspace-subagent-replay { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 1rem; scrollbar-width: thin; }
+.workspace-subagent-replay > .panel-empty, .workspace-subagent-replay > .settings-error { padding: .75rem 1.5rem; }
+.workspace-tabs .workspace-tab-close { align-self: center; justify-content: center; flex-shrink: 0; width: 1.375rem; height: 1.375rem; padding: 0; margin-inline-end: .375rem; border-radius: var(--radius-sm); color: var(--muted); }
+.workspace-tab-close:hover { background: var(--hover); color: var(--text); }
+.workspace-chat-view, .workspace-file-view { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.workspace-chat-view[hidden], .workspace-file-view[hidden] { display: none; }
+.workspace-file-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; flex-shrink: 0; gap: .5rem .875rem; min-height: 2.75rem; padding: .5rem 1rem; border-bottom: 1px solid var(--line); }
+.workspace-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary); font-size: .75rem; }
+.workspace-file-actions { display: flex; align-items: center; gap: .75rem; flex-shrink: 0; }
+.workspace-file-actions button { padding: .25rem .375rem; color: var(--secondary); font-size: .75rem; white-space: nowrap; }
+.workspace-file-actions button:hover { color: var(--blue); }
+.workspace-file-actions button:disabled { color: var(--muted); cursor: default; }
+.workspace-view-modes { display: inline-flex; gap: .125rem; }
+.workspace-view-modes button { border-radius: var(--radius-sm); }
+.workspace-view-modes button[aria-selected="true"] { background: var(--soft); color: var(--blue); }
+.workspace-file-refresh { display: inline-flex; align-items: center; }
+.workspace-file-body { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; }
+.workspace-file-body > .panel-empty, .workspace-file-body > .settings-error { padding: 1rem; }
+.workspace-file-body .settings-error button { margin-inline-start: .75rem; color: var(--blue); }
+/* The preview is a Monaco editor: it owns its scrollbar and measures itself, so
+   the body must not scroll it and the editor takes the remaining height. */
+.workspace-file-body.is-code { display: flex; flex-direction: column; overflow: hidden; }
+.workspace-code-editor { flex: 1 1 0; min-width: 0; min-height: 0; }
+.workspace-file-body.is-diff { display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.workspace-file-body .diff-hunk-nav { position: sticky; top: 0; z-index: 2; padding: .25rem .625rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+.workspace-file-body .unified-diff { flex: 1 1 0; min-height: 0; min-width: 0; max-height: none; overflow: auto; overscroll-behavior: contain; border: 0; border-radius: 0; scrollbar-width: thin; }
+@container main-pane (max-width: 30rem) {
+  .workspace-file-toolbar { padding-inline: .625rem; }
+  .workspace-file-path { flex-basis: 100%; }
+  .workspace-file-tab button[role="tab"] span { max-width: 8rem; }
+}

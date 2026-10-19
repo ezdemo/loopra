@@ -21,7 +21,6 @@ public record ConfigDTO(
         String apiKey,
         Map<String, Map<String, Double>> price,
         String activePet,
-        boolean terminateOnNoToolCall,
         boolean fastMode,
         List<ModelChannelConfig> modelChannels,
         boolean modelChannelsConfigured,

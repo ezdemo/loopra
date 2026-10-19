@@ -113,7 +113,7 @@ window.LOOPRA_I18N_EN = {
   'arch.b3': 'Front & Desktop',
   'arch.b4': 'Docs',
   'arch.p1': 'Default loop engine, model gateway/providers, interceptors, hooks, tool registry, plugin packaging and lifecycle — the extension host for the whole Loopra feature set.',
-  'arch.p2': 'LoopraAgent facade, built-in tools, Goal/Checklist/workspace/commands/session/config, MCP/LSP/OpenAPI/Skill bridges, scheduled tasks, ACP support and Solon web endpoints.',
+  'arch.p2': 'LoopraAgent facade, built-in tools, Goal/Checklist/workspace/commands/session/config, MCP/OpenAPI/Skill bridges, scheduled tasks, ACP support and Solon web endpoints.',
   'arch.p3': 'Vue frontend and Electron Desktop.',
   'arch.p4': 'Website content and project docs, maintained alongside the repository.',
   'arch.dep': 'cutin-core\n   ↑\nloopra   (LoopraAgent / built-in tools / Goal / workspace / MCP / Skill / ACP / Web)',

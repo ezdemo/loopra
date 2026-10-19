@@ -71,6 +71,34 @@ class SessionFileChangeTrackerTest {
         assertEquals(2, changes.get(0).deletions());
     }
 
+    @Test
+    void groupsChangesByToolCallAndKeepsCreationForNewFiles() {
+        SessionFileChangeTracker.beginTurn(workspace, "session-a");
+        SessionFileChangeTracker.bind(workspace, "session-a");
+        try {
+            SessionFileChangeTracker.beginTool();
+            SessionFileChangeTracker.record("src/New.java", "", "one\n", true);
+            SessionFileChangeTracker.record("src/New.java", "one\n", "one\ntwo\n", false);
+            SessionFileChangeTracker.record("src/Other.java", "old\n", "new\n", false);
+            List<SessionFileChangeTracker.ToolChange> first = SessionFileChangeTracker.endTool();
+
+            SessionFileChangeTracker.beginTool();
+            SessionFileChangeTracker.record("src/New.java", "one\ntwo\n", "one\n", false);
+            List<SessionFileChangeTracker.ToolChange> second = SessionFileChangeTracker.endTool();
+
+            assertEquals(List.of(
+                    new SessionFileChangeTracker.ToolChange("src/New.java", "", "one\ntwo\n", true),
+                    new SessionFileChangeTracker.ToolChange("src/Other.java", "old\n", "new\n", false)), first);
+            assertEquals(List.of(
+                    new SessionFileChangeTracker.ToolChange("src/New.java", "one\ntwo\n", "one\n", false)), second);
+        } finally {
+            SessionFileChangeTracker.clearBinding();
+        }
+        // Session-level tracking stays independent and still sees the net change of the turn.
+        List<FileChange> changes = SessionFileChangeTracker.drain(workspace, "session-a");
+        assertEquals(2, changes.size());
+    }
+
     private static String largeFile(Integer firstChange, Integer secondChange) {
         StringBuilder content = new StringBuilder();
         for (int index = 0; index < 2100; index++) {

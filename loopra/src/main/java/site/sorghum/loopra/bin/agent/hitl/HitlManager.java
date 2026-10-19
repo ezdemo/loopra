@@ -5,11 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.noear.snack4.ONode;
 import site.sorghum.loopra.bin.agent.model.HitlState;
 import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
-import site.sorghum.loopra.bin.agent.spi.AgentConfig;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.tool.ChoiceOption;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -18,16 +16,16 @@ import java.util.List;
  * <p>
  * 管理两种 HITL 模式：
  * <ul>
- *   <li><b>普通 HITL</b>（受 {@code hitlMode} 开关控制）：非只读工具执行前需用户审批</li>
- *   <li><b>沙箱越界 HITL</b>（强制审批）：文件访问越界时强制用户审批，不受 {@code hitlMode} 影响</li>
+ *   <li><b>普通 HITL</b>（受 {@code hitlMode} 开关控制）：已授权工作区操作放行，其余按需审批</li>
+ *   <li><b>沙箱越界 HITL</b>：在两种审批模式下，文件访问越界时需要用户确认</li>
  * </ul>
  * </p>
  *
  * <h3>HITL 模式</h3>
  * <ul>
  *   <li>{@link #MODE_FREE free} — 自由模式，所有工具直接执行，无需审批</li>
- *   <li>{@link #MODE_APPROVAL approval} — 审批模式，非只读工具执行前需用户审批</li>
- *   <li>{@link #MODE_AUTO auto} — 自动模式，基于白名单自动过滤（匹配白名单的工具自动放行，否则需审批）</li>
+ *   <li>{@link #MODE_APPROVAL approval} — 按需审批，普通工作区读写自动放行</li>
+ *   <li>{@link #MODE_AUTO auto} — 自动审批，在按需审批规则之后追加 AI 审核</li>
  * </ul>
  *
  * @author Sorghum
@@ -39,9 +37,9 @@ public class HitlManager {
 
     /** 自由模式：所有工具直接执行，无需审批 */
     public static final String MODE_FREE = "free";
-    /** 审批模式：非只读工具执行前需用户审批 */
+    /** 按需审批：普通工作区读写自动放行，越界及无法确认范围的操作需审批 */
     public static final String MODE_APPROVAL = "approval";
-    /** 自动模式：基于白名单自动过滤（匹配白名单的工具自动放行，否则需审批） */
+    /** 自动审批：按需审批规则 + AI 审核，不通过或异常时转人工 */
     public static final String MODE_AUTO = "auto";
 
     /** 所有模式的列表（用于 toggle 循环） */
@@ -51,20 +49,6 @@ public class HitlManager {
 
     /** HITL 模式（free / approval / auto） */
     private volatile String hitlMode = MODE_FREE;
-
-    /** 配置视图（提供 auto 模式白名单）；可为 null，此时白名单为空。 */
-    private volatile AgentConfig config;
-
-    /**
-     * 注入配置视图（由 AgentLoop 构造后设置），用于 auto 模式读取白名单。
-     */
-    public void setConfig(AgentConfig config) {
-        this.config = config;
-    }
-
-    private List<String> currentAutoWhitelist() {
-        return config == null ? List.of() : config.autoWhitelist();
-    }
 
     /** HITL 当前审批状态 */
     private volatile HitlState hitlState = HitlState.NONE;
@@ -82,7 +66,7 @@ public class HitlManager {
     @Getter
     private volatile List<ToolCallEntry> pendingHITTcList;
 
-    // ==================== 沙箱越界 HITL（强制审批，不受 hitlMode 影响） ====================
+    // ==================== 沙箱越界 HITL（两种审批模式下强制确认） ====================
 
     /** 沙箱越界 HITL 暂存：完整的工具调用 ONode（供重放） */
     private volatile ONode pendingSandboxHITToolCalls;
@@ -199,75 +183,17 @@ public class HitlManager {
     // ==================== 普通 HITL 拦截 ====================
 
     /**
-     * 免审批的纯交互/控制流工具名称集合。
-     * 这些工具不修改文件系统，仅用于对话控制和用户交互，
-     * 在 HITL 模式下直接放行，无需用户审批。
-     */
-    private static final java.util.Set<String> HITL_EXEMPT_TOOLS = java.util.Set.of("finish", "ask_choice", "browser_request_user_action");
-
-    /**
-     * 判断工具调用列表是否全部为免审批工具。
-     */
-    private static boolean allToolsExempt(List<ToolCallEntry> tcList) {
-        return !tcList.isEmpty() && tcList.stream()
-                .allMatch(tc -> HITL_EXEMPT_TOOLS.contains(tc.name()));
-    }
-
-    /**
-     * 判断本轮工具调用是否原本需要进入人工审批。
-     * 校验模型启用时复用此判定，让 AI 只替代人工审批环节。
-     */
-    public boolean requiresHITL(ONode toolCalls) {
-        List<String> whitelist = MODE_AUTO.equals(hitlMode)
-                ? currentAutoWhitelist()
-                : List.of();
-        return requiresHITL(toolCalls, whitelist);
-    }
-
-    boolean requiresHITL(ONode toolCalls, List<String> autoWhitelist) {
-        return requiresHITL(parseToolCalls(toolCalls), autoWhitelist);
-    }
-
-    private boolean requiresHITL(List<ToolCallEntry> tcList, List<String> autoWhitelist) {
-        if (allToolsExempt(tcList) || MODE_FREE.equals(hitlMode)) return false;
-        if (MODE_AUTO.equals(hitlMode)) {
-            return tcList.stream().anyMatch(tc -> !matchesWhitelist(tc.name(), autoWhitelist));
-        }
-        return true;
-    }
-
-    /**
-     * HITL 拦截：根据当前模式决定是否暂存工具调用等待用户审批。
-     * <ul>
-     *   <li>自由模式 ({@link #MODE_FREE})：直接放行，返回 {@code null}</li>
-     *   <li>自动模式 ({@link #MODE_AUTO})：白名单匹配时自动放行，不匹配时降级为审批</li>
-     *   <li>审批模式 ({@link #MODE_APPROVAL})：暂存并等待用户审批</li>
-     * </ul>
-     * <p>如果本轮工具调用全部为免审批工具（finish/ask_choice），直接放行返回 {@code null}。</p>
-     *
-     * @param toolCalls       工具调用 ONode 数组
-     * @param content         assistant 消息的 content
-     * @param reasoningContent assistant 消息的 reasoning_content
-     * @param output          输出接口（用于发送审批提示）
-     * @return 审批提示文本，直接放行时返回 {@code null}
+     * 兼容旧入口。此方法仅发起人工交互，是否需要人工审批由统一审核链决定。
      */
     public String interceptForHITL(ONode toolCalls, String content, String reasoningContent,
                                    AgentOutput output) {
+        return requestApproval(toolCalls, content, reasoningContent, output, null);
+    }
+
+    /** 保存待执行批次并展示人工选项，不重新运行审核规则。 */
+    public String requestApproval(ONode toolCalls, String content, String reasoningContent,
+                                  AgentOutput output, String reviewReason) {
         List<ToolCallEntry> tcList = parseToolCalls(toolCalls);
-
-        List<String> whitelist = MODE_AUTO.equals(hitlMode)
-                ? currentAutoWhitelist()
-                : List.of();
-        if (!requiresHITL(tcList, whitelist)) {
-            return null;
-        }
-
-        if (MODE_AUTO.equals(hitlMode)) {
-            List<String> rejected = tcList.stream()
-                    .filter(tc -> !matchesWhitelist(tc.name(), whitelist))
-                    .map(ToolCallEntry::name).toList();
-            log.debug("[hitl] 自动模式：白名单不匹配，需审批: {}", rejected);
-        }
 
         // ---- 审批模式：暂存状态，等待用户审批 ----
         this.pendingHITLToolCalls = toolCalls;
@@ -295,6 +221,9 @@ public class HitlManager {
         }
         String title = titleSb.toString();
         String description = !descSb.isEmpty() ? descSb.toString() : null;
+        if (reviewReason != null && !reviewReason.isBlank()) {
+            description = (description == null ? "" : description + "\n\n") + "审核原因: " + reviewReason;
+        }
 
         // 发送审批选项（工具信息通过 title/description 传递，不再发 HITL 文本）
         try {
@@ -324,6 +253,9 @@ public class HitlManager {
                 sb.append(" ").append(display);
             }
             sb.append("\n");
+        }
+        if (reviewReason != null && !reviewReason.isBlank()) {
+            sb.append("\n审核原因: ").append(reviewReason).append("\n");
         }
         sb.append("\n请选择：");
         return sb.toString();
@@ -411,81 +343,13 @@ public class HitlManager {
         this.hitlState = HitlState.PENDING;
     }
 
-    // ==================== 白名单匹配 ====================
-
-    /**
-     * 判断工具名称是否匹配白名单中的任一规则。
-     * <p>
-     * 支持 glob 通配符 {@code *}，匹配任意字符序列（包括空串）。
-     * 例如：
-     * <ul>
-     *   <li>{@code "*"} 匹配所有工具</li>
-     *   <li>{@code "read_*"} 匹配以 "read_" 开头的工具</li>
-     *   <li>{@code "workspace_*"} 匹配以 "workspace_" 开头的工具</li>
-     *   <li>{@code "finish"} 精确匹配 "finish"</li>
-     * </ul>
-     *
-     * @param toolName  工具名称
-     * @param whitelist 白名单规则列表
-     * @return 匹配任一规则返回 true
-     */
-    static boolean matchesWhitelist(String toolName, List<String> whitelist) {
-        if (toolName == null || whitelist == null || whitelist.isEmpty()) return false;
-        for (String pattern : whitelist) {
-            if (globMatch(pattern, toolName)) return true;
-        }
-        return false;
-    }
-
-    /**
-     * 简单 glob 匹配 —— 仅支持 {@code *} 通配符。
-     * {@code *} 匹配任意字符序列（包括空串），其余字符逐字匹配。
-     */
-    private static boolean globMatch(String pattern, String text) {
-        if (pattern == null || text == null) return false;
-        if ("*".equals(pattern)) return true;
-
-        int pIdx = 0, tIdx = 0;
-        int starIdx = -1, matchIdx = -1;
-
-        while (tIdx < text.length()) {
-            if (pIdx < pattern.length() && (pattern.charAt(pIdx) == text.charAt(tIdx) || pattern.charAt(pIdx) == '?')) {
-                pIdx++;
-                tIdx++;
-            } else if (pIdx < pattern.length() && pattern.charAt(pIdx) == '*') {
-                starIdx = pIdx++;
-                matchIdx = tIdx;
-            } else if (starIdx >= 0) {
-                pIdx = starIdx + 1;
-                matchIdx++;
-                tIdx = matchIdx;
-            } else {
-                return false;
-            }
-        }
-        while (pIdx < pattern.length() && pattern.charAt(pIdx) == '*') pIdx++;
-        return pIdx == pattern.length();
-    }
-
     // ==================== 内部方法 ====================
 
     /**
      * 解析 ONode 工具调用为 ToolCallEntry 列表。
      */
     private static List<ToolCallEntry> parseToolCalls(ONode toolCalls) {
-        List<ToolCallEntry> tcList = new ArrayList<>();
-        if (toolCalls == null || !toolCalls.isArray()) return tcList;
-        for (ONode tc : toolCalls.getArray()) {
-            String tcId = tc.get("id").getString();
-            ONode func = tc.get("function");
-            String tcName = func.get("name").getString();
-            if (tcName == null || tcName.isEmpty()) continue;
-            String tcArgs = func.get("arguments").getString();
-            if (tcArgs == null) tcArgs = "{}";
-            String responseReasoning = tc.get("response_reasoning").getString();
-            tcList.add(new ToolCallEntry(tcId, tcName, tcArgs, responseReasoning));
-        }
-        return tcList;
+        return ToolCallEntry.fromToolCalls(toolCalls);
     }
 
     // ==================== 内部数据类 ====================

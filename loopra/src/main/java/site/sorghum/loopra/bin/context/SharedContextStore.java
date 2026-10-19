@@ -6,8 +6,16 @@ import org.noear.solon.annotation.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -49,13 +57,9 @@ public class SharedContextStore {
         Objects.requireNonNull(value, "value must not be null");
         Objects.requireNonNull(creator, "creator must not be null");
 
-        Path root = normalizeRoot(projectRoot);
-        Store store = storeFor(root);
-        store.lock.writeLock().lock();
-        StoreSnapshot snapshot = snapshot(store);
-        try {
+        mutate(projectRoot, store -> {
             if (store.kvStore.size() >= maxEntries && !store.kvStore.containsKey(key)) {
-                evictOne(store);
+                evictOne(store.kvStore, KVBucket::getCreatedAt, "KV");
             }
 
             KVBucket existing = store.kvStore.get(key);
@@ -75,13 +79,8 @@ public class SharedContextStore {
                         .build());
                 log.debug("Created KV entry: key={}, version=1", key);
             }
-            if (!persist(root, store)) {
-                restore(store, snapshot);
-                throw new IllegalStateException("Failed to persist shared context: " + storeFile(root));
-            }
-        } finally {
-            store.lock.writeLock().unlock();
-        }
+            return true;
+        });
     }
 
     public Optional<String> readKV(String key) {
@@ -97,25 +96,7 @@ public class SharedContextStore {
     }
 
     public Optional<KVBucket> getKVBucket(Path projectRoot, String key) {
-        Objects.requireNonNull(key, "key must not be null");
-        Path root = normalizeRoot(projectRoot);
-        Store store = storeFor(root);
-        store.lock.writeLock().lock();
-        try {
-            KVBucket bucket = store.kvStore.get(key);
-            if (bucket == null) {
-                return Optional.empty();
-            }
-            if (bucket.isExpired()) {
-                store.kvStore.remove(key);
-                persist(root, store);
-                log.debug("Removed expired KV entry: key={}", key);
-                return Optional.empty();
-            }
-            return Optional.of(bucket);
-        } finally {
-            store.lock.writeLock().unlock();
-        }
+        return readBucket(projectRoot, key, store -> store.kvStore, KVBucket::isExpired, "KV");
     }
 
     public void writeDoc(String key, String content, String mimeType, String creator) {
@@ -128,13 +109,9 @@ public class SharedContextStore {
         Objects.requireNonNull(mimeType, "mimeType must not be null");
         Objects.requireNonNull(creator, "creator must not be null");
 
-        Path root = normalizeRoot(projectRoot);
-        Store store = storeFor(root);
-        store.lock.writeLock().lock();
-        StoreSnapshot snapshot = snapshot(store);
-        try {
+        mutate(projectRoot, store -> {
             if (store.docStore.size() >= maxEntries && !store.docStore.containsKey(key)) {
-                evictOneDoc(store);
+                evictOne(store.docStore, DocumentBucket::getCreatedAt, "document");
             }
 
             DocumentBucket existing = store.docStore.get(key);
@@ -156,13 +133,8 @@ public class SharedContextStore {
                         .build());
                 log.debug("Created document entry: key={}, version=1", key);
             }
-            if (!persist(root, store)) {
-                restore(store, snapshot);
-                throw new IllegalStateException("Failed to persist shared context: " + storeFile(root));
-            }
-        } finally {
-            store.lock.writeLock().unlock();
-        }
+            return true;
+        });
     }
 
     public Optional<DocumentBucket> readDoc(String key) {
@@ -170,25 +142,7 @@ public class SharedContextStore {
     }
 
     public Optional<DocumentBucket> readDoc(Path projectRoot, String key) {
-        Objects.requireNonNull(key, "key must not be null");
-        Path root = normalizeRoot(projectRoot);
-        Store store = storeFor(root);
-        store.lock.writeLock().lock();
-        try {
-            DocumentBucket bucket = store.docStore.get(key);
-            if (bucket == null) {
-                return Optional.empty();
-            }
-            if (bucket.isExpired()) {
-                store.docStore.remove(key);
-                persist(root, store);
-                log.debug("Removed expired document entry: key={}", key);
-                return Optional.empty();
-            }
-            return Optional.of(bucket);
-        } finally {
-            store.lock.writeLock().unlock();
-        }
+        return readBucket(projectRoot, key, store -> store.docStore, DocumentBucket::isExpired, "document");
     }
 
     public void delete(String key) {
@@ -197,23 +151,11 @@ public class SharedContextStore {
 
     public void delete(Path projectRoot, String key) {
         Objects.requireNonNull(key, "key must not be null");
-        Path root = normalizeRoot(projectRoot);
-        Store store = storeFor(root);
-        store.lock.writeLock().lock();
-        StoreSnapshot snapshot = snapshot(store);
-        try {
-            boolean removed = store.kvStore.remove(key) != null;
-            removed |= store.docStore.remove(key) != null;
-            if (removed) {
-                if (!persist(root, store)) {
-                    restore(store, snapshot);
-                    throw new IllegalStateException("Failed to persist shared context: " + storeFile(root));
-                }
-                log.debug("Deleted entry: key={}", key);
-            }
-        } finally {
-            store.lock.writeLock().unlock();
-        }
+        boolean removed = mutate(projectRoot, store -> {
+            boolean changed = store.kvStore.remove(key) != null;
+            return (store.docStore.remove(key) != null) | changed;
+        });
+        if (removed) log.debug("Deleted entry: key={}", key);
     }
 
     public Set<String> listKeys(String prefix) {
@@ -252,21 +194,12 @@ public class SharedContextStore {
     }
 
     public void clear(Path projectRoot) {
-        Path root = normalizeRoot(projectRoot);
-        Store store = storeFor(root);
-        store.lock.writeLock().lock();
-        StoreSnapshot snapshot = snapshot(store);
-        try {
+        mutate(projectRoot, store -> {
             store.kvStore.clear();
             store.docStore.clear();
-            if (!persist(root, store)) {
-                restore(store, snapshot);
-                throw new IllegalStateException("Failed to persist shared context: " + storeFile(root));
-            }
-            log.debug("Cleared all shared context data");
-        } finally {
-            store.lock.writeLock().unlock();
-        }
+            return true;
+        });
+        log.debug("Cleared all shared context data");
     }
 
     public int size() {
@@ -275,6 +208,47 @@ public class SharedContextStore {
 
     public int size(Path projectRoot) {
         return listKeys(projectRoot, "").size();
+    }
+
+    /** Apply a write under the project lock; failed persistence restores the previous snapshot. */
+    private boolean mutate(Path projectRoot, java.util.function.Function<Store, Boolean> edit) {
+        Path root = normalizeRoot(projectRoot);
+        Store store = storeFor(root);
+        store.lock.writeLock().lock();
+        try {
+            StoreSnapshot before = snapshot(store);
+            boolean changed = edit.apply(store);
+            if (changed && !persist(root, store)) {
+                restore(store, before);
+                throw new IllegalStateException("Failed to persist shared context: " + storeFile(root));
+            }
+            return changed;
+        } finally {
+            store.lock.writeLock().unlock();
+        }
+    }
+
+    private <T> Optional<T> readBucket(Path projectRoot, String key,
+            java.util.function.Function<Store, Map<String, T>> entries,
+            java.util.function.Predicate<T> expired, String label) {
+        Objects.requireNonNull(key, "key must not be null");
+        Path root = normalizeRoot(projectRoot);
+        Store store = storeFor(root);
+        store.lock.writeLock().lock();
+        try {
+            Map<String, T> buckets = entries.apply(store);
+            T bucket = buckets.get(key);
+            if (bucket == null) return Optional.empty();
+            if (expired.test(bucket)) {
+                buckets.remove(key);
+                persist(root, store);
+                log.debug("Removed expired {} entry: key={}", label, key);
+                return Optional.empty();
+            }
+            return Optional.of(bucket);
+        } finally {
+            store.lock.writeLock().unlock();
+        }
     }
 
     private Store storeFor(Path root) {
@@ -487,11 +461,11 @@ public class SharedContextStore {
     private record StoreSnapshot(Map<String, KVBucket> kvStore, Map<String, DocumentBucket> docStore) {
     }
 
-    private void evictOne(Store store) {
+    private <T> void evictOne(Map<String, T> entries, java.util.function.ToLongFunction<T> createdAtOf, String label) {
         String oldestKey = null;
         long oldestTime = Long.MAX_VALUE;
-        for (Map.Entry<String, KVBucket> entry : store.kvStore.entrySet()) {
-            long createdAt = entry.getValue().getCreatedAt();
+        for (Map.Entry<String, T> entry : entries.entrySet()) {
+            long createdAt = createdAtOf.applyAsLong(entry.getValue());
             if (createdAt < oldestTime || (createdAt == oldestTime && oldestKey != null
                     && entry.getKey().compareTo(oldestKey) < 0)) {
                 oldestTime = createdAt;
@@ -499,25 +473,8 @@ public class SharedContextStore {
             }
         }
         if (oldestKey != null) {
-            store.kvStore.remove(oldestKey);
-            log.info("Evicted oldest KV entry: key={}, createdAt={}", oldestKey, oldestTime);
-        }
-    }
-
-    private void evictOneDoc(Store store) {
-        String oldestKey = null;
-        long oldestTime = Long.MAX_VALUE;
-        for (Map.Entry<String, DocumentBucket> entry : store.docStore.entrySet()) {
-            long createdAt = entry.getValue().getCreatedAt();
-            if (createdAt < oldestTime || (createdAt == oldestTime && oldestKey != null
-                    && entry.getKey().compareTo(oldestKey) < 0)) {
-                oldestTime = createdAt;
-                oldestKey = entry.getKey();
-            }
-        }
-        if (oldestKey != null) {
-            store.docStore.remove(oldestKey);
-            log.info("Evicted oldest document entry: key={}, createdAt={}", oldestKey, oldestTime);
+            entries.remove(oldestKey);
+            log.info("Evicted oldest {} entry: key={}, createdAt={}", label, oldestKey, oldestTime);
         }
     }
 

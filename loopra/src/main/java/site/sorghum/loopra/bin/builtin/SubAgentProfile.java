@@ -71,28 +71,11 @@ public enum SubAgentProfile {
     }
 
     public Set<String> allowedTools(Collection<FunctionTool> tools) {
-        if (!readOnly) {
-            return null;
-        }
-        Set<String> allowed = new LinkedHashSet<>();
-        if (tools != null) {
-            for (FunctionTool tool : tools) {
-                if (ToolMetadata.isReadOnly(tool)) {
-                    allowed.add(tool.name());
-                }
-            }
-        }
-        return allowed;
+        return allowedTools(readOnly, tools);
     }
 
     public String buildSystemPrompt(String task, String extraInstructions) {
-        StringBuilder prompt = new StringBuilder(instructions)
-                .append("\n\n## 当前任务\n")
-                .append(task);
-        if (extraInstructions != null && !extraInstructions.isBlank()) {
-            prompt.append("\n\n## 补充要求\n").append(extraInstructions);
-        }
-        return prompt.toString();
+        return buildSystemPrompt(instructions, task, extraInstructions);
     }
 
     public static SubAgentProfile from(String value) {
@@ -106,5 +89,24 @@ public enum SubAgentProfile {
         }
         throw new IllegalArgumentException("未知子代理角色: " + value
                 + "。可用角色: explore, implement, test, review, plan");
+    }
+
+    static Set<String> allowedTools(boolean readOnly, Collection<FunctionTool> tools) {
+        if (!readOnly) return null;
+        Set<String> allowed = new LinkedHashSet<>();
+        if (tools != null) {
+            for (FunctionTool tool : tools) {
+                if (ToolMetadata.isReadOnly(tool)) allowed.add(tool.name());
+            }
+        }
+        return allowed;
+    }
+
+    static String buildSystemPrompt(String instructions, String task, String extraInstructions) {
+        StringBuilder prompt = new StringBuilder(instructions).append("\n\n## 当前任务\n").append(task);
+        if (extraInstructions != null && !extraInstructions.isBlank()) {
+            prompt.append("\n\n## 补充要求\n").append(extraInstructions);
+        }
+        return prompt.toString();
     }
 }

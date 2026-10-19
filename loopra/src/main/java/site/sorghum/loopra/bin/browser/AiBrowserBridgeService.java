@@ -1,5 +1,6 @@
 package site.sorghum.loopra.bin.browser;
 
+import org.noear.snack4.ONode;
 import org.noear.solon.annotation.Component;
 
 import java.net.URI;
@@ -42,5 +43,15 @@ public class AiBrowserBridgeService {
         }
         address = "http://" + host + ":" + uri.getPort();
         return address;
+    }
+    public static boolean isBrowserFailure(String result) {
+        if (result == null) return false;
+        if (result.startsWith("BROWSER_UNAVAILABLE:") || result.startsWith("BROWSER_ERROR:")) return true;
+        try {
+            ONode success = ONode.ofJson(result).get("success");
+            return success != null && !success.isNull() && success.isValue() && !success.getBoolean();
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 }
