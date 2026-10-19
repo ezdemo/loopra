@@ -62,7 +62,7 @@ Web 默认使用 React + NextUI 工作台，包含聊天、模型与输入栏、
 
 > 建议手动运行下面命令再安装桌面端
 
-桌面端下载地址：[Releases](https://github.com/ezdemo/loopra/releases/latest)。
+桌面端下载地址：[Releases](https://github.com/ezdemo/loopra-release/releases/latest)。
 
 Desktop 首次启动会安装独立运行时到 `~/.loopra-gui`；CLI 仍安装在 `~/.loopra`，两者共用配置目录但不会复用或终止对方的服务进程。Desktop 启动时优先复用本机 `4567` 端口上的健康 Loopra Web 服务，并展示启动窗口（核心服务与依赖管理）；安装包内置核心运行时（`resources/loopra-core`），首次安装优先使用内置包本地安装（无网络也可完成；Java 优先复用系统 Java 17+ 或已有捆绑 JRE，缺失时安装脚本自动下载 JRE 25，也可在启动窗口中选择镜像安装/重装 JRE 25），内置包缺失或本地安装失败时自动回退到在线下载源（GitHub 直连或镜像加速）。下载源支持 GitHub 直连与镜像列表（自动测速并按延迟排序、可一键重测，选中的镜像同时用于 JRE 下载与更新脚本）；更新入口复用启动窗口，可直接更新核心服务与桌面端，也可以暂不更新继续使用。
 
@@ -71,13 +71,13 @@ Desktop 首次启动会安装独立运行时到 `~/.loopra-gui`；CLI 仍安装�
 Windows PowerShell：
 
 ```powershell
-irm https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup.ps1 | iex
+irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
 ```
 
 macOS / Linux：
 
 ```bash
-curl -fsSL https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
 ```
 
 国内网络可选用 Github 镜像脚本（脚本与安装包仍从 Github 下载，速度更快）：
@@ -85,13 +85,13 @@ curl -fsSL https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setu
 Windows PowerShell：
 
 ```powershell
-irm https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup-mirror.ps1 | iex
+irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-mirror.ps1 | iex
 ```
 
 macOS / Linux：
 
 ```bash
-curl -fsSL https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup-mirror.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-mirror.sh | bash
 ```
 
 所有安装脚本（`setup.ps1` / `setup.sh` 及其 `-mirror`、`-gui` 变体）都支持通过 `LOOPRA_MIRROR` 环境变量指定具体镜像（镜像列表可在桌面端下载源选择中自动测速排序后挑选）：
@@ -99,13 +99,13 @@ curl -fsSL https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setu
 Windows PowerShell：
 
 ```powershell
-$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup.ps1 | iex
+$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
 ```
 
 macOS / Linux：
 
 ```bash
-export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup.sh | bash
+export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
 ```
 
 未设置 `LOOPRA_MIRROR` 时：直连脚本走 GitHub 官方源，镜像脚本（`-mirror` 变体）默认使用 `gh-proxy.org`。
@@ -362,10 +362,11 @@ loopra/
 ├── loopra-front/    # Vue 前端与 Electron Desktop
 ├── intro/           # 官网内容
 ├── docs/            # 项目文档
-├── .release/        # 安装与发布脚本
-├── .workflow/       # 旧版 CI 流水线配置（已迁移至 GitHub Actions）
-└── .github/         # GitHub Actions 构建与发布流水线
+├── .workflow/       # 后端检查脚本与 Maven 配置
+└── .github/         # GitHub Actions 源码测试
 ```
+
+安装与发版工作流已迁至 [loopra-release](https://github.com/ezdemo/loopra-release)，固定从本仓库 `main` 取源码构建。操作与迁移配置见 [发版说明](docs/release.md)。
 
 ### 模块依赖关系
 

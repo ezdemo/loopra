@@ -34,8 +34,8 @@ export function saveUpdateSource(source) {
   } catch { /* localStorage 不可用时忽略 */ }
 }
 
-// 脚本发布前缀（脚本本体从 Gitee raw 拉取，脚本内部再从对应源下载安装包）
-const SCRIPT_BASE = 'https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release'
+// 脚本发布前缀（脚本本体从独立发版仓库 raw 拉取，脚本内部再从对应源下载安装包）
+const SCRIPT_BASE = 'https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release'
 
 // 生成更新脚本文件名，例如：setup.ps1 / setup-mirror.sh / setup-gui.ps1 / setup-gui-mirror.sh
 export function updateScriptName(source, isElectron, ext) {
@@ -50,12 +50,13 @@ export function buildUpdateCommand(source, isElectron) {
   const windowsScript = updateScriptName(source, isElectron, 'ps1')
   const unixScript = updateScriptName(source, isElectron, 'sh')
   const mirrorUrl = isMirrorSource(source) && source !== UPDATE_SOURCE_MIRROR ? source.replace(/\/+$/, '') : ''
+  const scriptBase = isMirrorSource(source) ? `${mirrorUrl || 'https://gh-proxy.org'}/${SCRIPT_BASE}` : SCRIPT_BASE
   const envWin = mirrorUrl ? `$env:LOOPRA_MIRROR='${mirrorUrl}'; ` : ''
   const envUnix = mirrorUrl ? `export LOOPRA_MIRROR='${mirrorUrl}'; ` : ''
   return {
-    windows: `${envWin}irm ${SCRIPT_BASE}/${windowsScript} | iex`,
+    windows: `${envWin}irm ${scriptBase}/${windowsScript} | iex`,
     windowsLabel: `${envWin ? '$env:LOOPRA_MIRROR=…; ' : ''}irm ...${windowsScript} | iex`,
-    unix: `${envUnix}curl -fsSL ${SCRIPT_BASE}/${unixScript} | bash`,
+    unix: `${envUnix}curl -fsSL ${scriptBase}/${unixScript} | bash`,
     unixLabel: `${envUnix ? 'export LOOPRA_MIRROR=…; ' : ''}curl ...${unixScript} | bash`
   }
 }

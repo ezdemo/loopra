@@ -56,7 +56,7 @@ async function mount() {
     request: (path, method = 'GET') => {
       globalThis.__calls.push({ path, method });
       if (path === '/version/') return Promise.resolve({ version: '26.9.91', name: 'Loopra' });
-      if (path === '/version/check') return Promise.resolve({ currentVersion: '26.9.91', latestVersion: '26.10.1', hasNewVersion: true, releaseUrl: 'https://github.com/ezdemo/loopra/releases/tag/v26.10.1', checkTime: '2026-10-13 09:00:00' });
+      if (path === '/version/check') return Promise.resolve({ currentVersion: '26.9.91', latestVersion: '26.10.1', hasNewVersion: true, releaseUrl: 'https://github.com/ezdemo/loopra-release/releases/tag/v26.10.1', checkTime: '2026-10-13 09:00:00' });
       return Promise.resolve(null);
     },
   };
@@ -84,7 +84,7 @@ test('checking reports the new version and links the release page', async () => 
     assert.ok(globalThis.__calls.some(call => call.path === '/version/check'));
     assert.ok(view.container.textContent.includes('v26.10.1'));
     assert.ok(view.container.textContent.includes('新版'));
-    assert.equal(view.container.querySelector('.version-link').getAttribute('href'), 'https://github.com/ezdemo/loopra/releases/tag/v26.10.1');
+    assert.equal(view.container.querySelector('.version-link').getAttribute('href'), 'https://github.com/ezdemo/loopra-release/releases/tag/v26.10.1');
     assert.deepEqual(globalThis.__notify, ['发现新版本 v26.10.1']);
   } finally { await view.close(); }
 });

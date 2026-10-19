@@ -3,8 +3,8 @@
 
 export const GITEE_HOME_URL = 'https://gitee.com/ezdemo/loopra';
 export const GITHUB_HOME_URL = 'https://github.com/ezdemo/loopra';
-export const RELEASE_LATEST_URL = 'https://github.com/ezdemo/loopra/releases/latest';
-export const RELEASES_URL = 'https://github.com/ezdemo/loopra/releases';
+export const RELEASE_LATEST_URL = 'https://github.com/ezdemo/loopra-release/releases/latest';
+export const RELEASES_URL = 'https://github.com/ezdemo/loopra-release/releases';
 
 export type MirrorSource = { value: string; label: string };
 
@@ -47,7 +47,7 @@ export function saveUpdateSource(source: string) {
   } catch { /* localStorage 不可用时忽略 */ }
 }
 
-const SCRIPT_BASE = 'https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release';
+const SCRIPT_BASE = 'https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release';
 
 export function updateScriptName(source: string, electron: boolean, ext: string) {
   const gui = electron ? '-gui' : '';
@@ -60,12 +60,13 @@ export function buildUpdateCommand(source: string, electron = false) {
   const windowsScript = updateScriptName(source, electron, 'ps1');
   const unixScript = updateScriptName(source, electron, 'sh');
   const mirrorUrl = isMirrorSource(source) && source !== UPDATE_SOURCE_MIRROR ? source.replace(/\/+$/, '') : '';
+  const scriptBase = isMirrorSource(source) ? `${mirrorUrl || 'https://gh-proxy.org'}/${SCRIPT_BASE}` : SCRIPT_BASE;
   const envWin = mirrorUrl ? `$env:LOOPRA_MIRROR='${mirrorUrl}'; ` : '';
   const envUnix = mirrorUrl ? `export LOOPRA_MIRROR='${mirrorUrl}'; ` : '';
   return {
-    windows: `${envWin}irm ${SCRIPT_BASE}/${windowsScript} | iex`,
+    windows: `${envWin}irm ${scriptBase}/${windowsScript} | iex`,
     windowsLabel: `${envWin ? '$env:LOOPRA_MIRROR=…; ' : ''}irm ...${windowsScript} | iex`,
-    unix: `${envUnix}curl -fsSL ${SCRIPT_BASE}/${unixScript} | bash`,
+    unix: `${envUnix}curl -fsSL ${scriptBase}/${unixScript} | bash`,
     unixLabel: `${envUnix ? 'export LOOPRA_MIRROR=…; ' : ''}curl ...${unixScript} | bash`,
   };
 }

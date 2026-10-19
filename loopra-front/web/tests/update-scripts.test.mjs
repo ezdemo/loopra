@@ -18,9 +18,11 @@ const { buildUpdateCommand, buildUpdatePrompt, compareVersions, updateScriptName
 test('builds direct and mirror update commands per platform', () => {
   const direct = buildUpdateCommand(UPDATE_SOURCE_NORMAL);
   assert.match(direct.windows, /setup\.ps1 \| iex$/);
+  assert.equal(direct.windows, 'irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex');
   assert.match(direct.unix, /setup\.sh \| bash$/);
   const mirror = buildUpdateCommand('https://gh-proxy.org/');
   assert.match(mirror.windows, /setup-mirror\.ps1 \| iex$/);
+  assert.match(mirror.windows, /irm https:\/\/gh-proxy\.org\/https:\/\/raw\.githubusercontent\.com\/ezdemo\/loopra-release\//);
   assert.match(mirror.windows, /LOOPRA_MIRROR='https:\/\/gh-proxy\.org'/);
   assert.match(mirror.unix, /export LOOPRA_MIRROR='https:\/\/gh-proxy\.org'; curl/);
   assert.equal(updateScriptName(UPDATE_SOURCE_NORMAL, true, 'ps1'), 'setup-gui.ps1');

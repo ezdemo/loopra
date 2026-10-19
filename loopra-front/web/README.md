@@ -18,7 +18,7 @@ pnpm build
 
 `pnpm dev:electron` 会构建主进程和预加载脚本，复用已有 Loopra Vite 服务或在 3000 端口启动服务。Windows 下若项目目录中的 Electron 在启动前报 `0x80000003`，命令会将同版本公共运行时缓存到 `%LOCALAPPDATA%/Loopra/development`，为该运行时补齐 Chromium 子进程所需的读取、执行权限并验证后启动；Vite 临时文件位于项目的 `.cache/desktop-temp`。
 
-构建产物仍输出到 `dist/renderer`，原 `.release/ci-sync-web-assets.sh` 和 `.release/windows_package.ps1` 可继续同步到 Java 静态资源。`index.html` 是新 Web 工作台；`legacy.html` 保留旧 Vue 控制台用于兼容和对照。资源编辑、技能市场、插件及扩展安装已有 React 入口。Electron 主窗口默认使用新 React UI，通过桌面桥接读取实际核心服务端口；核心已运行时直接进入工作台。安装、更新、宠物及其他独立辅助窗口保留原 Vue 页面，样式按入口分别加载。功能对照及界面验收见 [LEGACY_PARITY.md](LEGACY_PARITY.md)。
+构建产物仍输出到 `dist/renderer`，使用 [loopra-release](https://github.com/ezdemo/loopra-release) 仓库中的 `.release/ci-sync-web-assets.sh` 或 `.release/windows_package.ps1`，指定源码目录后同步到 Java 静态资源。`index.html` 是新 Web 工作台；`legacy.html` 保留旧 Vue 控制台用于兼容和对照。资源编辑、技能市场、插件及扩展安装已有 React 入口。Electron 主窗口默认使用新 React UI，通过桌面桥接读取实际核心服务端口；核心已运行时直接进入工作台。安装、更新、宠物及其他独立辅助窗口保留原 Vue 页面，样式按入口分别加载。功能对照及界面验收见 [LEGACY_PARITY.md](LEGACY_PARITY.md)。
 
 ## 界面与行为
 

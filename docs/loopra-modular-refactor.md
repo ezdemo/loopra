@@ -253,7 +253,7 @@ ONode 不修改 registry；执行拒绝在 ToolCallValidator 之前硬拦。计�
    MalformedInputException，必须在 maven-resources-plugin 的 `nonFilteredFileExtensions` 排除；
    前端重建引入新二进制资产后需同步检查
 5. **前端静态资产流程**：loopra-front 构建后同步到 loopra-web/src/main/resources/static
-   （CI：`.release/ci-sync-web-assets.sh`；本地：pnpm build 后复制 dist/renderer 内容并保留 static/config.json）
+   （CI：`loopra-release` 仓库的 `.release/ci-sync-web-assets.sh`；本地：pnpm build 后复制 dist/renderer 内容并保留 static/config.json）
 6. **HttpModelClient 坑**：不会自动补 `/chat/completions` 后缀，按渠道建 ModelClient 必须用
    `LoopraConfig.ModelChannel.apiUrl()`（toApiUrl 按 apiProtocol 规范化），不能用 baseUrl()
 7. **测试隔离坑**：改 `user.home` 系统属性的测试必须保存原值并恢复，避免污染同 JVM 后续测试；

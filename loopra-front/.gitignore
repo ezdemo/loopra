@@ -204,7 +204,7 @@ __snapshots__/
 # electron
 release
 
-# 嵌入的核心运行时（由 .release/ci-embed-core.sh / embed-core.ps1 生成，含 loopra-web.jar）
+# 嵌入的核心运行时（由 loopra-release 仓库的 ci-embed-core.sh / embed-core.ps1 生成，含 loopra-web.jar）
 resources/loopra-core/
 
 # Electron Forge 构建输出

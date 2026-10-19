@@ -53,7 +53,7 @@ window.LOOPRA_I18N_EN = {
   'qs.title': 'Up and running in three steps',
   'qs.desc': 'Install, start the service and configure a model channel — then get to work on your codebase.',
   'qs.s1.title': 'Install',
-  'qs.s1.desc': 'One-line scripts install the CLI; get the desktop app from <a href="https://github.com/ezdemo/loopra/releases/latest" target="_blank" rel="noopener">Releases</a>. The mirror is recommended for networks in China.',
+  'qs.s1.desc': 'One-line scripts install the CLI; get the desktop app from <a href="https://github.com/ezdemo/loopra-release/releases/latest" target="_blank" rel="noopener">Releases</a>. The mirror is recommended for networks in China.',
   'qs.direct': 'Direct',
   'qs.mirror': 'Mirror <span class="cmd-chip">Faster in CN</span>',
   'qs.mirrorChip': 'Faster in CN',
