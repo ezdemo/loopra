@@ -23,8 +23,10 @@
 ## 安装检测
 
 后端查找 `node`、`claude` 和全局 npm 安装的适配器。支持 Windows `Path` 大小写、
-NVM_SYMLINK、NODE_HOME、APPDATA/npm 和用户 `.local/bin`。后端通过参数列表直接
-启动 Node，不拼接 shell 命令，支持带空格的路径。
+NVM_SYMLINK、NODE_HOME、APPDATA/npm、用户 `.local/bin`，以及 macOS/Linux 的
+`/opt/homebrew/bin` 和 `/usr/local/bin`——IDE 或桌面方式启动的后端继承的是
+launchd 的最小 PATH，不认识 Homebrew 目录，这两个兜底路径可以避免误报缺少 Node.js。
+后端通过参数列表直接启动 Node，不拼接 shell 命令，支持带空格的路径。
 
 特殊安装位置可在启动后端前设置：
 

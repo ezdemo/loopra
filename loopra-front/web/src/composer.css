@@ -216,12 +216,18 @@
 .composer-toggle-row > div:first-child { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
 .composer-toggle-row span { display: flex; align-items: center; gap: 0.3125rem; flex-shrink: 0; }
 .composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-tool-list > button, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
-.composer-tool-list > button > svg:first-child, .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
-.composer-tool-list > button > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }
+.composer-tool-list > button, .composer-tool-list > .agent-option > button:first-child, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
+.composer-tool-list > button > svg:first-child, .composer-tool-list > .agent-option > button:first-child > svg:first-child, .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
+.composer-tool-list > button > span:not(.keycap), .composer-tool-list > .agent-option > button:first-child > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }
 .composer-tool-list strong, .composer-selection-list strong, .composer-tool-plan strong { display: block; font-weight: 500; font-size: 0.8125rem; }
 .composer-tool-list small, .composer-selection-list small, .composer-tool-plan small { display: block; font-size: 0.6875rem; color: var(--muted); margin-top: 0.1875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-tool-list > button > svg:last-child { color: var(--muted); }
+.composer-tool-list > button > svg:last-child, .composer-tool-list > .agent-option > button:first-child > svg:last-child { color: var(--muted); }
+/* An external Agent without its runtime keeps the row disabled and offers the
+   install prompt as a separate control (a button cannot nest in a button). */
+.agent-option { position: relative; }
+.agent-option > button:first-child { padding-right: 3.75rem; }
+.agent-option > .agent-install { position: absolute; right: 0.5rem; top: 50%; width: auto; min-height: 1.5rem; height: 1.5rem; padding: 0 0.5rem; transform: translateY(-50%); justify-content: center; background: var(--soft); color: var(--blue); font-size: 0.6875rem; font-weight: 500; }
+.agent-option > .agent-install:hover { background: var(--hover); color: var(--text); }
 .composer-tool-list em { font-size: 0.6875rem; font-style: normal; color: var(--blue); }
 .composer-menu-divider { border-top: 1px solid var(--line); margin: 0.25rem 0.5rem; }
 .keycap { border: 1px solid var(--line); border-radius: var(--radius-sm); font: 0.6875rem monospace; padding: 1px 0.3125rem; color: var(--muted); }

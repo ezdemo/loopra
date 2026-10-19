@@ -11,6 +11,10 @@
 .confirm-dialog-body { color: var(--secondary); }
 .confirm-dialog-body .settings-error { color: var(--danger, var(--danger)); }
 
+.agent-install-dialog { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; }
+.agent-install-reason { color: var(--muted); font-size: .75rem; }
+.agent-install-prompt { margin: 0; padding: .75rem .875rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--sidebar); color: var(--text); font: .75rem/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
 .project-sessions-dialog { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; }
 .project-dialog-summary { padding: .875rem 1rem; background: var(--sidebar); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .project-dialog-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .75rem; }

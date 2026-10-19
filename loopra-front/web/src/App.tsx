@@ -97,6 +97,9 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
   const [engines, setEngines] = useState<AgentEngine[]>([]);
+  // The backend re-detects Node/Claude on every request; bump this to refresh
+  // after the user installs a missing runtime outside the app.
+  const [enginesRevision, setEnginesRevision] = useState(0);
   const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});
   // Home has no session yet, but its composer still advertises the selected
   // Agent's options. The prepared backend session is reused by the first send.
@@ -176,7 +179,7 @@ export default function App() {
     const controller = new AbortController();
     void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal).then(setEngines).catch(() => setEngines([]));
     return () => controller.abort();
-  }, [api, backend.status]);
+  }, [api, backend.status, enginesRevision]);
   // Pending HITL/ask_choice cards drive the composer popup. Read from the live
   // session messages (not demo history) so mock/offline sessions never pop it.
   const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
@@ -1008,6 +1011,7 @@ export default function App() {
           {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}
             engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun} onAgent={switchAgent}
+            onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={<IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} />}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>

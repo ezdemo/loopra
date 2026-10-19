@@ -28,6 +28,12 @@ public final class ClaudeAcpProcess {
     static Installation detect(Map<String, String> env, Path home, boolean windows, String override) {
         List<Path> roots = new ArrayList<>();
         roots.add(home.resolve(".local/bin"));
+        if (!windows) {
+            // GUI-launched backends (IDE run configs, desktop shells) inherit
+            // launchd's minimal PATH, which omits package-manager bin dirs.
+            roots.add(Path.of("/opt/homebrew/bin"));
+            roots.add(Path.of("/usr/local/bin"));
+        }
         addPath(roots, environment(env, "NVM_SYMLINK"));
         addPath(roots, environment(env, "NODE_HOME"));
         String appData = environment(env, "APPDATA");

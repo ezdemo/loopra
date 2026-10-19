@@ -188,6 +188,39 @@ test('the agent switcher sits beside the project switcher and locks while runnin
   assert.doesNotMatch(composer, /menu === 'agents'/);
 });
 
+test('a missing Claude Code runtime offers a copyable install prompt', async () => {
+  const [switcher, home, app] = await Promise.all([
+    readFile(new URL('../src/layout/AgentSwitcher.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/layout/HomeView.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+  ]);
+  // Only the unavailable external engine gets the inline action; Native stays clickable.
+  assert.match(switcher, /engine\.id === 'claude-code' && !engine\.available/);
+  assert.match(switcher, /className="agent-install"/);
+  assert.match(switcher, /复制提示词/);
+  assert.match(switcher, /const text = claudeAcpInstallPrompt\(\)/);
+  assert.match(switcher, /navigator\.clipboard\.writeText\(text\)/);
+  // Unfocused Electron documents reject the async clipboard API; keep the
+  // selection-based fallback so the copy action still works.
+  assert.match(switcher, /document\.execCommand\('copy'\)/);
+  // The backend detects runtimes per request, so opening the menu re-checks
+  // whether the just-installed dependency is visible.
+  assert.match(switcher, /onRefreshEngines\?\.\(\)/);
+  assert.match(home, /onRefreshEngines=\{onRefreshEngines\}/);
+  assert.match(app, /enginesRevision/);
+  const { claudeAcpInstallPrompt } = await import(await moduleUrl('agent-install.ts'));
+  const prompt = claudeAcpInstallPrompt();
+  assert.match(prompt, /Node\.js 22\+/);
+  assert.match(prompt, /Claude Code/);
+  assert.match(prompt, /@agentclientprotocol\/claude-agent-acp/);
+  // Ask what is missing instead of dictating commands: the receiving Agent knows
+  // how to detect and install these packages.
+  assert.match(prompt, /检查[^\n]*是否已安装/);
+  assert.doesNotMatch(prompt, /npm install/);
+  // The adapter tracks its own releases; do not pin a version in the prompt.
+  assert.doesNotMatch(prompt, /claude-agent-acp@\d/);
+});
+
 test('a draft session can manage its isolation environment before the first message', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
   // The prepared draft is a real backend session, so the Git tab can toggle its
