@@ -82,7 +82,11 @@ function ReasoningPreview({ content, streaming }: { content: string; streaming: 
   const preview = content.replace(/\s+/g, ' ').trim();
   useLayoutEffect(() => {
     const element = ref.current;
-    if (streaming && element) element.scrollLeft = element.scrollWidth;
+    if (!element) return;
+    // Follow the newest tokens while streaming; once this step is no longer the
+    // live one, return to the beginning. The row is reused across steps and a
+    // stale offset can leave the summary scrolled into empty space.
+    element.scrollLeft = streaming ? element.scrollWidth : 0;
   }, [preview, streaming]);
   useLayoutEffect(() => {
     const element = ref.current;

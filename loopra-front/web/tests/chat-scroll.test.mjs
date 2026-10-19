@@ -255,7 +255,7 @@ test('streaming reasoning follows the latest text beyond 120 characters and view
     assert.equal(container.querySelector('.reasoning-plain').textContent, content + '最新输出');
     await render(content + '最新输出', false);
     assert.equal(observer.disconnected, true, 'stops observing when output ends');
-    preview.scrollLeft = 0;
+    assert.equal(preview.scrollLeft, 0, 'finished reasoning returns to the beginning');
     await render(content + '历史内容', false);
     assert.equal(preview.scrollLeft, 0, 'inactive reasoning does not force scrolling');
   } finally {
