@@ -19,6 +19,7 @@ import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingCh
 import Composer from './components/Composer';
 import type { AgentEngine } from './backend';
 import { applySeed, newSessionSeed, seedChanges, type AgentConfigOption } from './agent-config';
+import { orderSessions } from './session-order';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
@@ -556,6 +557,23 @@ export default function App() {
     next.splice(target, 0, moved);
     void api.request('/workspaces/order', 'PUT', next.map(item => item.hash)).then(() => backend.refresh()).catch(error => notify(`调整项目顺序失败：${error instanceof Error ? error.message : error}`));
   }
+  // Session drag-reorder inside one project. The backend stores the order so the
+  // list keeps it after a refresh and for other clients.
+  function reorderSessions(workspaceHash: string, from: string, to: string) {
+    if (!from || !to || from === to) return;
+    const own = orderSessions(sessions.filter(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id)), false);
+    const source = own.findIndex(item => item.id === from);
+    const target = own.findIndex(item => item.id === to);
+    if (source < 0 || target < 0) return;
+    const next = [...own];
+    const [moved] = next.splice(source, 1);
+    next.splice(target, 0, moved);
+    let index = 0;
+    setSessions(current => current.map(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id) ? next[index++] : item));
+    const order = next.map(item => item.name).filter((name): name is string => !!name);
+    void api.request(`/sessions/order?workspaceHash=${encodeURIComponent(workspaceHash)}`, 'PUT', order)
+      .catch(error => { notify(`调整会话顺序失败：${error instanceof Error ? error.message : error}`); void backend.refresh(); });
+  }
   function projectMaintained(kind: 'refresh' | 'clear' | 'delete', item: Workspace) {
     if ((kind === 'clear' || kind === 'delete') && activeId?.startsWith(`${item.hash}/`)) setActiveId(null);
     if (kind === 'delete' && workspace === item.hash) setWorkspace(workspaces.find(entry => entry.hash !== item.hash)?.hash || '');
@@ -976,7 +994,7 @@ export default function App() {
       {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed} sortNewest={sortNewest} onSortNewest={setSortNewest} sectionRef={sessionSection}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()} onLocate={locateActiveSession}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
-        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} />}
+        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}

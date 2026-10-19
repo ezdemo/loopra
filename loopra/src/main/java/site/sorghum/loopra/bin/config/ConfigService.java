@@ -225,6 +225,51 @@ public class ConfigService {
         return Collections.emptyList();
     }
 
+    // ==================== 会话排序 ====================
+
+    /** 配置文件中每个工作区会话排序的键前缀。 */
+    private static final String SESSION_ORDER_PREFIX = "sessionOrder:";
+
+    /**
+     * 获取按工作区保存的会话排序（工作区 hash -> 会话名有序列表）。
+     * 未保存过排序或读取失败时返回空映射，调用方应保持原本的列表顺序。
+     * <p>配置文件中使用 {@code sessionOrder:<hash>} 作为一级键，值直接是数组，
+     * 避免嵌套 Map 在通用配置写入时把列表降级成字符串。</p>
+     */
+    public static Map<String, List<String>> getSessionOrder() {
+        try {
+            Path configPath = LoopraConfig.getConfigPath();
+            if (Files.exists(configPath)) {
+                String json = new String(Files.readAllBytes(configPath), StandardCharsets.UTF_8);
+                ONode node = ONode.ofJson(json);
+                if (node == null || !node.isObject()) return Collections.emptyMap();
+                Map<String, List<String>> order = new LinkedHashMap<>();
+                for (Map.Entry<String, ONode> entry : node.getObject().entrySet()) {
+                    if (!entry.getKey().startsWith(SESSION_ORDER_PREFIX)) continue;
+                    ONode value = entry.getValue();
+                    if (value == null || !value.isArray()) continue;
+                    List<String> names = new ArrayList<>();
+                    for (ONode item : value.getArray()) {
+                        String name = item.getString();
+                        if (name != null && !name.isBlank()) names.add(name);
+                    }
+                    order.put(entry.getKey().substring(SESSION_ORDER_PREFIX.length()), names);
+                }
+                return order;
+            }
+        } catch (Exception e) {
+            log.warn("[config] 读取会话排序失败，返回空排序: {}", e.getMessage());
+        }
+        return Collections.emptyMap();
+    }
+
+    /** 保存单个工作区的会话排序；其他工作区的排序保持不变。 */
+    public static synchronized void setSessionOrder(String workspaceHash, List<String> order) {
+        if (workspaceHash == null || workspaceHash.isBlank()) return;
+        updateConfig(Map.of(SESSION_ORDER_PREFIX + workspaceHash,
+                order == null ? Collections.emptyList() : new ArrayList<>(order)));
+    }
+
     // ==================== 通用配置更新 ====================
 
     /**

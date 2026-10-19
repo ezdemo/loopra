@@ -47,6 +47,7 @@ import java.nio.file.Paths;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1292,7 +1293,28 @@ public class AgentService implements ProjectRuntimeAccess {
                     sessionInfo.worktreeMode(), store.getAcpBinding(sessionInfo.name()).agentId()
             ));
         }
-        return sessions;
+        return applySessionOrder(sessions, ConfigService.getSessionOrder()
+                .get(ProjectRegistry.computeProjectHash(resolvedPath)));
+    }
+
+    /**
+     * Apply the order saved by sidebar drag-and-drop. Sessions the saved list
+     * does not know yet (a conversation created since the last drag) stay first,
+     * so a new session still appears at the top as before.
+     */
+    public static List<SessionInfoDTO> applySessionOrder(List<SessionInfoDTO> sessions, List<String> saved) {
+        if (saved == null || saved.isEmpty() || sessions.isEmpty()) return sessions;
+        Map<String, Integer> rank = new LinkedHashMap<>();
+        for (int i = 0; i < saved.size(); i++) rank.putIfAbsent(saved.get(i), i);
+        List<SessionInfoDTO> known = new ArrayList<>();
+        List<SessionInfoDTO> fresh = new ArrayList<>();
+        for (SessionInfoDTO session : sessions) {
+            (rank.containsKey(session.name()) ? known : fresh).add(session);
+        }
+        if (known.isEmpty()) return sessions;
+        known.sort(Comparator.comparingInt(session -> rank.get(session.name())));
+        fresh.addAll(known);
+        return fresh;
     }
 
     /**

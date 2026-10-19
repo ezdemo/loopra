@@ -69,6 +69,25 @@ class ConfigServicePersistenceTest {
         assertNoTemporaryFiles();
     }
 
+    @Test
+    void sessionOrderRoundTripsPerWorkspaceAndKeepsOtherWorkspaces() throws Exception {
+        ConfigService.setSessionOrder("hash-a", List.of("s3", "s1", "s2"));
+        ConfigService.setSessionOrder("hash-b", List.of("x", "y"));
+        assertEquals(List.of("s3", "s1", "s2"), ConfigService.getSessionOrder().get("hash-a"));
+        assertEquals(List.of("x", "y"), ConfigService.getSessionOrder().get("hash-b"));
+
+        // The saved value must be an array, not a stringified list.
+        ONode persisted = ONode.ofJson(Files.readString(LoopraConfig.getConfigPath()));
+        assertTrue(persisted.get("sessionOrder:hash-a").isArray());
+        assertEquals("s3", persisted.get("sessionOrder:hash-a").get(0).getString());
+
+        // Rewriting one workspace must not drop the other workspace's order.
+        ConfigService.setSessionOrder("hash-a", List.of("s1", "s3", "s2"));
+        assertEquals(List.of("s1", "s3", "s2"), ConfigService.getSessionOrder().get("hash-a"));
+        assertEquals(List.of("x", "y"), ConfigService.getSessionOrder().get("hash-b"));
+        assertNoTemporaryFiles();
+    }
+
     private void assertNoTemporaryFiles() throws Exception {
         try (var files = Files.list(home.resolve(".loopra"))) {
             assertFalse(files.anyMatch(path -> path.getFileName().toString().endsWith(".tmp")));

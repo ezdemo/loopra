@@ -51,6 +51,37 @@ test('new sessions are prepended, never appended', async () => {
   assert.doesNotMatch(app, /setSessions\(current => \[\.\.\.current, target/);
 });
 
+test('a long project list folds after six sessions with an expand link', async () => {
+  const [sidebar, css] = await Promise.all([
+    readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/sessions.css', import.meta.url), 'utf8'),
+  ]);
+  assert.match(sidebar, /const SESSION_GROUP_LIMIT = 6;/);
+  assert.match(sidebar, /const shown = expanded \? ordered : ordered\.slice\(0, SESSION_GROUP_LIMIT\);/);
+  assert.match(sidebar, /useLocalState<string\[\]>\('expanded-session-groups', \[\]\)/);
+  // The active session may come from search and sit below the fold; its group
+  // opens instead of hiding the row that is currently selected.
+  assert.match(sidebar, /ordered\.findIndex\(entry => entry\.id === activeId\) < SESSION_GROUP_LIMIT/);
+  assert.match(sidebar, /展开显示/);
+  assert.match(sidebar, /收起显示/);
+  assert.match(css, /\.session-more \{ display: flex;/);
+});
+
+test('sessions can be dragged to reorder and the order is persisted per project', async () => {
+  const [sidebar, app] = await Promise.all([
+    readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+  ]);
+  // Dragging is offered only in the default order; sorting by newest wins otherwise.
+  assert.match(sidebar, /draggable=\{!sortNewest\}/);
+  // A row drag must not be mistaken for a project drag on its parent.
+  assert.match(sidebar, /event\.stopPropagation\(\); event\.dataTransfer\.effectAllowed = 'move';/);
+  assert.match(sidebar, /props\.onReorderSessions\(item\.hash, draggingSession, entry\.id\)/);
+  assert.match(app, /function reorderSessions\(workspaceHash: string, from: string, to: string\)/);
+  assert.match(app, /`\/sessions\/order\?workspaceHash=\$\{encodeURIComponent\(workspaceHash\)\}`, 'PUT', order\)/);
+  assert.match(app, /onReorderSessions=\{reorderSessions\}/);
+});
+
 test('an overlong session title slides sideways on hover', async () => {
   const [sidebar, css] = await Promise.all([
     readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8'),
