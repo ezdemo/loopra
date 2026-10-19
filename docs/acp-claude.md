@@ -23,10 +23,18 @@
 ## 安装检测
 
 后端查找 `node`、`claude` 和全局 npm 安装的适配器。支持 Windows `Path` 大小写、
-NVM_SYMLINK、NODE_HOME、APPDATA/npm、用户 `.local/bin`，以及 macOS/Linux 的
-`/opt/homebrew/bin` 和 `/usr/local/bin`——IDE 或桌面方式启动的后端继承的是
-launchd 的最小 PATH，不认识 Homebrew 目录，这两个兜底路径可以避免误报缺少 Node.js。
+NVM_BIN、NVM_SYMLINK、NODE_HOME、NPM_CONFIG_PREFIX、APPDATA/npm、用户
+`.local/bin`、`.npm-global/bin`、`.nvm/current/bin`，以及 macOS/Linux 的
+`/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin` 和 `/bin`。桌面启动的后端
+可能没有继承终端的 PATH，这些标准目录用作兜底；不会枚举 NVM 的多个版本来猜测当前版本。
+NVM 安装需要继承 `NVM_BIN` / PATH、提供 `current` 链接，或设置 Node 路径。
 后端通过参数列表直接启动 Node，不拼接 shell 命令，支持带空格的路径。
+原生安装和 npm 全局安装均会自动识别。npm 安装按 `@anthropic-ai/claude-code/package.json`
+里的 `bin` 声明解析真实入口，兼容原生二进制和 JavaScript CLI；Windows 的
+`claude.cmd` / `claude.ps1` 不会被直接传给 SDK，避免检测通过后仍无法启动。
+Unix 符号链接会解析到真实入口，原生程序需要执行权限；适配器命令的符号链接也可
+指向其他前缀。启动时将检测到的 Node 和 Claude 所在目录加入子进程 PATH，兼容
+JavaScript CLI 和 `/usr/bin/env node`，不修改用户的系统环境变量。
 
 特殊安装位置可在启动后端前设置：
 
@@ -66,7 +74,11 @@ Claude 模型沿用其自身配置，Native 的模型/思考强度/快速模式�
 
 普通测试 `ExternalAcpSessionsTest` 启动确定性的 Java ACP 子进程，验证多轮、恢复、
 工具参数更新、批准、拒绝、取消和进程退出，不使用真实账号或模型。
-`ClaudeAcpProcessTest` 验证 Windows `Path` 和 NVM 检测。
+`ClaudeAcpProcessTest` 验证 Windows `Path`、NVM、APPDATA、npm 原生/JavaScript
+入口、显式 shim 路径、Unix npm 布局，以及缺失或损坏安装的检测。
+还覆盖 Apple Silicon / Intel Homebrew 目录布局、NVM、npm 自定义前缀，以及
+在 Linux/macOS 上实际执行的符号链接、执行权限和子进程 PATH 测试。
+CI 的后端检查包含 Windows、Ubuntu 和 macOS；布局测试不代表真实账号推理联调。
 
 真实联调需显式开启；它使用现有 Claude 登录和真实推理，文件操作只发生在临时项目，
 Loopra 数据仍由测试隔离目录管理：
