@@ -264,7 +264,8 @@ export default function App() {
         { workspaceHash: currentWorkspace.hash, sessionName: session?.name, agentId });
       const target = session || remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, currentWorkspace);
       setAgentConfigs(current => ({ ...current, [target.id]: prepared.configOptions }));
-      if (!session) { setSessions(current => [...current, target]); setActiveId(target.id); }
+      // A fresh session goes to the top, matching the server's newest-first list.
+      if (!session) { setSessions(current => [target, ...current]); setActiveId(target.id); }
       return target;
     } catch (error) { const message = error instanceof Error ? error.message : String(error); setAgentConfigError(message); notify(message); }
     finally { setAgentConfigBusy(undefined); }
@@ -684,7 +685,8 @@ export default function App() {
         }
         activeRequest.current!.session = target;
         await api.request(sessionRoute(target, '/title'), 'PUT', { title: target.title }, controller.signal);
-        setSessions(current => [...current, target!]); setActiveId(target.id);
+        // The server lists newest first; mirror that optimistically instead of appending.
+        setSessions(current => [target!, ...current]); setActiveId(target.id);
       }
       const id = target.id; setGeneratingId(id);
       // Approving a plan (execute_plan) must not re-enter plan mode; the agent clears it while executing.

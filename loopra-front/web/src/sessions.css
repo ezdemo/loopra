@@ -12,6 +12,14 @@
 .session-row-tools .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; color: var(--muted); background: var(--selected); }
 .session-row-tools .icon-button:hover { color: var(--text); background: var(--hover); }
 .session-item .wt-badge { flex-shrink: 0; font-style: normal; font-size: 0.75rem; }
+/* A clipped session title slides sideways on hover so the full name is readable
+   without widening the sidebar; the distance comes from SessionTitle's measurement. */
+.session-item > .session-title { display: block; }
+.session-title > span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.session-item:hover .session-title.marquee { text-overflow: clip; }
+.session-item:hover .session-title.marquee > span { max-width: none; animation: session-title-marquee var(--marquee-duration, 4s) ease-in-out infinite alternate; }
+@keyframes session-title-marquee { from { transform: translateX(0); } to { transform: translateX(var(--marquee-distance, 0)); } }
+@media (prefers-reduced-motion: reduce) { .session-item:hover .session-title.marquee > span { animation: none; } }
 @media (hover: none) { .session-row-tools { opacity: 0.75; pointer-events: auto; } }
 
 .sessions-manager { width: min(56rem, calc(100vw - 3rem)) !important; max-width: 56rem !important; height: min(42rem, calc(100dvh - 4rem)); }

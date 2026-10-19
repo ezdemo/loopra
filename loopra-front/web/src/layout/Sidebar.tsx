@@ -1,9 +1,10 @@
-import { useState, type RefObject } from 'react';
+import { useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { ChevronRight, Crosshair, FolderClosed, FolderOpen, FoldVertical, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, SlidersHorizontal, Trash2, UnfoldVertical } from 'lucide-react';
 import { IconButton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import type { Session } from '../lib';
 import type { Workspace } from '../backend';
+import { orderSessions, sessionDate } from '../session-order';
 
 export type SidebarProps = {
   /** Drives the slide; the element stays mounted while it closes (see `usePresence`). */
@@ -33,8 +34,23 @@ export type SidebarProps = {
   onReorder: (from: string, to: string) => void;
 };
 
-function sessionDate(mtime?: number) {
-  return mtime ? new Date(mtime).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '';
+/**
+ * Session titles stay clipped while idle; on hover a clipped one slides sideways
+ * so the whole name can be read without widening the sidebar.
+ */
+function SessionTitle({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [distance, setDistance] = useState(0);
+  const measure = () => {
+    const node = ref.current;
+    const box = node?.parentElement;
+    if (!node || !box) return;
+    setDistance(Math.max(0, Math.ceil(node.scrollWidth - box.clientWidth)));
+  };
+  return <span className={`session-title${distance > 0 ? ' marquee' : ''}`}
+    style={{ '--marquee-distance': `-${distance}px`, '--marquee-duration': `${Math.max(2, Math.round(distance / 40))}s` } as CSSProperties}>
+    <span ref={ref} onMouseEnter={measure}>{text}</span>
+  </span>;
 }
 
 export default function Sidebar(props: SidebarProps) {
@@ -80,7 +96,7 @@ export default function Sidebar(props: SidebarProps) {
       {workspaces.map(item => {
         const open = !collapsed.includes(item.hash);
         const own = sessions.filter(entry => entry.workspaceHash === item.hash);
-        const ordered = sortNewest ? [...own].reverse() : own;
+        const ordered = orderSessions(own, sortNewest);
         return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash)}>
           <div className="workspace-heading-row">
             <button type="button" title={item.path || item.name} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
@@ -97,7 +113,7 @@ export default function Sidebar(props: SidebarProps) {
             {ordered.map(entry => <div key={entry.id} data-session-key={entry.id} className={`session-row ${activeId === entry.id ? 'selected' : ''}`}>
               <button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => props.onSelectSession(entry.id)} title={entry.title}>
                 {activeId === entry.id && <SelectionIndicator />}
-                <span>{entry.title}</span>
+                <SessionTitle text={entry.title} />
                 {entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}
                 <time>{sessionDate(entry.mtime)}</time>
               </button>
