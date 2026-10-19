@@ -5,25 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/session-order.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { orderSessions, sessionDate } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
-
-test('the default order is the server order (already newest first)', () => {
-  const sessions = [{ id: 'b', mtime: 2 }, { id: 'a', mtime: 1 }];
-  const ordered = orderSessions(sessions, false);
-  assert.equal(ordered, sessions);
-});
-
-test('sorting by newest puts a just-created session on top without mutating the input', () => {
-  const sessions = [{ id: 'old', mtime: 1 }, { id: 'fresh', mtime: 3 }, { id: 'middle', mtime: 2 }];
-  const ordered = orderSessions(sessions, true);
-  assert.deepEqual(ordered.map(entry => entry.id), ['fresh', 'middle', 'old']);
-  assert.deepEqual(sessions.map(entry => entry.id), ['old', 'fresh', 'middle']);
-});
-
-test('a session without a timestamp sorts last', () => {
-  const ordered = orderSessions([{ id: 'missing' }, { id: 'dated', mtime: 1 }], true);
-  assert.deepEqual(ordered.map(entry => entry.id), ['dated', 'missing']);
-});
+const { sessionDate } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 // 2026-10-19 is a Monday; all dates below are local noon so calendar-day math
 // does not depend on the machine's time zone.
@@ -57,11 +39,11 @@ test('a long project list folds after six sessions with an expand link', async (
     readFile(new URL('../src/sessions.css', import.meta.url), 'utf8'),
   ]);
   assert.match(sidebar, /const SESSION_GROUP_LIMIT = 6;/);
-  assert.match(sidebar, /const shown = expanded \? ordered : ordered\.slice\(0, SESSION_GROUP_LIMIT\);/);
+  assert.match(sidebar, /const shown = expanded \? own : own\.slice\(0, SESSION_GROUP_LIMIT\);/);
   assert.match(sidebar, /useLocalState<string\[\]>\('expanded-session-groups', \[\]\)/);
   // The active session may come from search and sit below the fold; its group
   // opens instead of hiding the row that is currently selected.
-  assert.match(sidebar, /ordered\.findIndex\(entry => entry\.id === activeId\) < SESSION_GROUP_LIMIT/);
+  assert.match(sidebar, /own\.findIndex\(entry => entry\.id === activeId\) < SESSION_GROUP_LIMIT/);
   assert.match(sidebar, /展开显示/);
   assert.match(sidebar, /收起显示/);
   assert.match(css, /\.session-more \{ display: flex;/);
@@ -72,8 +54,8 @@ test('sessions can be dragged to reorder and the order is persisted per project'
     readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   ]);
-  // Dragging is offered only in the default order; sorting by newest wins otherwise.
-  assert.match(sidebar, /draggable=\{!sortNewest\}/);
+  // Rows are always draggable now that the sort-by-newest switch is gone.
+  assert.match(sidebar, /data-session-key=\{entry\.id\} draggable/);
   // A row drag must not be mistaken for a project drag on its parent.
   assert.match(sidebar, /event\.stopPropagation\(\); event\.dataTransfer\.effectAllowed = 'move';/);
   assert.match(sidebar, /props\.onReorderSessions\(item\.hash, draggingSession, entry\.id\)/);

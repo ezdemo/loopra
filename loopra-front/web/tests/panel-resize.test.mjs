@@ -19,9 +19,12 @@ test('skills remain available in settings after removing the sidebar shortcut', 
   assert.doesNotMatch(app, /onClick=\{\(\) => openSettings\('技能'\)\}/);
 });
 
-test('the sidebar exposes the legacy refresh-projects control', () => {
+test('the sidebar keeps refresh and fold-all but drops locate and sort controls', () => {
   assert.match(sidebar, /<IconButton label="刷新项目列表" onClick=\{\(\) => void props\.onRefreshAll\(\)\}><RefreshCw size="0\.875rem" \/><\/IconButton>/);
   assert.match(app, /onRefreshAll=\{\(\) => void backend\.refresh\(\)\}/);
+  assert.match(sidebar, /折叠全部工作区/);
+  assert.doesNotMatch(sidebar, /定位当前会话/);
+  assert.doesNotMatch(sidebar, /按最新排序/);
 });
 
 test('the right workbench panel inherits the legacy drag-to-resize behaviour', () => {

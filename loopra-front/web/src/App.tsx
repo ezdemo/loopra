@@ -19,7 +19,6 @@ import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingCh
 import Composer from './components/Composer';
 import type { AgentEngine } from './backend';
 import { applySeed, newSessionSeed, seedChanges, type AgentConfigOption } from './agent-config';
-import { orderSessions } from './session-order';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
@@ -127,7 +126,6 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [rename, setRename] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [sortNewest, setSortNewest] = useState(false);
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
   const activeRequest = useRef<{ controller: AbortController; requestId: string; session?: Session; stopping?: boolean }>();
   const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage[]>>({});
@@ -151,7 +149,6 @@ export default function App() {
   // thumbnail dock can jump to a message that is currently unmounted.
   const messageOffsets = useRef<number[]>([]);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const sessionSection = useRef<HTMLDivElement>(null);
   // Legacy Chat.vue floating log stack (SSE `log`, `copy-success`, `app-notify`).
   const chatLogs = useChatLogs();
   const settingsQueue = useRef(Promise.resolve());
@@ -541,11 +538,6 @@ export default function App() {
     try { await backend.refreshSessions(workspaces); notify(`${workspaces.find(item => item.hash === hash)?.name || '项目'}的会话已刷新`); }
     catch (error) { notify(`刷新失败：${error instanceof Error ? error.message : error}`); }
   }
-  // Legacy Sidebar.vue: scroll the current session into view on demand.
-  function locateActiveSession() {
-    const nodes = sessionSection.current?.querySelectorAll<HTMLElement>('[data-session-key]');
-    nodes?.forEach(node => { if (node.dataset.sessionKey === activeId) node.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
-  }
   // Legacy Sidebar.vue drag-reorder: persist the new project order to the backend.
   function reorderWorkspaces(from: string, to: string) {
     if (!from || !to || from === to) return;
@@ -561,7 +553,7 @@ export default function App() {
   // list keeps it after a refresh and for other clients.
   function reorderSessions(workspaceHash: string, from: string, to: string) {
     if (!from || !to || from === to) return;
-    const own = orderSessions(sessions.filter(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id)), false);
+    const own = sessions.filter(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id));
     const source = own.findIndex(item => item.id === from);
     const target = own.findIndex(item => item.id === to);
     if (source < 0 || target < 0) return;
@@ -991,8 +983,8 @@ export default function App() {
     {isDesktopWindow() && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed} sortNewest={sortNewest} onSortNewest={setSortNewest} sectionRef={sessionSection}
-        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()} onLocate={locateActiveSession}
+      {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed}
+        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>

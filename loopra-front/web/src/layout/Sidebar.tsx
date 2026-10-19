@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
-import { ChevronRight, Crosshair, FolderClosed, FolderOpen, FoldVertical, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, SlidersHorizontal, Trash2, UnfoldVertical } from 'lucide-react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { ChevronRight, FolderClosed, FolderOpen, FoldVertical, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Trash2, UnfoldVertical } from 'lucide-react';
 import { IconButton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
 import type { Workspace } from '../backend';
-import { orderSessions, sessionDate } from '../session-order';
+import { sessionDate } from '../session-order';
 
 /** Sessions a project shows before the list folds behind "展开显示". */
 const SESSION_GROUP_LIMIT = 6;
@@ -20,14 +20,10 @@ export type SidebarProps = {
   isHome: boolean;
   collapsed: string[];
   onCollapsed: (next: string[] | ((current: string[]) => string[])) => void;
-  sortNewest: boolean;
-  onSortNewest: (next: boolean) => void;
-  sectionRef: RefObject<HTMLDivElement>;
   onClose: () => void;
   onNewSession: (workspaceHash?: string) => void;
   onSearch: () => void;
   onSettings: () => void;
-  onLocate: () => void;
   onRefreshAll: () => void;
   onRefreshProject: (hash: string) => void;
   onRefreshSession: (session: Session) => void;
@@ -58,7 +54,7 @@ function SessionTitle({ text }: { text: string }) {
 }
 
 export default function Sidebar(props: SidebarProps) {
-  const { english, workspaces, sessions, activeId, workspace, isHome, collapsed, onCollapsed, sortNewest } = props;
+  const { english, workspaces, sessions, activeId, workspace, isHome, collapsed, onCollapsed } = props;
   const [dragging, setDragging] = useState('');
   const [dragOver, setDragOver] = useState('');
   const [draggingSession, setDraggingSession] = useState('');
@@ -75,10 +71,10 @@ export default function Sidebar(props: SidebarProps) {
     const active = sessions.find(entry => entry.id === activeId);
     const hash = active?.workspaceHash;
     if (!hash) return;
-    const ordered = orderSessions(sessions.filter(entry => entry.workspaceHash === hash), sortNewest);
-    if (ordered.findIndex(entry => entry.id === activeId) < SESSION_GROUP_LIMIT) return;
+    const own = sessions.filter(entry => entry.workspaceHash === hash);
+    if (own.findIndex(entry => entry.id === activeId) < SESSION_GROUP_LIMIT) return;
     setExpandedGroups(current => current.includes(hash) ? current : [...current, hash]);
-  }, [activeId, sessions, sortNewest, setExpandedGroups]);
+  }, [activeId, sessions, setExpandedGroups]);
 
   function groupProps(hash: string) {
     return {
@@ -103,23 +99,20 @@ export default function Sidebar(props: SidebarProps) {
       <button onClick={() => props.onNewSession()}><MessageCirclePlus />{english ? 'New chat' : '新建会话'}</button>
       <button onClick={props.onSearch}><SearchIcon />{english ? 'Search' : '搜索'}</button>
     </div>
-    <div className="session-section" ref={props.sectionRef}>
+    <div className="session-section">
       <div className="section-label">
         <span>会话</span>
         <div>
-          <IconButton label="定位当前会话" onClick={props.onLocate}><Crosshair size="0.875rem" /></IconButton>
           <IconButton label={allCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={() => onCollapsed(allCollapsed ? [] : workspaces.map(item => item.hash))}>{allCollapsed ? <UnfoldVertical size="0.9375rem" /> : <FoldVertical size="0.9375rem" />}</IconButton>
-          <IconButton label={sortNewest ? '恢复默认排序' : '按最新排序'} active={sortNewest} onClick={() => props.onSortNewest(!sortNewest)}><SlidersHorizontal size="0.875rem" /></IconButton>
           <IconButton label="刷新项目列表" onClick={() => void props.onRefreshAll()}><RefreshCw size="0.875rem" /></IconButton>
         </div>
       </div>
       {workspaces.map(item => {
         const open = !collapsed.includes(item.hash);
         const own = sessions.filter(entry => entry.workspaceHash === item.hash);
-        const ordered = orderSessions(own, sortNewest);
         const expanded = expandedGroups.includes(item.hash);
-        const shown = expanded ? ordered : ordered.slice(0, SESSION_GROUP_LIMIT);
-        const foldable = ordered.length > SESSION_GROUP_LIMIT;
+        const shown = expanded ? own : own.slice(0, SESSION_GROUP_LIMIT);
+        const foldable = own.length > SESSION_GROUP_LIMIT;
         return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash)}>
           <div className="workspace-heading-row">
             <button type="button" title={item.path || item.name} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
@@ -133,9 +126,8 @@ export default function Sidebar(props: SidebarProps) {
           </div>
           <Collapse open={open} className="workspace-sessions">
             {!own.length && <p className="no-conversation">暂无对话</p>}
-            {shown.map(entry => <div key={entry.id} data-session-key={entry.id} draggable={!sortNewest}
+            {shown.map(entry => <div key={entry.id} data-session-key={entry.id} draggable
               onDragStart={event => {
-                if (sortNewest) { event.preventDefault(); return; }
                 // A session drag must not start the project drag on the parent row.
                 event.stopPropagation(); event.dataTransfer.effectAllowed = 'move';
                 setDragging(''); setDragOver(''); setDraggingSession(entry.id);
@@ -166,7 +158,7 @@ export default function Sidebar(props: SidebarProps) {
               </span>
             </div>)}
             {foldable && <button type="button" className="session-more" aria-expanded={expanded}
-              title={`${ordered.length} 个会话`} onClick={() => toggleExpanded(item.hash)}>
+              title={`${own.length} 个会话`} onClick={() => toggleExpanded(item.hash)}>
               {expanded ? '收起显示' : '展开显示'}
             </button>}
           </Collapse>

@@ -6,7 +6,7 @@
 .sidebar-footer .profile-button > span:not(.avatar):not(.free-badge) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .session-row { position: relative; display: flex; align-items: center; }
-/* Session drag-reorder within a project (disabled while sorting by newest). */
+/* Session drag-reorder within a project. */
 .session-row.dragging { opacity: 0.45; }
 .session-row.drag-over { background: var(--selected); border-radius: var(--radius-md); }
 /* Long project lists fold after a handful of sessions (default: six). */

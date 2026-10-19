@@ -1,5 +1,3 @@
-import type { Session } from './lib';
-
 const DAY = 86_400_000;
 const WEEKDAYS = '日一二三四五六';
 
@@ -27,14 +25,4 @@ export function sessionDate(mtime?: number, now = Date.now()) {
   return date.getFullYear() === today.getFullYear()
     ? `${date.getMonth() + 1}/${date.getDate()}`
     : `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
-}
-
-/**
- * Sidebar order for one workspace. The server already lists sessions newest
- * first, so the default keeps that order; the explicit "按最新排序" switch
- * re-sorts by modification time, which also keeps an optimistic session on top
- * before its first turn has been persisted.
- */
-export function orderSessions(sessions: Session[], byMtime: boolean) {
-  return byMtime ? [...sessions].sort((a, b) => (b.mtime || 0) - (a.mtime || 0)) : sessions;
 }
