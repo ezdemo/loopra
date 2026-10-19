@@ -5,6 +5,7 @@ const { spawn, execFile, execSync } = require('child_process')
 const { promisify } = require('util')
 const { randomUUID } = require('crypto')
 const { compareVersions } = require('./version.cjs')
+const { normalizeProxyAddress, electronProxyRules } = require('./proxy.cjs')
 const { registerTerminalIpc, killAllTerminals } = require('./terminal.cjs')
 const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
 const { registerOnboardingIpc } = require('./onboarding.cjs')
@@ -340,47 +341,7 @@ function getLoopraPaths() {
 // ==================== 网络代理 ====================
 // Electron 的 BrowserWindow/WebContentsView 和主进程下载请求统一使用 defaultSession，
 // 这样设置页保存代理后，桌面端所有 Chromium 网络请求都会即时切换代理。
-function normalizeProxyAddress(rawAddress) {
-  if (rawAddress == null || String(rawAddress).trim() === '') return ''
-
-  let address = String(rawAddress).trim()
-  if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(address)) address = `http://${address}`
-
-  let parsed
-  try {
-    parsed = new URL(address)
-  } catch {
-    throw new Error('代理地址格式无效')
-  }
-
-  const protocol = parsed.protocol.toLowerCase()
-  const isSocks = ['socks:', 'socks4:', 'socks5:', 'socks5h:'].includes(protocol)
-  if (protocol !== 'http:' && !isSocks) throw new Error('代理协议仅支持 http 或 socks5')
-  if (parsed.username || parsed.password || parsed.search || parsed.hash
-    || (parsed.pathname && parsed.pathname !== '/')) {
-    throw new Error('代理地址不应包含用户名、密码、路径或查询参数')
-  }
-
-  const host = parsed.hostname.replace(/^\[|\]$/g, '')
-  if (!host) throw new Error('代理地址缺少主机名')
-  const port = parsed.port ? Number(parsed.port) : (isSocks ? 1080 : 80)
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error('代理端口必须在 1-65535 之间')
-  }
-
-  const scheme = isSocks ? 'socks5' : 'http'
-  const formattedHost = host.includes(':') ? `[${host}]` : host
-  return `${scheme}://${formattedHost}:${port}`
-}
-
-function electronProxyRules(address) {
-  const parsed = new URL(address)
-  const host = parsed.hostname.replace(/^\[|\]$/g, '')
-  const formattedHost = host.includes(':') ? `[${host}]` : host
-  const port = parsed.port || (parsed.protocol === 'socks5:' ? '1080' : '80')
-  const authority = `${formattedHost}:${port}`
-  return parsed.protocol === 'socks5:' ? `socks5=${authority}` : `http=${authority};https=${authority}`
-}
+// 地址解析抽到 proxy.cjs，规则与 Java ProxySettings 一致，并可由 Node 测试直接覆盖。
 
 function readConfiguredProxyAddress() {
   try {

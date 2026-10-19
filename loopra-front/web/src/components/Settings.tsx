@@ -23,6 +23,7 @@ import PetSettings from './PetSettings';
 import type { PetStore } from '../usePets';
 import VersionInfo from './VersionInfo';
 import BrowserSettings from './BrowserSettings';
+import ProxySettings from './ProxySettings';
 import { GITEE_HOME_URL, GITHUB_HOME_URL } from '../update-scripts';
 
 export type Preferences = { theme: string; language: string; fontScale: number; notifications: boolean; sound: boolean; openWith: string; autoContext: boolean; animations: boolean };
@@ -115,6 +116,7 @@ export default function Settings(props: Props) {
         {tab === '智能体与会话' && <><PageActions title="会话默认" /><AgentDefaults {...pageProps} /><h2>会话上下文</h2><div className="settings-card"><SettingRow title="自动工作区上下文" description="在新消息中包含当前工作区信息"><SettingSwitch label="自动工作区上下文" value={prefs.autoContext} onChange={value => update('autoContext', value)} /></SettingRow></div></>}
         {tab === '项目' && <><BackendProjects server={props.server} workspaces={props.workspaces} sessions={sessions} onRefresh={props.onRefresh} /><h3 className="settings-section-title">会话与需求</h3><div className="settings-card"><SettingRow title="会话管理" description="查找、整理和管理工作区会话"><Button size="sm" variant="flat" onPress={props.onOpenSessions}>打开会话管理</Button></SettingRow><SettingRow title="需求池" description="查看和管理项目需求"><Button size="sm" variant="flat" onPress={props.onOpenRequirements}>打开需求池</Button></SettingRow></div></>}
         {tab === '服务器' && <BackendServer server={props.server} onSave={serverUrl => { void Promise.resolve(onConfig({ ...config, serverUrl })).catch(error => notify(String(error))); }} />}
+        {tab === '网络代理' && <ProxySettings api={api} notify={notify} />}
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}
