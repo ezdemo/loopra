@@ -19,6 +19,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -45,8 +48,13 @@ class SessionTerminalTalentBashSessionTest {
      * 才真的属于"只有面板轮询才可能读走"的那一段（否则 bash_start 自己就消费掉了）。
      */
     private static final String MARK = "LOOPRA-PANEL-MARK";
+    /**
+     * 用 ping 而不是 timeout 制造延迟：test/CI 进程的 stdin 不是控制台，
+     * Windows 的 timeout.exe 会报 “Input redirection is not supported” 立刻退出，
+     * 命令在 bash_start 的 yield 窗口前就结束了，面板根本没机会看到输出。
+     */
     private static final String QUIET_MARK_COMMAND = isWindows()
-            ? "timeout /t 1 > nul & echo " + MARK + " & timeout /t 30 > nul"
+            ? "ping -n 2 127.0.0.1 > nul & echo " + MARK + " & ping -n 31 127.0.0.1 > nul"
             : "sleep 1; echo " + MARK + "; sleep 30";
 
     private static Path workspace;
@@ -197,20 +205,32 @@ class SessionTerminalTalentBashSessionTest {
     Charset charset = (Charset) charsetField.get(manager);
 
     assertNotEquals(StandardCharsets.UTF_8, charset, "Windows 下不应再用 UTF-8 解码子进程输出");
+    // CI runner 的活动代码页可能是 437/1252 等非中文代码页，断言必须跟随实际代码页，
+    // 而不是假定中文 Windows 的 CP936。
+    String codePage = activeWindowsCodePage();
+    Assumptions.assumeFalse("65001".equals(codePage), "活动代码页为 UTF-8，无需代码页兜底");
+    String expected = Charset.forName("CP" + codePage).name();
     String name = charset.name();
     if (name.startsWith("x-auto-")) {
       // AutoCharset：UTF-8 优先、活动代码页兜底；验证兜底编码确实为活动代码页
       Field fallbackField = AutoCharset.class.getDeclaredField("fallback");
       fallbackField.setAccessible(true);
       Charset fallback = (Charset) fallbackField.get(charset);
-      String fallbackName = fallback.name();
-      assertTrue("GBK".equals(fallbackName) || "CP936".equals(fallbackName)
-              || fallbackName.startsWith("CP"),
-          "AutoCharset 兜底应为活动代码页（如 CP936/GBK），实际: " + fallbackName);
+      assertEquals(expected, fallback.name(),
+          "AutoCharset 兜底应为活动代码页 " + codePage + "，实际: " + fallback.name());
     } else {
-      assertTrue("GBK".equals(name) || "CP936".equals(name) || name.startsWith("CP"),
-          "应按活动代码页命名（如 CP936/GBK），实际: " + name);
+      assertEquals(expected, name, "应按活动代码页 " + codePage + " 解码，实际: " + name);
     }
+  }
+
+  /** 通过 cmd 内置 chcp 读取当前活动代码页（如 "936"）。 */
+  private static String activeWindowsCodePage() throws Exception {
+    Process process = new ProcessBuilder("cmd", "/c", "chcp").redirectErrorStream(true).start();
+    String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.US_ASCII);
+    assertTrue(process.waitFor(5, TimeUnit.SECONDS), "读取活动代码页超时: " + output);
+    Matcher matcher = Pattern.compile("(\\d{3,5})").matcher(output);
+    assertTrue(matcher.find(), "无法读取活动代码页: " + output);
+    return matcher.group(1);
   }
 
   @Test

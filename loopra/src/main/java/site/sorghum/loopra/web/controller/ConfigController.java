@@ -118,7 +118,8 @@ public class ConfigController {
                 cfg.validationModel(),
                 cfg.validationModelChannelId(),
                 cfg.imageUnderstandingModel(),
-                cfg.imageUnderstandingModelChannelId()
+                cfg.imageUnderstandingModelChannelId(),
+                cfg.proxy()
         );
         return ApiResponse.ok(data);
     }
@@ -133,10 +134,12 @@ public class ConfigController {
         // 渠道/API 变更 → 销毁重建（LoopraModelProvider 的 apiUrl/apiKey 不可变）。
         // 首次保存模型渠道时 Agent 尚未就绪，仍需初始化。
         boolean agentReinitialized = false;
+        boolean proxyChanged = body.containsKey("proxy") || body.containsKey("proxyAddress");
         if (body.containsKey("baseUrl") || body.containsKey("apiKey")
                 || body.containsKey("modelChannels") || body.containsKey("modelChannelId")
                 || body.containsKey("validationModel") || body.containsKey("validationModelChannelId")
-                || body.containsKey("imageUnderstandingModel") || body.containsKey("imageUnderstandingModelChannelId")) {
+                || body.containsKey("imageUnderstandingModel") || body.containsKey("imageUnderstandingModelChannelId")
+                || body.containsKey("proxy") || body.containsKey("proxyAddress")) {
             agentService.reinitialize();
             agentReinitialized = true;
         }
@@ -148,7 +151,8 @@ public class ConfigController {
             if ("baseUrl".equals(key) || "apiKey".equals(key)
                     || "modelChannels".equals(key) || "modelChannelId".equals(key)
                     || "validationModel".equals(key) || "validationModelChannelId".equals(key)
-                    || "imageUnderstandingModel".equals(key) || "imageUnderstandingModelChannelId".equals(key)) continue;
+                    || "imageUnderstandingModel".equals(key) || "imageUnderstandingModelChannelId".equals(key)
+                    || "proxy".equals(key) || "proxyAddress".equals(key)) continue;
             // 只发布已知的运行时配置键
             if ("model".equals(key) || "reasoningEffort".equals(key) || "hitl".equals(key)
                     || "fastMode".equals(key) || "disabledTools".equals(key)) {
@@ -156,7 +160,9 @@ public class ConfigController {
             }
         }
 
-        return ApiResponse.ok(agentReinitialized ? "模型渠道已更新，Agent 已重新初始化" : "配置已更新");
+        return ApiResponse.ok(agentReinitialized
+                ? (proxyChanged ? "代理已更新，Agent 已重新初始化" : "模型渠道已更新，Agent 已重新初始化")
+                : "配置已更新");
     }
 
     @ApiOperation(value = "获取可用模型列表", notes = "返回配置中声明的所有可用模型及当前使用的模型")

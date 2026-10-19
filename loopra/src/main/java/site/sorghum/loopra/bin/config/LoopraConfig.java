@@ -118,6 +118,7 @@ public class LoopraConfig implements AgentConfig {
                 {
                   "baseUrl": "https://api.deepseek.com/v1",
                   "apiKey": "",
+                  "proxy": "",
                   "model": "deepseek-v4-flash",
                   "modelChannelId": "default",
                   "validationModel": "",
@@ -320,6 +321,8 @@ public class LoopraConfig implements AgentConfig {
             mergeDefaults(root, defaultConfigNode());
             boolean defaultWorkspaceInitialized = initializeDefaultWorkspace(root, configDir);
             LoopraConfig config = new LoopraConfig(root);
+            // 在创建模型/工具网络客户端前应用代理，统一覆盖 Java 的出站请求。
+            ProxySettings.apply(config.proxy());
             if (defaultWorkspaceInitialized || modelChannelsMigrated || deprecatedGlobalFieldsRemoved) {
                 config.save();
             }
@@ -345,6 +348,20 @@ public class LoopraConfig implements AgentConfig {
         return channel != null && !channel.baseUrl().isBlank()
                 ? channel.baseUrl()
                 : root.select("$.baseUrl").getString();
+    }
+
+    /**
+     * 获取全局出站代理地址。
+     * 支持 http://host:port、socks5://host:port，以及省略协议的 host:port。
+     */
+    public String proxy() {
+        ONode proxyNode = root.select("$.proxy");
+        String proxy = proxyNode == null || proxyNode.isNull() ? "" : trim(proxyNode.getString());
+        if (!proxy.isEmpty()) return proxy;
+
+        // 兼容早期开发版本可能使用的字段名。
+        ONode legacyNode = root.select("$.proxyAddress");
+        return legacyNode == null || legacyNode.isNull() ? "" : trim(legacyNode.getString());
     }
 
     /** 当前渠道使用的 API 协议。 */
@@ -1021,10 +1038,17 @@ public class LoopraConfig implements AgentConfig {
             String key = entry.getKey();
             Object value = entry.getValue();
 
+            // 对外兼容 proxyAddress，但配置文件统一保存为 proxy。
+            if ("proxyAddress".equals(key)) key = "proxy";
+            if ("proxy".equals(key) && value != null) {
+                value = ProxySettings.normalize(value.toString());
+            }
+
             // 跳过空值；模型选择字段允许空字符串以关闭对应功能；前端回传脱敏密钥时保留现有真实值。
             if (value == null) continue;
             if (value instanceof String str
                     && ((str.isEmpty()
+                        && !"proxy".equals(key)
                         && !"validationModel".equals(key)
                         && !"validationModelChannelId".equals(key)
                         && !"imageUnderstandingModel".equals(key)

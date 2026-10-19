@@ -35,7 +35,14 @@ class WorkspaceFileOperationsTest {
             Assumptions.abort("Symbolic links unavailable: " + exception.getMessage());
         }
         assertFalse(WorkspaceFileOperations.isWithin(root, root, "link/new.txt"));
-        assertFalse(WorkspaceFileOperations.isWithin(root, root, "link/../new.txt"));
+        // Windows 在解析 reparse point 之前就按词法折叠 ".."，所以 link/../new.txt 落在工作区内；
+        // POSIX 先解析符号链接，同一路径指向工作区外。这里断言各平台的真实语义。
+        assertEquals(isWindows(), WorkspaceFileOperations.isWithin(root, root, "link/../new.txt"),
+                "link/.. 的解析顺序随平台不同（Windows 词法折叠，POSIX 先解析符号链接）");
         assertTrue(WorkspaceFileOperations.isWithin(root, root, "missing/../new.txt"));
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 }

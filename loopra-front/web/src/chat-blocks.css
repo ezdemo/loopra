@@ -101,6 +101,7 @@
 .loopra-conversation .reasoning-text { margin: .125rem 0 .5rem; padding: .125rem 0; color: var(--chat-fg-3); font-size: .8125rem; }
 .loopra-conversation .reasoning-text .block-content { color: inherit; }
 .loopra-conversation .reasoning-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loopra-conversation .reasoning-preview[data-streaming="true"] { text-overflow: clip; }
 .loopra-conversation .reasoning-plain { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 .loopra-conversation .tool-icon { display: inline-flex; align-items: center; justify-content: flex-start; width: .875rem; height: 1.25rem; flex-shrink: 0; }
 .loopra-conversation .tool-icon svg { width: .875rem; height: .875rem; }
