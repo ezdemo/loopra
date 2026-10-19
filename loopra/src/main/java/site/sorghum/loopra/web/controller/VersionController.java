@@ -31,11 +31,11 @@ import java.time.format.DateTimeFormatter;
 public class VersionController {
 
     /**
-     * 最新发布页地址（Gitee）。通过访问其 302 重定向目标地址提取最新版本标签。
+     * 最新发布页地址（独立发版仓库）。通过访问其 302 重定向目标地址提取最新版本标签。
      */
-    private static final String LATEST_RELEASE_URL = "https://gitee.com/ezdemo/loopra/releases/latest";
+    private static final String LATEST_RELEASE_URL = "https://github.com/ezdemo/loopra-release/releases/latest";
 
-    private static final String GITHUB_LATEST_RELEASE_URL = "https://github.com/ezdemo/loopra/releases/latest";
+    private static final String GITHUB_LATEST_RELEASE_URL = "https://github.com/ezdemo/loopra-release/releases/latest";
 
     /**
      * 获取当前系统版本信息。
@@ -96,7 +96,7 @@ public class VersionController {
                 String location = conn.getHeaderField("Location");
                 if (location != null && !location.isEmpty()) {
                     // 从 Location 中提取版本标签
-                    // 格式如: https://github.com/ezdemo/loopra/releases/tag/v26.6.15
+                    // 格式如: https://github.com/ezdemo/loopra-release/releases/tag/v26.6.15
                     int tagIndex = location.lastIndexOf("/tag/");
                     if (tagIndex >= 0) {
                         String tagName = location.substring(tagIndex + 5); // "/tag/" 长度为 5

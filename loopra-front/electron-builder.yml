@@ -16,7 +16,7 @@ asar: true
 
 # 核心运行时（loopra-web.jar 等）由 CI 解压 loopra-dist artifact 生成到 resources/loopra-core，
 # 打包进安装包 resources/loopra-core，首次安装时无需再在线下载核心包
-# （本地打包请先运行 .release/ci-embed-core.sh 或 .release/embed-core.ps1）
+# （本地打包使用 loopra-release 仓库的 .release/ci-embed-core.sh 或 embed-core.ps1，指定本源码目录）
 extraResources:
   - from: resources/loopra-core
     to: loopra-core

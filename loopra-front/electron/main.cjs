@@ -643,7 +643,7 @@ async function downloadAndInstallJre25(source) {
 // 与 JRE / 更新脚本共用同一份测速目标（release 压缩包，Range 取前 1KB），并发测各镜像延迟。
 // 放在主进程执行：镜像代理大多不支持浏览器跨域，node https 无 CORS 限制。
 
-const MIRROR_TEST_ASSET = 'https://github.com/ezdemo/loopra/releases/download/v26.8.211/loopra-dist.tar.gz'
+const MIRROR_TEST_ASSET = 'https://github.com/ezdemo/loopra-release/releases/latest/download/loopra-dist.tar.gz'
 
 // 测单个镜像：返回延迟(ms)，失败/超时返回 null
 function measureMirrorLatency(mirrorBase, timeoutMs = 8000) {
@@ -1608,6 +1608,7 @@ ipcMain.handle('install_loopra_web_online', async (event, options = {}) => {
 
   // 镜像源使用 setup-gui-mirror 脚本（安装包经 gh-proxy 加速下载）
   const scriptName = source === 'mirror' ? 'setup-gui-mirror' : 'setup-gui'
+  const scriptBase = `${source === 'mirror' ? 'https://gh-proxy.org/' : ''}https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release`
   sendInstallLog(`>> 下载源: ${source === 'mirror' ? '镜像 (gh-proxy)' : 'GitHub 直连'}`)
   sendInstallLog('>> 桌面运行时将安装到 ~/.loopra-gui，配置继续使用 ~/.loopra')
   sendInstallLog('')
@@ -1619,7 +1620,7 @@ ipcMain.handle('install_loopra_web_online', async (event, options = {}) => {
       sendInstallLog('>> 检测到 Windows 系统，使用 PowerShell 安装...')
       const psCmd = [
         '-ExecutionPolicy', 'Bypass', '-NoProfile', '-Command',
-        `irm https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/${scriptName}.ps1 | iex`
+        `irm ${scriptBase}/${scriptName}.ps1 | iex`
       ]
       child = spawn('powershell', psCmd, {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -1631,7 +1632,7 @@ ipcMain.handle('install_loopra_web_online', async (event, options = {}) => {
       sendInstallLog('>> 检测到 Unix 系统，使用 curl 安装...')
       // 下载脚本并管道给 bash 执行，-fsSL = 静默+显示错误+跟随跳转
       child = spawn('bash', ['-c',
-        `curl -fsSL https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/${scriptName}.sh | bash`
+        `curl -fsSL ${scriptBase}/${scriptName}.sh | bash`
       ], {
         stdio: ['ignore', 'pipe', 'pipe']
       })

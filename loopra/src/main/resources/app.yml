@@ -2,7 +2,7 @@ solon.app:
   name: "loopra-web"
   group: "loopra"
   version: "@project.version@"
-version.check.url: "https://gitee.com/api/v5/repos/ezdemo/loopra/releases/latest"
+version.check.url: "https://api.github.com/repos/ezdemo/loopra-release/releases/latest"
 server:
   port: 4567
 

@@ -7,7 +7,7 @@
 export const GITEE_HOME_URL = 'https://gitee.com/ezdemo/loopra'
 
 // 最新发布页（下载 / 更新跳转，GitHub）
-export const RELEASE_LATEST_URL = 'https://github.com/ezdemo/loopra/releases/latest'
+export const RELEASE_LATEST_URL = 'https://github.com/ezdemo/loopra-release/releases/latest'
 
 // 发布列表页（GitHub）
-export const RELEASES_URL = 'https://github.com/ezdemo/loopra/releases'
+export const RELEASES_URL = 'https://github.com/ezdemo/loopra-release/releases'

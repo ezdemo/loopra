@@ -40,15 +40,16 @@ describe('updateScriptName', () => {
 describe('buildUpdateCommand', () => {
   it('returns windows and unix commands with short labels', () => {
     const cmd = buildUpdateCommand(UPDATE_SOURCE_NORMAL, false)
-    expect(cmd.windows).toBe('irm https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup.ps1 | iex')
+    expect(cmd.windows).toBe('irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex')
     expect(cmd.windowsLabel).toBe('irm ...setup.ps1 | iex')
-    expect(cmd.unix).toBe('curl -fsSL https://raw.giteeusercontent.com/ezdemo/loopra/raw/main/.release/setup.sh | bash')
+    expect(cmd.unix).toBe('curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash')
     expect(cmd.unixLabel).toBe('curl ...setup.sh | bash')
   })
 
   it('switches to mirror scripts when the mirror source is selected', () => {
     const cmd = buildUpdateCommand(UPDATE_SOURCE_MIRROR, true)
     expect(cmd.windows).toContain('setup-gui-mirror.ps1')
+    expect(cmd.windows).toContain('irm https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/')
     expect(cmd.unix).toContain('setup-gui-mirror.sh')
   })
 

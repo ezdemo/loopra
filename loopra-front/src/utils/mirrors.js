@@ -20,7 +20,7 @@ export const MIRROR_SOURCES = [
 ]
 
 // 测速目标：release 里实际下载的压缩包（仅 Range 请求前 1KB，避免下载大文件）
-export const MIRROR_TEST_ASSET = 'https://github.com/ezdemo/loopra/releases/download/v26.8.211/loopra-dist.tar.gz'
+export const MIRROR_TEST_ASSET = 'https://github.com/ezdemo/loopra-release/releases/latest/download/loopra-dist.tar.gz'
 
 // 单个镜像测速超时（ms）
 export const MIRROR_TEST_TIMEOUT = 8000
