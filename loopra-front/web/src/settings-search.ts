@@ -5,6 +5,7 @@ const fields: Record<string, string[]> = {
   '关于': ['Loopra Web 服务', '数据存储', '帮助中心'],
   '项目': ['添加本地项目', '项目绝对路径', '会话管理', '需求池'],
   '服务器': ['后端 API 地址'],
+  '网络代理': ['代理地址', '出站代理'],
   '智能体与会话': ['默认权限模式', '推理强度', '计划模式', '快速模式', '自动工作区上下文'],
   '模型供应商': ['新会话默认模型', '当前聊天模型', '命令校验模型', '图片理解模型'],
   '系统提示词': ['系统提示词'],
@@ -16,6 +17,8 @@ const aliases: Record<string, string> = {
   '默认打开应用': '文件管理器 终端 File Explorer Terminal Git Bash',
   '宠物': '宠物 pet',
   '界面动画': '动效 实验室 animation',
+  '代理地址': '代理 proxy socks http https 出站 网络 直连',
+  '出站代理': '代理 proxy socks http https 网络 直连',
 };
 export const settingSearchItems: SettingSearchItem[] = Object.entries(fields).flatMap(([category, titles]) =>
   titles.map(title => ({ category, title, keywords: aliases[title] || '' })));

@@ -23,6 +23,7 @@ export const settingsCategories = [
   ] },
   { name: '连接与帮助', sections: [
     { name: '服务器', label: '服务连接', keywords: '后端 API 连接' },
+    { name: '网络代理', label: '网络代理', keywords: '代理 proxy http socks 出站 网络' },
     { name: '快捷键', label: '快捷键', keywords: '键盘 输入' },
     { name: '关于', label: '关于与存储', keywords: '本地 账户 数据存储 版本' },
   ] },

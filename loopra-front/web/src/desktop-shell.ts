@@ -14,10 +14,16 @@ export type DesktopWindowApi = {
   isMaximized?: () => Promise<boolean> | boolean;
 };
 
+export type DesktopProxyApi = {
+  get?: () => Promise<{ success?: boolean; proxy?: string; error?: string }>;
+  set?: (address: string) => Promise<{ success?: boolean; proxy?: string; error?: string }>;
+};
+
 type ElectronApi = {
   isElectron?: boolean;
   platform?: string;
   window?: DesktopWindowApi;
+  proxy?: DesktopProxyApi;
 };
 
 function currentWindow(): (Window & { electronAPI?: ElectronApi | null }) | null {
@@ -41,6 +47,12 @@ export function isDesktopWindow(): boolean {
 
 export function desktopPlatform(): string {
   return electronApi()?.platform || 'win32';
+}
+
+// 只有 preload 暴露了 proxy.set 才能把设置同步到 Electron 的 defaultSession；
+// 浏览器页面没有这个桥接，代理只作用于 Java 后端。
+export function electronProxyApi(): DesktopProxyApi | null {
+  return electronApi()?.proxy || null;
 }
 
 // macOS paints its own traffic lights over the hidden title bar
