@@ -48,6 +48,25 @@ class ExternalAcpSessionsTest {
         } finally { store.shutdown(); }
     }
 
+    @Test void acpDiffContentBecomesTheWorkbenchFileChangeSummary() throws Exception {
+        var store = store();
+        List<String> events = new ArrayList<>();
+        AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
+            @Override public void sendEvent(String type, String data) { if (type.equals("file_changes")) events.add(data); }
+        };
+        try (var runtime = runtime()) {
+            prompt(runtime, store, "edit", output);
+            assertEquals(1, events.size(), "A completed edit must emit one file_changes summary");
+            assertTrue(events.get(0).contains("\"path\":\"example.txt\""));
+            assertTrue(events.get(0).contains("\"additions\":1"));
+            assertTrue(events.get(0).contains("\"deletions\":1"));
+            assertTrue(events.get(0).contains("\"created\":false"));
+            assertTrue(store.load("chat").stream().anyMatch(message -> message.getFileChanges() != null
+                    && message.getFileChanges().stream().anyMatch(change -> "example.txt".equals(change.path())
+                    && change.additions() == 1 && change.deletions() == 1 && !change.created())));
+        } finally { store.shutdown(); }
+    }
+
     @Test void contextUsageReportedByTheAgentIsPersistedAndStreamed() throws Exception {
         var store = store();
         List<String> events = new ArrayList<>();

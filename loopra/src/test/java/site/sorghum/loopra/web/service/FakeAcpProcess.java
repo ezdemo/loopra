@@ -75,6 +75,15 @@ public final class FakeAcpProcess {
                                 "sessionId", "fake-session", "toolCall", Map.of("toolCallId", "call-1", "title", "Write test file"),
                                 "options", List.of(Map.of("optionId", "allow", "name", "Allow once", "kind", "allow_once"),
                                         Map.of("optionId", "deny", "name", "Reject", "kind", "reject_once")))));
+                    } else if ("edit".equals(text)) {
+                        // ACP exposes edit changes as `diff` content, like the Claude adapter.
+                        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "edit-1", "title", "Edit example.txt",
+                                "kind", "edit", "status", "pending", "content", List.of(Map.of("type", "diff",
+                                        "path", "example.txt", "oldText", "old line\n", "newText", "new line\n"))));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "edit-1", "status", "completed",
+                                "rawOutput", "edited"));
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "edited")));
+                        response(id, Map.of("stopReason", "end_turn"));
                     } else {
                         update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "reply:" + text
                                 + ("state".equals(text) ? ":" + model + ":" + mode : ""))));

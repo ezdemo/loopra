@@ -1,12 +1,15 @@
 package site.sorghum.loopra.web.service;
 
+import org.noear.snack4.ONode;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
+import site.sorghum.loopra.bin.agent.model.FileChange;
 import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.session.SessionStore;
 import site.sorghum.loopra.tool.AgentOutput;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /** Workbench transcript only. The external Agent owns its model context and resume data. */
@@ -41,7 +44,33 @@ final class AcpTranscriptOutput implements AgentOutput {
         append(ChatMessage.tool(id, failed ? "[failed] " + result : result));
         delegate.onToolResult(id, name, result, failed);
     }
-    @Override public void sendEvent(String type, String data) { delegate.sendEvent(type, data); }
+    @Override public synchronized void sendEvent(String type, String data) {
+        if ("file_changes".equals(type)) persistFileChanges(data);
+        delegate.sendEvent(type, data);
+    }
+
+    /**
+     * File-change summaries are normally attached to a Native assistant message.
+     * ACP reports them as events, so store an assistant entry that the history
+     * loader turns back into the same `file_changes` block.
+     */
+    private void persistFileChanges(String data) {
+        ONode root = ONode.ofJson(data);
+        if (!root.get("changes").isArray()) return;
+        List<FileChange> changes = new ArrayList<>();
+        for (ONode item : root.get("changes").getArray()) {
+            String path = item.get("path").getString();
+            if (path == null || path.isBlank()) continue;
+            changes.add(new FileChange(path, item.get("additions").getInt(), item.get("deletions").getInt(),
+                    item.get("created").getBoolean(), item.get("diff").getString()));
+        }
+        if (changes.isEmpty()) return;
+        flush();
+        ChatMessage message = ChatMessage.assistant(null, null, null);
+        message.setFileChanges(changes);
+        append(message);
+        store.flush();
+    }
     @Override public void onContentComplete() { delegate.onContentComplete(); }
     @Override public void onReasoning(String value) { onReasoningDelta(value); }
     @Override public void onToolCall(String name, String args) { delegate.onToolCall(name, args); }

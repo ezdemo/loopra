@@ -44,6 +44,15 @@ public final class SessionFileChangeTracker {
                         : existing.withAfter(after));
     }
 
+    /**
+     * 把 ACP 工具调用带回的 old/new 文本转换为前端使用的文件变更摘要。
+     * <p>{@code before == null} 表示该文件是新建的。</p>
+     */
+    public static FileChange compare(String path, String before, String after) {
+        DiffSnapshot diff = DiffSnapshot.of(path, before == null ? "" : before, after == null ? "" : after);
+        return new FileChange(path, diff.stats().additions(), diff.stats().deletions(), before == null, diff.unified());
+    }
+
     public static List<FileChange> drain(Path workspace, String sessionId) {
         Map<String, ChangeSnapshot> changes = CHANGES.remove(scope(workspace, sessionId));
         if (changes == null || changes.isEmpty()) return List.of();

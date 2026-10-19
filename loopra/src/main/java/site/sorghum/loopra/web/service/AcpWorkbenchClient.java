@@ -10,7 +10,9 @@ import org.noear.snack4.ONode;
 import reactor.core.publisher.Mono;
 import site.sorghum.loopra.bin.acp.AcpAgentOutput;
 import site.sorghum.loopra.bin.acp.AcpConfigOption;
+import site.sorghum.loopra.bin.agent.model.FileChange;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
+import site.sorghum.loopra.bin.session.SessionFileChangeTracker;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.web.common.ServiceException;
 
@@ -30,6 +32,9 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final Map<String, PendingPermission> permissions = new ConcurrentHashMap<>();
     private final Map<String, String> toolNames = new ConcurrentHashMap<>();
+    /** ACP diff content by tool call; the final PostToolUse update replaces the preview. */
+    private final Map<String, List<ToolCallDiff>> toolDiffs = new ConcurrentHashMap<>();
+    private final java.util.Set<String> reportedFileChanges = ConcurrentHashMap.newKeySet();
     private volatile String sessionId;
     private volatile boolean nativeEvents;
     private volatile boolean replaying;
@@ -169,6 +174,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     public PromptResponse prompt(UserMessage message, Map<String, Object> options) {
         if (cancelled.get()) return new PromptResponse(StopReason.CANCELLED);
         toolNames.clear();
+        toolDiffs.clear();
         List<ContentBlock> blocks = new ArrayList<>();
         if (message.getText() != null) blocks.add(new TextContent(message.getText()));
         for (String image : message.getImages()) {
@@ -194,12 +200,14 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         } else if (update instanceof ToolCall call) {
             String name = toolName(call.title(), call.meta());
             toolNames.put(call.toolCallId(), name);
+            captureFileChanges(call.toolCallId(), call.content());
             output.onToolCall(call.toolCallId(), name, ONode.serialize(call.rawInput()));
             finishTool(call.toolCallId(), name, call.status(), call.rawOutput(), call.content());
         } else if (update instanceof ToolCallUpdateNotification call) {
             String name = call.title() == null ? toolNames.getOrDefault(call.toolCallId(), "unknown")
                     : toolName(call.title(), call.meta());
             toolNames.put(call.toolCallId(), name);
+            captureFileChanges(call.toolCallId(), call.content());
             if (call.rawInput() != null || call.title() != null) {
                 output.onToolUpdate(call.toolCallId(), name, call.rawInput() == null ? null : ONode.serialize(call.rawInput()));
             }
@@ -243,6 +251,30 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         if (status != ToolCallStatus.COMPLETED && status != ToolCallStatus.FAILED) return;
         String result = raw instanceof String value ? value : raw != null ? ONode.serialize(raw) : toolText(content);
         output.onToolResult(id, name, result, status == ToolCallStatus.FAILED);
+        if (status == ToolCallStatus.COMPLETED) reportFileChanges(id);
+    }
+
+    /**
+     * ACP exposes edit changes as `diff` content (`path`/`oldText`/`newText`).
+     * Keep the latest content per tool call: Edit announces a snippet first and
+     * the PostToolUse update then carries the final patch.
+     */
+    private void captureFileChanges(String toolCallId, List<ToolCallContent> content) {
+        if (content == null || content.isEmpty()) return;
+        List<ToolCallDiff> diffs = content.stream().filter(ToolCallDiff.class::isInstance)
+                .map(ToolCallDiff.class::cast).filter(diff -> diff.path() != null).toList();
+        if (!diffs.isEmpty()) toolDiffs.put(toolCallId, diffs);
+    }
+
+    /** Report one completed edit as the same `file_changes` event Native agents emit. */
+    private void reportFileChanges(String toolCallId) {
+        List<ToolCallDiff> diffs = toolDiffs.remove(toolCallId);
+        if (diffs == null || diffs.isEmpty() || !reportedFileChanges.add(toolCallId)) return;
+        List<FileChange> changes = diffs.stream()
+                .map(diff -> SessionFileChangeTracker.compare(diff.path(), diff.oldText(), diff.newText()))
+                .filter(change -> change.additions() > 0 || change.deletions() > 0)
+                .toList();
+        if (!changes.isEmpty()) output.sendEvent("file_changes", ONode.serialize(Map.of("changes", changes)));
     }
 
     /** A persistent external connection binds a fresh output for each workbench turn. */
