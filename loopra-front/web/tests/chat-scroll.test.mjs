@@ -11,7 +11,13 @@ import ts from 'typescript';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://test.invalid' });
 const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Event: dom.window.Event, IS_REACT_ACT_ENVIRONMENT: true };
 // jsdom has no ResizeObserver; the message list only uses it for measurement.
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+class ResizeObserverStub {
+  static instances = [];
+  constructor(callback) { this.callback = callback; ResizeObserverStub.instances.push(this); }
+  observe(element) { this.element = element; }
+  unobserve() {}
+  disconnect() { this.disconnected = true; }
+}
 globals.ResizeObserver = ResizeObserverStub;
 const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
@@ -41,6 +47,17 @@ export const NextUIProvider = ({ children }) => createElement('div', null, child
   'framer-motion': dataUrl('export const MotionGlobalConfig = {};'),
 });
 const { Disclosure } = await import(motionUrl);
+
+const { default: BlockRenderer } = await import(await sourceUrl('components/BlockRenderer.tsx', {
+  './Motion': motionUrl,
+  '../chat': chatUrl,
+  '../tool-params': await sourceUrl('tool-params.ts'),
+  'lucide-react': import.meta.resolve('lucide-react'),
+  '@nextui-org/react': dataUrl('export const Button = () => null;'),
+  './ui': dataUrl('export const IconButton = () => null;'),
+  './Markdown': dataUrl('export default () => null;'),
+  './UnifiedDiff': dataUrl('export default () => null;'),
+}));
 
 const chatWindowUrl = await sourceUrl('chat-window.ts');
 // Conversation.tsx must tag every message so the dock can jump to it.
@@ -211,4 +228,55 @@ test('the compacted summary links to the raw events log', async () => {
   // Without the handler the affordance is hidden.
   const plain = await renderMessages(compacted);
   try { assert.equal(plain.container.querySelector('.compacted-raw-btn'), null); } finally { await plain.close(); }
+});
+
+test('streaming reasoning follows the latest text beyond 120 characters and viewport resizes', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const content = '思考内容 '.repeat(40);
+  const render = (text, streaming) => act(async () => root.render(createElement(BlockRenderer, {
+    blocks: [{ id: 'r', type: 'reasoning', content: text }], streaming, notify: () => {},
+  })));
+  try {
+    await render(content, true);
+    const preview = container.querySelector('.reasoning-preview');
+    let width = 1400;
+    Object.defineProperty(preview, 'scrollWidth', { get: () => width });
+    await render(content + '最新输出', true);
+    assert.equal(preview.textContent, content + '最新输出');
+    assert.equal(preview.scrollLeft, width);
+    const observer = ResizeObserverStub.instances.find(item => item.element === preview);
+    assert.ok(observer);
+    width = 1600;
+    observer.callback();
+    assert.equal(preview.scrollLeft, width, 'keeps the tail visible after a resize');
+    await act(async () => container.querySelector('.reasoning-head').click());
+    assert.equal(container.querySelector('.reasoning-plain').textContent, content + '最新输出');
+    await render(content + '最新输出', false);
+    assert.equal(observer.disconnected, true, 'stops observing when output ends');
+    preview.scrollLeft = 0;
+    await render(content + '历史内容', false);
+    assert.equal(preview.scrollLeft, 0, 'inactive reasoning does not force scrolling');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test('only the latest reasoning step follows within an expanded chain', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(createElement(BlockRenderer, {
+      blocks: [{ id: 'r1', type: 'reasoning', content: '之前的思考' }, { id: 'r2', type: 'reasoning', content: '最新的思考' }],
+      streaming: true, notify: () => {},
+    })));
+    await act(async () => container.querySelector('.chain-head').click());
+    assert.deepEqual([...container.querySelectorAll('.reasoning-preview')].map(node => node.dataset.streaming), ['false', 'true']);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
 });
