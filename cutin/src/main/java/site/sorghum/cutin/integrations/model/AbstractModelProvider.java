@@ -42,8 +42,25 @@ abstract class AbstractModelProvider<A extends AbstractModelProvider.StreamAccum
         Map<String, String> baseHeaders
     ) {
         this.config = config;
-        this.baseHeaders = baseHeaders;
-        this.transport = new HttpModelTransport(config.endpoint(endpointPath), baseHeaders);
+        this.baseHeaders = withUserAgent(config, baseHeaders);
+        this.transport = new HttpModelTransport(config.endpoint(endpointPath), this.baseHeaders);
+    }
+
+    /**
+     * 合并配置中的 {@code userAgent} 选项。不设置时保留 JDK/HTTP 客户端默认值；
+     * 设置后覆盖 Java HttpClient 的 {@code Java-http-client} 标识。
+     */
+    private static Map<String, String> withUserAgent(
+        ModelProviderConfig config,
+        Map<String, String> baseHeaders
+    ) {
+        Object userAgent = config.options().get("userAgent");
+        if (userAgent == null || String.valueOf(userAgent).isBlank()) {
+            return baseHeaders;
+        }
+        Map<String, String> headers = new HashMap<>(baseHeaders);
+        headers.put("User-Agent", String.valueOf(userAgent));
+        return Map.copyOf(headers);
     }
 
     /** {@inheritDoc} */

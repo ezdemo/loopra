@@ -334,6 +334,8 @@ public class LoopraModelProvider implements ModelProvider {
         options.put("maxTokens", maxTokens);
         options.put("specialCompatibility", specialCompatibility);
         options.put("fallbackSessionId", id());
+        // Identify Loopra to model providers instead of leaking the JDK client name.
+        options.put("userAgent", userAgent());
         ModelProviderConfig config = new ModelProviderConfig(
             id(),
             apiUrl,
@@ -348,6 +350,16 @@ public class LoopraModelProvider implements ModelProvider {
             return new AnthropicMessagesProvider(config);
         }
         return new OpenAiChatCompletionsProvider(config);
+    }
+
+    /** 模型请求的 User-Agent；版本取自 app.yml，未初始化时退化为产品名。 */
+    static String userAgent() {
+        org.noear.solon.SolonProps cfg = Solon.cfg();
+        String version = cfg == null ? null : cfg.get("solon.app.version");
+        if (version == null || version.isBlank() || version.contains("@")) {
+            return "LoopraAgent";
+        }
+        return "LoopraAgent/" + version.trim();
     }
 
     private static String normalizeApiProtocol(String value) {

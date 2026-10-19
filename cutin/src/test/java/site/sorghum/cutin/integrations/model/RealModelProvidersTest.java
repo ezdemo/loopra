@@ -33,6 +33,39 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class RealModelProvidersTest {
 
+    /** 配置 userAgent 后应覆盖 Java HttpClient 的默认客户端标识。 */
+    @Test
+    void providerSendsConfiguredUserAgent() throws Exception {
+        AtomicReference<String> userAgent = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            userAgent.set(exchange.getRequestHeaders().getFirst("User-Agent"));
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = """
+                {"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{}}
+                """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ModelProviderConfig config = new ModelProviderConfig(
+                "user-agent",
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                "key",
+                "gpt-5",
+                Map.of("userAgent", "LoopraAgent/1.2.3")
+            );
+            new OpenAiChatCompletionsProvider(config).call(new ModelCallRequest(
+                "gpt-5", List.of(new Message("user", "hi")), List.of(), Map.of()));
+            assertEquals("LoopraAgent/1.2.3", userAgent.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     /** Chat Completions Provider 应正确映射请求、工具调用与用量。 */
     @Test
     void chatCompletionsProviderMapsRequestAndToolCalls() throws Exception {
