@@ -4,7 +4,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import lombok.extern.slf4j.Slf4j;
-import org.noear.solon.ai.talents.mount.SkillDir;
+import org.noear.solon.ai.talents.mount.catalog.SkillDescriptor;
 import org.noear.solon.annotation.Body;
 import org.noear.solon.annotation.Controller;
 import org.noear.solon.annotation.Get;
@@ -262,16 +262,17 @@ public class AgentController {
         }
         try {
             LoopraSkillProvider skillProvider = LoopraSkillProvider.getOrCreate("~");
-            skillProvider.getPoolManager().refresh();
-            Collection<SkillDir> skills = skillProvider.getPoolManager().getSkills();
+            skillProvider.getPoolManager().getSkillCatalog().refresh();
+            Collection<SkillDescriptor> skills = skillProvider.getPoolManager().getSkillCatalog().getDescriptors();
 
             List<SkillMetaDTO> result = skills.stream()
                     .map(s -> new SkillMetaDTO(
                             s.getName(),
                             s.getDescription(),
-                            s.getAliasPath(),
+                            s.getId(),
                             "",
-                            s.getRealPath().getFileName().toString()
+                            skillProvider.getPoolManager().resolveResource(s.getId()).getLocalPath()
+                                    .map(path -> path.getFileName().toString()).orElse(s.getName())
                     ))
                     .collect(Collectors.toList());
 

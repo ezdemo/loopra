@@ -97,6 +97,51 @@ class SessionTerminalTalentBashSessionTest {
     }
 
     @Test
+    void bashWaitCanSendInputWithoutLosingPanelOutput() throws Exception {
+        String command = isWindows()
+                ? "powershell -NoProfile -NonInteractive -Command \"Start-Sleep -Milliseconds 500; [Console]::WriteLine('INPUT-READY'); [Console]::WriteLine([Console]::ReadLine())\""
+                : "sleep 0.5; echo INPUT-READY; read line; printf '%s\\n' \"$line\"";
+        String start = talent.bashStart(command, null, 100, 4096, 30_000, null);
+        String sessionId = extractSessionId(start);
+        assertNotNull(sessionId);
+        String output = "";
+        for (int i = 0; i < 50 && !output.contains("INPUT-READY"); i++) {
+            Thread.sleep(100);
+            output = mirrorOutput(sessionId);
+        }
+        assertTrue(output.contains("INPUT-READY"), "panel must read the readiness marker before sending input");
+
+        String result = talent.bashWait(sessionId, "LOOPRA-INPUT\n", 5_000, 4096);
+        assertTrue(result.contains("INPUT-READY"), "panel output must still reach the agent");
+        assertTrue(result.contains("LOOPRA-INPUT"), "queued output must not prevent stdin delivery");
+        assertTrue(result.contains("status: completed"));
+    }
+
+    @Test
+    void legacyBashStdinStillWritesToCommandSessions() throws Exception {
+        String command = isWindows()
+                ? "powershell -NoProfile -NonInteractive -Command \"[Console]::WriteLine([Console]::ReadLine())\""
+                : "read line; printf '%s\\n' \"$line\"";
+        String start = talent.bashStart(command, null, 100, 4096, 30_000, null);
+        String sessionId = extractSessionId(start);
+        assertNotNull(sessionId);
+        String result = talent.bashStdin(sessionId, "LEGACY-INPUT\n", 5_000, 4096);
+        assertTrue(result.contains("LEGACY-INPUT"));
+        assertTrue(result.contains("status: completed"));
+    }
+
+    @Test
+    void commandWorkdirMetadataResolvesRelativeToTheCallingDirectory() throws Exception {
+        Path cwd = Files.createDirectories(workspace.resolve("calling-directory"));
+        Path target = Files.createDirectories(cwd.resolve("child"));
+        String start = talent.bashStart(RUNNING_PING, "child", 100, 4096, 60_000, cwd.toString());
+        String sessionId = extractSessionId(start);
+        assertNotNull(sessionId);
+        assertEquals(target.toString(), talent.snapshotBashSessions().stream()
+                .filter(info -> sessionId.equals(info.getSessionId())).findFirst().orElseThrow().getWorkdir());
+    }
+
+    @Test
     void bashStartRecordsRunningSession() throws Exception {
         String result = talent.bashStart(RUNNING_PING, null, 300, 4096, 60_000, null);
 

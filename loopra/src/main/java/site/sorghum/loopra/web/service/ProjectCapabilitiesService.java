@@ -1,7 +1,7 @@
 package site.sorghum.loopra.web.service;
 
 import lombok.extern.slf4j.Slf4j;
-import org.noear.solon.ai.talents.mount.SkillDir;
+import org.noear.solon.ai.talents.mount.catalog.SkillDescriptor;
 import site.sorghum.loopra.bin.mcp.McpProjectConfig;
 import site.sorghum.loopra.tool.solon.common.LoopraSkillProvider;
 import site.sorghum.loopra.tool.solon.mcp.ProjectMcpSkill;
@@ -112,14 +112,18 @@ final class ProjectCapabilitiesService {
 
     private static ProjectCapabilitiesDTO readProjectCapabilities(Path projectRoot) {
         LoopraSkillProvider provider = LoopraSkillProvider.getOrCreate(projectRoot.toString());
-        provider.getPoolManager().refresh();
+        provider.getPoolManager().getSkillCatalog().refresh();
         Path skillsPath = projectRoot.resolve(".loopra/skills");
-        List<ProjectSkillMetaDTO> skills = provider.getPoolManager().getSkills().stream()
+        List<ProjectSkillMetaDTO> skills = provider.getPoolManager().getSkillCatalog().getDescriptors().stream()
                 .filter(Objects::nonNull)
-                .filter(skill -> "@project-skills".equals(skill.getMountAlias()))
-                .sorted(Comparator.comparing(SkillDir::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
-                .map(skill -> new ProjectSkillMetaDTO(skill.getName(), skill.getDescription(), "project",
-                        skill.getMountAlias(), skill.getRealPath() == null ? null : skill.getRealPath().toString()))
+                .filter(skill -> "@project-skills".equals(
+                        provider.getPoolManager().resolveResource(skill.getId()).getMountAlias()))
+                .sorted(Comparator.comparing(SkillDescriptor::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                .map(skill -> {
+                    var resource = provider.getPoolManager().resolveResource(skill.getId());
+                    return new ProjectSkillMetaDTO(skill.getName(), skill.getDescription(), "project",
+                            resource.getMountAlias(), resource.getLocalPath().map(Path::toString).orElse(null));
+                })
                 .toList();
         ProjectMcpSkill mcp = provider.getProjectMcpSkill();
         List<ProjectMcpServerDTO> servers = mcp == null ? List.of() : mcp.serverInfos().stream()

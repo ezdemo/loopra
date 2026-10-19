@@ -24,7 +24,7 @@
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.10.2</junit.version>
-        <snack4.version>4.0.49</snack4.version>
+        <snack4.version>4.0.59</snack4.version>
         <slf4j.version>2.0.17</slf4j.version>
     </properties>
 

@@ -4,6 +4,15 @@
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Solon 与 Solon AI 升级至 4.1.1；Snack4 统一至框架配套的 4.0.59。
+- 技能注册、刷新和页面元数据迁移至新版 Mount / SkillCatalog API，保留用户与项目技能的独立挂载。
+- 适配 `bash_wait` 的 stdin 参数，保留 `bash_stdin` 和原 Java 等待入口；补齐新版命令输出不再包含的后台会话工作目录。
+- 拓展包示例同步框架版本和当前 Loopra 宿主版本。
+
 ## [26.9.91] - 2026-09-09
 
 ### Added

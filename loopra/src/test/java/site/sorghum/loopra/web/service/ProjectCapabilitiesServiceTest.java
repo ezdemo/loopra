@@ -2,10 +2,12 @@ package site.sorghum.loopra.web.service;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import site.sorghum.loopra.tool.solon.common.LoopraSkillProvider;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.model.ProjectCapabilitiesDTO;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -22,6 +24,27 @@ class ProjectCapabilitiesServiceTest {
 
     private final SessionAgentRegistry sessions = new SessionAgentRegistry(10, (key, agent) -> { });
     private final List<String> events = new ArrayList<>();
+
+    @Test
+    void projectSkillMetadataKeepsItsScopeAliasAndLocalDirectoryAfterRefresh() throws Exception {
+        ProjectCapabilitiesService service = new ProjectCapabilitiesService(new Object(), sessions, root -> Set.of());
+        try {
+            assertTrue(service.get(project.toString()).skills().isEmpty());
+            Path skill = project.resolve(".loopra/skills/example/SKILL.md");
+            Files.createDirectories(skill.getParent());
+            Files.writeString(skill, "---\ndescription: Example project skill\n---\nRead project files.");
+
+            var skills = service.get(project.toString()).skills();
+            assertEquals(1, skills.size());
+            assertEquals("example", skills.get(0).name());
+            assertEquals("Example project skill", skills.get(0).description());
+            assertEquals("project", skills.get(0).scope());
+            assertEquals("@project-skills", skills.get(0).mountAlias());
+            assertEquals(skill.getParent().toString(), skills.get(0).path());
+        } finally {
+            LoopraSkillProvider.removeFor(project.toString());
+        }
+    }
 
     private ProjectCapabilitiesService service() {
         return new ProjectCapabilitiesService(new Object(), sessions,

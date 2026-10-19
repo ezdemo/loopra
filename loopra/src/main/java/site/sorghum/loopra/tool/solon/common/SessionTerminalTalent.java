@@ -34,6 +34,7 @@ public class SessionTerminalTalent extends TerminalTalent {
     private static final long COMPLETED_VISIBLE_TTL_MS = 60_000;
 
     private final Path workspace;
+    private final MountManager mountManager;
 
     /** bash_start/bash_wait/bash_stdin/bash_stop 后台会话镜像（sessionId → 会话信息）。 */
     private final ConcurrentMap<String, BashSessionInfo> bashSessions = new ConcurrentHashMap<>();
@@ -49,6 +50,7 @@ public class SessionTerminalTalent extends TerminalTalent {
 
     public SessionTerminalTalent(MountManager mountManager, String workspace) {
         super(mountManager);
+        this.mountManager = mountManager;
         this.workspace = Path.of(workspace).toAbsolutePath().normalize();
         applyWindowsOutputCharsetFix();
     }
@@ -177,7 +179,7 @@ public class SessionTerminalTalent extends TerminalTalent {
         String sessionId = commandSessionId(result);
         if (sessionId != null && isCommandRunning(result)) {
             BashSessionInfo info = new BashSessionInfo(
-                    sessionId, workspace.toString(), command, commandWorkdir(result));
+                    sessionId, workspace.toString(), command, commandWorkdir(workdir, __cwd));
             info.appendOutput(extractCommandOutput(result));
             bashSessions.put(sessionId, info);
         }
@@ -190,33 +192,32 @@ public class SessionTerminalTalent extends TerminalTalent {
     }
 
     @Override
-    @ToolMapping(name = "bash_wait", description = "继续等待仍在运行的命令会话，返回自上次读取后的新增输出或最终状态。")
+    @ToolMapping(name = "bash_wait", description = "继续等待命令会话，返回新增输出或最终状态；可通过 chars 写入 stdin。")
     public String bashWait(@Param(value = "session_id") String sessionId,
+                           @Param(value = "chars", required = false, description = "可选。要写入 stdin 的文本；不传时仅等待。") String chars,
                            @Param(value = "yield_time_ms", required = false, defaultValue = "1000") Integer yieldTimeMs,
                            @Param(value = "max_output_chars", required = false, defaultValue = "64000") Integer maxOutputChars) throws IOException {
         // 面板轮询可能已经替它读过并把文本排在这里：先还给 agent，保证一条输出都不少
         String queued = takeQueuedResult(sessionId);
-        if (queued != null) return queued;
-        String result = super.bashWait(sessionId, yieldTimeMs, maxOutputChars);
+        if (queued != null && (chars == null || chars.isEmpty())) return queued;
+        String result = super.bashWait(sessionId, chars, yieldTimeMs, maxOutputChars);
         appendBashOutput(sessionId, result);
         markBashSessionCompleted(sessionId, result);
         clearCompletedCommand(sessionId, result);
-        return result;
+        return queued == null ? result : queued + "\n" + result;
     }
 
-    @Override
+    /** 兼容现有 Java 调用方的只等待入口。 */
+    public String bashWait(String sessionId, Integer yieldTimeMs, Integer maxOutputChars) throws IOException {
+        return bashWait(sessionId, null, yieldTimeMs, maxOutputChars);
+    }
+
     @ToolMapping(name = "bash_stdin", description = "向仍在运行的命令会话写入 stdin，然后等待新增输出或进程结束。")
     public String bashStdin(@Param(value = "session_id") String sessionId,
                             @Param(value = "chars") String chars,
                             @Param(value = "yield_time_ms", required = false, defaultValue = "1000") Integer yieldTimeMs,
                             @Param(value = "max_output_chars", required = false, defaultValue = "64000") Integer maxOutputChars) throws IOException {
-        // 轮询抢先读走的那段按时间顺序排在本轮写入之前，一并交给 agent
-        String queued = takeQueuedResult(sessionId);
-        String result = super.bashStdin(sessionId, chars, yieldTimeMs, maxOutputChars);
-        appendBashOutput(sessionId, result);
-        markBashSessionCompleted(sessionId, result);
-        clearCompletedCommand(sessionId, result);
-        return queued == null ? result : queued + "\n" + result;
+        return bashWait(sessionId, chars, yieldTimeMs, maxOutputChars);
     }
 
     @Override
@@ -254,7 +255,7 @@ public class SessionTerminalTalent extends TerminalTalent {
         if (info == null || !info.isRunning()) return;
         String sessionId = info.getSessionId();
         try {
-            String result = super.bashWait(sessionId, 0, 64_000);
+            String result = super.bashWait(sessionId, null, 0, 64_000);
             info.appendOutput(extractCommandOutput(result));
             queueForAgent(sessionId, result);
             markBashSessionCompleted(sessionId, result);
@@ -323,12 +324,18 @@ public class SessionTerminalTalent extends TerminalTalent {
         return null;
     }
 
-    private static String commandWorkdir(String result) {
-        if (result == null) return null;
-        for (String line : result.split("\\R")) {
-            if (line.startsWith("workdir: ")) return line.substring("workdir: ".length()).trim();
+    /** 4.1.1 的命令返回文本不再包含 workdir，按已通过框架校验的调用参数恢复面板元数据。 */
+    private String commandWorkdir(String workdir, String cwd) {
+        Path base = cwd == null ? workspace : Path.of(cwd).toAbsolutePath().normalize();
+        if (workdir == null || workdir.isEmpty() || ".".equals(workdir)) return base.toString();
+        String path = workdir.startsWith("./") ? workdir.substring(2) : workdir;
+        if (path.startsWith("@")) {
+            return mountManager.resolveResource(path).getLocalPath().orElseThrow().toString();
         }
-        return null;
+        if (path.equals("~") || path.startsWith("~/") || path.startsWith("~\\")) {
+            path = System.getProperty("user.home") + path.substring(1);
+        }
+        return base.resolve(path).normalize().toString();
     }
 
     /**

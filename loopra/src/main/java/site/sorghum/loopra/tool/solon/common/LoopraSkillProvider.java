@@ -3,9 +3,10 @@ package site.sorghum.loopra.tool.solon.common;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import org.noear.solon.ai.chat.tool.FunctionTool;
-import org.noear.solon.ai.talents.mount.MountDir;
+import org.noear.solon.ai.talents.mount.Mount;
 import org.noear.solon.ai.talents.mount.MountManager;
 import org.noear.solon.ai.talents.mount.MountType;
+import org.noear.solon.ai.talents.mount.source.FileMountSource;
 import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.solon.mcp.ProjectMcpSkill;
 
@@ -32,19 +33,19 @@ public class LoopraSkillProvider implements SolonToTools {
     public LoopraSkillProvider(String workDir) {
         Files.createDirectories(Paths.get(System.getProperty("user.home"), ".loopra", "skills"));
         poolManager = new MountManager(workDir);
-        poolManager.register(MountDir.builder()
+        poolManager.register(Mount.builder()
                 .type(MountType.SKILLS)
                 .alias("@loopra-skills")
-                .path("~/.loopra/skills")
+                .source(FileMountSource.of(Paths.get(System.getProperty("user.home"), ".loopra", "skills")))
                 .build());
         // 项目 Skill 与用户 Skill 分开挂载；不存在时保留挂载，后续 refresh 可发现新目录。
         if (workDir != null && !workDir.isBlank() && !"~".equals(workDir)) {
             Path projectSkills = Paths.get(workDir).toAbsolutePath().normalize()
                     .resolve(".loopra").resolve("skills");
-            poolManager.register(MountDir.builder()
+            poolManager.register(Mount.builder()
                     .type(MountType.SKILLS)
                     .alias("@project-skills")
-                    .path(projectSkills.toString())
+                    .source(FileMountSource.of(projectSkills))
                     .build());
         }
         skillTalent = new LoopraSkillTalent(poolManager);
@@ -73,7 +74,7 @@ public class LoopraSkillProvider implements SolonToTools {
 
      /** 已安装技能目录变化后，刷新所有启用的技能池。 */
     public static void refreshAllSkillPools() {
-        cliSkillProviderMap.values().forEach(provider -> provider.poolManager.refresh());
+        cliSkillProviderMap.values().forEach(provider -> provider.poolManager.getSkillCatalog().refresh());
     }
 
 

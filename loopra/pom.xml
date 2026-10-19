@@ -18,10 +18,9 @@
 
     <properties>
         <lombok.version>1.18.34</lombok.version>
-        <solon.version>4.0.6</solon.version>
-        <solon-ai.version>4.0.6</solon-ai.version>
+        <solon.version>4.1.1</solon.version>
+        <solon-ai.version>4.1.1</solon-ai.version>
         <okhttp.version>4.12.0</okhttp.version>
-        <snack4.version>4.0.49</snack4.version>
         <acp.version>0.14.0</acp.version>
         <swt.version>3.128.0</swt.version>
     </properties>

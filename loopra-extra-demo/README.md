@@ -13,8 +13,8 @@
 ## 构建
 
 ```bash
-# 前提：loopra 26.8.243 与 cutin 1.0-SNAPSHOT 已安装到本地仓库
-#   mvn install -pl loopra -DskipTests   （在 agent4j 仓库根目录）
+# 前提：loopra 26.9.91 与 cutin 1.0-SNAPSHOT 已安装到本地仓库
+#   mvn install -pl loopra -am -DskipTests   （在 loopra 仓库根目录）
 
 mvn package        # 产出 target/loopra-extra-demo-1.0.0.jar
 mvn test           # 全链路冒烟：安装 → 容器启动 → 桥接 → 停止 → 卸载
