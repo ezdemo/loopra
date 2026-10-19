@@ -223,7 +223,7 @@ svg { flex-shrink: 0; }
 
 .main-content { flex: 1; position: relative; min-height: 0; display: flex; flex-direction: column; }
 
-.welcome-shell { position: relative; width: min(46rem, calc(100% - 3rem)); margin: auto; padding: 2rem 0 4rem; }
+.welcome-shell { position: relative; width: min(46rem, calc(100% - 3rem)); margin: auto; padding: 2rem 0 4rem; flex-shrink: 0; }
 
 .welcome-logo { display: flex; align-items: center; justify-content: center; gap: .625rem; text-align: center; font-size: 1.75rem; line-height: 1.2; letter-spacing: -.02em; font-weight: 600; margin: 0 0 2rem; user-select: none; }
 
@@ -1136,7 +1136,9 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
 
   .home-content { overflow-y: auto; }
 
-  .welcome-shell { position: relative; top: auto; left: auto; transform: none; flex-shrink: 0; margin: 1rem auto; }
+  /* Keep it centered; when the content is taller than the pane the auto margins
+     collapse to zero, so .home-content still scrolls from the top. */
+  .welcome-shell { position: relative; top: auto; left: auto; transform: none; flex-shrink: 0; margin: auto; }
 
   .welcome-logo { height: 3rem; font-size: 2.5rem; margin-bottom: 0.75rem; }
 
