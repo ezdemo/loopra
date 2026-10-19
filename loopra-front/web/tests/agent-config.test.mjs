@@ -182,8 +182,10 @@ test('the agent switcher sits beside the project switcher and locks while runnin
   assert.match(switcher, /任务运行中，结束后才能切换 Agent/);
   assert.match(app, /agentDisabled=\{!!generatingId \|\| !!remoteRun\}/);
   assert.match(app, /if \(generatingId \|\| remoteRun\) \{ notify\('任务运行中，结束后才能切换 Agent'\); return; \}/);
-  // The composer keeps the switcher only for existing conversations, disabled mid-run.
-  assert.match(composer, /\{!home && <Button isDisabled=\{props\.generating \|\| props\.remoteRunning\}/);
+  // Agent switching lives beside the project switcher on the home screen only.
+  // A conversation keeps the Agent it was created with, so the composer has no switcher.
+  assert.doesNotMatch(composer, /aria-label="选择 Agent"/);
+  assert.doesNotMatch(composer, /menu === 'agents'/);
 });
 
 test('a draft session can manage its isolation environment before the first message', async () => {
@@ -191,4 +193,8 @@ test('a draft session can manage its isolation environment before the first mess
   // The prepared draft is a real backend session, so the Git tab can toggle its
   // worktree mode even though no message has been sent yet.
   assert.match(app, /sessionName=\{session\?\.name \|\| \(isHome \? preparedNewSession\.current\?\.target\.name : undefined\)\}/);
+  // Switching isolation discards the draft's process, so selection must not race the
+  // first prompt with a redundant configuration read that would report "正在运行".
+  assert.match(app, /seededConfigAt\.current\[target!\.id\] = Date\.now\(\)/);
+  assert.match(app, /Date\.now\(\) - seededAt < 5000/);
 });

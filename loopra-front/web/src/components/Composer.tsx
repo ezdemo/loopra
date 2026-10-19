@@ -16,7 +16,7 @@ import AgentConfigControls from './AgentConfigControls';
 import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
 
 type Props = {
-  agentId?: string; engines?: AgentEngine[]; onAgent?: (id: string) => void; onAgentsRefresh?: () => void;
+  agentId?: string; engines?: AgentEngine[];
   agentConfig?: AgentConfigState;
   home: boolean; language: string; draft: string; onDraft: (text: string) => void;
   inputRef: RefObject<HTMLTextAreaElement>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void | Promise<void>;
@@ -35,7 +35,7 @@ type Props = {
   onExport: () => void; onSessions: () => void;
   onClear: () => void;
 };
-type Menu = 'agents' | 'models' | 'effort' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more';
+type Menu = 'models' | 'effort' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more';
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
   return <Switch size="sm" aria-label={label} isSelected={value} onValueChange={onChange} classNames={{ label: 'sr-only' }}>{label}</Switch>;
@@ -109,7 +109,6 @@ export default function Composer(props: Props) {
 
   function close() { setMenu(null); setEditing(null); }
   function open(next: Menu) {
-    if (next === 'agents') props.onAgentsRefresh?.();
     props.onOpen(); setMenu(current => current === next ? null : next); setQuery(''); setEditing(null);
     if (next === 'models') {
       if (agentModel) {
@@ -272,7 +271,7 @@ export default function Composer(props: Props) {
     setPresets(next); persistPresets(next);
     setEditing(null); notify('常用要求已保存');
   }
-  const menuTitles: Record<Menu, string> = { agents: '选择 Agent', models: '选择模型', effort: '推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置' };
+  const menuTitles: Record<Menu, string> = { models: '选择模型', effort: '推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置' };
   // Legacy ChatInput split context into image thumbnails and file chips with sizes.
   const { images: contextImages, files: contextFiles } = attachmentViews(context, pasteChars);
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
@@ -332,7 +331,6 @@ export default function Composer(props: Props) {
       </div>
       <div className={`composer-right ${agentOptions ? 'has-agent-config' : ''}`}>
         <Tooltip content={`上下文 ${usage.percent.toFixed(1)}% · ${usage.metrics ? '服务端统计' : '本地估算'}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
-        {!home && <Button isDisabled={props.generating || props.remoteRunning} variant="light" className="composer-model" aria-label="选择 Agent" aria-expanded={menu === 'agents'} onPress={() => open('agents')}><span>{props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? 'Claude Code' : 'Loopra Native')}</span><ChevronDown size="0.875rem" /></Button>}
         {agentOptions ? <>
           {otherAgentOptions.length > 0 && <Tooltip content="更多 Agent 配置" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'more' ? 'is-active' : ''}`} aria-label="更多 Agent 配置" aria-expanded={menu === 'more'} onPress={() => open('more')}><Settings2 size="1rem" /></Button></Tooltip>}
           {agentModel && <Tooltip content={agentOptionDescription(agentModel)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} aria-label={`选择模型：${agentOptionLabel(agentModel)}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{activeModelLabel}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
@@ -360,7 +358,6 @@ export default function Composer(props: Props) {
           <Button isIconOnly size="sm" variant="light" aria-label="关闭输入弹层" onPress={() => { close(); focusInput(); }}><X size="1rem" /></Button>
         </div>
 
-        {menu === 'agents' && <div className="composer-tool-list">{(props.engines || []).map(engine => <button key={engine.id} disabled={!engine.available} onClick={() => { props.onAgent?.(engine.id); close(); focusInput(); }}><span><strong>{engine.name}</strong><small>{engine.detail || (engine.available ? engine.id === 'native' ? '使用 Loopra 模型配置' : '使用本机 Claude 登录和配置' : '后端未检测到运行环境，请重启后端后重试')}</small></span>{engine.id === (props.agentId || 'native') && <Check size="1rem" />}</button>)}<p className="composer-note">切换 Agent 会新建会话。Claude 模型沿用自身配置。</p></div>}
         {menu === 'models' && (agentModel ? <>
           <div className="popover-search"><Input autoFocus size="sm" variant="bordered" aria-label="搜索模型" placeholder="搜索模型…" value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
           <div className="model-group-list">

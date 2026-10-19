@@ -27,6 +27,18 @@ public final class FakeAcpProcess {
                 case "initialize" -> response(id, Map.of("protocolVersion", 1,
                         "agentCapabilities", Map.of("loadSession", true, "additionalDirectories", true)));
                 case "session/new" -> {
+                    // Tests use this to keep a configuration request inside session setup,
+                    // which is where a real Agent spawns its process and restores a session.
+                    long openDelay = Long.getLong("loopra.fake.sessionNewDelay", 0L);
+                    String marker = System.getProperty("loopra.fake.sessionNewMarker");
+                    if (marker != null) {
+                        try { java.nio.file.Files.writeString(java.nio.file.Path.of(marker), "opening"); }
+                        catch (java.io.IOException ignored) { /* Marker is best effort. */ }
+                    }
+                    if (openDelay > 0) {
+                        try { Thread.sleep(openDelay); }
+                        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    }
                     directories = readDirectories(message);
                     response(id, Map.of("sessionId", "fake-session", "configOptions", config()));
                 }

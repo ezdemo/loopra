@@ -75,6 +75,29 @@ test('enabling isolation creates the worktree and rolls the mode back on failure
   assert.match(panel, /请先提交隔离分支变更/);
 });
 
+test('a new conversation can enable isolation from the home switcher row', async () => {
+  const [switcher, home, app, styles] = await Promise.all([
+    readFile(new URL('../src/layout/IsolationSwitch.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/layout/HomeView.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
+  ]);
+  // The switch sits on the same row as the project and Agent switchers and acts
+  // on the prepared draft, before the first message creates the worktree.
+  assert.match(home, /\{isolation\}/);
+  assert.match(app, /<IsolationSwitch api=\{api\} workspaceHash=\{workspace\}/);
+  assert.match(app, /preparedNewSession\.current\?\.key === agentConfigKey \? preparedNewSession\.current\.target\.name : undefined/);
+  assert.match(switcher, /\/sessions\/\$\{encodeURIComponent\(sessionName\)\}\/worktree\?workspaceHash=/);
+  assert.match(switcher, /worktreeMode: checked/);
+  assert.match(switcher, /'\/git\/worktree\/create', 'POST', \{ workspaceHash, sessionName \}/);
+  assert.match(switcher, /worktreeMode: false/);
+  assert.match(switcher, /role="switch" aria-checked=\{on\}/);
+  assert.match(switcher, /<span className="isolation-track"/);
+  // The Git tab toggles the same flag; both views stay in sync.
+  assert.match(switcher, /watchWorkspaceChanges\(workspaceHash/);
+  assert.match(styles, /\.isolation-switch \{ margin-left: auto;/);
+});
+
 test('commit posts the message and selection to Java; AI generation stays on the backend', () => {
   assert.match(panel, /await api\.request\(`\/git\/environment\/commit\?\$\{query\(\{ workspaceHash, sessionName \}\)\}`, 'POST', \{ message: text, files: selected\.length \? selected : undefined \}\)/);
   assert.match(panel, /generate-environment-commit-message/);

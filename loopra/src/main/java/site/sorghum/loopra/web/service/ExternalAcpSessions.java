@@ -33,14 +33,21 @@ final class ExternalAcpSessions implements AutoCloseable {
                 AgentOutput output, boolean plan, String linkedProjectContext, List<String> linkedProjectDirectories,
                 java.util.function.Consumer<AcpWorkbenchClient> active,
                 java.util.function.Consumer<AcpWorkbenchClient> inactive) throws Exception {
-        Connection connection = acquire(key, cwd);
-        List<String> directories = linkedProjectDirectories == null ? List.of() : List.copyOf(linkedProjectDirectories);
-        AcpTranscriptOutput transcript = new AcpTranscriptOutput(output, store);
-        Path sessionsDir = store.sessionsDir();
-        ClaudeSubAgentRecorder recorder = sessionsDir == null ? null
-                : new ClaudeSubAgentRecorder(new SubAgentSessionStore(sessionsDir), name);
+        Connection connection = acquire(key, cwd, true);
+        // Anything constructed after the lock is held must happen inside the try:
+        // a failure here would otherwise leak the lock and the session would look
+        // "running" for every later request.
+        AcpTranscriptOutput[] transcriptRef = new AcpTranscriptOutput[1];
+        ClaudeSubAgentRecorder[] recorderRef = new ClaudeSubAgentRecorder[1];
         boolean success = false;
         try {
+            List<String> directories = linkedProjectDirectories == null ? List.of() : List.copyOf(linkedProjectDirectories);
+            AcpTranscriptOutput transcript = new AcpTranscriptOutput(output, store);
+            transcriptRef[0] = transcript;
+            Path sessionsDir = store.sessionsDir();
+            ClaudeSubAgentRecorder recorder = sessionsDir == null ? null
+                    : new ClaudeSubAgentRecorder(new SubAgentSessionStore(sessionsDir), name);
+            recorderRef[0] = recorder;
             // A configuration read may have opened a session before linked projects were known.
             // ACP binds additionalDirectories at session setup, so rebuild the empty session;
             // the transcript is still empty, which makes the rebuild free.
@@ -75,8 +82,8 @@ final class ExternalAcpSessions implements AutoCloseable {
             boolean interrupted = Thread.interrupted();
             try {
                 // Persist the last buffered subagent text before the turn's store is released.
-                if (recorder != null) recorder.finish();
-                transcript.finish();
+                if (recorderRef[0] != null) recorderRef[0].finish();
+                if (transcriptRef[0] != null) transcriptRef[0].finish();
             } finally {
                 try {
                     if (connection.client != null) {
@@ -86,6 +93,7 @@ final class ExternalAcpSessions implements AutoCloseable {
                     if (!success) discard(key, connection);
                 } finally {
                     connection.lastUsed = System.nanoTime();
+                    connection.prompting = false;
                     connection.lock.unlock();
                     if (interrupted) Thread.currentThread().interrupt();
                 }
@@ -95,7 +103,7 @@ final class ExternalAcpSessions implements AutoCloseable {
 
     List<site.sorghum.loopra.bin.acp.AcpConfigOption> configuration(String key, Path cwd, String name,
                     SessionStore store, String configId, Object value) throws Exception {
-        Connection connection = acquire(key, cwd);
+        Connection connection = acquire(key, cwd, false);
         boolean success = false;
         try {
             if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(cwd), AgentOutput.NOOP);
@@ -231,23 +239,64 @@ final class ExternalAcpSessions implements AutoCloseable {
         return options.stream().filter(option -> option.id().equals(id)).findFirst().orElse(null);
     }
 
-    private synchronized Connection acquire(String key, Path cwd) {
-        Connection cached = connections.get(key);
-        if (cached != null) {
-            if (!cached.cwd.equals(cwd)) throw new ServiceException("Claude 会话工作目录已变化，请创建新会话");
-            if (!cached.lock.tryLock()) throw new ServiceException(409, "当前会话正在运行");
-            return cached;
+    /**
+     * Reserve the conversation's connection for one operation.
+     *
+     * <p>Opening a configuration request also owns the Agent process: it may have to
+     * spawn the process and create/load the remote session, which takes seconds. A
+     * prompt that arrives in that window used to fail with "当前会话正在运行" even
+     * though the conversation was not running at all (the UI issues a configuration
+     * read as soon as a freshly created session is selected). A prompt therefore
+     * waits for that preparation to finish, while a second prompt for a turn that is
+     * genuinely running is rejected at once. Configuration reads keep failing fast
+     * during a turn because the workbench disables them then.</p>
+     */
+    private Connection acquire(String key, Path cwd, boolean prompt) {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            Connection connection;
+            boolean created = false;
+            synchronized (this) {
+                connection = connections.get(key);
+                if (connection != null) {
+                    if (!connection.cwd.equals(cwd)) throw new ServiceException("Claude 会话工作目录已变化，请创建新会话");
+                    if (prompt && connection.prompting) throw new ServiceException(409, "当前会话正在运行");
+                } else {
+                    if (connections.size() >= MAX_CONNECTIONS) {
+                        var idle = connections.entrySet().stream().filter(e -> !e.getValue().lock.isLocked())
+                                .min(Comparator.comparingLong(e -> e.getValue().lastUsed)).orElseThrow(() ->
+                                        new ServiceException(503, "Claude 会话进程已达上限，请先停止部分任务"));
+                        discard(idle.getKey(), idle.getValue());
+                    }
+                    connection = new Connection(cwd);
+                    connections.put(key, connection);
+                    created = true;
+                }
+            }
+            if (created) {
+                connection.lock.lock();
+            } else if (prompt) {
+                try {
+                    if (!connection.lock.tryLock(60, TimeUnit.SECONDS)) {
+                        throw new ServiceException(409, "会话正在准备，请稍后重试");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new ServiceException(409, "会话正在准备，请稍后重试");
+                }
+            } else if (!connection.lock.tryLock()) {
+                throw new ServiceException(409, "当前会话正在运行");
+            }
+            if (prompt) connection.prompting = true;
+            synchronized (this) {
+                if (connections.get(key) == connection) return connection;
+            }
+            // The isolation mode changed (or the session was closed) while waiting and
+            // this process was discarded; retry against the replacement instead of
+            // running on a dead client.
+            connection.prompting = false;
+            connection.lock.unlock();
         }
-        if (connections.size() >= MAX_CONNECTIONS) {
-            var idle = connections.entrySet().stream().filter(e -> !e.getValue().lock.isLocked())
-                    .min(Comparator.comparingLong(e -> e.getValue().lastUsed)).orElseThrow(() ->
-                            new ServiceException(503, "Claude 会话进程已达上限，请先停止部分任务"));
-            discard(idle.getKey(), idle.getValue());
-        }
-        Connection connection = new Connection(cwd);
-        connection.lock.lock();
-        connections.put(key, connection);
-        return connection;
+        throw new ServiceException(409, "会话正在切换，请稍后重试");
     }
 
     private synchronized void discard(String key, Connection connection) {
@@ -265,6 +314,8 @@ final class ExternalAcpSessions implements AutoCloseable {
     private static final class Connection {
         final Path cwd;
         final ReentrantLock lock = new ReentrantLock();
+        /** A prompt owns this connection (vice versa: a held lock may be a config read). */
+        volatile boolean prompting;
         AcpWorkbenchClient client;
         List<String> directories = List.of();
         long lastUsed = System.nanoTime();

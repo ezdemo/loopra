@@ -9,6 +9,7 @@ import site.sorghum.loopra.bin.session.JsonlSessionStore;
 import site.sorghum.loopra.bin.session.SessionStore;
 import site.sorghum.loopra.bin.session.SubAgentSessionStore;
 import site.sorghum.loopra.tool.AgentOutput;
+import site.sorghum.loopra.web.common.ServiceException;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -22,10 +23,15 @@ class ExternalAcpSessionsTest {
     @TempDir Path home;
 
     private ExternalAcpSessions runtime() {
-        return new ExternalAcpSessions(cwd -> new AcpProcessTransport(List.of(
-                Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Duser.home=" + home,
-                "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
-                FakeAcpProcess.class.getName()), Map.of(), cwd));
+        return runtime(new String[0]);
+    }
+    private ExternalAcpSessions runtime(String... extraOptions) {
+        List<String> command = new ArrayList<>(List.of(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Duser.home=" + home));
+        command.addAll(List.of(extraOptions));
+        command.addAll(List.of("-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+                FakeAcpProcess.class.getName()));
+        return new ExternalAcpSessions(cwd -> new AcpProcessTransport(command, Map.of(), cwd));
     }
     private JsonlSessionStore store() throws Exception {
         JsonlSessionStore store = new JsonlSessionStore(home.resolve("sessions"));
@@ -218,6 +224,51 @@ class ExternalAcpSessionsTest {
                         .anyMatch(call -> String.valueOf(call.arguments()).contains("final arguments")));
             } finally { executor.shutdownNow(); store.shutdown(); }
         }
+    }
+
+    @Test void promptWaitsForAnInFlightConfigurationInsteadOfReportingARunningTurn() throws Exception {
+        var store = store();
+        Path marker = home.resolve("session-new-marker");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (var runtime = runtime("-Dloopra.fake.sessionNewDelay=1500", "-Dloopra.fake.sessionNewMarker=" + marker)) {
+            Future<?> preparation = executor.submit(() -> {
+                try { return runtime.configuration("key", home, "chat", store, null, null); }
+                catch (Exception e) { throw new RuntimeException(e); }
+            });
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+            while (!java.nio.file.Files.exists(marker) && System.nanoTime() < deadline) Thread.sleep(25);
+            assertTrue(java.nio.file.Files.exists(marker), "configuration request must reach session setup");
+            // Selecting a freshly created session starts a configuration read that may spawn
+            // the Agent process. A message sent at that moment must wait for the setup rather
+            // than fail as if the conversation were already running.
+            prompt(runtime, store, "after preparation", AgentOutput.NOOP);
+            preparation.get(8, TimeUnit.SECONDS);
+            assertTrue(store.load("chat").stream().anyMatch(message -> "reply:after preparation".equals(message.getContent())));
+        } finally { executor.shutdownNow(); store.shutdown(); }
+    }
+
+    @Test void aSecondPromptForAGenuinelyRunningTurnIsStillRejectedAtOnce() throws Exception {
+        var store = store();
+        var active = new AtomicReference<AcpWorkbenchClient>();
+        var ready = new CountDownLatch(1);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (var runtime = runtime()) {
+            AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
+                @Override public void sendEvent(String type, String data) { if (type.equals("choice")) ready.countDown(); }
+            };
+            Future<?> turn = worker.submit(() -> {
+                try {
+                    runtime.prompt("key", home, "chat", store, UserMessage.of("permission"), output, false,
+                            null, List.of(), active::set, ignored -> {});
+                } catch (Exception e) { throw new RuntimeException(e); }
+            });
+            assertTrue(ready.await(8, TimeUnit.SECONDS));
+            var rejected = assertThrows(ServiceException.class, () -> prompt(runtime, store, "again", AgentOutput.NOOP));
+            assertEquals(409, rejected.getCode());
+            assertTrue(rejected.getMessage().contains("当前会话正在运行"), rejected.getMessage());
+            active.get().cancel();
+            turn.get(8, TimeUnit.SECONDS);
+        } finally { worker.shutdownNow(); store.shutdown(); }
     }
 
     @Test void interruptingHttpTaskReleasesConnectionAndSessionLock() throws Exception {

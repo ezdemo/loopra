@@ -17,11 +17,13 @@ type HomeViewProps = {
   agentId: string;
   agentDisabled: boolean;
   onAgent: (id: string) => void;
+  /** Isolation switch for the prepared draft, right-aligned on the switcher row. */
+  isolation?: ReactNode;
   children: ReactNode;
 };
 
 export default function HomeView({ workspaces, workspace, workspaceName, menuOpen, onToggleMenu, onSelect, onManage,
-  engines, agentId, agentDisabled, onAgent, children }: HomeViewProps) {
+  engines, agentId, agentDisabled, onAgent, isolation, children }: HomeViewProps) {
   return <section className="welcome-shell">
     <Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark />Loopra</h1></Enter>
     <div className="welcome-switchers">
@@ -36,6 +38,7 @@ export default function HomeView({ workspaces, workspace, workspaceName, menuOpe
         </Popup>
       </div>
       <AgentSwitcher engines={engines} agentId={agentId} disabled={agentDisabled} onSelect={onAgent} />
+      {isolation}
     </div>
     {children}
   </section>;

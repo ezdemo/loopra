@@ -239,6 +239,18 @@ svg { flex-shrink: 0; }
 .agent-dot.external { background: var(--blue); }
 .agent-menu { left: 0; }
 
+/* Draft isolation slider: right-aligned on the project/Agent switcher row. */
+.isolation-switch { margin-left: auto; display: inline-flex; align-items: center; gap: .4375rem; height: 1.75rem; padding: 0 .375rem; border: none; border-radius: var(--radius-md); background: transparent; color: var(--muted); font-size: .75rem; line-height: 1; cursor: pointer; transition: background .12s, color .12s; }
+.isolation-switch:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.isolation-switch:disabled { opacity: .5; cursor: default; }
+.isolation-switch.is-on { color: var(--blue); }
+.isolation-track { width: 1.625rem; height: .9375rem; border-radius: 999px; background: var(--line-strong); position: relative; flex: none; transition: background .16s; }
+.isolation-knob { position: absolute; top: .125rem; left: .125rem; width: .6875rem; height: .6875rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0002; transition: transform .16s; }
+.isolation-switch.is-on .isolation-track { background: var(--blue); }
+.isolation-switch.is-on .isolation-knob { transform: translateX(.6875rem); }
+.isolation-text { white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .isolation-track, .isolation-knob { transition: none; } }
+
 .workspace-selector > button { height: 1.875rem; padding: 0 .625rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: .5rem; background: transparent; color: var(--secondary); font-size: .8125rem; transition: background .12s; }
 .workspace-selector > button:hover { background: var(--hover); color: var(--text); }
 

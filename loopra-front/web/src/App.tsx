@@ -6,6 +6,7 @@ import type { Provider, Session } from './lib';
 import Sidebar from './layout/Sidebar';
 import Header from './layout/Header';
 import HomeView from './layout/HomeView';
+import IsolationSwitch from './layout/IsolationSwitch';
 import ChatDock from './layout/ChatDock';
 import { Messages } from './components/Conversation';
 import ChangesPanel from './components/Panels';
@@ -114,6 +115,10 @@ export default function App() {
   // (disabled) while the Agent reconnects instead of collapsing into a spinner.
   const [agentConfigCache, setAgentConfigCache] = useLocalState<Record<string, AgentConfigOption[]>>('agent-config-cache', {});
   const preparedNewSession = useRef<{ key: string; target: Session } | null>(null);
+  // A draft's Agent choices are already authoritative when it becomes a real
+  // session. Remember the id briefly so selecting it does not fire a redundant
+  // configuration read that would race (and lose to) the first prompt.
+  const seededConfigAt = useRef<Record<string, number>>({});
   const [agentConfigBusy, setAgentConfigBusy] = useState<string>();
   const [agentConfigError, setAgentConfigError] = useState('');
   const [generatingId, setGeneratingId] = useState<string | null>(null);
@@ -157,6 +162,10 @@ export default function App() {
   useEffect(() => {
     setAgentConfigError('');
     if (!session?.name || !session.workspaceHash || backend.status !== 'connected') return;
+    // Just converted from a preconfigured draft: the Agent already holds these
+    // choices, so a read here only competes with the first prompt for the process.
+    const seededAt = seededConfigAt.current[session.id];
+    if (seededAt && Date.now() - seededAt < 5000) return;
     const controller = new AbortController();
     const id = session.id; setAgentConfigBusy(id);
     void api.request<{ configOptions: AgentConfigOption[] }>(`/agent-engines/config?${sessionQuery(session)}`, 'GET', undefined, controller.signal)
@@ -772,6 +781,7 @@ export default function App() {
             cacheAgentConfig(target!.agentId || agentId, options);
             // Freeze the draft's final choices for the next new conversation.
             rememberNewConfig(target!.agentId || agentId, options);
+            seededConfigAt.current[target!.id] = Date.now();
           }
           preparedNewSession.current = null;
           storeNewAgentConfig(null);
@@ -942,8 +952,7 @@ export default function App() {
 
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey), error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
-    onAgentsRefresh={() => { void api.request<AgentEngine[]>('/agent-engines').then(setEngines).catch(() => {}); }}
-    agentId={agentId} engines={engines} onAgent={switchAgent}
+    agentId={agentId} engines={engines}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !sessionsOpen && !helpOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
@@ -984,7 +993,9 @@ export default function App() {
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
           {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}
-            engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun} onAgent={switchAgent}>{composer}</HomeView> : <>
+            engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun} onAgent={switchAgent}
+            isolation={<IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
+              sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} />}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{composer}</div>
