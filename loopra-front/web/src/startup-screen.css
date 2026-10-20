@@ -35,15 +35,13 @@
 .sw-pane { display: flex; flex-direction: column; width: 100%; max-width: 960px; margin: 0 auto; gap: 16px; }
 .sw-pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sw-pane-head h2 { margin: 0; font-size: 16px; line-height: 1.5; font-weight: 600; }
-.sw-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.sw-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .sw-stat-card { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--sidebar); box-shadow: none; }
 .sw-stat-card > div { display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 14px; }
 .sw-stat-card > div > span { color: var(--muted); font-size: 11px; }
 .sw-stat-card strong { font-size: 14px; font-weight: 600; }
 .sw-stat-card .success { color: var(--success); }
 .sw-stat-card .warning { color: var(--warning); }
-.sw-auto-enter-switch { flex-direction: column-reverse; align-items: flex-start; gap: 8px; padding: 0; margin: 0; }
-.sw-switch-label { color: var(--muted); font-size: 11px; }
 .sw-section { position: relative; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: none; overflow: visible; }
 .sw-section-body { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
 .sw-section h3 { margin: 0; color: var(--secondary); font-size: 12px; font-weight: 600; }

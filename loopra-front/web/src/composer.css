@@ -126,7 +126,10 @@
 .composer-empty { padding: 1.5625rem 0.625rem; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 0.375rem; }
 .composer-empty small { font-size: 0.6875rem; }
 .composer-note { color: var(--muted); font-size: 0.6875rem; line-height: 1.6; padding: 0.375rem 0.625rem; }
-.effort-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0.125rem 0.8125rem 0.3125rem; }
+/* This small settings panel grows with its contents; only list menus scroll. */
+.composer-popover.popover-effort { width: 22.8125rem; max-width: calc(100vw - 2.5rem); max-height: none; overflow: visible; }
+.composer-popover.popover-effort > section { flex: none; overflow: visible; }
+.effort-body { flex: none; min-width: 0; overflow: visible; padding: 0.125rem 0.8125rem 0.3125rem; }
 .effort-summary { display: flex; align-items: center; gap: 0.625rem; padding: 0.1875rem 0 1.125rem; }
 .effort-symbol { width: 2.375rem; height: 2.375rem; display: grid; place-items: center; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .effort-summary strong { font-size: 0.875rem; font-weight: 500; }
@@ -136,6 +139,8 @@
    the level the tighter, brighter and quicker the stream — and the fill it lives in
    widens at the same time. */
 .effort-slider { --effort-level: 0; padding: 0.1875rem 0; }
+/* Saving disables input, but must not flash the selected strength at half opacity. */
+.effort-slider .effort-range { opacity: 1; }
 .effort-slider [data-slot="track"] { height: 0.875rem; margin-top: 0; margin-bottom: 0; border-left-width: 0.25rem; border-right-width: 0.25rem; }
 /* Only the fill may clip: the thumb rides on the track and would be cut off if the
    track hid its overflow, whereas the fill has no children of its own. The track

@@ -7,18 +7,19 @@ import { PageActions, SelectField, SettingRow } from './SettingControls';
 import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL, buildUpdateCommand } from '../update-scripts';
 import type { VersionCheck } from '../version';
 import { CoreServiceUpdateDialog, useCoreServiceUpdate, type CoreServiceUpdateController } from './CoreServiceUpdate';
+import type { DesktopUpdateController } from './DesktopUpdate';
 
 type SystemVersion = { version: string; name?: string; buildTime?: string };
 
 // 设置 → 关于：核心服务版本、检查更新与更新命令（旧 VersionInfoPanel.vue）。
-type VersionInfoProps = { api: LoopraClient; notify: (text: string) => void; initialCheck?: VersionCheck };
+type VersionInfoProps = { api: LoopraClient; notify: (text: string) => void; initialCheck?: VersionCheck; desktopUpdate?: DesktopUpdateController };
 
 export default function VersionInfo(props: VersionInfoProps) {
   const coreUpdate = useCoreServiceUpdate(props.api, props.notify);
   return <><VersionInfoPanel {...props} coreUpdate={coreUpdate} /><CoreServiceUpdateDialog controller={coreUpdate} notify={props.notify} /></>;
 }
 
-export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate }: VersionInfoProps & { coreUpdate: CoreServiceUpdateController }) {
+export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate, desktopUpdate }: VersionInfoProps & { coreUpdate: CoreServiceUpdateController }) {
   const { update, startingUpdate, stoppingUpdate, source, setSource } = coreUpdate;
   const [current, setCurrent] = useState<SystemVersion>();
   const [check, setCheck] = useState<VersionCheck | undefined>(initialCheck);
@@ -59,6 +60,12 @@ export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate }: Vers
 
   return <>
     <PageActions title="版本与更新" />
+    {desktopUpdate && <div className="settings-card">
+      <SettingRow title="桌面客户端" description={desktopUpdate.state?.supported ? '自动检查并下载新版，退出时安装' : '从发布页下载桌面端更新'}>
+        <span className="version-value">{desktopUpdate.state ? `v${desktopUpdate.state.currentVersion}` : '读取中…'}</span>
+      </SettingRow>
+      <div className="version-actions"><Button size="sm" color="primary" variant="flat" onPress={desktopUpdate.show} startContent={<Download size=".875rem" />}>桌面端更新</Button></div>
+    </div>}
     <div className="settings-card">
       <SettingRow title="核心服务" description={`Loopra Web 服务 · ${api.base}`}>
         <span className="version-value">v{version}<i className={`tag ${hasNew && check ? '' : 'is-ok'}`}>{check ? (hasNew ? '新版' : '已是最新') : '未检查'}</i></span>
@@ -84,7 +91,7 @@ export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate }: Vers
           : <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'}
             isDisabled={checking || updateBusy} isLoading={startingUpdate} onPress={() => coreUpdate.prepare(version, check)}
             startContent={<Server size="0.875rem" />}>{startingUpdate ? '启动中…' : '更新核心服务'}</Button>}
-        <Button size="sm" variant="light" onPress={() => window.open(RELEASE_LATEST_URL, '_blank', 'noreferrer')} startContent={<Download size="0.875rem" />}>下载桌面端（推荐）</Button>
+        {!desktopUpdate && <Button size="sm" variant="light" onPress={() => window.open(RELEASE_LATEST_URL, '_blank', 'noreferrer')} startContent={<Download size="0.875rem" />}>下载桌面端（推荐）</Button>}
       </div>
     </div>
   </>;

@@ -10,6 +10,21 @@ const main = await readFile(new URL('../../electron/main.cjs', import.meta.url),
 const defaults = { isLoopraCoreBundled: () => false, readBundledCoreVersion: () => '', readLoopraGuiVersion: () => '26.9.91', isLoopraGuiInstalled: () => true, compareVersions: versionHelpers.compareVersions, detectJavaStatus: async () => ({ usable: true }) };
 const startup = main.match(/async function openDesktopWorkspace\(\) \{[\s\S]*?\n\}/)[0];
 const localInstall = main.match(/function installLoopraCoreLocal\(\) \{[\s\S]*?\n\}/)[0];
+const readyHandler = main.match(/ipcMain.handle\('splash_ready', \(\) => \{[\s\S]*?\n\}\)/)[0];
+
+test('finishing startup restores the existing workspace and closes setup', () => {
+  const calls = [];
+  let ready;
+  const context = vm.createContext({
+    ipcMain: { handle: (_, handler) => { ready = handler; } },
+    mainWindow: { isDestroyed: () => false, isMinimized: () => true, restore: () => calls.push('restore'), show: () => calls.push('show'), focus: () => calls.push('focus') },
+    splashWindow: { isDestroyed: () => false, close: () => calls.push('close setup') },
+    createWindow: () => calls.push('create workspace'),
+  });
+  vm.runInContext(readyHandler, context);
+  assert.equal(ready(), true);
+  assert.deepEqual(calls, ['restore', 'show', 'focus', 'close setup']);
+});
 
 for (const isWin of [true, false]) {
   test(`${isWin ? 'Windows' : 'Unix'} desktop updates defer Java setup until after core installation`, async () => {

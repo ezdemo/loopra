@@ -56,7 +56,7 @@ onUnmounted(() => {
 const visible = ref(true)
 const menu = ref('core') // core | deps
 
-// 更新窗口也自动安装内置更新，完成后留在管理页，不自动进入主界面。
+// 更新窗口无更新时保留管理页；完成更新或启动后自动进入主界面。
 const updateMode = new URLSearchParams(window.location.search).get('from') === 'update'
 
 // 核心端状态
@@ -123,22 +123,13 @@ const busy = computed(() => installing.value || starting.value || coreBusy.value
 const enterPulse = ref(false)
 const jrePulse = ref(false)
 
-// 跳过等待：开启后核心服务启动完成即自动进入 Loopra 主界面
-const skipWait = ref(localStorage.getItem('loopra.skipWait') === '1')
-watch(skipWait, (value) => {
-  localStorage.setItem('loopra.skipWait', value ? '1' : '0')
-})
 let autoEntered = false // 本次窗口会话最多自动进入一次
-let autoEnterTimer = null
+let enterWhenReady = !updateMode
 
 function maybeAutoEnter() {
-  if (updateMode || !skipWait.value || autoEntered || autoEnterTimer || !running.value || !java.value.usable || autoStarting.value || errorMessage.value) return
-  autoEnterTimer = setTimeout(() => {
-    autoEnterTimer = null
-    if (startCancelled || !skipWait.value || autoStarting.value || installing.value || !running.value || !java.value.usable || errorMessage.value) return
-    autoEntered = true
-    void enterLoopra()
-  }, 600)
+  if (!enterWhenReady || autoEntered || startCancelled || !running.value || !java.value.usable || autoStarting.value || starting.value || installing.value || errorMessage.value) return
+  autoEntered = true
+  void enterLoopra()
 }
 
 // 启动等待：窗口中央转圈，可取消
@@ -233,7 +224,6 @@ async function prepareService({ refresh = true, resume = false } = {}) {
 }
 
 onUnmounted(() => {
-  if (autoEnterTimer) clearTimeout(autoEnterTimer)
   if (unlistenInstallOutput) unlistenInstallOutput()
 })
 
@@ -505,6 +495,7 @@ async function performCoreUpdate({ auto = false } = {}) {
 async function startService(options = {}) {
   if (starting.value) return
   if (!java.value.usable) { showJavaSetup(); return }
+  enterWhenReady = true
   if (running.value) {
     autoStarting.value = false
     return
@@ -690,7 +681,6 @@ const viewState = computed(() => ({
   busy: busy.value,
   errorMessage: errorMessage.value,
   javaChecking: javaChecking.value,
-  skipWait: skipWait.value,
   versionStateClass: versionStateClass.value,
   versionStateText: versionStateText.value,
   systemStateClass: systemStateClass.value,
@@ -712,7 +702,6 @@ const actions = {
   cancelStart, closeApp, switchMenu, enterLoopra, refreshCore, refreshJava: recheckJava,
   installOrUpdate, startService: () => startService(), stopService, restartService,
   downloadJre, runMirrorSpeedTest, openJavaDownload,
-  setSkipWait: value => { skipWait.value = value },
   setJreSource: value => { jreSource.value = value },
   setInstallLogElement: element => { logContainer.value = element },
   setJreLogElement: element => { jreLogRef.value = element },

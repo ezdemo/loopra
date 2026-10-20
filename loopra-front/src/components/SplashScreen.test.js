@@ -47,6 +47,7 @@ it('clears the startup overlay when the core is already running', async () => {
     await flushPromises()
     expect(startupView.render.mock.calls.at(-1)[0].autoStarting).toBe(false)
     expect(service.start).not.toHaveBeenCalled()
+    expect(wrapper.emitted('ready')).toHaveLength(1)
     expect(localStorage.getItem('loopra-api-base')).toBe('http://127.0.0.1:4567')
   } finally { wrapper.unmount() }
 })
@@ -113,6 +114,7 @@ it.each(['', '?from=update'])('automatically installs a bundled update and resta
     expect(service.stop.mock.invocationCallOrder[0]).toBeLessThan(service.installLocal.mock.invocationCallOrder[0])
     expect(service.installLocal.mock.invocationCallOrder[0]).toBeLessThan(service.start.mock.invocationCallOrder[0])
     expect(startupView.render.mock.calls.at(-1)[0]).toMatchObject({ running: true, runtimeVersion: '26.9.91', autoStarting: false })
+    expect(wrapper.emitted('ready')).toHaveLength(1)
   } finally { wrapper.unmount() }
 })
 
@@ -128,19 +130,21 @@ it.each(['', '?from=update'])('updates the core before opening Java setup, then 
     expect(service.start).not.toHaveBeenCalled()
     expect(service.installLocal.mock.invocationCallOrder[0]).toBeLessThan(service.detectJavaStatus.mock.invocationCallOrder[0])
     expect(service.downloadJre25).not.toHaveBeenCalled()
+    expect(wrapper.emitted('ready')).toBeUndefined()
     await startupView.mount.mock.calls.at(-1)[2].downloadJre()
     await flushPromises()
     expect(service.downloadJre25).toHaveBeenCalledWith('normal')
     expect(service.installLocal).toHaveBeenCalledTimes(1)
     expect(service.start).toHaveBeenCalledTimes(1)
     expect(startupView.render.mock.calls.at(-1)[0]).toMatchObject({ menu: 'core', running: true, java: { usable: true } })
+    expect(wrapper.emitted('ready')).toHaveLength(1)
   } finally { wrapper.unmount() }
 })
 
-it('waits for the bundled update before honoring skip-wait', async () => {
+it('waits for the bundled update then enters immediately even if the old skip-wait option is disabled', async () => {
   vi.useFakeTimers()
   bundledService()
-  localStorage.setItem('loopra.skipWait', '1')
+  localStorage.setItem('loopra.skipWait', '0')
   let finishInstall
   const installed = service.installLocal.getMockImplementation()
   service.installLocal.mockImplementationOnce(() => new Promise(resolve => { finishInstall = async () => { await installed(); resolve() } }))
@@ -151,7 +155,6 @@ it('waits for the bundled update before honoring skip-wait', async () => {
     expect(wrapper.emitted('ready')).toBeUndefined()
     await finishInstall()
     await flushPromises()
-    await vi.advanceTimersByTimeAsync(600)
     expect(wrapper.emitted('ready')).toHaveLength(1)
   } finally { wrapper.unmount() }
 })
@@ -192,6 +195,7 @@ it('resumes automatic updating after detecting a manually installed Java runtime
     expect(service.installLocal).toHaveBeenCalledTimes(1)
     expect(service.start).toHaveBeenCalledTimes(1)
     expect(startupView.render.mock.calls.at(-1)[0]).toMatchObject({ menu: 'core', running: true })
+    expect(wrapper.emitted('ready')).toHaveLength(1)
   } finally { wrapper.unmount() }
 })
 
@@ -205,5 +209,28 @@ it('starts after JRE installation in the update window even when the core is alr
     await flushPromises()
     expect(service.installLocal).not.toHaveBeenCalled()
     expect(service.start).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('ready')).toHaveLength(1)
+  } finally { wrapper.unmount() }
+})
+
+it.each([false, true])('waits for the startup health check and respects cancellation: %s', async cancelled => {
+  bundledService({ version: '26.9.91', runningInitially: false })
+  let finishHealthCheck
+  const originalFetch = fetch.getMockImplementation()
+  fetch.mockImplementation((...args) => service.start.mock.calls.length
+    ? new Promise(resolve => { finishHealthCheck = resolve })
+    : originalFetch(...args))
+  const wrapper = shallowMount(SplashScreen, { global: { plugins: [createPinia()] } })
+  try {
+    await flushPromises()
+    expect(service.start).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('ready')).toBeUndefined()
+    if (cancelled) startupView.mount.mock.calls.at(-1)[2].cancelStart()
+    finishHealthCheck({ ok: true })
+    await flushPromises()
+    if (cancelled) {
+      expect(wrapper.emitted('ready')).toBeUndefined()
+      expect(service.stop).toHaveBeenCalledTimes(1)
+    } else expect(wrapper.emitted('ready')).toHaveLength(1)
   } finally { wrapper.unmount() }
 })

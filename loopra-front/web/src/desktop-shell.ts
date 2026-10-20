@@ -20,6 +20,7 @@ export type DesktopProxyApi = {
 };
 
 type ElectronApi = {
+  desktopUpdate?: import('./desktop-update').DesktopUpdateApi;
   isElectron?: boolean;
   platform?: string;
   window?: DesktopWindowApi;

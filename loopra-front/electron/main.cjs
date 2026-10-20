@@ -5,6 +5,7 @@ const { spawn, execFile, execSync } = require('child_process')
 const { promisify } = require('util')
 const { randomUUID } = require('crypto')
 const { compareVersions } = require('./version.cjs')
+const { createDesktopUpdater, registerDesktopUpdateIpc } = require('./desktop-updater.cjs')
 const { normalizeProxyAddress, electronProxyRules } = require('./proxy.cjs')
 const { registerTerminalIpc, killAllTerminals } = require('./terminal.cjs')
 const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
@@ -70,6 +71,13 @@ let onboardingWindow = null
 let loopraWebProcess = null
 let currentPort = 0
 let currentElectronProxyAddress = ''
+const desktopUpdater = createDesktopUpdater({
+  app,
+  updater: !isDev && isWin ? require('electron-updater').autoUpdater : null,
+  publish: (state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('desktop-update-state', state)
+  },
+})
 const loopraWebWindows = new Map()
 let elementWebView = null
 let elementInspectorWindow = null
@@ -362,10 +370,12 @@ async function applyElectronProxy(rawAddress) {
         proxyBypassRules: '<local>;127.0.0.1;localhost;[::1]'
       }
     : { mode: 'direct' }
-  await session.defaultSession.setProxy(proxyConfig)
-  if (typeof session.defaultSession.closeAllConnections === 'function') {
-    await session.defaultSession.closeAllConnections()
-  }
+  // electron-updater uses its own partition for both metadata and downloads.
+  const proxySessions = [session.defaultSession, session.fromPartition('electron-updater', { cache: false })]
+  await Promise.all(proxySessions.map(async (targetSession) => {
+    await targetSession.setProxy(proxyConfig)
+    if (typeof targetSession.closeAllConnections === 'function') await targetSession.closeAllConnections()
+  }))
   currentElectronProxyAddress = address
   return { success: true, proxy: address }
 }
@@ -1213,6 +1223,7 @@ app.whenReady().then(async () => {
   }
   // The renderer provides its own toolbar; do not expose Electron's default menu bar.
   Menu.setApplicationMenu(null)
+  desktopUpdater.start()
   startAiBrowserBridge().catch((error) => console.error('[ai-browser] failed to start bridge:', error.message))
   await openDesktopWorkspace()
   if (isDesktopPetEnabled()) openDesktopPetWindow()
@@ -1228,6 +1239,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  desktopUpdater.dispose()
   cleanupLoopraWeb()
   closeAllFileExplorerWatchers()
   stopAiBrowserBridge()
@@ -1237,6 +1249,7 @@ app.on('before-quit', () => {
 // ==================== IPC ====================
 
 registerTerminalIpc()
+registerDesktopUpdateIpc(ipcMain, desktopUpdater, () => mainWindow)
 registerGitEnvironmentIpc(ipcMain)
 registerOnboardingIpc(ipcMain, { getOnboardingWindow: () => onboardingWindow })
 
@@ -1995,6 +2008,11 @@ ipcMain.handle('desktop-tab-context-menu', (event, rawPayload = {}) => {
 // 启动窗口完成检测/安装/启动后：创建主窗口并关闭启动窗口
 ipcMain.handle('splash_ready', () => {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  else {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
   if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
   return true
 })

@@ -12,6 +12,17 @@ function toPlainIpcValue(value) {
 
 // 暴露 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
+  desktopUpdate: {
+    getState: () => ipcRenderer.invoke('desktop-update-getState'),
+    check: () => ipcRenderer.invoke('desktop-update-check'),
+    download: () => ipcRenderer.invoke('desktop-update-download'),
+    install: () => ipcRenderer.invoke('desktop-update-install'),
+    onState: (callback) => {
+      const listener = (_event, state) => callback(state)
+      ipcRenderer.on('desktop-update-state', listener)
+      return () => ipcRenderer.removeListener('desktop-update-state', listener)
+    }
+  },
   // loopra-web 服务管理
   loopraWebService: {
     getStatus: () => ipcRenderer.invoke('get_loopra_web_status'),

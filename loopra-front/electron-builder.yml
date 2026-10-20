@@ -38,6 +38,11 @@ mac:
 
 # ── Windows ────────────────────────────────────
 win:
+  artifactName: 'Loopra-windows-${arch}.${ext}'
+  publish:
+    provider: github
+    owner: ezdemo
+    repo: loopra-release
   target:
     - target: nsis
       arch: [x64]

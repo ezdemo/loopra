@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Button, Card, CardBody, Chip, Code, Divider, NextUIProvider, Progress, Select, SelectItem, Spinner, Switch } from '@nextui-org/react';
+import { Button, Card, CardBody, Chip, Code, Divider, NextUIProvider, Progress, Select, SelectItem, Spinner } from '@nextui-org/react';
 import { ArrowRight, Check, Package, Server, X, Zap } from 'lucide-react';
 import '../../src/assets/styles/workspace-theme.css';
 import './startup-screen.css';
@@ -11,7 +11,7 @@ export type StartupState = {
   visible: boolean; theme: string; menu: string; autoStarting: boolean; startingMsg: string;
   installed: boolean; running: boolean; port: number; bundledCore: boolean; bundledVersion: string;
   installDir: string; runtimeVersion: string; desktopVersion: string; coreBusy: boolean;
-  installing: boolean; starting: boolean; busy: boolean; errorMessage: string; javaChecking: boolean; skipWait: boolean;
+  installing: boolean; starting: boolean; busy: boolean; errorMessage: string; javaChecking: boolean;
   versionStateClass: Tone; versionStateText: string; systemStateClass: Tone; systemStateText: string;
   bundledStateClass: Tone; bundledStateText: string; jreSource: string; testingMirrors: boolean;
   jreDownloading: boolean; jrePercent: number; enterPulse: boolean; jrePulse: boolean;
@@ -24,7 +24,7 @@ export type StartupActions = {
   cancelStart: Action; closeApp: Action; switchMenu: (menu: string) => void; enterLoopra: Action;
   refreshCore: Action; refreshJava: Action; installOrUpdate: Action; startService: Action;
   stopService: Action; restartService: Action; downloadJre: Action; runMirrorSpeedTest: Action;
-  openJavaDownload: Action; setSkipWait: (value: boolean) => void; setJreSource: (value: string) => void;
+  openJavaDownload: Action; setJreSource: (value: string) => void;
   setInstallLogElement: (element: HTMLDivElement | null) => void;
   setJreLogElement: (element: HTMLDivElement | null) => void;
 };
@@ -74,7 +74,7 @@ export function StartupScreen({ state: s, actions: a, portalContainer }: { state
           { label: '运行状态', value: s.running ? '运行中' : '未运行', tone: s.running ? 'success' : '' },
           { label: '服务端口', value: s.port || '—', tone: '' },
           { label: '核心来源', value: s.bundledCore ? '安装包内置' : '在线下载', tone: '' },
-        ].map(item => <Card key={item.label} shadow="none" className="sw-stat-card"><CardBody><span>{item.label}</span><strong className={item.tone}>{item.value}</strong></CardBody></Card>)}<Card shadow="none" className="sw-stat-card"><CardBody><Switch size="sm" color="primary" isSelected={s.skipWait} onValueChange={a.setSkipWait} aria-label="服务启动完成后自动进入工作区" classNames={{ base: 'sw-auto-enter-switch', label: 'sw-switch-label' }}>跳过等待</Switch></CardBody></Card></div>
+        ].map(item => <Card key={item.label} shadow="none" className="sw-stat-card"><CardBody><span>{item.label}</span><strong className={item.tone}>{item.value}</strong></CardBody></Card>)}</div>
         <Section title="版本"><div className="sw-version-row"><span>桌面端</span><Code size="sm">{s.desktopVersion || '—'}</Code><span>核心服务</span><Code size="sm">{s.runtimeVersion || '—'}</Code><Status tone={s.versionStateClass}>{s.versionStateText}</Status></div></Section>
         {s.installDir && <Section title="安装目录"><Code className="sw-path">{s.installDir}</Code></Section>}
         <Section title={s.bundledCore ? "核心自动更新" : "安装核心服务"}><p className={`sw-notice ${s.bundledCore ? 'success' : 'warning'}`}>{s.bundledCore ? <>安装包已内置核心运行时{s.bundledVersion && `（版本 ${s.bundledVersion}）`}，发现新版本会自动安装并启动服务，无需手动更新</> : '当前安装包未内置核心运行时，无法在此安装/更新'}</p><div className="sw-actions">{s.bundledCore && !!s.errorMessage && <Button size="sm" color="primary" isDisabled={s.busy} isLoading={s.installing} onPress={a.installOrUpdate}>重试自动更新</Button>}<Button size="sm" variant="bordered" className="sw-secondary-button" isDisabled={s.busy || s.running || !s.installed} isLoading={s.starting} onPress={a.startService}>{s.starting ? '启动中…' : '启动服务'}</Button><Button size="sm" variant="bordered" className="sw-secondary-button" isDisabled={s.busy || !s.running} onPress={a.stopService}>停止服务</Button><Button size="sm" variant="bordered" className="sw-secondary-button" isDisabled={s.busy || !s.running} onPress={a.restartService}>重启服务</Button></div></Section>
