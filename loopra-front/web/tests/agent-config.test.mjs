@@ -102,6 +102,8 @@ test('ACP categories drive the shared permission, model and effort controls', ()
   assert.equal(agentOptionLabel(findAgentOption(options, 'mode')), 'Bypass permissions');
   assert.equal(isDangerousAgentMode(findAgentOption(options, 'mode')), true);
   assert.equal(isDangerousAgentMode({ ...findAgentOption(options, 'mode'), currentValue: 'default' }), false);
+  assert.equal(isDangerousAgentMode({ ...findAgentOption(options, 'mode'), currentValue: 'agent-full-access' }), true);
+  assert.equal(isDangerousAgentMode({ ...findAgentOption(options, 'mode'), currentValue: 'workspace-write' }), false);
 });
 
 test('Native channel and model names split into the same grouped model list', () => {
@@ -188,17 +190,17 @@ test('the agent switcher sits beside the project switcher and locks while runnin
   assert.doesNotMatch(composer, /menu === 'agents'/);
 });
 
-test('a missing Claude Code runtime offers a copyable install prompt', async () => {
+test('missing external runtimes offer provider-specific copyable install prompts', async () => {
   const [switcher, home, app] = await Promise.all([
     readFile(new URL('../src/layout/AgentSwitcher.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/layout/HomeView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   ]);
   // Only the unavailable external engine gets the inline action; Native stays clickable.
-  assert.match(switcher, /engine\.id === 'claude-code' && !engine\.available/);
+  assert.match(switcher, /!engine\.available && !!agentAcpInstallPrompt\(engine\.id\)/);
   assert.match(switcher, /className="agent-install"/);
   assert.match(switcher, /复制提示词/);
-  assert.match(switcher, /const text = claudeAcpInstallPrompt\(\)/);
+  assert.match(switcher, /const text = agentAcpInstallPrompt\(installing\?\.id \|\| ''\)/);
   assert.match(switcher, /navigator\.clipboard\.writeText\(text\)/);
   // Unfocused Electron documents reject the async clipboard API; keep the
   // selection-based fallback so the copy action still works.
@@ -208,8 +210,8 @@ test('a missing Claude Code runtime offers a copyable install prompt', async () 
   assert.match(switcher, /onRefreshEngines\?\.\(\)/);
   assert.match(home, /onRefreshEngines=\{onRefreshEngines\}/);
   assert.match(app, /enginesRevision/);
-  const { claudeAcpInstallPrompt } = await import(await moduleUrl('agent-install.ts'));
-  const prompt = claudeAcpInstallPrompt();
+  const { agentAcpInstallPrompt } = await import(await moduleUrl('agent-install.ts'));
+  const prompt = agentAcpInstallPrompt('claude-code');
   assert.match(prompt, /Node\.js 22\+/);
   assert.match(prompt, /Claude Code/);
   assert.match(prompt, /@agentclientprotocol\/claude-agent-acp/);
@@ -219,6 +221,13 @@ test('a missing Claude Code runtime offers a copyable install prompt', async () 
   assert.doesNotMatch(prompt, /npm install/);
   // The adapter tracks its own releases; do not pin a version in the prompt.
   assert.doesNotMatch(prompt, /claude-agent-acp@\d/);
+  const codex = agentAcpInstallPrompt('codex');
+  assert.match(codex, /Node\.js 22\+/);
+  assert.match(codex, /@agentclientprotocol\/codex-acp/);
+  assert.match(codex, /自带兼容的 Codex CLI/);
+  assert.doesNotMatch(codex, /Claude|@zed-industries/);
+  assert.equal(agentAcpInstallPrompt('native'), '');
+  assert.equal(agentAcpInstallPrompt('unknown'), '');
 });
 
 test('a draft session can manage its isolation environment before the first message', async () => {

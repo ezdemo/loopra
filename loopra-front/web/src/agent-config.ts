@@ -57,7 +57,7 @@ export function agentModelGroups(option: AgentConfigOption, fallbackName: string
 export function isDangerousAgentMode(option: AgentConfigOption): boolean {
   const value = configValue(option);
   const name = agentOptionLabel(option);
-  return /bypass|free/i.test(value) || /bypass|完全自动/i.test(name);
+  return /bypass|free|full[-_ ]?access|danger[-_ ]?full/i.test(value) || /bypass|full access|完全自动|完全访问/i.test(name);
 }
 
 /**

@@ -97,7 +97,7 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
   const [engines, setEngines] = useState<AgentEngine[]>([]);
-  // The backend re-detects Node/Claude on every request; bump this to refresh
+  // The backend re-detects installed Agent runtimes on every request; bump this to refresh
   // after the user installs a missing runtime outside the app.
   const [enginesRevision, setEnginesRevision] = useState(0);
   const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});

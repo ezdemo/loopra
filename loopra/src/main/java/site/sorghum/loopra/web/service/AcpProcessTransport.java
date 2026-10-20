@@ -60,10 +60,10 @@ final class AcpProcessTransport implements AcpClientTransport {
                 deliver(message);
             }
         } catch (Exception e) {
-            if (protocol && !closed.get()) failRequests("ACP Agent 通信中断，请检查 Claude 登录状态和配置");
+            if (protocol && !closed.get()) failRequests("ACP Agent 通信中断，请检查对应 Agent 的登录状态和配置");
         } finally {
             if (protocol) {
-                failRequests("ACP Agent 已退出，请检查 Claude 登录状态和配置后重试");
+                failRequests("ACP Agent 已退出，请检查对应 Agent 的登录状态和配置后重试");
                 close();
             }
         }

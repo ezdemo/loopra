@@ -89,10 +89,11 @@ stdio 的全局管理、项目加载和 ACP 会话共用协议版本声明，支
 
 迁移入口为当前前端的主聊天 SSE。历史查询、模型设置、计划管理等工作台 API 继续
 使用原有服务；同步内部聊天、定时任务、需求执行和子代理继续对话尚未全部改为 ACP
-Client 调用。通用 Agent 注册、外部进程管理、动态配置 UI 和 ACP v2 留待后续阶段。
+Client 调用。ACP v2 留待后续阶段。
 
 后续阶段已增加 [Claude Code ACP 接入](acp-claude.md)：主聊天现在可选择本机 Claude，
 并由独立的外部会话管理器持有 stdio 连接和远端 Session ID。
+外部 Agent 注册、进程管理及动态配置 UI 现已共用；另见 [Codex ACP 接入](acp-codex.md)。
 
 ## 验证
 

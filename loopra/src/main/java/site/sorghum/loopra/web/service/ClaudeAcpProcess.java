@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
+import static site.sorghum.loopra.web.service.AcpRuntimePaths.environment;
+
 /** Launches the installed ACP adapter directly, without shell interpolation. */
 public final class ClaudeAcpProcess {
     private ClaudeAcpProcess() {}
@@ -33,56 +35,11 @@ public final class ClaudeAcpProcess {
 
     static Installation detect(Map<String, String> env, Path home, boolean windows, String override,
                                List<Path> systemRoots) {
-        List<Path> roots = new ArrayList<>();
-        addPath(roots, environment(env, "NVM_BIN"));
-        addPath(roots, environment(env, "NVM_SYMLINK"));
-        addPath(roots, environment(env, "NODE_HOME"));
-        String path = environment(env, "PATH");
-        if (path != null) for (String part : path.split(java.io.File.pathSeparator)) addPath(roots, part);
-        roots.add(home.resolve(".local/bin"));
-        roots.add(home.resolve(".npm-global/bin"));
-        roots.add(home.resolve(".nvm/current/bin"));
-        String npmPrefix = environment(env, "NPM_CONFIG_PREFIX");
-        if (npmPrefix != null && !npmPrefix.isBlank()) {
-            int previousSize = roots.size();
-            addPath(roots, npmPrefix);
-            if (roots.size() > previousSize) roots.add(roots.get(roots.size() - 1).resolve("bin"));
-        }
-        // Desktop launchers may omit package-manager directories from PATH.
-        roots.addAll(systemRoots);
-        String appData = environment(env, "APPDATA");
-        if (appData != null) roots.add(Path.of(appData).resolve("npm"));
-        String programFiles = environment(env, "ProgramFiles");
-        if (programFiles != null) roots.add(Path.of(programFiles).resolve("nodejs"));
-        Path node = executable("node", roots, windows, environment(env, "LOOPRA_NODE_EXECUTABLE"));
-        if (node != null) {
-            roots.add(node.toAbsolutePath().getParent());
-            try { roots.add(node.toRealPath().getParent()); } catch (java.io.IOException ignored) {}
-        }
+        List<Path> roots = AcpRuntimePaths.searchRoots(env, home, systemRoots);
+        Path node = AcpRuntimePaths.node(roots, env, windows);
         Path claude = claudeExecutable(roots, windows, environment(env, "CLAUDE_CODE_EXECUTABLE"));
-        Path adapter = override == null || override.isBlank() ? null : Path.of(override);
-        if (adapter == null) {
-            roots.add(home.resolve(".npm-global/lib"));
-            for (Path root : roots) {
-                // Unix package managers may link the command to a different
-                // prefix (for example Homebrew's Cellar/libexec layout).
-                if (!windows) {
-                    try {
-                        Path command = root.resolve("claude-agent-acp").toRealPath();
-                        if (Files.isRegularFile(command) && command.toString().endsWith(".js")) {
-                            adapter = command; break;
-                        }
-                    } catch (java.io.IOException ignored) {}
-                }
-                for (Path base : List.of(root, root.resolve("../lib").normalize())) {
-                    Path candidate = base.resolve("node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js");
-                    if (Files.isRegularFile(candidate)) { adapter = candidate; break; }
-                    candidate = base.resolve("node_modules/@zed-industries/claude-agent-acp/dist/index.js");
-                    if (Files.isRegularFile(candidate)) { adapter = candidate; break; }
-                }
-                if (adapter != null) break;
-            }
-        }
+        Path adapter = AcpRuntimePaths.adapter(roots, home, windows, override, "claude-agent-acp",
+                List.of("@agentclientprotocol/claude-agent-acp", "@zed-industries/claude-agent-acp"));
         return new Installation(node, claude, adapter);
     }
 
@@ -161,31 +118,6 @@ public final class ClaudeAcpProcess {
                     .anyMatch(suffix -> resolved.toString().endsWith(suffix));
             return windows || script || Files.isExecutable(resolved) ? resolved : null;
         } catch (java.io.IOException ignored) { return null; }
-    }
-
-    private static Path executable(String name, List<Path> roots, boolean windows, String override) {
-        if (override != null && !override.isBlank()) {
-            Path file = Path.of(override);
-            return Files.isRegularFile(file) && (windows || Files.isExecutable(file)) ? file : null;
-        }
-        for (Path root : roots) {
-            Path file = root.resolve(name + (windows ? ".exe" : ""));
-            if (Files.isRegularFile(file) && (windows || Files.isExecutable(file))) return file.toAbsolutePath().normalize();
-        }
-        return null;
-    }
-
-    private static String environment(Map<String, String> env, String key) {
-        // System.getenv(String) is case-insensitive on Windows; getenv()'s Map need not be.
-        return env.entrySet().stream().filter(entry -> entry.getKey().equalsIgnoreCase(key))
-                .map(Map.Entry::getValue).findFirst().orElse(null);
-    }
-
-    private static void addPath(List<Path> paths, String value) {
-        if (value == null || value.isBlank()) return;
-        value = value.trim();
-        if (value.startsWith("\"") && value.endsWith("\"")) value = value.substring(1, value.length() - 1);
-        try { paths.add(Path.of(value)); } catch (java.nio.file.InvalidPathException ignored) {}
     }
 
     public record Installation(Path node, Path claude, Path adapter) {

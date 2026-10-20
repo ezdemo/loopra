@@ -3,7 +3,7 @@ import { Check, ChevronDown } from 'lucide-react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Popup } from '../components/Motion';
 import type { AgentEngine } from '../backend';
-import { claudeAcpInstallPrompt } from '../agent-install';
+import { agentAcpInstallPrompt } from '../agent-install';
 
 /**
  * Agent chooser shown beside the project switcher on the home screen. Switching
@@ -39,7 +39,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, onSelect, on
     setInstalling(engine);
   }
   async function copyPrompt() {
-    const text = claudeAcpInstallPrompt();
+    const text = agentAcpInstallPrompt(installing?.id || '');
     try {
       await navigator.clipboard.writeText(text);
       setCopyState('copied');
@@ -73,14 +73,14 @@ export default function AgentSwitcher({ engines, agentId, disabled, onSelect, on
       <h3>选择 Agent</h3>
       <div className="composer-tool-list">{engines.map(engine => {
         const selected = engine.id === (agentId || 'native');
-        const installable = engine.id === 'claude-code' && !engine.available;
+        const installable = !engine.available && !!agentAcpInstallPrompt(engine.id);
         return <div key={engine.id} className="agent-option">
           <button type="button" disabled={!engine.available}
             onClick={() => { setOpen(false); onSelect(engine.id); }}>
-            <span><strong>{engine.name}</strong><small>{engine.detail || (engine.available ? (engine.id === 'native' ? '使用 Loopra 模型配置' : '使用本机 Claude 登录和配置') : '后端未检测到运行环境，请重启后端后重试')}</small></span>
+            <span><strong>{engine.name}</strong><small>{engine.detail || (engine.available ? (engine.id === 'native' ? '使用 Loopra 模型配置' : `使用本机 ${engine.name} 登录和配置`) : '后端未检测到运行环境，请重启后端后重试')}</small></span>
             {selected && <Check size="1rem" />}
           </button>
-          {installable && <button type="button" className="agent-install" aria-label="安装 Claude Code ACP 依赖"
+          {installable && <button type="button" className="agent-install" aria-label={`安装 ${engine.name} ACP 依赖`}
             title="查看安装提示词" onClick={() => openInstall(engine)}>安装</button>}
         </div>;
       })}</div>
@@ -88,13 +88,13 @@ export default function AgentSwitcher({ engines, agentId, disabled, onSelect, on
     </Popup>
     <Modal isOpen={!!installing} onClose={() => setInstalling(null)} placement="center" scrollBehavior="inside"
       classNames={{ base: 'app-dialog agent-install-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }}
-      aria-label="安装 Claude Code ACP">
+      aria-label={`安装 ${installing?.name || 'Agent'} ACP`}>
       <ModalContent>
-        <ModalHeader className="app-dialog-header"><h2>安装 Claude Code ACP</h2></ModalHeader>
+        <ModalHeader className="app-dialog-header"><h2>安装 {installing?.name} ACP</h2></ModalHeader>
         <ModalBody className="app-dialog-body">
-          <p>在运行 Loopra 后端的机器上安装 Node.js、Claude Code 和 ACP 适配器。可以把下面的提示词复制给一个 Agent，让它直接完成安装。</p>
+          <p>在运行 Loopra 后端的机器上安装 {installing?.name} 的 ACP 依赖。可以把下面的提示词复制给一个 Agent，让它直接完成安装。</p>
           {installing?.detail && <p className="agent-install-reason">当前检测：{installing.detail}</p>}
-          <pre className="agent-install-prompt">{claudeAcpInstallPrompt()}</pre>
+          <pre className="agent-install-prompt">{agentAcpInstallPrompt(installing?.id || '')}</pre>
           {copyState === 'failed' && <p className="settings-error" role="alert">复制失败，请手动选择上面的提示词。</p>}
         </ModalBody>
         <ModalFooter className="app-dialog-footer">

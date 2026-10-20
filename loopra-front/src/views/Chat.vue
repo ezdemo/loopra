@@ -5,7 +5,7 @@
       <select v-model="agentEngine" aria-label="选择 Agent" :disabled="streaming || sessionTaskRunning || messages.length > 0" @change="rememberAgentEngine">
         <option v-for="engine in agentEngines" :key="engine.id" :value="engine.id" :disabled="!engine.available">{{ engine.name }}{{ engine.available ? '' : '（未配置）' }}</option>
       </select>
-      <small v-if="agentEngine === 'claude-code'">使用本机 Claude 配置与审批</small>
+      <small v-if="agentEngine !== 'native'">使用所选 Agent 的本机配置与审批</small>
     </label>
     <div v-if="!props.subAgent" class="agent-session-config" :aria-busy="agentConfigBusy">
       <button v-if="!agentConfigOptions || agentConfigError" class="btn btn-ghost btn-sm" :disabled="agentConfigBusy" :title="agentConfigError" @click="prepareAgentConfiguration">{{ agentConfigBusy ? '正在加载配置…' : agentConfigError ? '重试 Agent 配置' : '配置 Agent' }}</button>

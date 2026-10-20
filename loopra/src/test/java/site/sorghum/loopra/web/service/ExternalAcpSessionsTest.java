@@ -3,6 +3,8 @@ package site.sorghum.loopra.web.service;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.noear.solon.core.handle.ContextEmpty;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.session.JsonlSessionStore;
@@ -34,16 +36,20 @@ class ExternalAcpSessionsTest {
         return new ExternalAcpSessions(cwd -> new AcpProcessTransport(command, Map.of(), cwd));
     }
     private JsonlSessionStore store() throws Exception {
+        return store("claude-code");
+    }
+    private JsonlSessionStore store(String agentId) throws Exception {
         JsonlSessionStore store = new JsonlSessionStore(home.resolve("sessions"));
-        store.setAcpBinding("chat", new SessionStore.AcpBinding("claude-code", null, null));
+        store.setAcpBinding("chat", new SessionStore.AcpBinding(agentId, null, null));
         return store;
     }
 
-    @Test void managedMcpIsSentOnNewLoadAndChangedConfigurationReconnects() throws Exception {
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    void managedMcpIsSentOnNewLoadAndChangedConfigurationReconnects(String agentId) throws Exception {
         Path config = home.resolve(".loopra/mcp-servers.json");
         java.nio.file.Files.createDirectories(config.getParent());
         java.nio.file.Files.writeString(config, "{\"servers\":[{\"name\":\"one\",\"type\":\"http\",\"url\":\"https://example.test/mcp\"}]}");
-        var store = store();
+        var store = store(agentId);
         StringBuilder text = new StringBuilder();
         AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
             @Override public void onContentDelta(String token) { text.append(token); }
@@ -64,11 +70,12 @@ class ExternalAcpSessionsTest {
             try (var runtime = runtime()) { prompt(runtime, store, "echo-mcp", output); }
             assertTrue(text.toString().startsWith("load:"));
             assertTrue(text.toString().contains("\"name\":\"two\""));
-        } finally { store.shutdown(); }
+        } finally { assertEquals(agentId, store.getAcpBinding("chat").agentId()); store.shutdown(); }
     }
 
-    @Test void preservesConnectionAndRestoresRemoteSessionWithoutDuplicateReplay() throws Exception {
-        var store = store();
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    void preservesConnectionAndRestoresRemoteSessionWithoutDuplicateReplay(String agentId) throws Exception {
+        var store = store(agentId);
         try {
             try (var runtime = runtime()) {
                 prompt(runtime, store, "one", AgentOutput.NOOP);
@@ -80,7 +87,7 @@ class ExternalAcpSessionsTest {
             assertEquals(6, history.size());
             assertEquals(List.of("one", "reply:one", "two", "reply:two", "three", "reply:three"),
                     history.stream().map(message -> message.getContent()).toList());
-        } finally { store.shutdown(); }
+        } finally { assertEquals(agentId, store.getAcpBinding("chat").agentId()); store.shutdown(); }
     }
 
     @Test void acpDiffContentBecomesTheWorkbenchFileChangeSummary() throws Exception {
@@ -172,8 +179,9 @@ class ExternalAcpSessionsTest {
         } finally { store.shutdown(); }
     }
 
-    @Test void groupedConfigurationChangesPersistAcrossConnectionsAndDriveActualPrompts() throws Exception {
-        var store = store();
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    void groupedConfigurationChangesPersistAcrossConnectionsAndDriveActualPrompts(String agentId) throws Exception {
+        var store = store(agentId);
         try {
             try (var runtime = runtime()) {
                 var initial = runtime.configuration("key", home, "chat", store, null, null);
@@ -191,7 +199,7 @@ class ExternalAcpSessionsTest {
                 prompt(runtime, store, "state", AgentOutput.NOOP);
                 assertTrue(store.load("chat").stream().anyMatch(message -> "reply:state:beta:plan".equals(message.getContent())));
             }
-        } finally { store.shutdown(); }
+        } finally { assertEquals(agentId, store.getAcpBinding("chat").agentId()); store.shutdown(); }
     }
 
     @Test void unavailableSavedConfigurationIsDroppedWhileValidChoicesSurvive() throws Exception {
@@ -223,9 +231,10 @@ class ExternalAcpSessionsTest {
         } finally { store.shutdown(); }
     }
 
-    @Test void permissionAllowDenyAndCancelCompleteTheOriginalPrompt() throws Exception {
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    void permissionAllowDenyAndCancelCompleteTheOriginalPrompt(String agentId) throws Exception {
         for (String selected : List.of("allow", "deny", "cancel")) {
-            var store = store(); var active = new AtomicReference<AcpWorkbenchClient>();
+            var store = store(agentId); var active = new AtomicReference<AcpWorkbenchClient>();
             var ready = new CountDownLatch(1);
             ExecutorService executor = Executors.newSingleThreadExecutor();
             try (var runtime = runtime()) {
@@ -299,8 +308,9 @@ class ExternalAcpSessionsTest {
         } finally { worker.shutdownNow(); store.shutdown(); }
     }
 
-    @Test void interruptingHttpTaskReleasesConnectionAndSessionLock() throws Exception {
-        var store = store();
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    void interruptingHttpTaskReleasesConnectionAndSessionLock(String agentId) throws Exception {
+        var store = store(agentId);
         CountDownLatch ready = new CountDownLatch(1), cleaned = new CountDownLatch(1);
         ExecutorService worker = Executors.newSingleThreadExecutor();
         try (var runtime = runtime()) {
@@ -317,15 +327,16 @@ class ExternalAcpSessionsTest {
             assertTrue(cleaned.await(8, TimeUnit.SECONDS));
             prompt(runtime, store, "after cancellation", AgentOutput.NOOP);
             assertTrue(store.load("chat").stream().anyMatch(message -> "reply:after cancellation".equals(message.getContent())));
-        } finally { worker.shutdownNow(); store.shutdown(); }
+        } finally { worker.shutdownNow(); assertEquals(agentId, store.getAcpBinding("chat").agentId()); store.shutdown(); }
     }
 
-    @Test void processExitFailsPromptImmediatelyAndKeepsRecoveryIdentity() throws Exception {
-        var store = store();
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    void processExitFailsPromptImmediatelyAndKeepsRecoveryIdentity(String agentId) throws Exception {
+        var store = store(agentId);
         try (var runtime = runtime()) {
             assertThrows(Exception.class, () -> prompt(runtime, store, "exit", AgentOutput.NOOP));
             assertEquals("fake-session", store.getAcpBinding("chat").remoteSessionId());
-        } finally { store.shutdown(); }
+        } finally { assertEquals(agentId, store.getAcpBinding("chat").agentId()); store.shutdown(); }
     }
     @Test void agentOriginatedConfigurationChangeSurvivesReconnect() throws Exception {
         var store = store();

@@ -3,21 +3,26 @@ package site.sorghum.loopra.web.controller;
 import org.noear.solon.annotation.*;
 import site.sorghum.loopra.web.model.ApiResponse;
 import site.sorghum.loopra.web.service.AgentService;
-import site.sorghum.loopra.web.service.ClaudeAcpProcess;
+import site.sorghum.loopra.web.service.ExternalAcpProviders;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Small first Agent registry: Native and the locally installed Claude ACP adapter. */
+/** Native plus the installed external ACP providers. */
 @Controller
 @Mapping("/api/agent-engines")
 public class AgentEngineController {
     @Inject private AgentService agents;
     @Get @Mapping("")
     public ApiResponse<List<Engine>> list() {
-        var claude = ClaudeAcpProcess.detect();
-        return ApiResponse.ok(List.of(new Engine("native", "Loopra Native", agents.isNativeReady(),
-                        agents.isNativeReady() ? "使用 Loopra 模型配置" : "请配置 Loopra 模型"),
-                new Engine("claude-code", "Claude Code", claude.available(), claude.reason())));
+        List<Engine> engines = new ArrayList<>();
+        engines.add(new Engine("native", "Loopra Native", agents.isNativeReady(),
+                agents.isNativeReady() ? "使用 Loopra 模型配置" : "请配置 Loopra 模型"));
+        for (var provider : ExternalAcpProviders.all()) {
+            var installation = provider.detect();
+            engines.add(new Engine(provider.id(), provider.name(), installation.available(), installation.detail()));
+        }
+        return ApiResponse.ok(engines);
     }
     @Get @Mapping("/session")
     public ApiResponse<Map<String, Object>> session(@Param(value="workspaceHash", required=true) String hash,

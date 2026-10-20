@@ -79,7 +79,7 @@ export default function Composer(props: Props) {
   const effort = effortLevels[effortIndex];
   // ACP owns the per-session choices. Its standard categories map onto the
   // composer's existing permission, model and reasoning controls, so Native and
-  // Claude Code look and behave the same; only the advertised values differ.
+  // external engines look and behave the same; only the advertised values differ.
   const agentOptions = props.agentConfig?.options;
   const agentMode = findAgentOption(agentOptions, 'mode', 'mode');
   const agentModel = findAgentOption(agentOptions, 'model', 'model');
@@ -87,7 +87,7 @@ export default function Composer(props: Props) {
   const agentFast = findAgentOption(agentOptions, 'fast', 'model_config');
   const agentPlan = findAgentOption(agentOptions, 'plan');
   const agentBusy = !!props.agentConfig?.busy;
-  const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? 'Claude Code' : 'Loopra Native');
+  const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
   const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const handledOptions = new Set([agentMode, agentModel, agentEffort, agentFast, agentPlan].filter(Boolean).map(option => option!.id));
