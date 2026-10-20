@@ -131,8 +131,8 @@ test('token counts use compact K / M units', () => {
 test('the context popover keeps one window-scale bar and a three-stat footer', async () => {
   const component = await readFile(new URL('../src/components/Composer.tsx', import.meta.url), 'utf8');
   // The composition bar was merged into the gauge, so its segments are scaled to the
-  // window like the fold mark is — not to the current total.
-  assert.match(component, /width: `\$\{part\.tokens \/ usage\.limit \* 100\}%`/);
+  // window. Estimated external proportions share the Agent-reported occupied span.
+  assert.match(component, /width: `\$\{contextPartPercent\(part, usage\) \/ 100 \* usage\.percent\}%`/);
   assert.doesNotMatch(component, /width: `\$\{part\.tokens \/ usage\.total \* 100\}%`/);
   assert.match(component, /className="context-gauge-threshold"/);
   // No second bar and no uniform fill left behind.

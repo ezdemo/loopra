@@ -7,7 +7,7 @@ import ts from 'typescript';
 // 80% fold threshold on the context bar and prints the threshold token count.
 const source = await readFile(new URL('../src/usage.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { FOLD_THRESHOLD_RATIO, foldThreshold, contextFromUsage, formatUsageCost, usagePath } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { FOLD_THRESHOLD_RATIO, foldThreshold, contextFromUsage, contextPartPercent, formatUsageCost, usagePath } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('fold threshold matches the legacy 80% window rule', () => {
   assert.equal(FOLD_THRESHOLD_RATIO, 0.8);
@@ -75,4 +75,50 @@ test('Agent-reported usage drives the context view without a local estimate', ()
 test('usage path keeps the optional session name', () => {
   assert.equal(usagePath('abc'), '/usage?workspaceHash=abc');
   assert.equal(usagePath('abc', '会话 1'), '/usage?workspaceHash=abc&sessionName=%E4%BC%9A%E8%AF%9D+1');
+});
+
+const externalUsage = {
+  promptTokens: 0, completionTokens: 0, cacheHit: 0, cacheMiss: 0,
+  lastPromptTokens: 375000, maxContextTokens: 475000, totalTokens: 0,
+  model: 'external', hasPrice: false, totalCost: 0, currency: null,
+  contextSource: 'agent', contextEstimateScope: 'transcript',
+  contextEstimate: { systemTokens: 0, toolDefinitionTokens: 0, userTokens: 100, assistantTokens: 300,
+    toolResultTokens: 600, totalTokens: 1000, exactTokenizer: true, estimator: 'deepseek-v3-tokenizer' },
+};
+const externalFallback = { parts: [], total: 0, limit: 128000, percent: 0 };
+
+test('external composition percentages use the transcript while total usage stays Agent-reported', () => {
+  const view = contextFromUsage(externalUsage, externalFallback);
+  assert.equal(view.total, 375000);
+  assert.equal(view.limit, 475000);
+  assert.equal(view.percent, 375000 / 475000 * 100);
+  assert.equal(view.estimatedComposition, true);
+  assert.equal(view.source, 'agent');
+  assert.deepEqual(view.parts.map(part => part.name), ['用户消息', '助手消息', '工具结果']);
+  assert.deepEqual(view.parts.map(part => contextPartPercent(part, view)), [10, 30, 60]);
+  const gauge = view.parts.reduce((sum, part) => sum + contextPartPercent(part, view) / 100 * view.percent, 0);
+  assert.ok(Math.abs(gauge - view.percent) < 1e-9);
+});
+
+test('zero reported context stays zero after compaction even when transcript is nonempty', () => {
+  const view = contextFromUsage({ ...externalUsage, lastPromptTokens: 0 }, externalFallback);
+  assert.equal(view.total, 0);
+  assert.equal(view.percent, 0);
+  assert.deepEqual(view.parts.map(part => contextPartPercent(part, view)), [10, 30, 60]);
+});
+
+test('server-estimated external usage uses its own known window and marks its source', () => {
+  const view = contextFromUsage({ ...externalUsage, contextSource: 'loopra', lastPromptTokens: 0, maxContextTokens: 200000 }, externalFallback);
+  assert.equal(view.total, 1000);
+  assert.equal(view.percent, 0.5);
+  assert.equal(view.source, 'loopra');
+});
+
+test('an unknown external window never falls back to the Native window', () => {
+  const view = contextFromUsage({ ...externalUsage, contextSource: 'loopra', lastPromptTokens: 0, maxContextTokens: 0 }, externalFallback);
+  assert.equal(view.total, 1000);
+  assert.equal(view.limit, 0);
+  assert.equal(view.windowKnown, false);
+  assert.equal(view.percent, 0);
+  assert.deepEqual(view.parts.map(part => contextPartPercent(part, view)), [10, 30, 60]);
 });

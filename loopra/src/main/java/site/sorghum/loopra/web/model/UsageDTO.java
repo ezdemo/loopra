@@ -20,6 +20,8 @@ public record UsageDTO(
         double outputCost,
         double totalCost,
         String currency,
-        ContextTokenEstimate contextEstimate
+        ContextTokenEstimate contextEstimate,
+        String contextSource,
+        String contextEstimateScope
 ) {
 }
