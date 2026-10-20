@@ -304,7 +304,7 @@ public class VersionUpdateService {
         if (statusFile == null) return new String[]{"", ""};
         try {
             List<String> lines = Files.readAllLines(statusFile, StandardCharsets.UTF_8);
-            String state = lines.isEmpty() ? "" : lines.getFirst().replace("\uFEFF", "").trim().toLowerCase(Locale.ROOT);
+            String state = lines.isEmpty() ? "" : lines.get(0).replace("\uFEFF", "").trim().toLowerCase(Locale.ROOT);
             String message = lines.size() < 2 ? "" : lines.get(1).trim();
             return new String[]{state, message};
         } catch (Exception ignored) {

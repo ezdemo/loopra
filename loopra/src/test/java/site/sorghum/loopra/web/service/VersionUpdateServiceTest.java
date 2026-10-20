@@ -39,10 +39,10 @@ class VersionUpdateServiceTest {
         assertEquals("桌面端核心服务", result.target());
         assertTrue(result.message().contains("正在准备"));
         assertNotNull(started.get());
-        assertEquals("powershell.exe", started.get().command().getFirst());
+        assertEquals("powershell.exe", started.get().command().get(0));
         assertTrue(started.get().environment().get("LOOPRA_UPDATE_SETUP_URL").endsWith("/setup-gui.ps1"));
 
-        Path script = Path.of(started.get().command().getLast());
+        Path script = Path.of(started.get().command().get(started.get().command().size() - 1));
         String content = Files.readString(script);
         assertTrue(content.contains("Invoke-WebRequest"));
         assertFalse(content.contains("Stop-Process"));
@@ -61,11 +61,11 @@ class VersionUpdateServiceTest {
         VersionUpdateDTO result = service.start("https://wget.la/");
 
         assertEquals("核心服务", result.target());
-        assertEquals("bash", started.get().command().getFirst());
+        assertEquals("bash", started.get().command().get(0));
         assertEquals("https://wget.la", started.get().environment().get("LOOPRA_MIRROR"));
         assertTrue(started.get().environment().get("LOOPRA_UPDATE_SETUP_URL")
                 .startsWith("https://wget.la/https://raw.githubusercontent.com/"));
-        String content = Files.readString(Path.of(started.get().command().getLast()));
+        String content = Files.readString(Path.of(started.get().command().get(started.get().command().size() - 1)));
         assertTrue(content.contains("bash \"$setup_file\""));
         assertFalse(content.contains("kill \"$parent_pid\""));
     }
