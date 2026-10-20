@@ -58,12 +58,19 @@ class SessionTerminalTalentBashSessionTest {
             : "sleep 1; echo " + MARK + "; sleep 30";
 
     private static Path workspace;
+    private static String previousWindowsShell;
 
     private SessionTerminalTalent talent;
 
     @BeforeAll
     static void createWorkspace() throws IOException {
         workspace = Files.createTempDirectory("loopra-bash-session-workspace");
+        if (isWindows()) {
+            // These fixtures use CMD syntax (&, > nul, &&). Shell auto-detection
+            // depends on the IDE/CI launcher and may otherwise choose PowerShell.
+            previousWindowsShell = System.getProperty("solon.ai.cli.shell");
+            System.setProperty("solon.ai.cli.shell", "cmd");
+        }
     }
 
     @AfterAll
@@ -72,6 +79,11 @@ class SessionTerminalTalentBashSessionTest {
             Files.deleteIfExists(workspace);
         } catch (IOException ignored) {
             // 进程句柄占用时无法删除，容忍
+        } finally {
+            if (isWindows()) {
+                if (previousWindowsShell == null) System.clearProperty("solon.ai.cli.shell");
+                else System.setProperty("solon.ai.cli.shell", previousWindowsShell);
+            }
         }
     }
 
@@ -221,7 +233,14 @@ class SessionTerminalTalentBashSessionTest {
     SessionTerminalTalent.BashSessionInfo info = talent.snapshotBashSessions().stream()
             .filter(i -> sessionId.equals(i.getSessionId())).findFirst().orElse(null);
     assertNotNull(info, "bash_start 后镜像应含该会话");
-    assertTrue(info.getOutput().contains("hello-1"), "bash_start 初始输出应已累积: " + info.getOutput());
+    // A running process may not emit its first bytes during bash_start's yield
+    // window, especially on a cold CI worker. Poll until the output arrives.
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (!info.getOutput().contains("hello-1") && System.nanoTime() < deadline) {
+      Thread.sleep(50);
+      talent.snapshotBashSessions();
+    }
+    assertTrue(info.getOutput().contains("hello-1"), "命令输出应已累积: " + info.getOutput());
 
     String waited = talent.bashWait(sessionId, 10_000, 4096);
     assertTrue(waited.contains("status: completed"), "短命令等待后应结束: " + waited);
