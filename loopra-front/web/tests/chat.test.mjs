@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { splitAssistantBlocks, groupToolBlocks, chainBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { splitAssistantBlocks, groupToolBlocks, chainBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, formatTurnDuration, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const reasoning = { id: 'r', type: 'reasoning', content: '检查项目' };
 const read = { id: 'read', type: 'tool_call', name: 'read', status: '成功' };
@@ -132,4 +132,14 @@ test('consecutive thinking and tool steps fold into one reasoning chain', () => 
   assert.deepEqual(chainBlocks([read]), [read]);
   assert.deepEqual(chainBlocks([reasoning, finish]), [reasoning, finish]);
   assert.deepEqual(chainBlocks([]), []);
+});
+
+// "用时 0秒" reads like a broken clock, so a turn shorter than one second says "<1秒".
+test('turn duration never renders as zero seconds', () => {
+  assert.equal(formatTurnDuration(0), '<1秒');
+  assert.equal(formatTurnDuration(999), '<1秒');
+  assert.equal(formatTurnDuration(1000), '1秒');
+  assert.equal(formatTurnDuration(59_900), '59秒');
+  assert.equal(formatTurnDuration(60_000), '1分');
+  assert.equal(formatTurnDuration(125_000), '2分5秒');
 });

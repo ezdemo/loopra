@@ -241,6 +241,15 @@ export const demoMessages: Record<'api' | 'repair' | 'demo', Message[]> = {
   ],
 };
 
+// Sub-second turns floor to 0, which would read as a stuck clock; say "<1秒" instead.
+export function formatTurnDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 1) return '<1秒';
+  if (seconds < 60) return `${seconds}秒`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes + '分' + (seconds % 60 ? (seconds % 60) + '秒' : '');
+}
+
 export function mockProcess(prompt: string): ChatBlock[] {
   return [{ id: 'mock-plan', type: 'reasoning', content: `示例执行计划：梳理「${prompt.slice(0, 80)}」的需求，整理相关上下文，再给出处理建议。当前未调用模型或真实工具。` }];
 }

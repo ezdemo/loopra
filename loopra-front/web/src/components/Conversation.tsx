@@ -2,7 +2,7 @@ import { Collapse, Disclosure, Enter, useCollapseAll } from './Motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlignLeft, ChevronRight, Copy, GitBranch, Pencil, Undo2 } from 'lucide-react';
 import type { ChatBlock, Message } from '../chat';
-import { splitAssistantBlocks, splitUserContext } from '../chat';
+import { formatTurnDuration, splitAssistantBlocks, splitUserContext } from '../chat';
 import { ESTIMATED_MESSAGE_HEIGHT, VIRTUALIZATION_THRESHOLD, virtualMessageWindow } from '../chat-window';
 import type { Session } from '../lib';
 import { getSessionMessages } from '../lib';
@@ -52,8 +52,8 @@ function AssistantMessage({ message, streaming, showDuration = true, ...actions 
   }, [streaming]);
   // A replayed run has no trustworthy end time while it streams, so its header
   // reads "思考过程" instead of a duration that would keep counting after a stop.
-  const elapsed = showDuration && message.startedAt ? Math.max(0, Math.round(((message.finishedAt || clock) - message.startedAt) / 1000)) : null;
-  const duration = elapsed === null ? '' : elapsed < 60 ? elapsed + '秒' : Math.floor(elapsed / 60) + '分' + (elapsed % 60 ? elapsed % 60 + '秒' : '');
+  const elapsed = showDuration && message.startedAt ? Math.max(0, (message.finishedAt || clock) - message.startedAt) : null;
+  const duration = elapsed === null ? '' : formatTurnDuration(elapsed);
   const stats = messageFileStats(blocks);
   const answerText = final.map(block => block.type === 'content' ? block.content : block.type === 'tool_call' ? block.result || '' : '').filter(Boolean).join('\n\n') || message.text;
   const processId = 'process-' + message.id;
