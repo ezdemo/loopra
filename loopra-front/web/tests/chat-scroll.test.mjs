@@ -264,6 +264,24 @@ test('streaming reasoning follows the latest text beyond 120 characters and view
   }
 });
 
+test('expanded reasoning caps excessive blank lines', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(createElement(BlockRenderer, {
+      blocks: [{ id: 'r', type: 'reasoning', content: '\n\n第一段\n\n\n\n第二段\n\n\n' }],
+      streaming: false,
+      notify: () => {},
+    })));
+    await act(async () => container.querySelector('.reasoning-head').click());
+    assert.equal(container.querySelector('.reasoning-plain').textContent, '第一段\n\n第二段');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
 test('only the latest reasoning step follows within an expanded chain', async () => {
   const container = document.createElement('div');
   document.body.append(container);
