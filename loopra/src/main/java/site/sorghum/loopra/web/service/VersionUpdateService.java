@@ -105,7 +105,11 @@ public class VersionUpdateService {
             target = desktop ? "桌面端核心服务" : "核心服务";
             stopped = false;
             Files.deleteIfExists(statusFile);
-            Files.writeString(script, windows ? windowsScript() : unixScript(), StandardCharsets.UTF_8);
+            // Windows PowerShell 5.1 treats UTF-8 files without a BOM as ANSI.
+            // Chinese messages then become invalid syntax, so the wrapper must
+            // carry a UTF-8 BOM on Windows.
+            String scriptContent = windows ? "\uFEFF" + windowsScript() : unixScript();
+            Files.writeString(script, scriptContent, StandardCharsets.UTF_8);
 
             ProcessBuilder builder = windows
                     ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
@@ -198,6 +202,9 @@ public class VersionUpdateService {
         return """
                 $ErrorActionPreference = 'Stop'
                 $ProgressPreference = 'SilentlyContinue'
+                $utf8 = New-Object System.Text.UTF8Encoding($false)
+                [Console]::OutputEncoding = $utf8
+                $OutputEncoding = $utf8
                 $statusFile = $env:LOOPRA_UPDATE_STATUS
                 $logFile = $env:LOOPRA_UPDATE_LOG
                 function Set-UpdateState([string]$state, [string]$message) {
@@ -205,25 +212,25 @@ public class VersionUpdateService {
                 }
 
                 Set-UpdateState 'starting' '正在准备核心更新'
-                Add-Content -LiteralPath $logFile -Value "[Loopra] 更新器已启动，当前服务保持运行。"
+                Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 更新器已启动，当前服务保持运行。"
 
                 try {
                     if ($env:LOOPRA_UPDATE_MIRROR) {
                         $env:LOOPRA_MIRROR = $env:LOOPRA_UPDATE_MIRROR
-                    }
-                    Set-UpdateState 'running' '正在下载并安装新版本'
-                    Add-Content -LiteralPath $logFile -Value "[Loopra] 正在下载更新脚本: $env:LOOPRA_UPDATE_SETUP_URL"
+                }
+                Set-UpdateState 'running' '正在下载并安装新版本'
+                Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 正在下载更新脚本: $env:LOOPRA_UPDATE_SETUP_URL"
                     $setupFile = Join-Path (Split-Path -Parent $logFile) 'download-setup.ps1'
                     Invoke-WebRequest -UseBasicParsing -Uri $env:LOOPRA_UPDATE_SETUP_URL -OutFile $setupFile
                     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $setupFile
                     if ($LASTEXITCODE -ne 0) {
                         throw "安装脚本退出码: $LASTEXITCODE"
-                    }
-                    Set-UpdateState 'success' '核心服务更新完成'
-                    Add-Content -LiteralPath $logFile -Value "[Loopra] 核心服务更新完成。"
-                } catch {
-                    Set-UpdateState 'failed' $_.Exception.Message
-                    Add-Content -LiteralPath $logFile -Value "[Loopra] 更新失败: $($_.Exception.Message)"
+                }
+                Set-UpdateState 'success' '核心服务更新完成'
+                Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 核心服务更新完成。"
+            } catch {
+                Set-UpdateState 'failed' $_.Exception.Message
+                Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 更新失败: $($_.Exception.Message)"
                     exit 1
                 }
                 """;

@@ -43,8 +43,13 @@ class VersionUpdateServiceTest {
         assertTrue(started.get().environment().get("LOOPRA_UPDATE_SETUP_URL").endsWith("/setup-gui.ps1"));
 
         Path script = Path.of(started.get().command().get(started.get().command().size() - 1));
+        byte[] scriptBytes = Files.readAllBytes(script);
         String content = Files.readString(script);
+        assertEquals(0xEF, Byte.toUnsignedInt(scriptBytes[0]));
+        assertEquals(0xBB, Byte.toUnsignedInt(scriptBytes[1]));
+        assertEquals(0xBF, Byte.toUnsignedInt(scriptBytes[2]));
         assertTrue(content.contains("Invoke-WebRequest"));
+        assertTrue(content.contains("Add-Content -LiteralPath $logFile -Encoding UTF8"));
         assertFalse(content.contains("Stop-Process"));
         assertFalse(content.contains("Start-Process"));
     }

@@ -28,6 +28,11 @@ async function sourceUrl(name, dependencies = {}) {
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isLoading, isDisabled, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isLoading || !!isDisabled, onClick: onPress, ...rest }, startContent, children);
+export const Modal = ({ isOpen, children, onClose, classNames, placement, scrollBehavior, ...rest }) => isOpen ? createElement('section', { role: 'dialog', ...rest }, children) : null;
+export const ModalContent = ({ children }) => createElement('div', null, children);
+export const ModalHeader = ({ children }) => createElement('header', null, children);
+export const ModalBody = ({ children }) => createElement('div', null, children);
+export const ModalFooter = ({ children }) => createElement('footer', null, children);
 `);
 const iconsStub = dataUrl('export const ArrowUpRight=()=>null;export const Download=()=>null;export const RefreshCw=()=>null;export const Server=()=>null;export const Square=()=>null;');
 const controlsStub = dataUrl(`export const errorText = cause => cause instanceof Error ? cause.message : String(cause);`);
@@ -135,7 +140,8 @@ test('the update button asks the Java service to update without creating an agen
     await click(buttonIn(view.container, '更新核心服务'));
     const request = globalThis.__calls.find(call => call.path === '/version/update' && call.method === 'POST');
     assert.deepEqual(request, { path: '/version/update', method: 'POST', body: { source: 'normal' } });
-    assert.equal(buttonIn(view.container, '更新中').disabled, true);
+    assert.ok(buttonIn(view.container, '查看更新进度'));
+    assert.equal(view.container.querySelector('[role="dialog"]').getAttribute('aria-label'), '核心服务更新日志');
     assert.ok(view.container.textContent.includes('/tmp/loopra-update.log'));
     assert.ok(view.container.textContent.includes('更新日志'));
     assert.ok(view.container.textContent.includes('正在下载并安装新版本'));

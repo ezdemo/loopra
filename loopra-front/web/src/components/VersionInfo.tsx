@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button } from '@nextui-org/react';
+import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { ArrowUpRight, Download, RefreshCw, Server, Square } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { errorText } from './RemoteControls';
@@ -36,6 +36,7 @@ export default function VersionInfo({ api, notify, initialCheck }: { api: Loopra
   const [update, setUpdate] = useState<VersionUpdate>();
   const [startingUpdate, setStartingUpdate] = useState(false);
   const [stoppingUpdate, setStoppingUpdate] = useState(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [error, setError] = useState('');
   const [source, setSource] = useState(loadUpdateSource);
 
@@ -87,6 +88,7 @@ export default function VersionInfo({ api, notify, initialCheck }: { api: Loopra
   }
 
   async function updateCore() {
+    setUpdateDialogOpen(true);
     setStartingUpdate(true);
     setError('');
     try {
@@ -126,7 +128,6 @@ export default function VersionInfo({ api, notify, initialCheck }: { api: Loopra
   const options = [{ value: UPDATE_SOURCE_NORMAL, label: '直连（GitHub）' }, ...MIRROR_SOURCES.map(mirror => ({ value: mirror.value, label: `镜像 · ${mirror.label}` }))];
   const updateRunning = !!update?.running;
   const updateBusy = startingUpdate || stoppingUpdate;
-  const showUpdateLog = !!update && update.state !== 'idle' && !!(update.logFile || update.log || update.message);
 
   return <>
     <PageActions title="版本与更新" />
@@ -150,26 +151,37 @@ export default function VersionInfo({ api, notify, initialCheck }: { api: Loopra
       <button type="button" className="version-command" title="点击复制" onClick={() => void copy(commands.unix)}><span className="uc-badge unix">sh</span><code>{commands.unixLabel}</code></button>
       <div className="version-actions">
         <Button size="sm" variant="flat" isLoading={checking} onPress={() => void checkLatest()} startContent={<RefreshCw size="0.875rem" />}>检查更新</Button>
-        <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'}
-          isDisabled={checking || updateRunning || updateBusy} isLoading={startingUpdate} onPress={() => void updateCore()}
-          startContent={<Server size="0.875rem" />}>{updateRunning ? '更新中…' : startingUpdate ? '启动中…' : '更新核心服务'}</Button>
-        {updateRunning && <Button size="sm" color="danger" variant="flat" isLoading={stoppingUpdate} isDisabled={updateBusy && !stoppingUpdate}
-          onPress={() => void stopUpdate()} startContent={<Square size="0.75rem" fill="currentColor" />}>停止更新</Button>}
+        {updateRunning
+          ? <Button size="sm" color="primary" variant="flat" onPress={() => setUpdateDialogOpen(true)} startContent={<Server size="0.875rem" />}>查看更新进度</Button>
+          : <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'}
+            isDisabled={checking || updateBusy} isLoading={startingUpdate} onPress={() => void updateCore()}
+            startContent={<Server size="0.875rem" />}>{startingUpdate ? '启动中…' : '更新核心服务'}</Button>}
         <Button size="sm" variant="light" onPress={() => window.open(RELEASE_LATEST_URL, '_blank', 'noreferrer')} startContent={<Download size="0.875rem" />}>下载桌面端（推荐）</Button>
       </div>
-      {showUpdateLog && <div aria-live="polite" style={{ borderTop: '1px solid var(--line)', padding: '.875rem 1rem 1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.75rem' }}>
-          <strong style={{ fontSize: '.8125rem' }}>更新日志</strong>
-          <span className={`tag ${update.state === 'failed' ? '' : 'is-ok'}`}>{UPDATE_STATE_LABEL[update.state]}</span>
-        </div>
-        <p className="section-note" style={{ margin: '.375rem 0 .625rem' }}>{update.message}</p>
-        {update.logFile && <code style={{ display: 'block', overflowWrap: 'anywhere', color: 'var(--muted)', fontSize: '.75rem' }}>{update.logFile}</code>}
-        <pre aria-label="更新日志" style={{
-          margin: '.625rem 0 0', maxHeight: '14rem', overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
-          padding: '.75rem', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)',
-          background: 'var(--soft)', color: 'var(--secondary)', font: '.75rem/1.6 ui-monospace, "JetBrains Mono", Consolas, monospace',
-        }}>{update.log || '等待更新输出…'}</pre>
-      </div>}
     </div>
+    <Modal isOpen={updateDialogOpen} onClose={() => setUpdateDialogOpen(false)} placement="center" scrollBehavior="inside"
+      classNames={{ base: 'app-dialog background-task-log-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }}
+      aria-label="核心服务更新日志">
+      <ModalContent>
+        <ModalHeader className="app-dialog-header"><h2>更新日志</h2></ModalHeader>
+        <ModalBody className="app-dialog-body">
+          <div className="background-task-log-info">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minWidth: 0 }}>
+              <span className={`tag ${update?.state === 'failed' ? '' : 'is-ok'}`}>{update ? UPDATE_STATE_LABEL[update.state] : '启动中'}</span>
+              {update?.target && <strong>{update.target}</strong>}
+            </div>
+            <small>{update?.message || (startingUpdate ? '正在启动核心服务更新…' : '等待更新任务')}</small>
+            {update?.logFile && <code>{update.logFile}</code>}
+          </div>
+          {error && <p className="settings-error" role="alert">{error}</p>}
+          <pre className="background-task-log-output" role="log" aria-label="更新日志">{update?.log || (startingUpdate ? '正在启动更新…' : '等待更新输出…')}</pre>
+        </ModalBody>
+        <ModalFooter className="app-dialog-footer">
+          {updateRunning && <Button size="sm" color="danger" variant="light" isLoading={stoppingUpdate}
+            onPress={() => void stopUpdate()} startContent={<Square size="0.75rem" fill="currentColor" />}>停止更新</Button>}
+          <Button size="sm" onPress={() => setUpdateDialogOpen(false)}>关闭</Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   </>;
 }
