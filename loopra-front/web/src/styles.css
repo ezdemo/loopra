@@ -543,7 +543,22 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 
 .git-icon { width: 1.1875rem; color: #ed79ac; text-shadow: 0.1875rem 0.1875rem #54d3df, -0.1875rem 0.1875rem #ffe376; }
 
-.workspace-menu { bottom: calc(100% + 0.4375rem); left: 0; width: 14.0625rem; }
+/* `--menu-max-height` is measured by useMenuPlacement from the room on the
+   chosen side of the switcher. The popup is a column so the heading, divider
+   and 「管理项目」keep their size while the list absorbs the difference. */
+.workspace-menu { bottom: calc(100% + 0.4375rem); left: 0; width: 14.0625rem; max-height: var(--menu-max-height, calc(100dvh - 1rem)); display: flex; flex-direction: column; }
+
+/* Flip below the switcher when the list would run past the top of the window. */
+.workspace-selector[data-placement="bottom"] .workspace-menu { top: calc(100% + 0.4375rem); bottom: auto; }
+
+/* Flipped down the menu overlaps the composer, and the composer's own stacking
+   context (z-index 12) would paint over it. Lift the anchor while its menu is
+   mounted so the popup's z-index is compared with the composer's. */
+.workspace-selector:has(> .workspace-menu) { z-index: 20; }
+
+.workspace-menu > h3, .workspace-menu > hr, .workspace-menu > button { flex: 0 0 auto; }
+
+.workspace-menu-list { flex: 1 1 auto; min-height: 0; max-height: 16rem; overflow-y: auto; overscroll-behavior: contain; }
 
 .session-menu { top: 2.1875rem; left: 0; width: 12.8125rem; }
 
