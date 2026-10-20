@@ -1,274 +1,5 @@
 <template>
-  <div class="startup-window" :data-theme="theme" v-if="visible">
-    <!-- 启动等待：中央转圈，可取消 -->
-    <div v-if="autoStarting" class="sw-starting-overlay">
-      <div class="sw-loading-mark">
-        <img src="@/assets/logo.svg" alt="Loopra" class="sw-loading-logo" />
-        <span class="sw-loading-ring"></span>
-      </div>
-      <div class="sw-loading-text">
-        {{ startingMsg }}
-        <span class="sw-loading-dots">...</span>
-      </div>
-      <button class="sw-loading-cancel" type="button" @click="cancelStart">取消</button>
-    </div>
-
-    <!-- 顶栏 -->
-    <header class="sw-header">
-      <div class="sw-brand">
-        <img src="@/assets/logo.svg" alt="Loopra" class="sw-logo" />
-        <div class="sw-brand-text">
-          <span class="sw-title">Loopra 桌面端管理</span>
-          <span class="sw-subtitle">核心服务 · 运行环境</span>
-        </div>
-      </div>
-      <div class="sw-header-right">
-        <span class="sw-pill" :class="running ? 'ok' : 'off'">
-          <span class="sw-pill-dot"></span>
-          <span>{{ running ? `核心服务运行中${port ? ' · 端口 ' + port : ''}` : '核心服务未运行' }}</span>
-        </span>
-        <button class="sw-close" type="button" title="关闭程序" @click="closeApp">✕</button>
-      </div>
-    </header>
-
-    <div class="sw-body">
-      <!-- 左侧菜单 -->
-      <aside class="sw-sidebar">
-        <nav class="sw-nav">
-          <button
-            type="button"
-            class="sw-nav-item"
-            :class="{ active: menu === 'core' }"
-            @click="switchMenu('core')"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-            <span>核心管理</span>
-          </button>
-          <button
-            type="button"
-            class="sw-nav-item"
-            :class="{ active: menu === 'deps' }"
-            @click="switchMenu('deps')"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-            <span>依赖管理</span>
-          </button>
-        </nav>
-        <div class="sw-sidebar-foot">
-          <button v-if="running" class="btn btn-primary btn-enter-sidebar" :class="{ breathing: enterPulse }" type="button" @click="enterLoopra">
-            进入 Loopra
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-          </button>
-          <span v-else class="sw-sidebar-hint">核心服务启动后可进入主界面</span>
-        </div>
-      </aside>
-
-      <!-- 右侧内容 -->
-      <main class="sw-content">
-        <!-- ============ 核心管理 ============ -->
-        <section v-if="menu === 'core'" class="sw-pane">
-          <div class="sw-pane-head">
-            <h2 class="sw-pane-title">核心管理</h2>
-            <button class="btn btn-ghost" type="button" :disabled="coreBusy" @click="refreshCore">
-              {{ coreBusy ? '检测中...' : '刷新状态' }}
-            </button>
-          </div>
-
-          <!-- 状态卡片 -->
-          <div class="sw-cards">
-            <div class="sw-card" :class="installed ? 'ok' : 'warn'">
-              <span class="sw-card-label">安装状态</span>
-              <span class="sw-card-value">{{ installed ? '已安装' : '未安装' }}</span>
-            </div>
-            <div class="sw-card" :class="running ? 'ok' : ''">
-              <span class="sw-card-label">运行状态</span>
-              <span class="sw-card-value">{{ running ? '运行中' : '未运行' }}</span>
-            </div>
-            <div class="sw-card">
-              <span class="sw-card-label">服务端口</span>
-              <span class="sw-card-value">{{ port || '—' }}</span>
-            </div>
-            <div class="sw-card">
-              <span class="sw-card-label">核心来源</span>
-              <span class="sw-card-value">{{ bundledCore ? '安装包内置' : '在线下载' }}</span>
-            </div>
-            <div class="sw-card" title="开启后，核心服务启动完成将自动进入 Loopra 主界面">
-              <span class="sw-card-label">跳过等待</span>
-              <label class="sw-switch">
-                <input type="checkbox" v-model="skipWait" />
-                <span class="sw-switch-track"><span class="sw-switch-knob"></span></span>
-              </label>
-            </div>
-          </div>
-
-          <!-- 版本对比 -->
-          <div class="sw-section">
-            <div class="sw-section-title">版本</div>
-            <div class="sw-version-row">
-              <span class="sw-version-label">桌面端</span>
-              <code class="sw-version-code">{{ desktopVersion || '—' }}</code>
-              <span class="sw-version-label">核心服务</span>
-              <code class="sw-version-code">{{ runtimeVersion || '—' }}</code>
-              <span class="sw-version-state" :class="versionStateClass">{{ versionStateText }}</span>
-            </div>
-          </div>
-
-          <!-- 安装目录 -->
-          <div class="sw-section" v-if="installDir">
-            <div class="sw-section-title">安装目录</div>
-            <code class="sw-path">{{ installDir }}</code>
-          </div>
-
-          <!-- 安装 / 更新 -->
-          <div class="sw-section">
-            <div class="sw-section-title">安装 / 更新核心服务</div>
-
-            <div class="sw-bundle-note" v-if="bundledCore">
-              安装包已内置核心运行时<template v-if="bundledVersion">（版本 {{ bundledVersion }}）</template>，仅从本地安装/更新（无需下载）
-            </div>
-            <div class="sw-bundle-missing" v-else>
-              当前安装包未内置核心运行时，无法在此安装/更新
-            </div>
-
-            <div class="sw-actions">
-              <button
-                class="btn btn-primary"
-                type="button"
-                :disabled="busy || !bundledCore"
-                :title="!bundledCore ? '当前安装包未内置核心运行时' : ''"
-                @click="installOrUpdate"
-              >
-                {{ installing ? '安装中...' : (installed ? '更新核心服务' : '安装核心服务') }}
-              </button>
-              <button class="btn" type="button" :disabled="busy || running || !installed" @click="startService">
-                {{ starting ? '启动中...' : '启动服务' }}
-              </button>
-              <button class="btn" type="button" :disabled="busy || !running" @click="stopService">
-                停止服务
-              </button>
-              <button class="btn" type="button" :disabled="busy || !running" @click="restartService">
-                重启服务
-              </button>
-            </div>
-          </div>
-
-          <!-- 安装日志 -->
-          <div v-if="installLogs.length" class="sw-section">
-            <div class="sw-section-title">安装日志</div>
-            <div class="install-log" ref="logContainer">
-              <div v-for="(line, i) in installLogs" :key="i" class="log-line">{{ line }}</div>
-            </div>
-          </div>
-
-          <!-- 错误 -->
-          <div v-if="errorMessage" class="sw-error">
-            <span class="sw-error-mark">⚠</span>
-            <span>{{ errorMessage }}</span>
-          </div>
-        </section>
-
-        <!-- ============ 依赖管理 · JRE/JDK ============ -->
-        <section v-else class="sw-pane">
-          <div class="sw-pane-head">
-            <h2 class="sw-pane-title">依赖管理 · JRE/JDK</h2>
-            <button class="btn btn-ghost" type="button" :disabled="javaChecking" @click="refreshJava">
-              {{ javaChecking ? '检测中...' : '重新检测' }}
-            </button>
-          </div>
-
-          <!-- 总体可用状态 -->
-          <div class="sw-java-summary" :class="java.usable ? 'ok' : 'err'">
-            <span class="sw-java-badge">{{ java.usable ? '✓' : '✕' }}</span>
-            <div class="sw-java-summary-body">
-              <div class="sw-java-summary-title">
-                {{ java.usable ? 'Java 环境可用' : '未检测到可用的 Java 17+' }}
-              </div>
-              <div class="sw-java-summary-desc">{{ java.hint || '—' }}</div>
-            </div>
-          </div>
-
-          <!-- 系统 Java -->
-          <div class="sw-java-card" :class="systemStateClass">
-            <div class="sw-java-card-head">
-              <span class="sw-java-card-name">系统 Java</span>
-              <span class="sw-java-card-state" :class="systemStateClass">{{ systemStateText }}</span>
-            </div>
-            <div class="sw-java-row">
-              <span class="sw-java-row-label">版本</span>
-              <code class="sw-java-row-value">{{ java.system.version || '—' }}</code>
-            </div>
-            <div class="sw-java-row">
-              <span class="sw-java-row-label">路径</span>
-              <code class="sw-java-row-value sw-java-path">{{ java.system.path || 'PATH 中未找到 java' }}</code>
-            </div>
-            <div v-if="java.system.found && java.system.major > 0 && java.system.major < 17" class="sw-java-warn">
-              版本过低（Java {{ java.system.major }}），需要 17+
-            </div>
-          </div>
-
-          <!-- 捆绑 JRE -->
-          <div class="sw-java-card" :class="bundledStateClass">
-            <div class="sw-java-card-head">
-              <span class="sw-java-card-name">捆绑 JRE</span>
-              <span class="sw-java-card-state" :class="bundledStateClass">{{ bundledStateText }}</span>
-            </div>
-
-            <!-- 版本行 + 安装控件（同行） -->
-            <div class="sw-java-row sw-java-row-tools">
-              <span class="sw-java-row-label">版本</span>
-              <code class="sw-java-row-value">{{ java.bundled.version || '—' }}</code>
-              <span class="sw-java-tools">
-                <select v-model="jreSource" class="sw-java-source-select" :disabled="jreDownloading" :title="jreSource === 'normal' ? 'GitHub 直连' : '当前镜像: ' + jreSource">
-                  <option value="normal">GitHub 直连</option>
-                  <option v-for="m in jreOptions" :key="m.value" :value="m.value">
-                    {{ m.label }}<template v-if="m.latency != null"> ({{ m.latency }}ms)</template>
-                  </option>
-                </select>
-                <button class="btn sw-speedtest-btn" type="button" :disabled="testingMirrors || jreDownloading" title="重新测速并按延迟排序" @click="runMirrorSpeedTest">
-                  <svg v-if="!testingMirrors" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                  <svg v-else class="sw-speedtest-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
-                  {{ testingMirrors ? '测速中' : '重新测速' }}
-                </button>
-                <button class="btn btn-primary" :class="{ breathing: jrePulse }" type="button" :disabled="jreDownloading" @click="downloadJre">
-                  {{ jreDownloading ? '安装中...' : (java.bundled.found ? '重新安装 JRE 25' : '安装 JRE 25') }}
-                </button>
-              </span>
-            </div>
-
-            <div class="sw-java-row">
-              <span class="sw-java-row-label">路径</span>
-              <code class="sw-java-row-value sw-java-path">{{ java.bundled.path || '~/.loopra-gui/jre25 下未找到' }}</code>
-            </div>
-            <div v-if="java.bundled.found" class="sw-java-note">捆绑 JRE 随核心服务安装到 ~/.loopra-gui/jre25</div>
-            <div v-if="java.bundled.found && running" class="sw-java-warn">
-              核心服务正在运行，重装前请先到「核心管理」停止服务，避免文件占用导致失败
-            </div>
-
-            <!-- 下载进度 -->
-            <div v-if="jreDownloading || jrePercent > 0" class="sw-java-progress">
-              <div class="sw-java-progress-bar">
-                <div class="sw-java-progress-fill" :style="{ width: jrePercent + '%' }"></div>
-              </div>
-              <span class="sw-java-progress-text">{{ jrePercent >= 100 ? '安装完成' : (jrePercent + '%') }}</span>
-            </div>
-            <div v-if="jreLogs.length" class="install-log" ref="jreLogRef">
-              <div v-for="(line, i) in jreLogs" :key="i" class="log-line">{{ line }}</div>
-            </div>
-          </div>
-
-          <!-- 缺失指引（手动方案） -->
-          <div v-if="!java.usable" class="sw-java-help">
-            <div class="sw-java-help-title">或手动安装 Java 17 或更高版本：</div>
-            <ul class="sw-java-help-list">
-              <li>清华大学 Adoptium 镜像：<code>https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jdk/</code></li>
-              <li>injdk.cn：<code>https://injdk.cn</code></li>
-            </ul>
-            <button class="btn btn-secondary" type="button" @click="openJavaDownload">打开下载页面</button>
-          </div>
-        </section>
-      </main>
-    </div>
-  </div>
+  <div v-show="visible" ref="reactHost" class="startup-react-host workspace-theme" :class="{ dark: theme === 'dark' }" :data-theme="theme" />
 </template>
 
 <script setup>
@@ -285,18 +16,47 @@ import {
   sortMirrors
 } from '@/utils/mirrors'
 import {useAppStore} from '@/stores/app'
+import {mountStartupScreen} from '../../web/src/startup-screen'
 
 const { loopraWebService } = platform.implementation
 
 const emit = defineEmits(['ready', 'error'])
 
 const store = useAppStore()
-const theme = computed(() => store.settings.theme)
+const colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)')
+const systemDark = ref(colorScheme?.matches ?? false)
+const workspacePreferences = ref(readWorkspacePreferences())
+const theme = computed(() => {
+  const selected = workspacePreferences.value?.theme
+  if (selected) return selected === '深色' || selected === '月之暗面' || (selected === '跟随系统' && systemDark.value) ? 'dark' : 'light'
+  return store.settings.theme === 'dark' ? 'dark' : 'light'
+})
+
+function readWorkspacePreferences() {
+  try { return JSON.parse(localStorage.getItem('loopra:preferences') || 'null') }
+  catch { return null }
+}
+
+function syncWorkspacePreferences(event) {
+  if (event.key === 'loopra:preferences' || event.key === null) workspacePreferences.value = readWorkspacePreferences()
+}
+
+function syncSystemTheme(event) { systemDark.value = event.matches }
+
+onMounted(() => {
+  window.addEventListener('storage', syncWorkspacePreferences)
+  colorScheme?.addEventListener('change', syncSystemTheme)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('storage', syncWorkspacePreferences)
+  colorScheme?.removeEventListener('change', syncSystemTheme)
+})
 
 const visible = ref(true)
 const menu = ref('core') // core | deps
 
-// 更新模式：复用启动页窗口承载更新时（?from=update），不自动启动服务、不自动进入主界面
+// 更新窗口也自动安装内置更新，完成后留在管理页，不自动进入主界面。
 const updateMode = new URLSearchParams(window.location.search).get('from') === 'update'
 
 // 核心端状态
@@ -323,6 +83,7 @@ const java = ref({
   hint: ''
 })
 const javaChecking = ref(false)
+let waitingForJava = false
 
 // JRE 25 自动下载
 const jreDownloading = ref(false)
@@ -368,6 +129,17 @@ watch(skipWait, (value) => {
   localStorage.setItem('loopra.skipWait', value ? '1' : '0')
 })
 let autoEntered = false // 本次窗口会话最多自动进入一次
+let autoEnterTimer = null
+
+function maybeAutoEnter() {
+  if (updateMode || !skipWait.value || autoEntered || autoEnterTimer || !running.value || !java.value.usable || autoStarting.value || errorMessage.value) return
+  autoEnterTimer = setTimeout(() => {
+    autoEnterTimer = null
+    if (startCancelled || !skipWait.value || autoStarting.value || installing.value || !running.value || !java.value.usable || errorMessage.value) return
+    autoEntered = true
+    void enterLoopra()
+  }, 600)
+}
 
 // 启动等待：窗口中央转圈，可取消
 const autoStarting = ref(false)
@@ -422,44 +194,46 @@ const bundledStateText = computed(() => {
 onMounted(async () => {
   // 镜像测速：无新鲜缓存（30 分钟内）时自动重测并按延迟排序，不阻塞主流程
   if (!loadCachedLatencies()) void runMirrorSpeedTest()
-  // 更新模式（复用启动页窗口承载更新）：不自动启动服务、不自动进入，仅刷新状态供管理/更新
-  if (updateMode) {
-    await Promise.all([refreshCore(), refreshJava()])
-    return
-  }
+  await prepareService()
+})
+
+function showJavaSetup() {
+  waitingForJava = true
+  autoStarting.value = false
+  menu.value = 'deps'
+  jrePulse.value = true
+}
+
+async function prepareService({ refresh = true, resume = false } = {}) {
   // 打开即进入启动等待：先检测核心/Java 状态，据此决定是否需要先自动更新再启动
   autoStarting.value = true
   startCancelled = false
   startingMsg.value = '正在检查核心服务...'
-  await Promise.all([refreshCore(), refreshJava()])
-  if (startCancelled) {
-    autoStarting.value = false
-    return
-  }
+  try {
+    if (refresh) await refreshCore()
+    if (startCancelled) return
 
-  // 无 Java 且核心服务未在运行：中止启动等待，切到依赖管理页并高亮安装 JRE 按钮
-  // （服务已在运行（如 CLI 启动）时不打断，继续走自动更新/启动流程）
-  if (!java.value.usable && !running.value) {
-    autoStarting.value = false
-    menu.value = 'deps'
-    jrePulse.value = true
-    return
-  }
+    // 核心文件更新优先，不依赖本机是否已经配置 Java。
+    const autoUpdateResult = await runAutoUpdateIfNeeded()
+    if (autoUpdateResult === 'failed' || startCancelled) return
+    await refreshJava()
+    if (startCancelled) return
+    if (!java.value.usable) {
+      showJavaSetup()
+      return
+    }
+    waitingForJava = false
 
-  // 包内核心较新（或核心尚未安装且包内有核心）：自动静默更新。
-  // 更新失败时不继续启动（可能残留半成品 jar），停留在管理页展示错误供手动重试
-  const autoUpdateResult = await runAutoUpdateIfNeeded()
-  if (autoUpdateResult === 'failed') return
-  // 自动更新期间用户点了「取消」：更新已完成但不再自动启动，停留在管理页（可手动启动新版本）
-  if (startCancelled) {
+    menu.value = 'core'
+    if (!updateMode || autoUpdateResult === 'updated' || resume) await startService({ overlay: true })
+  } finally {
     autoStarting.value = false
-    return
+    maybeAutoEnter()
   }
-  // 启动核心服务：未更新时启动原版本，更新成功后这里统一拉起新版本
-  await startService({ overlay: true })
-})
+}
 
 onUnmounted(() => {
+  if (autoEnterTimer) clearTimeout(autoEnterTimer)
   if (unlistenInstallOutput) unlistenInstallOutput()
 })
 
@@ -524,11 +298,6 @@ async function refreshCore() {
     // 服务运行中：进入按钮呼吸闪提示
     if (isRunning) {
       enterPulse.value = true
-      // 跳过等待：打开时已在运行则自动进入主界面（更新模式不自动进入）
-      if (!updateMode && skipWait.value && !autoEntered) {
-        autoEntered = true
-        setTimeout(() => enterLoopra(), 600)
-      }
     }
   } catch (e) {
     console.warn('[Splash] refresh core status failed:', e)
@@ -561,6 +330,11 @@ async function refreshJava() {
   } finally {
     javaChecking.value = false
   }
+}
+
+async function recheckJava() {
+  await refreshJava()
+  if (waitingForJava && java.value.usable) await prepareService({ refresh: false, resume: true })
 }
 
 // ---------- JRE 25 自动下载安装 ----------
@@ -600,6 +374,7 @@ async function downloadJre() {
       jreLogs.value.push('✅ JRE 25 已安装到 ' + (result.dir || '~/.loopra-gui/jre25'))
       // 安装后刷新 Java 与核心状态
       await Promise.all([refreshJava(), refreshCore()])
+      if (java.value.usable) await prepareService({ refresh: false, resume: true })
     }
   } catch (e) {
     jreLogs.value.push(`❌ 下载安装失败: ${e.message || e}`)
@@ -612,13 +387,21 @@ async function downloadJre() {
 // ---------- 安装 / 更新 ----------
 // 手动按钮入口：点击「安装核心服务 / 更新核心服务」
 async function installOrUpdate() {
-  await performCoreUpdate({ auto: false })
+  startCancelled = false
+  autoStarting.value = true
+  try {
+    const updated = await performCoreUpdate({ auto: true })
+    if (updated && !startCancelled) await prepareService({ refresh: false, resume: true })
+  } finally {
+    autoStarting.value = false
+  }
 }
 
 // 自动更新判定：安装包内置核心比已安装核心新（或核心尚未安装且包内有核心）→ true。
 // 以包内核心版本文件为权威，与桌面端版本号（app.getVersion()）解耦——两者可能不同步
 function shouldAutoUpdateCore() {
   if (!bundledCore.value || !bundledVersion.value) return false
+  if (!installed.value) return true
   if (runtimeVersion.value && compareVersions(runtimeVersion.value, bundledVersion.value) >= 0) return false
   return true
 }
@@ -657,6 +440,7 @@ async function performCoreUpdate({ auto = false } = {}) {
 
   try {
     if (auto) {
+      menu.value = 'core'
       installLogs.value.push(`>> 检测到安装包内置核心更新${versionDesc}，正在自动更新（无需操作）...`)
       startingMsg.value = `正在自动更新核心服务${versionDesc} ...`
     }
@@ -679,8 +463,8 @@ async function performCoreUpdate({ auto = false } = {}) {
     installLogs.value.push('')
     installLogs.value.push('✅ 安装完成')
     installed.value = true
-    // 安装后刷新核心与 Java 状态
-    await Promise.all([refreshCore(), refreshJava()])
+    // 先完成核心文件更新，Java 检查交给后续启动流程。
+    await refreshCore()
 
     // 更新完成后自动重启服务，加载新版本
     installLogs.value.push('')
@@ -691,7 +475,7 @@ async function performCoreUpdate({ auto = false } = {}) {
     }
     if (auto) {
       // 自动模式不在此重启：由启动流程统一 startService
-      installLogs.value.push('✅ 自动更新完成，正在启动核心服务...')
+      installLogs.value.push('✅ 核心自动更新完成，接下来检查 JRE/JDK 并启动服务')
       return true
     }
     installLogs.value.push('✅ 更新完成，正在自动重启服务...')
@@ -705,7 +489,7 @@ async function performCoreUpdate({ auto = false } = {}) {
   } catch (e) {
     errorMessage.value = `安装失败: ${e.message || e}`
     if (auto) {
-      installLogs.value.push(`>> ❌ 自动更新失败: ${e.message || e}。可点击「更新核心服务」手动重试`)
+      installLogs.value.push(`>> ❌ 自动更新失败: ${e.message || e}。可点击「重试自动更新」重试`)
     }
     return false
   } finally {
@@ -714,13 +498,13 @@ async function performCoreUpdate({ auto = false } = {}) {
       unlistenInstallOutput = null
     }
     installing.value = false
-    if (auto) autoStarting.value = false
   }
 }
 
 // ---------- 启动 / 停止 / 重启 ----------
 async function startService(options = {}) {
   if (starting.value) return
+  if (!java.value.usable) { showJavaSetup(); return }
   if (running.value) {
     autoStarting.value = false
     return
@@ -764,11 +548,6 @@ async function startService(options = {}) {
         port.value = targetPort
         enterPulse.value = true
         await registerBrowserBridge()
-        // 跳过等待：启动完成即自动进入 Loopra 主界面（更新窗口不自动跳转，由用户确认后进入）
-        if (!updateMode && skipWait.value && !autoEntered) {
-          autoEntered = true
-          setTimeout(() => enterLoopra(), 600)
-        }
       } else {
         errorMessage.value = `服务启动超时，端口 ${targetPort} 未响应健康检查`
       }
@@ -784,6 +563,7 @@ async function startService(options = {}) {
   } finally {
     starting.value = false
     if (withOverlay) autoStarting.value = false
+    maybeAutoEnter()
   }
 }
 
@@ -886,900 +666,64 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+
+// Vue owns the existing service lifecycle; React renders the complete NextUI view.
+const reactHost = ref(null)
+let reactView
+const viewState = computed(() => ({
+  visible: visible.value,
+  theme: theme.value,
+  menu: menu.value,
+  autoStarting: autoStarting.value,
+  startingMsg: startingMsg.value,
+  installed: installed.value,
+  running: running.value,
+  port: port.value,
+  bundledCore: bundledCore.value,
+  bundledVersion: bundledVersion.value,
+  installDir: installDir.value,
+  runtimeVersion: runtimeVersion.value,
+  desktopVersion: desktopVersion.value,
+  coreBusy: coreBusy.value,
+  installing: installing.value,
+  starting: starting.value,
+  busy: busy.value,
+  errorMessage: errorMessage.value,
+  javaChecking: javaChecking.value,
+  skipWait: skipWait.value,
+  versionStateClass: versionStateClass.value,
+  versionStateText: versionStateText.value,
+  systemStateClass: systemStateClass.value,
+  systemStateText: systemStateText.value,
+  bundledStateClass: bundledStateClass.value,
+  bundledStateText: bundledStateText.value,
+  jreSource: jreSource.value,
+  testingMirrors: testingMirrors.value,
+  jreDownloading: jreDownloading.value,
+  jrePercent: jrePercent.value,
+  enterPulse: enterPulse.value,
+  jrePulse: jrePulse.value,
+  java: { ...java.value, system: { ...java.value.system }, bundled: { ...java.value.bundled } },
+  jreOptions: jreOptions.value.map(item => ({ ...item })),
+  installLogs: [...installLogs.value],
+  jreLogs: [...jreLogs.value],
+}))
+const actions = {
+  cancelStart, closeApp, switchMenu, enterLoopra, refreshCore, refreshJava: recheckJava,
+  installOrUpdate, startService: () => startService(), stopService, restartService,
+  downloadJre, runMirrorSpeedTest, openJavaDownload,
+  setSkipWait: value => { skipWait.value = value },
+  setJreSource: value => { jreSource.value = value },
+  setInstallLogElement: element => { logContainer.value = element },
+  setJreLogElement: element => { jreLogRef.value = element },
+}
+onMounted(() => { reactView = mountStartupScreen(reactHost.value, viewState.value, actions) })
+watch(viewState, value => reactView?.render(value), { flush: 'post' })
+onUnmounted(() => reactView?.unmount())
+
 defineExpose({
   refreshCore,
   refreshJava,
   hide: () => { visible.value = false }
 })
 </script>
-
-<style scoped>
-.startup-window {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  color: var(--fg);
-  display: flex;
-  flex-direction: column;
-  z-index: 9999;
-  /* 无边框窗口：整体作为拖动区域，交互元素单独排除 */
-  -webkit-app-region: drag;
-}
-
-.startup-window .btn,
-.startup-window .sw-close,
-.startup-window .sw-nav-item,
-.startup-window .sw-content,
-.startup-window .install-log,
-.startup-window .sw-java-help button {
-  -webkit-app-region: no-drag;
-}
-
-/* 启动等待遮罩：Logo + 中性灰光弧（与系统简洁工具风格一致） */
-.sw-starting-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(4px);
-}
-
-.sw-loading-mark {
-  position: relative;
-  width: 64px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sw-loading-logo {
-  width: 36px;
-  height: 36px;
-  animation: loading-breathe 2.8s ease-in-out infinite;
-}
-
-/* 中性灰渐变光弧（细、克制） */
-.sw-loading-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    transparent 220deg,
-    var(--fg-4) 300deg,
-    var(--fg-2) 350deg,
-    transparent 360deg
-  );
-  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
-  animation: loading-rotate 1.4s linear infinite;
-  opacity: 0.75;
-}
-
-@keyframes loading-rotate {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes loading-breathe {
-  0%, 100% { opacity: 0.8; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.02); }
-}
-
-.sw-loading-text {
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  color: var(--fg-3);
-}
-
-.sw-loading-dots {
-  display: inline-block;
-  width: 1.2em;
-  text-align: left;
-  animation: loading-dots 1.6s steps(4, end) infinite;
-  overflow: hidden;
-  vertical-align: bottom;
-}
-
-@keyframes loading-dots {
-  0% { width: 0; }
-  100% { width: 1.2em; }
-}
-
-.sw-loading-cancel {
-  padding: 6px 24px;
-  border: 1px solid var(--border);
-  border-radius: 9999px;
-  background: var(--bg-2);
-  color: var(--fg-3);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all var(--t);
-  -webkit-app-region: no-drag;
-}
-
-.sw-loading-cancel:hover {
-  color: var(--fg);
-  border-color: var(--border-2);
-  background: var(--bg-3);
-}
-
-/* ============ 顶栏 ============ */
-.sw-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-2);
-  flex-shrink: 0;
-}
-
-.sw-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.sw-logo {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.sw-brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-}
-
-.sw-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--fg);
-}
-
-.sw-subtitle {
-  font-size: 11px;
-  color: var(--fg-4);
-}
-
-.sw-header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.sw-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 9999px;
-  font-size: 12px;
-  background: var(--bg-3);
-  color: var(--fg-3);
-}
-
-.sw-pill-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--fg-4);
-}
-
-.sw-pill.ok .sw-pill-dot {
-  background: var(--green);
-  animation: none;
-}
-
-.sw-pill.ok {
-  background: var(--green-bg);
-  color: var(--green);
-}
-
-.sw-pill.off .sw-pill-dot {
-  background: var(--fg-4);
-}
-
-.sw-close {
-  width: 30px;
-  height: 30px;
-  border: none;
-  background: var(--bg-3);
-  border-radius: 8px;
-  color: var(--fg-3);
-  font-size: 15px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--t);
-}
-
-.sw-close:hover {
-  background: var(--bg-active);
-  color: var(--fg);
-}
-
-/* ============ 主体布局 ============ */
-.sw-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
-/* ============ 左侧菜单 ============ */
-.sw-sidebar {
-  width: 172px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  background: var(--bg-2);
-  display: flex;
-  flex-direction: column;
-  padding: 12px 8px;
-}
-
-.sw-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sw-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border: none;
-  border-radius: var(--r);
-  background: transparent;
-  color: var(--fg-3);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--t);
-  width: 100%;
-}
-
-.sw-nav-item svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
-.sw-nav-item:hover {
-  background: var(--bg-3);
-  color: var(--fg);
-}
-
-.sw-nav-item.active {
-  background: var(--accent-bg);
-  color: var(--fg);
-  font-weight: 600;
-}
-
-.sw-sidebar-foot {
-  margin-top: auto;
-  padding: 8px 4px;
-}
-
-.sw-sidebar-hint {
-  font-size: 11px;
-  color: var(--fg-4);
-  line-height: 1.5;
-}
-
-/* ============ 右侧内容 ============ */
-.sw-content {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  padding: 16px 20px 24px;
-}
-
-.sw-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.sw-pane-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sw-pane-title {
-  font-size: 16px;
-  font-weight: 700;
-  margin: 0;
-}
-
-/* 按钮通用 */
-.btn {
-  padding: 7px 16px;
-  border-radius: var(--r);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--bg-2);
-  color: var(--fg);
-  transition: all var(--t);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn:hover:not(:disabled) {
-  background: var(--bg-3);
-}
-
-.btn-primary {
-  background: var(--accent-btn);
-  border-color: transparent;
-  color: #fff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
-  /* 关键：重设主色背景，避免 .btn:hover 的浅灰背景盖掉白字 */
-  background: var(--accent-btn);
-}
-
-.btn-ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--fg-3);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: var(--bg-3);
-  color: var(--fg);
-}
-
-/* ============ 状态卡片 ============ */
-.sw-cards {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-}
-
-.sw-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--bg);
-}
-
-.sw-card-label {
-  font-size: 11px;
-  color: var(--fg-4);
-}
-
-.sw-card-value {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--fg);
-}
-
-/* 跳过等待开关 */
-.sw-switch {
-  position: relative;
-  display: inline-block;
-  width: 34px;
-  height: 18px;
-  flex-shrink: 0;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.sw-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-  position: absolute;
-}
-
-.sw-switch-track {
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  background: var(--bg-3);
-  border: 1px solid var(--border-2);
-  transition: all var(--t);
-}
-
-.sw-switch-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--fg-3);
-  transition: all var(--t);
-}
-
-.sw-switch input:checked + .sw-switch-track {
-  background: var(--green);
-  border-color: var(--green);
-}
-
-.sw-switch input:checked + .sw-switch-track .sw-switch-knob {
-  left: 18px;
-  background: #fff;
-}
-
-.sw-card.ok .sw-card-value {
-  color: var(--green);
-}
-
-.sw-card.warn .sw-card-value {
-  color: var(--yellow);
-}
-
-/* ============ 分区 ============ */
-.sw-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--bg);
-}
-
-.sw-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-/* 版本对比 */
-.sw-version-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 13px;
-}
-
-.sw-version-label {
-  color: var(--fg-3);
-}
-
-.sw-version-code {
-  font-family: var(--mono);
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: var(--r-sm);
-  background: var(--bg-3);
-  color: var(--fg-2);
-}
-
-.sw-version-state {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 9999px;
-}
-
-.sw-version-state.ok {
-  background: var(--green-bg);
-  color: var(--green);
-}
-
-.sw-version-state.warn {
-  background: var(--yellow-bg);
-  color: var(--yellow);
-}
-
-.sw-version-state.info {
-  background: var(--accent-bg);
-  color: var(--fg-2);
-}
-
-/* 路径 */
-.sw-path {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--fg-2);
-  background: var(--bg-3);
-  padding: 6px 10px;
-  border-radius: var(--r-sm);
-  word-break: break-all;
-}
-
-/* 内置核心提示 */
-.sw-bundle-note {
-  font-size: 12px;
-  color: var(--green);
-  background: var(--green-bg);
-  padding: 6px 10px;
-  border-radius: var(--r-sm);
-}
-
-.sw-bundle-missing {
-  font-size: 12px;
-  color: var(--yellow);
-  background: var(--yellow-bg);
-  padding: 6px 10px;
-  border-radius: var(--r-sm);
-}
-
-/* 操作按钮 */
-.sw-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* 侧栏底部：进入主界面 */
-.btn-enter-sidebar {
-  width: 100%;
-  justify-content: center;
-  background: var(--green);
-  border-color: transparent;
-  color: #fff;
-}
-
-.btn-enter-sidebar:hover:not(:disabled) {
-  opacity: 0.9;
-  /* 关键：重设绿色背景，避免 .btn:hover 的浅灰背景盖掉白字 */
-  background: var(--green);
-}
-
-/* 呼吸闪烁：吸引注意（启动成功提示进入 / 无 Java 提示安装） */
-@keyframes breathe-pulse {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.45);
-  }
-  50% {
-    transform: scale(1.04);
-    box-shadow: 0 0 0 10px rgba(22, 163, 74, 0);
-  }
-}
-
-.breathing {
-  animation: breathe-pulse 2s ease-in-out infinite;
-}
-
-/* 安装日志 */
-.install-log {
-  max-height: 200px;
-  overflow-y: auto;
-  background: #1a1a2e;
-  border-radius: var(--r);
-  padding: 10px 12px;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.log-line {
-  color: #a0aec0;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-/* 错误 */
-.sw-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: var(--r);
-  background: var(--red-bg);
-  border: 1px solid rgba(220, 38, 38, 0.25);
-  color: var(--red);
-  font-size: 13px;
-}
-
-.sw-error-mark {
-  flex-shrink: 0;
-}
-
-/* ============ 依赖管理 ============ */
-.sw-java-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: var(--r-lg);
-  border: 1px solid var(--border);
-}
-
-.sw-java-summary.ok {
-  background: var(--green-bg);
-  border-color: rgba(22, 163, 74, 0.3);
-}
-
-.sw-java-summary.err {
-  background: var(--red-bg);
-  border-color: rgba(220, 38, 38, 0.3);
-}
-
-.sw-java-badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.sw-java-summary.ok .sw-java-badge {
-  background: var(--green);
-  color: #fff;
-}
-
-.sw-java-summary.err .sw-java-badge {
-  background: var(--red);
-  color: #fff;
-}
-
-.sw-java-summary-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.sw-java-summary-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--fg);
-}
-
-.sw-java-summary-desc {
-  font-size: 12px;
-  color: var(--fg-3);
-}
-
-.sw-java-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--bg);
-}
-
-.sw-java-card.ok {
-  border-color: rgba(22, 163, 74, 0.4);
-}
-
-.sw-java-card.warn {
-  border-color: rgba(202, 138, 4, 0.4);
-}
-
-.sw-java-card.off {
-  opacity: 0.85;
-}
-
-.sw-java-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sw-java-card-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--fg);
-}
-
-.sw-java-card-state {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 10px;
-  border-radius: 9999px;
-}
-
-.sw-java-card-state.ok {
-  background: var(--green-bg);
-  color: var(--green);
-}
-
-.sw-java-card-state.warn {
-  background: var(--yellow-bg);
-  color: var(--yellow);
-}
-
-.sw-java-card-state.off {
-  background: var(--bg-3);
-  color: var(--fg-4);
-}
-
-.sw-java-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 13px;
-}
-
-.sw-java-row-label {
-  width: 34px;
-  flex-shrink: 0;
-  color: var(--fg-3);
-}
-
-.sw-java-row-value {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--fg-2);
-  word-break: break-all;
-}
-
-.sw-java-path {
-  color: var(--fg-3);
-}
-
-.sw-java-warn {
-  font-size: 12px;
-  color: var(--yellow);
-  background: var(--yellow-bg);
-  padding: 5px 10px;
-  border-radius: var(--r-sm);
-}
-
-.sw-java-note {
-  font-size: 12px;
-  color: var(--fg-4);
-}
-
-.sw-java-help {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  border-radius: var(--r-lg);
-  border: 1px dashed var(--border-2);
-  background: var(--bg-2);
-}
-
-.sw-java-help-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--fg-2);
-}
-
-/* JRE 安装 / 重装：下拉框 + 安装按钮（与版本行同行） */
-.sw-java-row-tools {
-  align-items: center;
-}
-
-.sw-java-tools {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.sw-java-source-select {
-  min-width: 145px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  background: var(--bg);
-  color: var(--fg);
-  font-size: 13px;
-  cursor: pointer;
-  outline: none;
-  transition: all var(--t);
-  -webkit-app-region: no-drag;
-}
-
-.sw-java-source-select:hover {
-  border-color: var(--accent);
-}
-
-.sw-java-source-select:focus {
-  border-color: var(--accent);
-}
-
-.sw-java-source-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* 镜像重新测速按钮 */
-.sw-speedtest-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  font-size: 12px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.sw-speedtest-btn svg {
-  flex-shrink: 0;
-}
-
-.sw-speedtest-spin {
-  animation: sw-speedtest-rotate 0.9s linear infinite;
-}
-
-@keyframes sw-speedtest-rotate {
-  to { transform: rotate(360deg); }
-}
-
-/* JRE 下载进度 */
-.sw-java-progress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.sw-java-progress-bar {
-  flex: 1;
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--bg-3);
-  overflow: hidden;
-}
-
-.sw-java-progress-fill {
-  height: 100%;
-  border-radius: 9999px;
-  background: var(--accent);
-  transition: width 0.2s ease;
-}
-
-.sw-java-progress-text {
-  font-size: 12px;
-  color: var(--fg-3);
-  font-variant-numeric: tabular-nums;
-  min-width: 48px;
-  text-align: right;
-}
-
-.sw-java-help-list {
-  margin: 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--fg-3);
-}
-
-.sw-java-help-list code {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--fg-2);
-}
-
-.sw-java-help .btn {
-  align-self: flex-start;
-}
-</style>

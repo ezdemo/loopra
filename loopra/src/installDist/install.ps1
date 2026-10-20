@@ -2,10 +2,12 @@
 # Loopra Web Installer for Windows PowerShell
 # 支持重复安装，保留已有 config.json
 # 复用系统 Java 17+ 或已有捆绑 JRE；都没有时自动下载 JRE 25（支持 LOOPRA_MIRROR 镜像）
+# 桌面端可用 -SkipJava 先更新核心文件，随后单独引导安装 Java。
 #
 param(
     [switch]$Gui,
-    [switch]$Setup
+    [switch]$Setup,
+    [switch]$SkipJava
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,6 +67,9 @@ function Test-JavaUsable {
 }
 
 Write-Host ""
+if ($SkipJava) {
+    Write-Host "[Pre-check] Core-only install: Java setup is managed by the desktop app." -ForegroundColor Gray
+} else {
 Write-Host "[Pre-check] Verifying Java 17+ installation..." -ForegroundColor Yellow
 
 $JAVA_EXE = $null
@@ -209,6 +214,7 @@ if (-not $JAVA_EXE) {
 
 $javaVerLine = ((Get-JavaVersionOutput $JAVA_EXE) -split "`n" | Select-Object -First 1).Trim()
 Write-Host "      Java ready ($JAVA_SOURCE): $javaVerLine" -ForegroundColor Green
+}
 Write-Host ""
 
 # =============================================
@@ -729,7 +735,11 @@ Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Install path: $TARGET_DIR" -ForegroundColor White
 Write-Host "  Config path:  $CONFIG_DIR" -ForegroundColor White
-Write-Host "  Java:         System Java 17+ / existing bundled JRE / auto-downloaded JRE 25 ($JRE25_DIR)" -ForegroundColor White
+if ($SkipJava) {
+    Write-Host "  Java:         Setup deferred to desktop app; JRE/JDK required to start" -ForegroundColor White
+} else {
+    Write-Host "  Java:         System Java 17+ / existing bundled JRE / auto-downloaded JRE 25 ($JRE25_DIR)" -ForegroundColor White
+}
 Write-Host ""
 if ($IS_GUI_INSTALL) {
     Write-Host "  Desktop runtime is managed by the Loopra Desktop app." -ForegroundColor Cyan
