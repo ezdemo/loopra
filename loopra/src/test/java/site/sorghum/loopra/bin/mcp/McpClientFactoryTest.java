@@ -3,11 +3,15 @@ package site.sorghum.loopra.bin.mcp;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.noear.solon.ai.mcp.client.McpClientProvider;
 import site.sorghum.loopra.bin.acp.FakeMcpProcess;
 import site.sorghum.loopra.bin.config.ConfigService;
+import site.sorghum.loopra.bin.config.LoopraConfig;
+import org.noear.snack4.ONode;
 import site.sorghum.loopra.tool.solon.mcp.LoopraMcpSkill;
 import site.sorghum.loopra.tool.solon.mcp.ProjectMcpSkill;
 
@@ -21,6 +25,43 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(30)
 class McpClientFactoryTest {
     @TempDir Path root;
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void resolvesNpmCommandShimsFromConfiguredPathAndStartsMcp() throws Exception {
+        Path bin = Files.createDirectories(root.resolve("npm bin"));
+        Path shim = bin.resolve("test-mcp.cmd");
+        Files.writeString(bin.resolve("test-mcp"), "#!/bin/sh\nexit 1\n");
+        var server = server("2025-06-18");
+        String javaExecutable = server.command;
+        Files.writeString(shim, "@echo off\r\n\"" + javaExecutable + "\" %*\r\n");
+        String classpath = server.args.get(1);
+        // cmd.exe limits command lines to 8191 characters; Java reads CLASSPATH directly.
+        server.args = List.of(FakeMcpProcess.class.getName());
+        server.command = "test-mcp";
+        server.env = Map.of("Path", bin.toString(), "MCP_TEST_PROTOCOL", "2025-06-18",
+                "MCP_TEST_VALUE", "value with spaces", "CLASSPATH", classpath);
+        var parameters = McpProjectConfig.toParameters(server);
+        assertEquals(shim.toString(), McpClientFactory.resolveCommand(parameters, root));
+        ProcessHandle child = null;
+        try (var provider = McpClientFactory.create("shim-test", parameters, root)) {
+            assertEquals("mcp_probe", provider.getTools().iterator().next().name());
+            String result = provider.callTool("mcp_probe", Map.of()).toString();
+            assertTrue(result.contains("cwd=" + root), result);
+            assertTrue(result.contains("env=value with spaces"), result);
+            var pid = java.util.regex.Pattern.compile("pid=(\\d+)").matcher(result);
+            assertTrue(pid.find(), result);
+            child = ProcessHandle.of(Long.parseLong(pid.group(1))).orElseThrow();
+        } finally {
+            // The upstream transport closes the shell; explicitly clean up our test peer.
+            if (child != null) {
+                child.destroyForcibly();
+                child.onExit().get(5, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        }
+        server.command = shim.toString();
+        assertEquals(shim.toString(), McpClientFactory.resolveCommand(McpProjectConfig.toParameters(server), root));
+    }
 
     private McpServerDTO server(String protocol) {
         var server = new McpServerDTO("magpie-image", "stdio", true);
@@ -64,13 +105,22 @@ class McpClientFactoryTest {
         field.setAccessible(true);
         @SuppressWarnings("unchecked") var store = (Map<String, McpServerDTO>) field.get(service);
         store.put(server.name, server);
+        var configField = ConfigService.class.getDeclaredField("config");
+        configField.setAccessible(true);
+        Object previousConfig = configField.get(null);
+        var constructor = LoopraConfig.class.getDeclaredConstructor(ONode.class);
+        constructor.setAccessible(true);
+        configField.set(null, constructor.newInstance(ONode.ofJson("{}")));
         try (var provider = McpClientFactory.create(server.name, McpProjectConfig.toParameters(server), root)) {
             skill.addMcpServer(server.name, provider);
             var tools = service.listTools(server.name);
             assertTrue(tools.connected);
             assertEquals("mcp_probe", tools.tools.get(0).name);
             assertTrue(service.checkConnection(server));
-        } finally { skill.removeMcpServer(server.name); }
+        } finally {
+            skill.removeMcpServer(server.name);
+            configField.set(null, previousConfig);
+        }
     }
 
     @Test void projectMcpUsesSameNegotiationAndCanReopenProvider() throws Exception {
