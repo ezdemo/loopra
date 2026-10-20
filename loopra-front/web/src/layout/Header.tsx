@@ -48,6 +48,7 @@ export default function Header(p: HeaderProps) {
   const desktop = p.desktopUpdate;
   const desktopVersion = desktop ? `v${desktop.currentVersion}` : versionLabel;
   const desktopText = desktop?.status === 'downloading' ? `下载中 ${Math.floor(desktop.percent)}%`
+    : desktop?.status === 'verifying' ? '正在验证更新…'
     : desktop?.status === 'downloaded' ? '重启并安装'
     : desktop?.status === 'installing' ? '正在安装…'
     : desktop?.status === 'checking' ? '检查更新…'

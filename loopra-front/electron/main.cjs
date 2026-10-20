@@ -5,7 +5,7 @@ const { spawn, execFile, execSync } = require('child_process')
 const { promisify } = require('util')
 const { randomUUID } = require('crypto')
 const { compareVersions } = require('./version.cjs')
-const { createDesktopUpdater, registerDesktopUpdateIpc } = require('./desktop-updater.cjs')
+const { createDesktopUpdater, registerDesktopUpdateIpc, readDesktopUpdateOptions, loadDesktopUpdater } = require('./desktop-updater.cjs')
 const { normalizeProxyAddress, electronProxyRules } = require('./proxy.cjs')
 const { registerTerminalIpc, killAllTerminals } = require('./terminal.cjs')
 const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
@@ -71,9 +71,12 @@ let onboardingWindow = null
 let loopraWebProcess = null
 let currentPort = 0
 let currentElectronProxyAddress = ''
+const desktopUpdateOptions = readDesktopUpdateOptions(app)
 const desktopUpdater = createDesktopUpdater({
   app,
-  updater: !isDev && isWin ? require('electron-updater').autoUpdater : null,
+  ...desktopUpdateOptions,
+  updater: loadDesktopUpdater({ ...desktopUpdateOptions, isPackaged: !isDev }),
+  nativeUpdater: desktopUpdateOptions.platform === 'darwin' && desktopUpdateOptions.macSigned ? require('electron').autoUpdater : null,
   publish: (state) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('desktop-update-state', state)
   },
