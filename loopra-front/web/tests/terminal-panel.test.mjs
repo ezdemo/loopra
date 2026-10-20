@@ -73,7 +73,7 @@ const sessions = [
   { sessionId: 's-2', workspace: 'C:/code/loopra', command: 'sleep 1', workdir: 'C:/code/loopra', startedAt: Date.now() - 900_000, status: 'completed' },
 ];
 
-async function mount({ floating = false, initialSessions = sessions } = {}) {
+async function mount({ floating = false, initialSessions = sessions, actions } = {}) {
   let currentSessions = initialSessions;
   let hold = false;
   globalThis.__calls = []; globalThis.__notify = []; globalThis.__copied = [];
@@ -90,7 +90,7 @@ async function mount({ floating = false, initialSessions = sessions } = {}) {
   const root = createRoot(container);
   function Floating() {
     const [open, setOpen] = useState(false);
-    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', connected: true, open, onOpenChange: setOpen, notify: () => {} }, createElement('textarea', { 'aria-label': '输入消息' }));
+    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', connected: true, open, onOpenChange: setOpen, notify: () => {}, actions }, createElement('textarea', { 'aria-label': '输入消息' }));
   }
   await act(async () => root.render(floating ? createElement(Floating) : createElement(TerminalPanel, { api, workspaceHash: 'hash 1', onClose: () => {}, notify: message => globalThis.__notify.push(message) })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
@@ -155,6 +155,16 @@ test('the floating entry stays hidden without tasks and a new task does not open
     assert.equal(view.container.querySelector('.background-tasks-popover'), null);
     assert.match(view.container.querySelector('[aria-label="后台任务输出"]').textContent, /build ok/);
   } finally { await view.close(); }
+});
+
+test('composer actions share the toolbar after Background and remain available without background tasks', async () => {
+  for (const initialSessions of [sessions, []]) {
+    const view = await mount({ floating: true, initialSessions, actions: createElement('button', { type: 'button' }, '待办') });
+    try {
+      assert.deepEqual([...view.container.querySelectorAll('.composer-task-toolbar button')].map(button => button.textContent), initialSessions.length ? ['后台', '待办'] : ['待办']);
+      assert.ok(view.container.querySelector('textarea'));
+    } finally { await view.close(); }
+  }
 });
 
 test('opening and reopening use cached tasks and logs without waiting for any network request', async () => {

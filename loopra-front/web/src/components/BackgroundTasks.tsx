@@ -8,19 +8,20 @@ import BackgroundTaskLog from './BackgroundTaskLog';
 type Props = {
   api: LoopraClient; workspaceHash: string; connected: boolean; open: boolean;
   onOpenChange: (open: boolean) => void; notify: (message: string) => void;
-  children: ReactNode;
+  children: ReactNode; actions?: ReactNode;
 };
 
-export default function BackgroundTasks({ api, workspaceHash, connected, open, onOpenChange, notify, children }: Props) {
+export default function BackgroundTasks({ api, workspaceHash, connected, open, onOpenChange, notify, children, actions }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const toolbar = useRef<HTMLDivElement>(null);
   const panelId = useId();
   const [unread, setUnread] = useState(false);
   const tasks = useBashSessions(api, workspaceHash, connected);
   const taskCount = tasks.sessions.length;
   const [logOpen, setLogOpen] = useState(false);
-  const [placement, setPlacement] = useState({ below: false, height: 400 });
+  const [placement, setPlacement] = useState({ below: false, height: 400, offset: 28 });
   function close() { onOpenChange(false); trigger.current?.focus(); }
 
   useEffect(() => {
@@ -35,7 +36,8 @@ export default function BackgroundTasks({ api, workspaceHash, connected, open, o
       if (!bounds) return;
       const above = bounds.top - 104;
       const below = above < 160;
-      setPlacement({ below, height: Math.max(96, Math.min(400, below ? window.innerHeight - bounds.top - 16 : above)) });
+      const offset = toolbar.current?.offsetHeight || 28;
+      setPlacement({ below, offset, height: Math.max(96, Math.min(400, below ? window.innerHeight - bounds.top - offset - 24 : above)) });
     };
     position();
     const observer = new ResizeObserver(position);
@@ -63,12 +65,14 @@ export default function BackgroundTasks({ api, workspaceHash, connected, open, o
   }, [open, onOpenChange]);
 
   return <div className={`composer-task-anchor${taskCount > 0 ? ' has-tasks' : ''}`} ref={root} data-popover>
+    <div className="composer-task-toolbar" ref={toolbar}>
     {taskCount > 0 && <button ref={trigger} type="button" className={`background-tasks-trigger${open ? ' active' : ''}`}
       aria-label={unread ? '后台任务，有新任务' : '后台任务'} aria-haspopup="dialog" aria-expanded={open}
       aria-controls={open ? panelId : undefined} onClick={() => onOpenChange(!open)}>
       <SquareTerminal size="0.875rem" /><span>后台</span>{unread && <i className="background-tasks-unread" aria-hidden="true" />}
-    </button>}
-    {open && <div ref={dialog} id={panelId} className={`background-tasks-popover${placement.below ? ' below' : ''}`} style={{ '--background-tasks-height': `${placement.height}px` } as CSSProperties} role="dialog" aria-label="后台任务" tabIndex={-1}>
+    </button>}{actions}
+    </div>
+    {open && <div ref={dialog} id={panelId} className={`background-tasks-popover${placement.below ? ' below' : ''}`} style={{ '--background-tasks-height': `${placement.height}px`, '--background-tasks-offset': `${placement.offset}px` } as CSSProperties} role="dialog" aria-label="后台任务" tabIndex={-1}>
       <TerminalPanel key={workspaceHash} api={api} workspaceHash={workspaceHash} onClose={close} notify={notify} state={tasks} onInspect={() => { onOpenChange(false); setLogOpen(true); }} />
     </div>}
     {children}

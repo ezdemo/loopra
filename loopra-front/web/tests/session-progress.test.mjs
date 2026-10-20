@@ -43,7 +43,9 @@ export default Markdown;
 `);
 const backendStub = dataUrl('export const sessionQuery = session => `workspaceHash=${encodeURIComponent(session.workspaceHash || "")}&sessionName=${encodeURIComponent(session.name || "")}`;');
 const recordDependencies = {
-  'lucide-react': dataUrl('export const Copy=()=>null, Download=()=>null, FileText=()=>null, ListTree=()=>null, RefreshCw=()=>null;'),
+  '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
+  'lucide-react': dataUrl('export const Check=()=>null, ChevronDown=()=>null, CircleAlert=()=>null, Copy=()=>null, Download=()=>null, FileText=()=>null, ListChecks=()=>null, ListTree=()=>null, LoaderCircle=()=>null, Minus=()=>null, RefreshCw=()=>null, Square=()=>null, X=()=>null;'),
+  './ui': dataUrl(`const {createElement}=await import(${JSON.stringify(reactUrl)}); export const IconButton=({label,onClick,children})=>createElement('button',{'aria-label':label,className:'icon-button',type:'button',onClick},children);`),
   './RawSessionRecords': dataUrl('export default () => null;'),
 };
 const controlsStub = dataUrl(`
@@ -94,11 +96,12 @@ const checklist = {
   ],
 };
 
-async function mount({ responses = { goal, checklist }, session = { id: 'aaa/one', title: 'one', name: 'one', workspaceHash: 'aaa' }, externalPlan } = {}) {
+async function mount({ responses = { goal, checklist }, session = { id: 'aaa/one', title: 'one', name: 'one', workspaceHash: 'aaa' }, externalPlan, requestImpl } = {}) {
   globalThis.__calls = [];
   const api = {
     request: (path, method = 'GET') => {
       globalThis.__calls.push({ path, method });
+      if (requestImpl) return requestImpl(path);
       if (path.includes('/goal?')) return Promise.resolve(responses.goal);
       if (path.includes('/checklist?')) return Promise.resolve(responses.checklist);
       if (path.includes('/acp-state?')) return Promise.resolve(responses.acp);
@@ -139,10 +142,9 @@ test('renders the goal card with status, progress, blocked reason and steps', as
   try {
     const card = view.container.querySelector('.session-progress-card.is-goal');
     assert.ok(card, 'goal card renders');
-    assert.equal(card.querySelector('summary strong').textContent, '迁移剩余功能');
-    assert.equal(card.querySelector('.progress-badge').textContent, '阻塞');
+    assert.equal(card.querySelector('.progress-panel-title').textContent, '迁移剩余功能');
+    assert.equal(card.querySelector('.progress-state').textContent, '阻塞');
     assert.equal(card.querySelector('.progress-count').textContent, '2/4');
-    assert.equal(card.querySelector('.progress-track span').style.width, '50%');
     assert.equal(card.querySelector('.progress-blocked').textContent, '等待后端接口');
     assert.match(card.querySelector('.progress-verify').textContent, /验证命令: node --test/);
     const steps = [...card.querySelectorAll('.progress-step')];
@@ -153,20 +155,21 @@ test('renders the goal card with status, progress, blocked reason and steps', as
   } finally { await view.close(); }
 });
 
-test('renders the checklist card with current step, HITL/FORK tags and percent', async () => {
+test('renders completed counts and accessible step states while preserving HITL/FORK and results', async () => {
   const view = await mount();
   try {
     const card = view.container.querySelector('.session-progress-card.is-checklist');
     assert.ok(card, 'checklist card renders');
-    assert.equal(card.querySelector('summary strong').textContent, '发布检查');
-    assert.equal(card.querySelector('.progress-badge').textContent, '进行中');
-    assert.equal(card.querySelector('.progress-count').textContent, '第 2/3 步');
-    assert.equal(card.querySelector('.progress-track span').style.width, `${2 / 3 * 100}%`);
+    assert.equal(card.querySelector('.progress-panel-title').textContent, '发布检查');
+    assert.equal(card.querySelector('.progress-count').textContent, '1/3');
+    assert.equal(card.querySelector('.progress-count').getAttribute('aria-label'), '已完成 1/3 项');
     const steps = [...card.querySelectorAll('.progress-step')];
     assert.equal(steps.length, 3);
     assert.equal(steps[0].querySelector('em').textContent, '分支');
     assert.equal(steps[1].querySelector('em').textContent, '人工审批');
     assert.ok(steps[1].classList.contains('current'));
+    assert.equal(steps[1].getAttribute('aria-current'), 'step');
+    assert.equal(steps[2].querySelector('[role=img]').getAttribute('aria-label'), '待处理');
     assert.equal(steps[0].querySelector('small').textContent, '203 项通过');
   } finally { await view.close(); }
 });
@@ -175,6 +178,64 @@ test('renders nothing when neither Goal nor checklist exists', async () => {
   const view = await mount({ responses: { goal: null, checklist: null } });
   try {
     assert.equal(view.container.querySelector('.session-progress'), null);
+  } finally { await view.close(); }
+});
+
+test('a completed checklist has no current step even when the last index is retained', async () => {
+  const view = await mount({ responses: { goal: null, checklist: { ...checklist, status: 'COMPLETED', currentStepIndex: 3,
+    steps: checklist.steps.map(step => ({ ...step, status: 'DONE' })) } } });
+  try {
+    assert.equal(view.container.querySelector('[aria-current="step"]'), null);
+    assert.equal(view.container.querySelector('.progress-count').textContent, '3/3');
+    assert.equal(view.container.querySelector('.progress-state').textContent, '已完成');
+  } finally { await view.close(); }
+});
+
+test('the compact todo trigger opens the list and Escape or an outside click closes it', async () => {
+  const view = await mount({ responses: { goal: null, checklist } });
+  try {
+    const card = view.container.querySelector('.is-checklist');
+    const trigger = card.querySelector('.progress-trigger');
+    assert.equal(trigger.getAttribute('aria-label'), '待办清单');
+    assert.equal(trigger.textContent, '待办1/3');
+    assert.equal(card.dataset.open, 'false');
+    await act(async () => trigger.click());
+    assert.equal(card.dataset.open, 'true');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+    await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    assert.equal(card.dataset.open, 'false');
+    assert.equal(document.activeElement, trigger);
+    await act(async () => trigger.click());
+    await act(async () => document.body.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })));
+    assert.equal(card.dataset.open, 'false');
+  } finally { await view.close(); }
+});
+
+test('refresh keeps the open panel and scroll position, and the fixed header can close it', async () => {
+  let hold = false;
+  const pending = [];
+  const requestImpl = path => {
+    const value = path.includes('/checklist?') ? checklist : null;
+    return hold ? new Promise(resolve => pending.push(() => resolve(value))) : Promise.resolve(value);
+  };
+  const view = await mount({ requestImpl });
+  try {
+    const card = view.container.querySelector('.is-checklist');
+    const trigger = card.querySelector('.progress-trigger');
+    await act(async () => trigger.click());
+    const content = card.querySelector('.progress-panel-content');
+    content.scrollTop = 80;
+    hold = true;
+    await act(async () => card.querySelector('[aria-label="刷新清单"]').click());
+    assert.equal(pending.length, 2);
+    assert.equal(view.container.querySelector('.is-checklist'), card);
+    assert.equal(card.dataset.open, 'true');
+    await act(async () => pending.forEach(resolve => resolve()));
+    assert.equal(content.scrollTop, 80);
+    assert.equal(card.dataset.open, 'true');
+    await act(async () => card.querySelector('[aria-label="关闭清单"]').click());
+    assert.equal(card.dataset.open, 'false');
+    assert.equal(document.activeElement, trigger);
   } finally { await view.close(); }
 });
 

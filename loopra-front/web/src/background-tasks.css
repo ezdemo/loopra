@@ -1,12 +1,13 @@
 .composer-task-anchor { position: relative; }
-.composer-task-anchor.has-tasks { margin-top: 2.25rem; }
-.background-tasks-trigger { position: absolute; bottom: calc(100% + .5rem); left: .75rem; display: inline-flex; align-items: center; gap: .375rem; height: 1.75rem; padding: 0 .625rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 .125rem .375rem #00000008; color: var(--secondary); font-size: .75rem; white-space: nowrap; }
+.composer-task-toolbar { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: .375rem; padding: 0 .75rem; margin-bottom: .5rem; }
+.composer-task-toolbar:empty { display: none; }
+.background-tasks-trigger { display: inline-flex; align-items: center; gap: .375rem; height: 1.75rem; padding: 0 .625rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 .125rem .375rem #00000008; color: var(--secondary); font-size: .75rem; white-space: nowrap; cursor: pointer; }
 .background-tasks-trigger:hover { background: var(--hover); color: var(--text); }
 .background-tasks-trigger.active { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 35%, var(--line)); background: color-mix(in srgb, var(--blue) 6%, var(--surface)); }
 .background-tasks-trigger:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .background-tasks-unread { width: .375rem; height: .375rem; border-radius: 50%; background: var(--blue); }
-.background-tasks-popover { position: absolute; left: 0; bottom: calc(100% + 2.75rem); width: min(42rem, 100%); z-index: 40; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 .25rem 1rem #00000010, 0 .75rem 2.5rem #00000018; outline: none; }
-.background-tasks-popover.below { top: 0; bottom: auto; }
+.background-tasks-popover { position: absolute; left: 0; bottom: calc(100% + .5rem); width: min(42rem, 100%); z-index: 40; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 .25rem 1rem #00000010, 0 .75rem 2.5rem #00000018; outline: none; }
+.background-tasks-popover.below { top: calc(var(--background-tasks-offset, 1.75rem) + .5rem); bottom: auto; }
 .background-tasks-popover .terminal-panel { height: auto; max-height: var(--background-tasks-height, 25rem); border-top: 0; }
 .background-tasks-popover .terminal-panel header { flex-shrink: 0; flex-wrap: wrap; height: auto; min-height: 2.75rem; gap: .5rem; padding: .375rem .75rem; }
 .background-tasks-popover .terminal-panel header > span { font-size: .8125rem; }
