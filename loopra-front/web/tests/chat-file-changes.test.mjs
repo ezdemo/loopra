@@ -41,7 +41,10 @@ const uiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const IconButton = ({ label, children, onClick, className }) => createElement('button', { type: 'button', 'aria-label': label, title: label, className: 'icon-button ' + (className || ''), onClick }, children);
 `);
-const markdownStub = dataUrl(`export default () => null;`);
+const markdownStub = dataUrl(`
+const { createElement } = await import(${JSON.stringify(reactUrl)});
+export default ({ onOpenFile }) => createElement('button', { className: 'markdown-file-link', onClick: () => onOpenFile?.('src/a.ts') }, 'file');
+`);
 
 const diff = await compile('../src/diff.ts');
 const chat = await compile('../src/chat.ts');
@@ -85,6 +88,32 @@ test('a single changed file expands its diff inside the message', async () => {
     await click(head);
     assert.equal(view.container.querySelector('.unified-diff'), null);
   } finally { await view.close(); }
+});
+
+test('ordinary file links and tool file paths open the content callback', async () => {
+  const opened = [];
+  const diffs = [];
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(createElement(BlockRenderer, {
+      blocks: [
+        { id: 'answer', type: 'content', content: '[src/a.ts](src/a.ts)' },
+        { id: 'tool', type: 'tool_call', name: 'edit', args: { file_path: 'src/a.ts' }, status: '成功' },
+      ],
+      notify: () => {},
+      onOpenFile: path => opened.push(path),
+      onDiff: path => diffs.push(path),
+    })));
+    await click(container.querySelector('.markdown-file-link'));
+    await click(container.querySelector('.tool-file'));
+    assert.deepEqual(opened, ['src/a.ts', 'src/a.ts']);
+    assert.deepEqual(diffs, []);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
 });
 
 test('each row of a multi-file change expands its own diff and can still open the pane', async () => {

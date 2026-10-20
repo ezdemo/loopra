@@ -13,9 +13,9 @@ import { subSessionBlocks, subSessionEventsPath, type SubSessionEvent } from '..
  * It reuses the main conversation renderer (same process folding, tool cards and
  * Markdown), so a sub-agent reads exactly like the parent turn — without a composer.
  */
-export default function SubAgentView({ api, workspaceHash, sessionName, subSessionId, label, notify, onDiff }: {
+export default function SubAgentView({ api, workspaceHash, sessionName, subSessionId, label, notify, onOpenFile, onDiff }: {
   api: LoopraClient; workspaceHash: string; sessionName: string; subSessionId: string; label?: string;
-  notify: (message: string) => void; onDiff?: (path: string) => void;
+  notify: (message: string) => void; onOpenFile?: (path: string) => void; onDiff?: (path: string) => void;
 }) {
   const [revision, setRevision] = useState(0);
   const [events, setEvents] = useState<SubSessionEvent[]>([]);
@@ -72,7 +72,7 @@ export default function SubAgentView({ api, workspaceHash, sessionName, subSessi
     <div className="workspace-subagent-replay">
       <RemoteState loading={stored.loading && !replay.blocks.length} error={stored.error} />
       {replay.blocks.length
-        ? <div className="chat-content"><Messages session={session} loading={running} showDuration={false} notify={notify} onDiff={onDiff}
+        ? <div className="chat-content"><Messages session={session} loading={running} showDuration={false} notify={notify} onOpenFile={onOpenFile} onDiff={onDiff}
             onEdit={() => {}} onBranch={() => {}} onRollback={() => {}} busy /></div>
         : !stored.loading && <p className="panel-empty">没有可回放的内容</p>}
     </div>

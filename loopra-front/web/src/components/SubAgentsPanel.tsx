@@ -10,8 +10,8 @@ import { continueSubSession, formatSubTime, subSessionBlocks, subSessionEventsPa
 // Ported from legacy `src/components/SubAgentPanel.vue` plus the desktop chat
 // tab's replay view: list the current session's sub-agent runs, replay their
 // stored events as blocks, delete a finished run, and continue an active one.
-export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify, onDiff, onOpenTab }: {
-  api: LoopraClient; workspaceHash: string; sessionName?: string; notify: (message: string) => void; onDiff?: (path: string) => void;
+export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify, onOpenFile, onDiff, onOpenTab }: {
+  api: LoopraClient; workspaceHash: string; sessionName?: string; notify: (message: string) => void; onOpenFile?: (path: string) => void; onDiff?: (path: string) => void;
   onOpenTab?: (item: SubSession) => void;
 }) {
   // Two revisions on purpose: polling only refreshes the list (event counts),
@@ -102,7 +102,7 @@ export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify
       <header className="workbench-card-head"><strong>{subSessionLabel(selected)}</strong><span className={`subagent-status ${replay.status}`}>{subStatusLabel(replay.status)}</span></header>
       {error && <p className="settings-error" role="alert">{error}</p>}
       <RemoteState loading={stored.loading} error="" />
-      {replay.blocks.length ? <div className="subagent-replay-body"><BlockRenderer blocks={replay.blocks} notify={notify} onDiff={onDiff} /></div> : !stored.loading && <p className="panel-empty">没有可回放的内容</p>}
+      {replay.blocks.length ? <div className="subagent-replay-body"><BlockRenderer blocks={replay.blocks} notify={notify} onOpenFile={onOpenFile} onDiff={onDiff} /></div> : !stored.loading && <p className="panel-empty">没有可回放的内容</p>}
       <footer className="subagent-continue">
         <input aria-label="继续子代理对话" placeholder="继续对话（仅活跃会话可用）…" value={message} disabled={busy} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} />
         <Button size="sm" color="primary" isLoading={busy} isDisabled={!message.trim()} onPress={() => void send()}>发送</Button>

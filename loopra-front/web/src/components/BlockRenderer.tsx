@@ -9,7 +9,7 @@ import { IconButton } from './ui';
 import Markdown from './Markdown';
 import UnifiedDiff from './UnifiedDiff';
 
-export type BlockActions = { notify: (message: string) => void; onDiff?: (path: string, diff?: string) => void; onRevert?: (changes: FileChange[]) => Promise<void> };
+export type BlockActions = { notify: (message: string) => void; onOpenFile?: (path: string) => void; onDiff?: (path: string, diff?: string) => void; onRevert?: (changes: FileChange[]) => Promise<void> };
 function StatusIcon({ status }: { status: ToolStatus }) {
   return <span className={`tool-icon ${status === '成功' ? 'success' : status === '失败' ? 'failed' : 'running'}`}>{status === '成功' ? <Check size="0.9375rem" /> : status === '失败' ? <X size="0.9375rem" /> : <LoaderCircle size="0.9375rem" className="spin" />}</span>;
 }
@@ -109,7 +109,7 @@ function Step({ block, streaming = false, ...actions }: StepProps) {
     const text = block.type === 'reasoning' ? <p className="reasoning-plain">{block.content}</p> : '加密思考';
     return <Disclosure className="block-reasoning" headingClass="reasoning-head" heading={<><Brain size="0.9375rem" /><ReasoningPreview content={block.type === 'reasoning' ? block.content : ''} streaming={streaming} /><ChevronDown size="0.875rem" /></>}><div className="reasoning-text" role={block.type === 'reasoning' ? undefined : 'status'}>{text}</div></Disclosure>;
   }
-  if (block.type === 'tool_call') return <ToolBlock block={block} onOpenFile={actions.onDiff} />;
+  if (block.type === 'tool_call') return <ToolBlock block={block} onOpenFile={actions.onOpenFile} />;
   if (block.type === 'sub_agent') {
     return <Disclosure className="block-tool" headingClass="tool-head" heading={<><StatusIcon status={block.status} /><code className="tool-name">子代理</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span><span className="tool-param">{block.name} · {block.blocks.length} 步</span><ChevronDown size="0.875rem" /></>}><div className="tool-group-detail"><BlockRenderer blocks={block.blocks} streaming={streaming && block.status === '执行中'} {...actions} /></div></Disclosure>;
   }
@@ -131,11 +131,11 @@ function Chain({ steps, streaming = false, ...actions }: { steps: ChatBlock[]; s
 export default function BlockRenderer({ blocks, streaming = false, ...actions }: { blocks: ChatBlock[]; streaming?: boolean } & BlockActions) {
   return <div className="msg-blocks">{chainBlocks(blocks).map(block => {
     if (block.type === 'chain') return <Chain key={block.id} steps={block.steps} streaming={streaming && block.steps.at(-1)?.id === blocks.at(-1)?.id} {...actions} />;
-    if (block.type === 'content') return <Markdown key={block.id} text={block.content} notify={actions.notify} onOpenFile={actions.onDiff} />;
+    if (block.type === 'content') return <Markdown key={block.id} text={block.content} notify={actions.notify} onOpenFile={actions.onOpenFile} />;
     if (block.type === 'reasoning' || block.type === 'reasoning_started' || block.type === 'sub_agent') return <Step key={block.id} block={block} streaming={streaming && block.id === blocks.at(-1)?.id} {...actions} />;
     if (block.type === 'tool_call') {
-      if (block.name === 'finish' && block.result) return <section key={block.id} className="block-tool block-finish"><div className="tool-head finish-head"><StatusIcon status="成功" /><span className="tool-name">最终回答</span></div><div className="finish-content"><Markdown text={block.result} notify={actions.notify} onOpenFile={actions.onDiff} /></div></section>;
-      return <ToolBlock key={block.id} block={block} onOpenFile={actions.onDiff} />;
+      if (block.name === 'finish' && block.result) return <section key={block.id} className="block-tool block-finish"><div className="tool-head finish-head"><StatusIcon status="成功" /><span className="tool-name">最终回答</span></div><div className="finish-content"><Markdown text={block.result} notify={actions.notify} onOpenFile={actions.onOpenFile} /></div></section>;
+      return <ToolBlock key={block.id} block={block} onOpenFile={actions.onOpenFile} />;
     }
     if (block.type === 'file_changes') return <FileChanges key={block.id} changes={block.changes} {...actions} />;
     // Choice cards (HITL approval / ask_choice) render nothing in the transcript:

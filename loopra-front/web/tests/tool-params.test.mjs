@@ -4,7 +4,7 @@ import test from 'node:test';
 import ts from 'typescript';
 
 // Legacy BlockRenderer.vue formatted tool params per tool name and exposed file
-// tools (read/edit/write) as clickable filenames that open the workspace diff.
+// tools (read/edit/write) as clickable filenames that open the original file.
 const source = await readFile(new URL('../src/tool-params.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 const { toolParam, toolFileName } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
@@ -46,6 +46,7 @@ test('the tool card renders the clickable file button', async () => {
   const blockRenderer = await readFile(new URL('../src/components/BlockRenderer.tsx', import.meta.url), 'utf8');
   assert.match(blockRenderer, /toolParam\(block\.name, block\.args\)/);
   assert.match(blockRenderer, /className="tool-file"/);
-  // Tools inside a reasoning chain render through the same ToolBlock (and its file button).
-  assert.match(blockRenderer, /<ToolBlock block=\{block\} onOpenFile=\{actions\.onDiff\} \/>/);
+  // Tools inside a reasoning chain render through the same ToolBlock, and their
+  // file path opens the original file rather than the Git diff.
+  assert.match(blockRenderer, /<ToolBlock block=\{block\} onOpenFile=\{actions\.onOpenFile\} \/>/);
 });
