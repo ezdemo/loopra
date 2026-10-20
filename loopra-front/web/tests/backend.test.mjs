@@ -79,6 +79,41 @@ test('ACP child permissions keep their request identity and resolve in the paren
   assert.equal(message.blocks[0].selected, 'Allow once');
 });
 
+test('history reload keeps API contentParts images and text instead of replacing the live bubble with an empty one', () => {
+  const images = ['data:image/png;base64,first', 'data:image/png;base64,second'];
+  const [message] = historyMessages([{ role: 'user', content: '', contentParts: [
+    { type: 'image_url', imageUrl: { url: images[0] } },
+    { type: 'text', text: '看看这两张图' },
+    { type: 'image_url', image_url: { url: images[1] } },
+  ], timestamp: 1000, snapshot_id: 'snapshot', rollback_id: 'rollback' }]);
+  assert.equal(message.text, '看看这两张图');
+  assert.deepEqual(message.images, images);
+  assert.equal(message.snapshotId, 'snapshot');
+  assert.equal(message.rollbackId, 'rollback');
+  assert.equal(message.historyCount, 1);
+});
+
+test('image-only history survives both API and JSONL formats, including after serialization', () => {
+  const image = 'data:image/png;base64,image-only';
+  for (const raw of [
+    { role: 'user', content: null, contentParts: [{ type: 'image_url', imageUrl: { url: image } }] },
+    { role: 'user', content: [{ type: 'image_url', image_url: { url: image } }] },
+  ]) {
+    const [message] = historyMessages(JSON.parse(JSON.stringify([raw])));
+    assert.equal(message.text, '');
+    assert.deepEqual(message.images, [image]);
+  }
+});
+
+test('history keeps plain text when parts are empty and does not duplicate multimodal text', () => {
+  const messages = historyMessages([
+    { role: 'user', content: '普通文本', contentParts: [] },
+    { role: 'user', content: '重复的摘要', contentParts: [{ type: 'text', text: '图片说明' }] },
+    { role: 'user', contentParts: [{ type: 'text', text: '隐藏内容' }], web_hidden: true },
+  ]);
+  assert.deepEqual(messages.map(message => message.text), ['普通文本', '图片说明']);
+});
+
 test('session IDs isolate duplicate session names across workspaces and encode routes', () => {
   const a = remoteSession({ name: '会话/a?', title: 'A', mtime: 1 }, { hash: 'a', name: 'same' });
   const b = remoteSession({ name: '会话/a?', title: 'B', mtime: 1 }, { hash: 'b', name: 'same' });
