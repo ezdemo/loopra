@@ -1995,6 +1995,11 @@ ipcMain.handle('desktop-tab-context-menu', (event, rawPayload = {}) => {
 // 启动窗口完成检测/安装/启动后：创建主窗口并关闭启动窗口
 ipcMain.handle('splash_ready', () => {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  else {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
   if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
   return true
 })
