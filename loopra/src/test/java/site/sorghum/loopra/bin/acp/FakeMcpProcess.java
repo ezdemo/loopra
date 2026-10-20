@@ -13,7 +13,8 @@ public final class FakeMcpProcess {
             String method = message.get("method").getString();
             if (id == null) continue;
             Object result = switch (method) {
-                case "initialize" -> Map.of("protocolVersion", message.get("params").get("protocolVersion").getString(),
+                case "initialize" -> Map.of("protocolVersion", System.getenv("MCP_TEST_PROTOCOL") == null
+                                ? message.get("params").get("protocolVersion").getString() : System.getenv("MCP_TEST_PROTOCOL"),
                         "capabilities", Map.of("tools", Map.of()), "serverInfo", Map.of("name", "fake", "version", "1"));
                 case "tools/list" -> Map.of("tools", List.of(Map.of("name", "mcp_probe", "description", "probe cwd and environment",
                         "inputSchema", Map.of("type", "object", "properties", Map.of()))));

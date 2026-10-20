@@ -4,9 +4,6 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.McpServer;
 import com.agentclientprotocol.sdk.spec.AcpSchema.McpServerStdio;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.client.transport.ServerParameters;
-import io.modelcontextprotocol.client.transport.StdioClientTransport;
-import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.noear.snack4.ONode;
 import org.noear.solon.ai.chat.content.*;
@@ -14,6 +11,7 @@ import org.noear.solon.ai.chat.tool.*;
 import org.noear.solon.ai.mcp.client.McpClientProvider;
 import org.noear.solon.ai.mcp.client.McpClientProviders;
 import site.sorghum.loopra.tool.solon.mcp.McpFunctionTool;
+import site.sorghum.loopra.bin.mcp.McpClientFactory;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -51,15 +49,7 @@ public final class AcpMcpToolSet implements AutoCloseable {
 
     private void loadStdio(McpServerStdio server, Path cwd) {
         var parameters = AcpMcpServers.fromAcp(server);
-        // Solon's provider cannot set cwd; use the SDK transport's supported hook.
-        var transport = new StdioClientTransport(ServerParameters.builder(server.command())
-                .args(parameters.getArgs()).env(parameters.getEnv()).build(), McpJsonDefaults.getMapper()) {
-            @Override protected ProcessBuilder getProcessBuilder() {
-                ProcessBuilder builder = super.getProcessBuilder();
-                if (cwd != null) builder.directory(cwd.toFile());
-                return builder;
-            }
-        };
+        var transport = McpClientFactory.stdioTransport(parameters, cwd);
         transport.setStdErrorHandler(line -> {});
         McpSyncClient client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(30)).build();
         clients.add(() -> { if (!client.closeGracefully()) client.close(); });

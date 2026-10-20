@@ -130,13 +130,15 @@ public class McpManageService implements EventListener<AppLoadEndEvent> {
         McpServerDTO server = serverStore.get(name);
         if (server == null) return null;
 
-        if (enabled) {
-            registerToSkill(server);
-        } else {
-            removeMcpServerFromSkill(name);
-        }
-
+        boolean previousEnabled = server.enabled;
         server.setEnabled(enabled);
+        try {
+            if (enabled) registerToSkill(server);
+            else removeMcpServerFromSkill(name);
+        } catch (RuntimeException error) {
+            server.setEnabled(previousEnabled);
+            throw error;
+        }
         saveToFile();
         log.info("MCP 服务器 {} 已{}", name, enabled ? "启用" : "禁用");
         return server;
@@ -148,32 +150,10 @@ public class McpManageService implements EventListener<AppLoadEndEvent> {
      * 检测 MCP 服务器连接是否可达。
      */
     public boolean checkConnection(McpServerDTO server) {
-        try {
-            var builder = McpClientProvider.builder()
-                    .name(server.name + "-check");
-
-            if ("stdio".equals(server.type)) {
-                builder.channel("stdio")
-                        .command(server.command);
-                if (server.args != null && !server.args.isEmpty()) {
-                    builder.args(server.args);
-                }
-                if (server.env != null && !server.env.isEmpty()) {
-                    builder.env(server.env);
-                }
-                builder.timeout(Duration.ofSeconds(5));
-            } else {
-                builder.channel(server.type)
-                        .url(server.url);
-                if (server.headers != null && !server.headers.isEmpty()) {
-                    builder.headers(server.headers);
-                }
-                builder.timeout(Duration.ofSeconds(5));
-            }
-
-            McpClientProvider provider = builder.build();
+        var parameters = McpProjectConfig.toParameters(server);
+        parameters.setTimeout(Duration.ofSeconds(5));
+        try (McpClientProvider provider = McpClientFactory.create(server.name + "-check", parameters, null)) {
             Collection<FunctionTool> tools = provider.getTools();
-            provider.close();
             log.info("MCP 服务器连接检测成功: {} (type={}, tools={})", server.name, server.type, tools.size());
             return true;
         } catch (Exception e) {
@@ -242,39 +222,9 @@ public class McpManageService implements EventListener<AppLoadEndEvent> {
     // ==================== 注册到 Skill ====================
 
     private void registerToSkill(McpServerDTO server) {
-        var builder = McpClientProvider.builder()
-                .name(server.name);
-
-        if ("stdio".equals(server.type)) {
-            builder.channel("stdio")
-                    .command(server.command);
-            if (server.args != null && !server.args.isEmpty()) {
-                builder.args(server.args);
-            }
-            if (server.env != null && !server.env.isEmpty()) {
-                builder.env(server.env);
-            }
-        } else {
-            builder.channel(server.type)
-                    .url(server.url);
-            if (server.headers != null && !server.headers.isEmpty()) {
-                builder.headers(server.headers);
-            }
-            if (server.timeout != null && !server.timeout.isBlank()) {
-                try {
-                    String t = server.timeout.trim();
-                    if (t.endsWith("s")) {
-                        builder.timeout(Duration.ofSeconds(Long.parseLong(t.substring(0, t.length() - 1))));
-                    } else {
-                        builder.timeout(Duration.parse("PT" + t));
-                    }
-                } catch (Exception e) {
-                    log.warn("解析超时配置失败: {}", server.timeout);
-                }
-            }
-        }
-
-        McpClientProvider provider = builder.build();
+        McpClientProvider provider;
+        try { provider = McpClientFactory.create(server.name, McpProjectConfig.toParameters(server), null); }
+        catch (IOException error) { throw new IllegalStateException("创建 MCP 客户端失败: " + server.name, error); }
         loopraMcpSkill.addMcpServer(server.name, provider);
     }
 

@@ -3,9 +3,9 @@ package site.sorghum.loopra.tool.solon.mcp;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.ai.mcp.client.McpClientProvider;
-import org.noear.solon.ai.mcp.client.McpClientProviders;
 import org.noear.solon.ai.mcp.client.McpServerParameters;
 import site.sorghum.loopra.bin.mcp.McpProjectConfig;
+import site.sorghum.loopra.bin.mcp.McpClientFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -69,7 +69,7 @@ public final class ProjectMcpSkill extends LoopraMcpSkill implements AutoCloseab
                 }
                 McpClientProvider provider = null;
                 try {
-                    provider = McpClientProviders.fromMcpServer(parameters);
+                    provider = McpClientFactory.create(entry.getKey(), parameters, workspace);
                     skill.addMcpServer(entry.getKey(), provider);
                     skill.ownedProviders.put(entry.getKey(), provider);
                     log.debug("[mcp-project] 加载项目 MCP: {} ({})", entry.getKey(), configPath);

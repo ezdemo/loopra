@@ -39,6 +39,16 @@ class AcpMcpToolSetTest {
         assertThrows(IllegalArgumentException.class, () -> new AcpMcpToolSet(List.of(server("one"), server("two")), root));
     }
 
+    @Test void stdioAcceptsServerNegotiatingJune2025InsteadOfEchoingRequestedVersion() throws Throwable {
+        var original = server("negotiated");
+        var server = new McpServerStdio(original.name(), original.command(), original.args(),
+                List.of(new EnvVariable("MCP_TEST_PROTOCOL", "2025-06-18")));
+        try (var tools = new AcpMcpToolSet(List.of(server), root)) {
+            assertEquals("mcp_probe", tools.tools().iterator().next().name());
+            assertFalse(tools.tools().iterator().next().call(Map.of()).isError());
+        }
+    }
+
     @Test void httpMcpPreservesAuthorizationAndToolResults() throws Throwable {
         var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         var authorization = new java.util.concurrent.atomic.AtomicReference<String>();

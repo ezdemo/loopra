@@ -65,7 +65,7 @@ public final class McpProjectConfig {
         return new LinkedHashMap<>(McpClientProviders.parseMcpServers(root));
     }
 
-    private static McpServerParameters toParameters(McpServerDTO server) {
+    public static McpServerParameters toParameters(McpServerDTO server) {
         McpServerParameters parameters = new McpServerParameters();
         parameters.setType(normalizeType(server.type, server.url, server.command));
         parameters.setEnabled(server.enabled);
