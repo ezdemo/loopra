@@ -92,6 +92,7 @@ export default function App() {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [requirementsOpen, setRequirementsOpen] = useState(false);
   const [terminal, setTerminal] = useState(false);
+  const [homeTaskToolbar, setHomeTaskToolbar] = useState<HTMLDivElement | null>(null);
   const [gitBranch, setGitBranch] = useState('工作区');
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('通用');
@@ -136,7 +137,10 @@ export default function App() {
   const [rename, setRename] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [systemDark, setSystemDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const activeRequest = useRef<{ controller: AbortController; requestId: string; session?: Session; stopping?: boolean }>();
+  const activeRequest = useRef<{ controller: AbortController; requestId: string; session?: Session; stopping?: boolean; stopPromise?: Promise<void> }>();
+  const sendingQueued = useRef(new Set<string>());
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
   const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage[]>>({});
   const queuedRef = useRef(queuedMessages);
   useEffect(() => { queuedRef.current = queuedMessages; }, [queuedMessages]);
@@ -166,6 +170,7 @@ export default function App() {
   const agentId = session?.agentId || (session ? 'native' : newAgentId);
   const externalAgent = agentId !== 'native';
   const agentConfigKey = `${workspace}::${agentId}`;
+  const composerConfigBusy = !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey);
   useEffect(() => {
     setAgentConfigError('');
     if (!session?.name || !session.workspaceHash || backend.status !== 'connected') return;
@@ -604,9 +609,12 @@ export default function App() {
   function copyPath() { void navigator.clipboard?.writeText(currentWorkspace?.path || ''); setMenu(null); notify('已复制工作区路径'); }
   async function stopGeneration() {
     const request = activeRequest.current; if (!request) return;
+    if (request.stopPromise) return request.stopPromise;
     request.stopping = true;
-    try { await api.request('/chat/abort', 'POST', { requestId: request.requestId, workspaceHash: request.session?.workspaceHash || workspace, sessionName: request.session?.name }); request.controller.abort(); }
-    catch (error) { request.stopping = false; notify(`停止失败：${error instanceof Error ? error.message : error}`); }
+    request.stopPromise = api.request('/chat/abort', 'POST', { requestId: request.requestId, workspaceHash: request.session?.workspaceHash || workspace, sessionName: request.session?.name })
+      .then(() => { request.controller.abort(); })
+      .catch(error => { request.stopping = false; request.stopPromise = undefined; notify(`停止失败：${error instanceof Error ? error.message : error}`); });
+    await request.stopPromise;
   }
   // Legacy Chat.vue polls /agent/session-status so a reply started elsewhere
   // (another window, or a reload mid-run) is visible and its history stays fresh.
@@ -731,55 +739,83 @@ export default function App() {
   }
   function removeQueuedMessage(id: string) { if (session) replaceQueue(removeQueued(queuedRef.current, session.id, id)); }
   async function sendQueuedMessage(key: string) {
-    const next = nextQueued(queuedRef.current, key);
-    if (!next) return;
-    // Wait for the previous run to finish; the poll timer or stream end retries.
-    if (activeRequest.current || remoteRunRef.current === key) return;
-    replaceQueue(removeQueued(queuedRef.current, key, next.id));
-    await sendMessage(next.text, next.context);
+    if (sendingQueued.current.has(key) || activeRequest.current || remoteRunRef.current === key) return;
+    const target = sessionsRef.current.find(item => item.id === key);
+    if (!target || !nextQueued(queuedRef.current, key)) return;
+    sendingQueued.current.add(key);
+    let sent = false;
+    try {
+      // An abort response only acknowledges cancellation. Wait for the backend
+      // task to leave its finally blocks before submitting the next turn.
+      const deadline = Date.now() + 10000;
+      while (true) {
+        const status = await api.request<{ running: boolean }>(`/agent/session-status?${sessionQuery(target)}`);
+        if (!status.running) break;
+        if (Date.now() >= deadline) throw new Error('上一条回复仍在停止，消息已保留在队列中');
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      if (activeRequest.current) return;
+      const next = nextQueued(queuedRef.current, key);
+      if (!next) return;
+      // Resolve the latest sender, and pass the queue's owner explicitly: the
+      // old stream callback may have captured Home or another selected session.
+      sent = await sendMessageRef.current(next.text, next.context, undefined, false, false, target, next.id);
+    } catch (error) { notify(error instanceof Error ? error.message : '队列发送失败'); }
+    finally {
+      sendingQueued.current.delete(key);
+      if (sent && !activeRequest.current && queuedRef.current[key]?.length) void sendQueuedMessage(key);
+    }
   }
   function guideQueuedMessage(id: string) {
     if (!session) return;
     const key = session.id;
     replaceQueue(promoteQueued(queuedRef.current, key, id));
-    if (activeRequest.current) void stopGeneration();
+    if (activeRequest.current?.session?.id === key) void stopGeneration();
+    else if (remoteRunRef.current === key) void stopRemoteRun();
     else void sendQueuedMessage(key);
   }
 
-  async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false) {
-    if (activeRequest.current || remoteRunRef.current === (session?.id ?? '')) { if (!override && !action) queueMessage(); return; }
-    if (!override && !action && !draft.trim() && !composerContext.files.length) return;
-    if (backend.status !== 'connected' || !backend.ready || !currentWorkspace) { notify('请先连接 Loopra 并选择工作区'); return; }
-    let prompt = override || draft.trim() || (action ? '' : '请查看附件');
+  async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false, queuedSession?: Session, queuedMessageId?: string): Promise<boolean> {
+    if (!queuedSession && composerConfigBusy) return false;
+    const sendSession = queuedSession || session;
+    const sendWorkspace = queuedSession ? workspaces.find(item => item.hash === queuedSession.workspaceHash) : currentWorkspace;
+    const sendAgentId = queuedSession ? queuedSession.agentId || 'native' : agentId;
+    if (activeRequest.current || remoteRunRef.current === (sendSession?.id ?? '')) { if (override === undefined && !action) queueMessage(); return false; }
+    if (override === undefined && !action && !draft.trim() && !composerContext.files.length) return false;
+    if (backend.status !== 'connected' || !backend.ready || !sendWorkspace) { notify('请先连接 Loopra 并选择工作区'); return false; }
+    let prompt = (override ?? draft.trim()) || (action ? '' : '请查看附件');
     const titleSource = prompt;
     // Oversized directly-typed bodies are saved into the project and replaced by
     // a reference block before sending, matching legacy ChatInput.vue. The paste
     // handler already externalizes clipboard text; this covers typed/edited text.
     let savedInput: string | undefined;
-    if (!action && currentWorkspace && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
+    if (!action && sendWorkspace && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
       try {
-        const saved = await api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: workspace, content: prompt });
+        const saved = await api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: sendWorkspace.hash, content: prompt });
         if (!saved?.path) throw new Error('服务端未返回文件路径');
         savedInput = largeInputReference(saved.path, Number(saved.chars) || prompt.length);
         prompt = '';
       } catch (error) {
         notify(`大段输入内容保存失败：${error instanceof Error ? error.message : String(error)}，本次未发送`);
-        return;
+        return false;
       }
     }
+    if (activeRequest.current) return false;
     if (preferences.sound) prepareCompletionSound();
     const context = { ...(overrideContext || composerContext) };
     const text = action ? prompt : composeOutgoing(prompt, context, savedInput);
     const controller = new AbortController(); const requestId = crypto.randomUUID();
-    activeRequest.current = { controller, requestId, session };
-    setGeneratingId(session?.id || 'creating');
+    activeRequest.current = { controller, requestId, session: sendSession };
+    const request = activeRequest.current;
+    if (queuedSession && queuedMessageId) replaceQueue(removeQueued(queuedRef.current, queuedSession.id, queuedMessageId));
+    setGeneratingId(sendSession?.id || 'creating');
     setLiveSpeed(undefined);
     // A fresh send ignores the selected session so the prompt opens a new one.
-    let target = fresh ? undefined : session;
+    let target = fresh ? undefined : sendSession;
     // An auto-answered choice resumes the suspended assistant turn in place:
     // reusing its id lands the resumed stream in the same bubble, so approving
     // adds no second turn, bubble or timer and reads exactly like a plain run.
-    const source = sessionsRef.current.find(item => item.id === session?.id) || session;
+    const source = sessionsRef.current.find(item => item.id === sendSession?.id) || sendSession;
     const resumed = autoAnswer ? source?.messages.filter(entry => entry.role === 'assistant').at(-1) : undefined;
     const answerId = resumed?.id || crypto.randomUUID();
     const now = Date.now();
@@ -817,7 +853,7 @@ export default function App() {
           storeNewAgentConfig(null);
         } else {
           const created = await api.request<{ sessionName: string }>(`/sessions/new?workspaceHash=${encodeURIComponent(workspace)}`, 'POST', undefined, controller.signal);
-          target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId }, currentWorkspace);
+          target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId }, sendWorkspace);
         }
         activeRequest.current!.session = target;
         await api.request(sessionRoute(target, '/title'), 'PUT', { title: target.title }, controller.signal);
@@ -830,7 +866,7 @@ export default function App() {
       // again) instead of inserting a second one.
       if (resumed) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: undefined } : entry) } : item));
       else setSessions(current => current.map(item => item.id === id ? { ...item, messages: silent ? [...item.messages, assistant] : [...item.messages, message, assistant] } : item));
-      if (!autoAnswer) { setDraft(''); setComposerContext(emptyContext); setMenu(null); }
+      if (!autoAnswer && !queuedSession) { setDraft(''); setComposerContext(emptyContext); setMenu(null); }
       // A new prompt always returns to the newest message (legacy scroll(true)).
       userScrolledAway.current = false;
       const scroller = scrollArea.current;
@@ -838,7 +874,7 @@ export default function App() {
       setShowScrollBtn(false);
       const attachments = context.attachments || [];
       const documentText = attachments.filter(file => file.text !== undefined).map(file => `附件：${file.name}\n${file.text}`).join('\n\n');
-      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
         if (event.type === 'elicitation' && event.elicitationRequestId && event.schema) {
@@ -882,6 +918,8 @@ export default function App() {
       setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, { type: 'content', content: `\n\n${content}` }) : entry) } : item));
       notify(content.replace(/^> /, ''));
     } finally {
+      // Do not let a late abort handler cancel the queued replacement turn.
+      await request.stopPromise;
       if (target) {
         const id = target.id;
         setPendingInputs(current => ({ ...current, [id]: [] }));
@@ -904,6 +942,7 @@ export default function App() {
       setLiveSpeed(current => current && !current.done ? { ...current, done: true, avgTokensPerSecond: current.avgTokensPerSecond ?? current.tokensPerSecond } : current);
       if (target && queuedRef.current[target.id]?.length) void sendQueuedMessage(target.id);
     }
+    return true;
   }
 
   useEffect(() => {
@@ -994,8 +1033,8 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
-  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} actions={!isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
-    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey), error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
+  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
@@ -1042,6 +1081,7 @@ export default function App() {
           {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}
             engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun} onAgent={switchAgent}
+            onTaskToolbarMount={setHomeTaskToolbar}
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={<IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} />}>{composer}</HomeView> : <>

@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { SquareTerminal } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { useBashSessions } from '../useBashSessions';
@@ -8,10 +9,10 @@ import BackgroundTaskLog from './BackgroundTaskLog';
 type Props = {
   api: LoopraClient; workspaceHash: string; connected: boolean; open: boolean;
   onOpenChange: (open: boolean) => void; notify: (message: string) => void;
-  children: ReactNode; actions?: ReactNode;
+  children: ReactNode; actions?: ReactNode; toolbarTarget?: HTMLElement | null;
 };
 
-export default function BackgroundTasks({ api, workspaceHash, connected, open, onOpenChange, notify, children, actions }: Props) {
+export default function BackgroundTasks({ api, workspaceHash, connected, open, onOpenChange, notify, children, actions, toolbarTarget }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
@@ -64,14 +65,15 @@ export default function BackgroundTasks({ api, workspaceHash, connected, open, o
     };
   }, [open, onOpenChange]);
 
-  return <div className={`composer-task-anchor${taskCount > 0 ? ' has-tasks' : ''}`} ref={root} data-popover>
-    <div className="composer-task-toolbar" ref={toolbar}>
+  const taskToolbar = <div className="composer-task-toolbar" ref={toolbar}>
     {taskCount > 0 && <button ref={trigger} type="button" className={`background-tasks-trigger${open ? ' active' : ''}`}
       aria-label={unread ? '后台任务，有新任务' : '后台任务'} aria-haspopup="dialog" aria-expanded={open}
       aria-controls={open ? panelId : undefined} onClick={() => onOpenChange(!open)}>
       <SquareTerminal size="0.875rem" /><span>后台</span>{unread && <i className="background-tasks-unread" aria-hidden="true" />}
     </button>}{actions}
-    </div>
+    </div>;
+  return <div className={`composer-task-anchor${taskCount > 0 ? ' has-tasks' : ''}`} ref={root} data-popover>
+    {toolbarTarget ? createPortal(taskToolbar, toolbarTarget) : taskToolbar}
     {open && <div ref={dialog} id={panelId} className={`background-tasks-popover${placement.below ? ' below' : ''}`} style={{ '--background-tasks-height': `${placement.height}px`, '--background-tasks-offset': `${placement.offset}px` } as CSSProperties} role="dialog" aria-label="后台任务" tabIndex={-1}>
       <TerminalPanel key={workspaceHash} api={api} workspaceHash={workspaceHash} onClose={close} notify={notify} state={tasks} onInspect={() => { onOpenChange(false); setLogOpen(true); }} />
     </div>}

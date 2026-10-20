@@ -167,7 +167,8 @@ test('a fresh draft applies the remembered choices, while a session keeps its ow
   // Agent reconnects, then swap in the authoritative options.
   assert.match(app, /useLocalState<Record<string, AgentConfigOption\[\]>>\('agent-config-cache'/);
   assert.match(app, /newAgentConfig\?\.key === agentConfigKey \? newAgentConfig\.options : agentConfigCache\[newConfigKey\(agentId\)\]/);
-  assert.match(app, /busy: !!agentConfigBusy \|\| \(!session && newAgentConfig\?\.key !== agentConfigKey\)/);
+  assert.match(app, /const composerConfigBusy = !!agentConfigBusy \|\| \(!session && newAgentConfig\?\.key !== agentConfigKey\)/);
+  assert.match(app, /busy: composerConfigBusy/);
   assert.match(app, /cacheAgentConfig\(prepared\.agentId, options\)/);
 });
 

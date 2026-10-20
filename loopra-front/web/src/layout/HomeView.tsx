@@ -22,11 +22,12 @@ type HomeViewProps = {
   onRefreshEngines?: () => void;
   /** Isolation switch for the prepared draft, right-aligned on the switcher row. */
   isolation?: ReactNode;
+  onTaskToolbarMount?: (element: HTMLDivElement | null) => void;
   children: ReactNode;
 };
 
 export default function HomeView({ workspaces, workspace, workspaceName, menuOpen, onToggleMenu, onSelect, onManage,
-  engines, agentId, agentDisabled, onAgent, onRefreshEngines, isolation, children }: HomeViewProps) {
+  engines, agentId, agentDisabled, onAgent, onRefreshEngines, isolation, onTaskToolbarMount, children }: HomeViewProps) {
   // The menu opens upward by default. It is capped to the room above (the list
   // scrolls inside) and only flips below the anchor when the top of the window
   // leaves too little usable height. Heading and footer stay put either way.
@@ -49,6 +50,7 @@ export default function HomeView({ workspaces, workspace, workspaceName, menuOpe
         </Popup>
       </div>
       <AgentSwitcher engines={engines} agentId={agentId} disabled={agentDisabled} onSelect={onAgent} onRefreshEngines={onRefreshEngines} />
+      <div className="welcome-task-toolbar" ref={onTaskToolbarMount} />
       {isolation}
     </div>
     {children}
