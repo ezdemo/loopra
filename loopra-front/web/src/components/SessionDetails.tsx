@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalHeader } from '@nextui-org/react';
-import { Copy, Download, FileText, ListTree, RefreshCw } from 'lucide-react';
+import { Check, CircleAlert, Copy, Download, FileText, ListChecks, ListTree, LoaderCircle, Minus, RefreshCw, Square, X } from 'lucide-react';
+import { IconButton } from './ui';
+import { useMenuPlacement } from '../layout/menu-placement';
 import { sessionQuery, type AcpPlanEntry, type AcpSessionState, type LoopraClient } from '../backend';
 import type { Session } from '../lib';
 import { query, RemoteState, useRemote } from './RemoteControls';
@@ -50,36 +52,66 @@ export function progressStepStatusText(status: string) {
   return STEP_STATUS[status] || status || '';
 }
 
-function ProgressCard({ item, checklist }: { item: Progress; checklist: boolean }) {
+function ProgressCard({ item, checklist, onRefresh, refreshing }: { item: Progress; checklist: boolean; onRefresh: () => void; refreshing: boolean }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+  const placement = useMenuPlacement(open, root);
+  const close = () => { setOpen(false); root.current?.querySelector<HTMLButtonElement>('.progress-trigger')?.focus(); };
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: Event) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault(); setOpen(false); root.current?.querySelector<HTMLButtonElement>('.progress-trigger')?.focus();
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('focusin', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('focusin', outside); document.removeEventListener('keydown', escape); };
+  }, [open]);
   const steps = item.steps || [];
   const done = item.doneSteps ?? steps.filter(step => step.status === 'DONE').length;
   const total = item.totalSteps ?? steps.length;
   const current = item.currentStepIndex || 0;
-  const percent = checklist ? (total ? Math.min(100, Math.max(0, current / total * 100)) : 0) : (total ? Math.min(100, Math.max(0, done / total * 100)) : 0);
-  const heading = checklist ? `第 ${current}/${total} 步` : `${done}/${total}`;
+  const status = item.status?.toLowerCase() || '';
+  const running = ['active', 'running', 'in_progress'].includes(status);
   // Legacy GoalSteps.isCurrent: the running step, else the first pending one when
   // nothing is running. ChecklistSteps compares against currentStepIndex.
   const isCurrent = (step: ProgressStep, index: number) => {
+    if (['completed', 'cancelled', 'failed'].includes(status) || step.status === 'DONE' || step.status === 'SKIPPED') return false;
     if (checklist) return index === current - 1;
     if (step.status === 'IN_PROGRESS' || step.status === 'RUNNING') return true;
     if (step.status !== 'PENDING') return false;
     return !steps.some(candidate => candidate.status === 'IN_PROGRESS' || candidate.status === 'RUNNING') && steps.findIndex(candidate => candidate.status === 'PENDING') === index;
   };
-  // Legacy renders a compact pill and expands the detail on hover; a collapsed
-  // <details> keeps the same footprint without hijacking the composer hover.
-  return <details className={`session-progress-card ${checklist ? 'is-checklist' : 'is-goal'}`} aria-label={checklist ? '工作流进度' : 'Goal 进度'}>
-    <summary><span className={`progress-dot ${item.status?.toLowerCase()}`} /><strong>{item.title || (checklist ? '清单' : 'Goal')}</strong><span className={`progress-badge ${item.status?.toLowerCase()}`}>{progressStatusText(item.status, checklist)}</span>{!!total && <span className="progress-count">{heading}</span>}</summary>
-    <div className="progress-body">
-      {!!total && <div className="progress-track" role="progressbar" aria-label={checklist ? '工作流进度' : 'Goal 进度'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}><span style={{ width: `${percent}%` }} /></div>}
+  return <div ref={root} className={`session-progress-card ${checklist ? 'is-checklist' : 'is-goal'}`} data-open={open} data-state={status} data-placement={placement.side}
+    style={{ '--progress-max-height': `${placement.maxHeight}px` } as CSSProperties} role="group" aria-label={checklist ? '工作流进度' : 'Goal 进度'}>
+    <button type="button" className={`background-tasks-trigger progress-trigger${open ? ' active' : ''}`} aria-label={checklist ? '待办清单' : '任务清单'} aria-expanded={open} aria-controls={panelId}
+      onClick={() => setOpen(value => !value)}><ListChecks size="0.875rem" aria-hidden="true" /><span>{checklist ? '待办' : '任务'}</span>
+      {!!total && <span className="progress-count" aria-label={`已完成 ${done}/${total} 项`}>{done}/{total}</span>}</button>
+    <div id={panelId} className="progress-body" role="region" aria-label={item.title || '清单步骤'} hidden={!open}>
+      <header className="progress-panel-heading"><span className="progress-panel-label"><ListChecks size="1.0625rem" aria-hidden="true" />{checklist ? '待办清单' : '任务清单'}</span>
+        <small className="progress-panel-summary">已完成 {done}/{total} 项{!running && !!status && <> · <span className="progress-state">{progressStatusText(item.status, checklist)}</span></>}</small>
+        <IconButton label="刷新清单" onClick={() => { if (!refreshing) onRefresh(); }}><RefreshCw size="1rem" className={refreshing ? 'progress-spinner' : undefined} /></IconButton>
+        <IconButton label="关闭清单" onClick={close}><X size="1.0625rem" /></IconButton></header>
+      <div className="progress-panel-content">
+      <p className="progress-panel-title">{item.title || (checklist ? '待办清单' : '任务清单')}</p>
       {item.blockedReason && <p className="progress-blocked">{item.blockedReason}</p>}
-      <ol className="progress-steps">{steps.map((step, index) => <li key={step.id || step.index || index} className={`progress-step ${step.status?.toLowerCase()}${isCurrent(step, index) ? ' current' : ''}`}>
-        <i className={`progress-step-dot ${step.status?.toLowerCase()}`} />
-        <div><strong>{step.description}</strong>{step.kind === 'HITL' && <em>人工审批</em>}{step.kind === 'FORK' && <em>分支</em>}<small>{step.result || step.evidence || progressStepStatusText(step.status)}</small></div>
-      </li>)}</ol>
+      <ol className="progress-steps">{steps.map((step, index) => {
+        const active = isCurrent(step, index);
+        const failed = step.status === 'FAILED' || step.status === 'BLOCKED';
+        const StepIcon = failed ? CircleAlert : step.status === 'DONE' ? Check : step.status === 'SKIPPED' ? Minus : active && running ? LoaderCircle : Square;
+        return <li key={step.id || step.index || index} aria-current={active ? 'step' : undefined} className={`progress-step ${step.status?.toLowerCase()}${active ? ' current' : ''}`}>
+          <span className="progress-step-mark" role="img" aria-label={progressStepStatusText(step.status)}><StepIcon size="0.875rem" className={active && running && !failed ? 'progress-spinner' : undefined} /></span>
+          <div><span className="progress-step-text">{step.description}</span>{step.kind === 'HITL' && <em>人工审批</em>}{step.kind === 'FORK' && <em>分支</em>}{(step.result || step.evidence) && <small>{step.result || step.evidence}</small>}</div>
+        </li>;
+      })}</ol>
       {item.verifyCommand && <p className="progress-verify">验证命令: {item.verifyCommand}</p>}
       {item.completionSummary && <p className="progress-summary">{item.completionSummary}</p>}
+      </div>
     </div>
-  </details>;
+  </div>;
 }
 
 export function acpPlanProgress(entries: AcpPlanEntry[]): Progress | null {
@@ -91,16 +123,28 @@ export function acpPlanProgress(entries: AcpPlanEntry[]): Progress | null {
 }
 
 export function SessionProgress({ api, session, revision, externalPlan }: { api: LoopraClient; session: Session; revision: number; externalPlan?: AcpPlanEntry[] }) {
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const refresh = () => setRefreshRevision(value => value + 1);
+  const dataRevision = revision + refreshRevision;
   const suffix = query({ workspaceHash: session.workspaceHash });
   const external = !!session.agentId && session.agentId !== 'native';
-  const goal = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/goal?${suffix}`, revision);
-  const checklist = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/checklist?${suffix}`, revision);
-  const acp = useRemote<AcpSessionState>(api, external ? `/agent/acp-state?${sessionQuery(session)}` : null, revision);
+  const goal = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/goal?${suffix}`, dataRevision);
+  const checklist = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/checklist?${suffix}`, dataRevision);
+  const acp = useRemote<AcpSessionState>(api, external ? `/agent/acp-state?${sessionQuery(session)}` : null, dataRevision);
+  // Polling clears useRemote's data while loading. Keep the panel mounted so
+  // refreshes preserve its open state and the reader's scroll position.
+  const snapshot = useRef<{ api: LoopraClient; id: string; goal?: Progress | null; checklist?: Progress | null; acp?: AcpSessionState }>({ api, id: session.id });
+  if (snapshot.current.api !== api || snapshot.current.id !== session.id) snapshot.current = { api, id: session.id };
+  if (goal.data !== undefined) snapshot.current.goal = goal.data;
+  if (checklist.data !== undefined) snapshot.current.checklist = checklist.data;
+  if (acp.data !== undefined) snapshot.current.acp = acp.data;
+  const goalData = snapshot.current.goal, checklistData = snapshot.current.checklist;
+  const refreshing = goal.loading || checklist.loading || acp.loading;
   if (external) {
-    const plan = acpPlanProgress(externalPlan ?? acp.data?.plan ?? []);
-    return plan ? <div className="session-progress"><ProgressCard item={plan} checklist={false} /></div> : null;
+    const plan = acpPlanProgress(externalPlan ?? snapshot.current.acp?.plan ?? []);
+    return plan ? <div className="session-progress"><ProgressCard item={plan} checklist={false} onRefresh={refresh} refreshing={refreshing} /></div> : null;
   }
-  const items = [goal.data, checklist.data].filter((item): item is Progress => !!item?.title);
+  const items = [goalData, checklistData].filter((item): item is Progress => !!item?.title);
   if (!items.length) return null;
-  return <div className="session-progress">{goal.data?.title && <ProgressCard item={goal.data} checklist={false} />}{checklist.data?.title && <ProgressCard item={checklist.data} checklist />}</div>;
+  return <div className="session-progress">{goalData?.title && <ProgressCard item={goalData} checklist={false} onRefresh={refresh} refreshing={refreshing} />}{checklistData?.title && <ProgressCard item={checklistData} checklist onRefresh={refresh} refreshing={refreshing} />}</div>;
 }

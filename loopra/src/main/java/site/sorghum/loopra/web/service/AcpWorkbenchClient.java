@@ -49,6 +49,8 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     private final Map<String, String> subToolParents = new ConcurrentHashMap<>();
     /** Native ACP child session -> its immediate parent; only announced children are accepted. */
     private final Map<String, String> childSessions = new ConcurrentHashMap<>();
+    /** Codex adapters may report collaboration as ordinary tools instead of child sessions. */
+    private final java.util.Set<String> legacyCodexChildren = ConcurrentHashMap.newKeySet();
     /** Root-routed child approvals can be attributed only when the raw tool id is unambiguous. */
     private final Map<String, String> childPermissionTools = new ConcurrentHashMap<>();
     private final boolean requestChildSessions;
@@ -314,8 +316,20 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     }
 
     private void accept(SessionNotification notification, String child) {
-        if (replaying && child == null) return;
         var update = notification.update();
+        if (replaying && child == null) {
+            // Rebuild legacy Codex child records on load without duplicating the root transcript.
+            if (update instanceof ToolCall call) {
+                String name = toolName(call.title(), call.meta());
+                toolNames.put(call.toolCallId(), name);
+                acceptCodexCollaboration(name, call.rawInput());
+            } else if (update instanceof ToolCallUpdateNotification call) {
+                String name = call.title() == null ? toolNames.getOrDefault(call.toolCallId(), "unknown") : toolName(call.title(), call.meta());
+                toolNames.put(call.toolCallId(), name);
+                acceptCodexCollaboration(name, call.rawInput());
+            }
+            return;
+        }
         // Claude Code keeps a subagent's transcript on the root session and stamps every
         // nested update with the Agent/Task call that spawned it. Route those updates into
         // the same `sub_*` events Native subagents emit, so the workbench nests them.
@@ -342,6 +356,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
                     "args", call.rawInput() == null ? "{}" : ONode.serialize(call.rawInput())));
             finishTool(call.toolCallId(), key, name, call.status(), call.rawOutput(), call.content(), subId);
             if (child == null) finishSubAgent(call.toolCallId(), call.status(), call.rawOutput());
+            if (child == null) acceptCodexCollaboration(name, call.rawInput());
         } else if (update instanceof ToolCallUpdateNotification call) {
             String key = toolKey(child, call.toolCallId());
             if (child != null) rememberChildTool(key, call.toolCallId(), child);
@@ -360,6 +375,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
             }
             finishTool(call.toolCallId(), key, name, call.status(), call.rawOutput(), call.content(), subId);
             if (child == null) finishSubAgent(call.toolCallId(), call.status(), call.rawOutput());
+            if (child == null) acceptCodexCollaboration(name, call.rawInput());
         } else if (child == null && update instanceof UsageUpdate usage) {
             reportUsage(usage);
         }
@@ -374,6 +390,43 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         childPermissionTools.merge(toolId, child, (previous, current) -> previous.equals(current) ? previous : "");
     }
 
+    /** Preserve real child identities even when the adapter falls back to collaboration tools. */
+    private void acceptCodexCollaboration(String name, Object raw) {
+        if (!requestChildSessions || !(raw instanceof Map<?, ?> input)
+                || !java.util.Objects.equals(sessionId, input.get("senderThreadId"))
+                || !List.of("spawnAgent", "wait", "sendInput", "resumeAgent", "followupTask", "closeAgent").contains(name)) return;
+        if ("spawnAgent".equals(name) && input.get("receiverThreadIds") instanceof List<?> receivers) {
+            for (Object receiver : receivers) {
+                if (!(receiver instanceof String id) || id.isBlank() || id.equals(sessionId)
+                        || childSessions.containsKey(id) || !subAgentIds.add(id)) continue;
+                legacyCodexChildren.add(id);
+                String task = firstText(input, "prompt");
+                sendSubEvent(id, "sub_start", Map.of("name", "Codex", "task", task == null ? "子代理" : clip(task),
+                        "title", task == null ? "子代理" : clip(task), "startedAt", System.currentTimeMillis()));
+            }
+        }
+        if (!(input.get("agentsStates") instanceof Map<?, ?> states)) return;
+        for (var entry : states.entrySet()) {
+            if (!(entry.getKey() instanceof String id) || !legacyCodexChildren.contains(id)
+                    || !(entry.getValue() instanceof Map<?, ?> state) || endedSubAgents.contains(id)) continue;
+            String status = switch (String.valueOf(state.get("status"))) {
+                case "completed" -> "completed";
+                case "interrupted" -> "aborted";
+                case "errored", "shutdown", "notFound" -> "error";
+                default -> null;
+            };
+            // A completed spawn/wait tool does not mean its children have finished.
+            if (status == null || !endedSubAgents.add(id)) continue;
+            String message = firstText(state, "message");
+            if (message != null) sendSubEvent(id, "sub_content", Map.of("token", message));
+            Map<String, Object> end = new java.util.LinkedHashMap<>();
+            end.put("status", status);
+            end.put("endedAt", System.currentTimeMillis());
+            if ("error".equals(status)) end.put("error", message == null ? "子代理执行失败" : message);
+            sendSubEvent(id, "sub_end", end);
+        }
+    }
+
     /** Draft Codex lifecycle updates are decoded before the older SDK's SessionUpdate union. */
     private void acceptChildLifecycle(String parent, Map<?, ?> update) {
         if (!(update.get("subagentSessionId") instanceof String child) || child.isBlank()
@@ -381,7 +434,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         if ("subagent_spawned".equals(update.get("sessionUpdate"))) {
             // Never reparent a known child or restart/truncate its transcript on duplicate announcements.
             if (childSessions.putIfAbsent(child, parent) != null) return;
-            subAgentIds.add(child);
+            if (!subAgentIds.add(child)) return;
             Map<String, Object> start = new java.util.LinkedHashMap<>();
             String name = firstText(update, "name"), task = firstText(update, "task");
             start.put("name", name == null ? "Codex" : clip(name));

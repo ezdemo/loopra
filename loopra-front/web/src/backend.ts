@@ -186,7 +186,8 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
   return { ...message, blocks, text: blocks.flatMap(block => block.type === 'content' ? [block.content] : []).join('\n\n') };
 }
 
-export type HistoryMessage = { snapshot_id?: string; rollback_id?: string; role: string; content?: string | { type: string; text?: string; image_url?: { url: string } }[]; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; response_reasoning?: unknown; responseReasoning?: unknown; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number };
+type HistoryContentPart = { type: string; text?: string; image_url?: { url: string }; imageUrl?: { url: string } };
+export type HistoryMessage = { snapshot_id?: string; rollback_id?: string; role: string; content?: string | HistoryContentPart[] | null; contentParts?: HistoryContentPart[] | null; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; response_reasoning?: unknown; responseReasoning?: unknown; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number };
 
 /** Legacy `chatHistory.hasEncryptedReasoning`: does a stored turn hide reasoning? */
 export function hasEncryptedReasoning(value: unknown) {
@@ -204,11 +205,16 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
   const results = new Map(raw.filter(item => item.role === 'tool' && item.tool_call_id).map(item => [item.tool_call_id!, item]));
   let current: Message | undefined;
   for (const [index, entry] of raw.entries()) {
-    const content = Array.isArray(entry.content) ? entry.content.filter(part => part.type === 'text').map(part => part.text || '').join('\n') : entry.content || '';
+    // The history API serializes ChatMessage.contentParts separately; JSONL uses content[].
+    const parts = entry.contentParts?.length ? entry.contentParts : Array.isArray(entry.content) ? entry.content : undefined;
+    const content = parts ? parts.filter(part => part.type === 'text').map(part => part.text || '').join('\n') : typeof entry.content === 'string' ? entry.content : '';
     const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
     if (entry.role === 'user') {
       current = undefined;
-      if (!entry.web_hidden && !entry.webHidden) messages.push({ id: `history-${index}`, role: 'user', text: content, time, historyCount: index + 1, snapshotId: entry.snapshot_id, rollbackId: entry.rollback_id || entry.snapshot_id, rollbackTimestamp: entry.timestamp, images: Array.isArray(entry.content) ? entry.content.flatMap(part => part.image_url?.url ? [part.image_url.url] : []) : [] });
+      if (!entry.web_hidden && !entry.webHidden) messages.push({ id: `history-${index}`, role: 'user', text: content, time, historyCount: index + 1, snapshotId: entry.snapshot_id, rollbackId: entry.rollback_id || entry.snapshot_id, rollbackTimestamp: entry.timestamp, images: (parts || []).flatMap(part => {
+        const url = part.image_url?.url || part.imageUrl?.url;
+        return part.type === 'image_url' && url ? [url] : [];
+      }) });
     } else if (entry.role === 'tool') {
       if (current) current.historyCount = index + 1;
     } else if (entry.role === 'assistant') {

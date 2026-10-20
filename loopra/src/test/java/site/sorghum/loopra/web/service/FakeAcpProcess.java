@@ -77,6 +77,7 @@ public final class FakeAcpProcess {
                     directories = readDirectories(message);
                     update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "OLD REPLAY")));
                     if (nativeChildren && Boolean.getBoolean("loopra.fake.replayChildren")) nativeTranscript();
+                    if (Boolean.getBoolean("loopra.fake.replayLegacyChildren")) legacyCodexTranscript("legacy-codex");
                     response(id, Map.of("configOptions", config()));
                 }
                 case "session/set_mode" -> response(id, Map.of());
@@ -120,6 +121,12 @@ public final class FakeAcpProcess {
                         response(id, Map.of("stopReason", "end_turn")); continue;
                     }
                     if (text.startsWith("stop:")) { response(id, Map.of("stopReason", text.substring(5))); continue; }
+                    if (text.startsWith("legacy-codex")) {
+                        legacyCodexTranscript(text);
+                        if (text.equals("legacy-codex-wait")) { promptId = id; continue; }
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "root finished")));
+                        response(id, Map.of("stopReason", "end_turn")); continue;
+                    }
                     if (text.startsWith("native-")) {
                         if (!nativeChildren) {
                             update(Map.of("sessionUpdate", "tool_call", "toolCallId", "spawn", "title", "spawnAgent", "status", "completed", "rawOutput", "legacy result"));
@@ -245,6 +252,19 @@ public final class FakeAcpProcess {
     }
     private static void update(Map<String, Object> update) {
         childUpdate("fake-session", update);
+    }
+    private static void legacyCodexTranscript(String text) {
+        var running = Map.of("senderThreadId", "fake-session", "receiverThreadIds", List.of("legacy-child"),
+                "prompt", "Review the code", "agentsStates", Map.of("legacy-child", Map.of("status", "pendingInit")), "status", "completed");
+        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "spawn-legacy", "title", "spawnAgent", "status", "in_progress"));
+        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "spawn-legacy", "rawInput", running, "status", "completed"));
+        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "spawn-legacy", "rawInput", running, "status", "completed"));
+        if (text.equals("legacy-codex-wait")) return;
+        String state = text.equals("legacy-codex-failure") ? "errored" : "completed";
+        var done = Map.of("senderThreadId", "fake-session", "receiverThreadIds", List.of("legacy-child"),
+                "agentsStates", Map.of("legacy-child", Map.of("status", state, "message", "child review")), "status", "completed");
+        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "wait-legacy", "title", "wait", "rawInput", done, "status", "completed"));
+        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "close-legacy", "title", "closeAgent", "rawInput", done, "status", "completed"));
     }
     private static void childUpdate(String session, Map<String, Object> update) {
         send(Map.of("jsonrpc", "2.0", "method", "session/update", "params", Map.of("sessionId", session, "update", update)));

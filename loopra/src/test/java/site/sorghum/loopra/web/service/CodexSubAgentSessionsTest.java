@@ -125,7 +125,8 @@ class CodexSubAgentSessionsTest {
         } finally { worker.shutdownNow(); store.shutdown(); }
     }
 
-    @Test void cancellingRootClosesChildRecordsAndAllowsTheNextTurn() throws Exception {
+    @ParameterizedTest @ValueSource(strings = {"native-wait", "legacy-codex-wait"})
+    void cancellingRootClosesChildRecordsAndAllowsTheNextTurn(String text) throws Exception {
         var store = store();
         var active = new AtomicReference<AcpWorkbenchClient>();
         var ready = new CountDownLatch(1);
@@ -138,7 +139,7 @@ class CodexSubAgentSessionsTest {
         ExecutorService worker = Executors.newSingleThreadExecutor();
         try (var runtime = runtime()) {
             Future<?> turn = worker.submit(() -> {
-                try { runtime.prompt("key", home, "chat", store, UserMessage.of("native-wait"), output, false, null, List.of(), active::set, ignored -> {}); }
+                try { runtime.prompt("key", home, "chat", store, UserMessage.of(text), output, false, null, List.of(), active::set, ignored -> {}); }
                 catch (Exception e) { throw new RuntimeException(e); }
             });
             assertTrue(ready.await(8, TimeUnit.SECONDS));
@@ -160,6 +161,22 @@ class CodexSubAgentSessionsTest {
         } finally { store.shutdown(); }
     }
 
+    @ParameterizedTest @ValueSource(strings = {"legacy-codex", "legacy-codex-failure"})
+    void legacyCollaborationToolsAlsoCreateTabsAndReplayWithoutDuplicateAnswers(String text) throws Exception {
+        var store = store();
+        var output = new Output();
+        try (var runtime = runtime("-Dloopra.fake.noSubagents=true")) {
+            prompt(runtime, store, text, output);
+            assertEquals(1, output.types.stream().filter("sub_start"::equals).count());
+            assertEquals(1, output.types.stream().filter("sub_end"::equals).count());
+            assertEquals("legacy-child", output.events.stream().filter(event -> "sub_start".equals(event.get("type").getString())).findFirst().orElseThrow().get("subSessionId").getString());
+            assertEquals("root finished", output.text.toString());
+            var replay = new SubAgentSessionStore(home.resolve("sessions"));
+            assertEquals(text.endsWith("failure") ? "error" : "completed", replay.list("chat").get(0).status());
+            assertEquals(1, replay.events("chat", "legacy-child").stream().filter(event -> "child review".equals(event.get("token"))).count());
+        } finally { store.shutdown(); }
+    }
+
     @Test void failuresAndOpaqueSessionIdsHaveStableReplayRecords() throws Exception {
         var store = store();
         try {
@@ -171,6 +188,35 @@ class CodexSubAgentSessionsTest {
             }
             assertEquals(4, replay.list("chat").size(), "Distinct opaque IDs must not collide after sanitizing");
             assertTrue(replay.list("chat").stream().allMatch(item -> SubAgentSessionStore.isValidSubSessionId(item.subSessionId())));
+        } finally { store.shutdown(); }
+    }
+
+    @Test void legacyHistoryRebuildsReplayWithoutEmittingLiveTabsOrDuplicatingRecords() throws Exception {
+        var store = store();
+        try {
+            try (var runtime = runtime("-Dloopra.fake.noSubagents=true")) { prompt(runtime, store, "next", new Output()); }
+            var replay = new SubAgentSessionStore(home.resolve("sessions"));
+            for (int attempt = 0; attempt < 2; attempt++) {
+                var output = new Output();
+                try (var runtime = runtime("-Dloopra.fake.noSubagents=true", "-Dloopra.fake.replayLegacyChildren=true")) {
+                    prompt(runtime, store, "next", output);
+                }
+                assertEquals("reply:next", output.text.toString());
+                assertFalse(output.types.contains("sub_start"));
+                assertEquals(1, replay.list("chat").size());
+                assertEquals("completed", replay.list("chat").get(0).status());
+                assertEquals(3, replay.events("chat", "legacy-child").size());
+            }
+        } finally { store.shutdown(); }
+    }
+
+    @Test void similarlyNamedToolsFromOtherProvidersDoNotCreateCodexChildren() throws Exception {
+        var store = store();
+        store.setAcpBinding("chat", new SessionStore.AcpBinding("claude-code", null, null));
+        try (var runtime = runtime()) {
+            var output = new Output();
+            prompt(runtime, store, "legacy-codex", output);
+            assertFalse(output.types.contains("sub_start"));
         } finally { store.shutdown(); }
     }
 }
