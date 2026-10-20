@@ -5,18 +5,23 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
+import site.sorghum.loopra.bin.agent.model.ChatMessage;
+import site.sorghum.loopra.bin.agent.model.ToolCallEntry;
 import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.prompt.PromptPrefix;
 import site.sorghum.loopra.bin.config.LoopraConfig;
+import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.model.ModelPriceProvider;
 import site.sorghum.loopra.bin.model.TestLoopraProvider;
 import site.sorghum.loopra.bin.session.JsonlSessionStore;
+import site.sorghum.loopra.bin.session.SessionStore;
 import site.sorghum.loopra.bin.tool.ToolRegistry;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer.ToolSystem;
 import site.sorghum.loopra.web.model.UsageDTO;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,6 +37,7 @@ class SessionUsageServiceTest {
     void createHistoricalAgent() {
         previousHome = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
+        ConfigService.reload();
         ToolRegistry tools = new ToolRegistry().setDisabledTools(Set.of());
         tools.setEnvironment(SessionEnvironment.local(home.resolve("project")));
         store = new StoredUsage(home.resolve("sessions"));
@@ -148,6 +154,78 @@ class SessionUsageServiceTest {
         UsageDTO invalid = service(Map.of(), null).readAcp(
                 new site.sorghum.loopra.bin.session.SessionStore.AcpUsage(100, 0, null, null, null));
         assertEquals(0, invalid.maxContextTokens());
+    }
+
+    @Test
+    void acpReportedTotalAndWindowKeepPriorityOverTranscriptEstimate() throws Exception {
+        store.setAcpUsage("session", new SessionStore.AcpUsage(375000, 475000, 0.05, "USD", "external"));
+        store.append(ChatMessage.ofUser("用户问题"));
+        store.append(ChatMessage.assistant("回答", List.of(new ToolCallEntry("call", "read", "{}")), null));
+        store.append(ChatMessage.tool("call", "工具结果"));
+        UsageDTO result = service(Map.of(), null).readAcp(store, "session");
+        assertEquals(375000, result.lastPromptTokens());
+        assertEquals(475000, result.maxContextTokens());
+        assertEquals("agent", result.contextSource());
+        assertEquals("transcript", result.contextEstimateScope());
+        assertTrue(result.contextEstimate().userTokens() > 0);
+        assertTrue(result.contextEstimate().assistantTokens() > 0);
+        assertTrue(result.contextEstimate().toolResultTokens() > 0);
+        assertEquals(0, result.contextEstimate().systemTokens());
+        assertEquals(0, result.contextEstimate().toolDefinitionTokens());
+        assertNotEquals(result.lastPromptTokens(), result.contextEstimate().totalTokens());
+        assertEquals(0.05, result.totalCost());
+    }
+
+    @Test
+    void acpWithoutUsageEstimatesStoredTranscriptAndResolvesItsOwnModelWindow() throws Exception {
+        store.setAgentConfig("session", Map.of("model", "\"external\""));
+        store.append(ChatMessage.ofUser("这是已保存的会话"));
+        SessionUsageService service = new SessionUsageService(() -> Map.of(), () -> null,
+                () -> { throw new AssertionError("must not use the Native default model"); },
+                model -> "external".equals(model) ? 200000 : 0);
+        UsageDTO result = service.readAcp(store, "session");
+        assertEquals("external", result.model());
+        assertEquals(200000, result.maxContextTokens());
+        assertEquals("loopra", result.contextSource());
+        assertTrue(result.contextEstimate().totalTokens() > 0);
+        assertEquals(0, result.lastPromptTokens());
+        assertFalse(result.hasPrice());
+    }
+
+    @Test
+    void acpZeroUsageRemainsAuthoritativeEvenWithANonemptyTranscript() throws Exception {
+        store.setAcpUsage("session", new SessionStore.AcpUsage(0, 200000, null, null, null));
+        store.append(ChatMessage.ofUser("压缩之前的历史"));
+        UsageDTO result = service(Map.of(), null).readAcp(store, "session");
+        assertEquals("agent", result.contextSource());
+        assertEquals(0, result.lastPromptTokens());
+        assertTrue(result.contextEstimate().totalTokens() > 0);
+    }
+
+    @Test
+    void acpUnknownWindowDoesNotBorrowTheNativeDefault() throws Exception {
+        store.append(ChatMessage.ofUser("会话内容"));
+        UsageDTO result = service(Map.of(), null).readAcp(store, "session");
+        assertEquals(0, result.maxContextTokens());
+        assertNull(result.model());
+        assertTrue(result.contextEstimate().totalTokens() > 0);
+    }
+
+    @Test
+    void acpTranscriptReadFailurePreservesReportedUsage() throws Exception {
+        var unreadable = new JsonlSessionStore(home.resolve("unreadable")) {
+            @Override public List<ChatMessage> load(String name) throws java.io.IOException {
+                throw new java.io.IOException("unavailable");
+            }
+        };
+        try {
+            unreadable.setAcpUsage("session", new SessionStore.AcpUsage(3210, 200000, 0.04, "USD", "external"));
+            UsageDTO result = service(Map.of(), null).readAcp(unreadable, "session");
+            assertEquals(3210, result.lastPromptTokens());
+            assertEquals("agent", result.contextSource());
+            assertNull(result.contextEstimate());
+            assertEquals(0.04, result.totalCost());
+        } finally { unreadable.shutdown(); }
     }
 
     @Test

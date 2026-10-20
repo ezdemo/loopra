@@ -28,6 +28,8 @@ export type HeaderProps = {
   onDelete: () => void;
   onCopyTitle: () => void;
   onShowChanges: () => void;
+  onVersion: () => void;
+  latestVersion?: string;
 };
 
 function statusLabel(backend: HeaderProps['backend']) {
@@ -38,6 +40,9 @@ function statusLabel(backend: HeaderProps['backend']) {
 
 export default function Header(p: HeaderProps) {
   const { session, menu, backend } = p;
+  const version = backend.version.replace(/^v/i, '');
+  const latestVersion = p.latestVersion?.replace(/^v/i, '');
+  const versionLabel = version ? `v${version}` : 'v—';
   return <header className={`conversation-header ${p.isHome ? 'home-header' : ''}`}>
     {!p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
     {!p.isHome && session && <div className="breadcrumb">
@@ -58,7 +63,15 @@ export default function Header(p: HeaderProps) {
     {/* Electron drag area: the empty stretch between the title and the actions. */}
     <div className="header-drag" aria-hidden="true" />
     <div className="header-actions">
-      <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · v${backend.version}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
+      <button type="button" className={`app-version${latestVersion ? ' has-update' : ''}`}
+        title={latestVersion ? `发现新版本 v${latestVersion}，当前版本 ${versionLabel}` : `当前版本 ${versionLabel}`}
+        aria-label={latestVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`}
+        onClick={p.onVersion}>
+        {latestVersion
+          ? <span className="app-version-update"><Download size="0.75rem" strokeWidth={1.8} aria-hidden="true" /><span>发现新版</span></span>
+          : <span className="app-version-number">{versionLabel}</span>}
+      </button>
+      <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
       {!p.isHome && <>
         <div data-popover className="menu-anchor">
           <div className="folder-split">

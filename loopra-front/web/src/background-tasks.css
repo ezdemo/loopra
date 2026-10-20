@@ -43,3 +43,65 @@
 .background-task-log-info code { max-height: 6rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .background-task-log-info small { color: var(--muted); overflow-wrap: anywhere; }
 .background-task-log-output { flex: 1; min-height: 0; margin: 0; padding: 1rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--soft); border-radius: var(--radius-md); font: .8125rem/1.6 var(--code-font, monospace); }
+
+.app-dialog.version-update-modal { width: min(56rem, calc(100vw - 2rem)) !important; max-width: 56rem !important; height: min(41rem, calc(100dvh - 2rem)); box-shadow: 0 1.5rem 5rem #00000024, 0 .25rem 1rem #0000000a; }
+.version-update-modal .app-dialog-header { gap: .75rem; padding: 1.5rem 3.5rem 1.25rem 1.5rem; }
+.version-update-header-icon { display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; flex-shrink: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--soft); color: var(--secondary); }
+.version-update-heading { min-width: 0; }
+.version-update-heading p { margin: .25rem 0 0; color: var(--secondary); font-size: .75rem; font-weight: 400; line-height: 1.5; }
+.version-update-modal .app-dialog-body { gap: 1rem; padding: 0 1.5rem 1.5rem; }
+.version-update-summary { --update-tone: var(--secondary); display: flex; align-items: center; flex-shrink: 0; gap: .875rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--update-tone) 22%, var(--line)); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--update-tone) 4%, var(--surface)); }
+.version-update-summary[data-state="success"] { --update-tone: var(--success); }
+.version-update-summary[data-state="failed"] { --update-tone: var(--danger); }
+.version-update-summary[data-state="starting"], .version-update-summary[data-state="running"] { --update-tone: var(--blue); }
+.version-update-summary[data-state="stopped"] { --update-tone: var(--warning); }
+.version-update-status-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-md); background: color-mix(in srgb, var(--update-tone) 10%, var(--surface)); color: var(--update-tone); }
+.version-update-summary-copy { min-width: 0; }
+.version-update-summary-title { display: flex; align-items: center; flex-wrap: wrap; gap: .625rem; }
+.version-update-summary-title strong { color: var(--text); font-size: .875rem; font-weight: 600; overflow-wrap: anywhere; }
+.version-update-state { color: color-mix(in srgb, var(--update-tone) 75%, var(--text)); font-size: .75rem; font-weight: 500; }
+.version-update-summary-copy p { margin: .25rem 0 0; color: var(--secondary); font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; }
+.version-update-console { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.version-update-console-toolbar { display: flex; align-items: center; flex-shrink: 0; gap: .75rem; min-height: 2.75rem; padding: .375rem .75rem .375rem 1rem; border-bottom: 1px solid var(--line); background: var(--soft); }
+.version-update-console-title { display: inline-flex; align-items: center; gap: .5rem; color: var(--secondary); font-size: .75rem; font-weight: 500; }
+.version-update-line-count { margin-left: auto; color: var(--secondary); font-size: .6875rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.version-update-copy { min-width: 0 !important; height: 1.875rem; padding: 0 .5rem; gap: .375rem; border-radius: var(--radius-sm); color: var(--secondary); font-size: .6875rem; }
+.version-update-console .version-update-output { padding: 1rem 1.25rem; border-radius: 0; background: var(--surface); color: var(--secondary); font: .75rem/1.85 "JetBrains Mono Variable", "Cascadia Code", Consolas, "Microsoft YaHei", monospace; font-variant-ligatures: none; tab-size: 4; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.version-update-output:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.version-update-log-file { display: flex; align-items: center; flex-shrink: 0; gap: .5rem; min-height: 2.5rem; padding: .375rem .625rem .375rem 1rem; border-top: 1px solid var(--line); background: var(--soft); color: var(--secondary); font-size: .6875rem; }
+.version-update-log-file > span { flex-shrink: 0; }
+.version-update-log-file code { flex: 1; min-width: 0; padding: 0; overflow: hidden; background: transparent; color: var(--secondary); font: .6875rem/1.5 "JetBrains Mono Variable", "Cascadia Code", Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.version-update-copy-path { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; flex-shrink: 0; border-radius: var(--radius-sm); color: var(--secondary); }
+.version-update-modal .app-dialog-footer { gap: .75rem; padding: 1rem 1.5rem; }
+.version-update-footer-note { display: inline-flex; align-items: center; gap: .375rem; min-width: 0; margin-right: auto; color: var(--secondary); font-size: .6875rem; line-height: 1.6; }
+.app-dialog.version-update-confirmation { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; height: auto; }
+.version-update-confirmation .app-dialog-body { overflow-y: auto; }
+.version-update-versions { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 1rem; padding: 1.5rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--soft); }
+.version-update-versions dl { min-width: 0; margin: 0; }
+.version-update-versions dt { margin-bottom: .5rem; color: var(--secondary); font-size: .75rem; }
+.version-update-versions dd { margin: 0; color: var(--text); font: 600 1.375rem/1.5 "JetBrains Mono Variable", "Cascadia Code", Consolas, "Microsoft YaHei", monospace; overflow-wrap: anywhere; }
+.version-update-versions > svg { color: var(--muted); }
+.version-update-latest dd { color: var(--blue); }
+.version-update-check-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: var(--secondary); font-size: .75rem; }
+.version-update-check-row > button { flex-shrink: 0; min-width: 0; gap: .375rem; padding: 0 .5rem; color: var(--secondary); font-size: .75rem; }
+.version-update-source { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .75rem; }
+.version-update-source > span { flex-shrink: 0; color: var(--secondary); }
+.version-update-source > .settings-next-select { width: min(16rem, 75%); min-width: 0; }
+.version-update-confirmation .app-dialog-footer { flex-wrap: wrap; }
+.version-update-confirmation .version-update-footer-note { flex-basis: 100%; }
+.version-update-summary:is([data-state="starting"], [data-state="running"]) .version-update-status-icon svg { animation: version-update-spin 1.2s linear infinite; }
+@keyframes version-update-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .version-update-summary .version-update-status-icon svg { animation: none !important; } }
+@media (max-width: 640px) {
+  .version-update-modal .app-dialog-header { padding: 1.125rem 3rem 1rem 1rem; }
+  .version-update-modal .app-dialog-body { padding: 0 1rem 1rem; gap: .75rem; }
+  .version-update-summary { padding: .75rem; gap: .625rem; }
+  .version-update-versions { gap: .75rem; padding: 1rem; }
+  .version-update-versions dd { font-size: 1.125rem; }
+  .version-update-console-toolbar { gap: .375rem; padding-left: .75rem; }
+  .version-update-console .version-update-output { padding: .875rem; font-size: .6875rem; }
+  .version-update-log-file { padding-left: .75rem; }
+  .version-update-log-file > span { display: none; }
+  .version-update-modal .app-dialog-footer { flex-wrap: wrap; padding: .75rem 1rem; }
+  .version-update-footer-note { flex-basis: 100%; }
+}

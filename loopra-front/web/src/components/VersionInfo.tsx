@@ -1,23 +1,30 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { ArrowUpRight, Download, RefreshCw, Server, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Download, RefreshCw, Server } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { errorText } from './RemoteControls';
 import { PageActions, SelectField, SettingRow } from './SettingControls';
-import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL, buildUpdateCommand, loadUpdateSource, saveUpdateSource } from '../update-scripts';
+import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL, buildUpdateCommand } from '../update-scripts';
+import type { VersionCheck } from '../version';
+import { CoreServiceUpdateDialog, useCoreServiceUpdate, type CoreServiceUpdateController } from './CoreServiceUpdate';
 
 type SystemVersion = { version: string; name?: string; buildTime?: string };
-type VersionCheck = { currentVersion: string; latestVersion: string; hasNewVersion: boolean; releaseUrl?: string | null; releaseNotes?: string | null; checkTime?: string | null };
 
 // 设置 → 关于：核心服务版本、检查更新与更新命令（旧 VersionInfoPanel.vue）。
-export default function VersionInfo({ api, notify, onAutoUpdate }: { api: LoopraClient; notify: (text: string) => void; onAutoUpdate: () => void }) {
+type VersionInfoProps = { api: LoopraClient; notify: (text: string) => void; initialCheck?: VersionCheck };
+
+export default function VersionInfo(props: VersionInfoProps) {
+  const coreUpdate = useCoreServiceUpdate(props.api, props.notify);
+  return <><VersionInfoPanel {...props} coreUpdate={coreUpdate} /><CoreServiceUpdateDialog controller={coreUpdate} notify={props.notify} /></>;
+}
+
+export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate }: VersionInfoProps & { coreUpdate: CoreServiceUpdateController }) {
+  const { update, startingUpdate, stoppingUpdate, source, setSource } = coreUpdate;
   const [current, setCurrent] = useState<SystemVersion>();
-  const [check, setCheck] = useState<VersionCheck>();
+  const [check, setCheck] = useState<VersionCheck | undefined>(initialCheck);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
-  const [source, setSource] = useState(loadUpdateSource);
-
-  useEffect(() => { saveUpdateSource(source); }, [source]);
+  useEffect(() => { setCheck(initialCheck); }, [initialCheck]);
   useEffect(() => {
     const controller = new AbortController();
     void api.request<SystemVersion>('/version/', 'GET', undefined, controller.signal)
@@ -38,7 +45,7 @@ export default function VersionInfo({ api, notify, onAutoUpdate }: { api: Loopra
 
   async function copy(text: string) {
     try { await navigator.clipboard.writeText(text); notify('已复制到剪贴板'); }
-    catch { notify('复制失败，请手动选择命令'); }
+    catch { notify('复制失败，请手动选择内容'); }
   }
 
   const version = check?.currentVersion || current?.version || '-';
@@ -47,6 +54,8 @@ export default function VersionInfo({ api, notify, onAutoUpdate }: { api: Loopra
   const releaseUrl = check?.releaseUrl || RELEASE_LATEST_URL;
   const commands = buildUpdateCommand(source);
   const options = [{ value: UPDATE_SOURCE_NORMAL, label: '直连（GitHub）' }, ...MIRROR_SOURCES.map(mirror => ({ value: mirror.value, label: `镜像 · ${mirror.label}` }))];
+  const updateRunning = !!update?.running;
+  const updateBusy = startingUpdate || stoppingUpdate;
 
   return <>
     <PageActions title="版本与更新" />
@@ -70,10 +79,13 @@ export default function VersionInfo({ api, notify, onAutoUpdate }: { api: Loopra
       <button type="button" className="version-command" title="点击复制" onClick={() => void copy(commands.unix)}><span className="uc-badge unix">sh</span><code>{commands.unixLabel}</code></button>
       <div className="version-actions">
         <Button size="sm" variant="flat" isLoading={checking} onPress={() => void checkLatest()} startContent={<RefreshCw size="0.875rem" />}>检查更新</Button>
-        <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'} onPress={onAutoUpdate} startContent={<Server size="0.875rem" />}>更新核心服务</Button>
+        {updateRunning
+          ? <Button size="sm" color="primary" variant="flat" onPress={coreUpdate.show} startContent={<Server size="0.875rem" />}>查看更新进度</Button>
+          : <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'}
+            isDisabled={checking || updateBusy} isLoading={startingUpdate} onPress={() => coreUpdate.prepare(version, check)}
+            startContent={<Server size="0.875rem" />}>{startingUpdate ? '启动中…' : '更新核心服务'}</Button>}
         <Button size="sm" variant="light" onPress={() => window.open(RELEASE_LATEST_URL, '_blank', 'noreferrer')} startContent={<Download size="0.875rem" />}>下载桌面端（推荐）</Button>
       </div>
-      <p className="section-note"><Sparkles size="0.75rem" /> 「更新核心服务」会新建一个会话并发送更新指令，由 Agent 执行脚本。</p>
     </div>
   </>;
 }

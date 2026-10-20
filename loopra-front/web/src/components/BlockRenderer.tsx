@@ -77,6 +77,14 @@ function FileChanges({ changes, onDiff, onRevert, notify }: { changes: FileChang
 
 type StepProps = { block: ChatBlock; streaming?: boolean } & BlockActions;
 
+function formatReasoningText(content: string) {
+  return content
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\n+|\n+$/g, '');
+}
+
 function ReasoningPreview({ content, streaming }: { content: string; streaming: boolean }) {
   const ref = useRef<HTMLSpanElement>(null);
   const preview = content.replace(/\s+/g, ' ').trim();
@@ -106,8 +114,9 @@ function chainStatus(steps: ChatBlock[]): ToolStatus {
 function Step({ block, streaming = false, ...actions }: StepProps) {
   if (block.type === 'reasoning' || block.type === 'reasoning_started') {
     // Thinking is shown as plain text: Markdown parsing/highlighting of streamed reasoning only burns CPU.
-    const text = block.type === 'reasoning' ? <p className="reasoning-plain">{block.content}</p> : '加密思考';
-    return <Disclosure className="block-reasoning" headingClass="reasoning-head" heading={<><Brain size="0.9375rem" /><ReasoningPreview content={block.type === 'reasoning' ? block.content : ''} streaming={streaming} /><ChevronDown size="0.875rem" /></>}><div className="reasoning-text" role={block.type === 'reasoning' ? undefined : 'status'}>{text}</div></Disclosure>;
+    const reasoning = block.type === 'reasoning' ? formatReasoningText(block.content) : '';
+    const text = block.type === 'reasoning' ? <p className="reasoning-plain">{reasoning}</p> : '加密思考';
+    return <Disclosure className="block-reasoning" headingClass="reasoning-head" heading={<><Brain size="0.9375rem" /><ReasoningPreview content={reasoning} streaming={streaming} /><ChevronDown size="0.875rem" /></>}><div className="reasoning-text" role={block.type === 'reasoning' ? undefined : 'status'}>{text}</div></Disclosure>;
   }
   if (block.type === 'tool_call') return <ToolBlock block={block} onOpenFile={actions.onOpenFile} />;
   if (block.type === 'sub_agent') {

@@ -6,8 +6,7 @@ import ts from 'typescript';
 
 // The Agent chooser shares the project menu's placement rules: upward by
 // default, capped to the room its clipping pane leaves, flipped below only when
-// that side is unusable, with the engine list scrolling between the fixed
-// heading and the 「切换 Agent 会新建会话」note.
+// that side is unusable. The menu shows only the engine rows.
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://test.invalid' });
 const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, IS_REACT_ACT_ENVIRONMENT: true };
 const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -99,16 +98,16 @@ async function mount(rect, viewportHeight) {
   };
 }
 
-test('the agent menu opens upward with the measured room and scrolls its engine list', async () => {
+test('the agent menu opens upward with the measured room and omits redundant hints', async () => {
   const view = await mount({ top: 324, bottom: 340 }, 753);
   try {
     assert.equal(view.anchor.dataset.placement, 'top');
     assert.equal(view.anchor.style.getPropertyValue('--menu-max-height'), '309px');
     const list = view.menu.querySelector('.composer-tool-list');
     assert.equal(list.querySelectorAll('.agent-option').length, engines.length);
-    // The heading and the note stay outside the scrolling region.
-    assert.equal(view.menu.querySelector('h3').parentElement, view.menu);
-    assert.equal(view.menu.querySelector('.composer-note').parentElement, view.menu);
+    assert.equal(view.menu.querySelector('h3').textContent, '选择 Agent');
+    assert.equal(view.menu.querySelector('.composer-note'), null);
+    assert.equal(view.menu.querySelector('small'), null);
   } finally { await view.close(); }
 });
 
@@ -126,5 +125,5 @@ test('the agent list is the only scrolling part of the menu', () => {
   assert.match(list, /min-height:\s*0/);
   assert.match(list, /overflow-y:\s*auto/);
   assert.match(list, /overscroll-behavior:\s*contain/);
-  assert.match(ruleBody(styles, '.agent-menu > .composer-note'), /flex:\s*0 0 auto/);
+  assert.doesNotMatch(styles, /^\.agent-menu > \.composer-note\s*\{/m);
 });

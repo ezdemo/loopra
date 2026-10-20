@@ -211,6 +211,16 @@ svg { flex-shrink: 0; }
 
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: .25rem; flex-shrink: 0; }
 
+.app-version { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; height: 1.75rem; padding: 0 .5625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--secondary); font: 500 .6875rem/1 "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; box-shadow: var(--shadow-sm); transition: border-color .16s, background .16s, box-shadow .16s; }
+.app-version:hover { border-color: var(--line-strong); background: var(--soft); }
+.app-version:active { box-shadow: none; background: var(--hover); }
+.app-version.has-update { padding: 0 .625rem; border-color: color-mix(in srgb, var(--blue) 24%, var(--line)); background: color-mix(in srgb, var(--blue) 6%, var(--surface)); color: var(--blue); }
+.app-version.has-update:hover { border-color: color-mix(in srgb, var(--blue) 55%, var(--line)); background: color-mix(in srgb, var(--blue) 7%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 7%, transparent); }
+.app-version.has-update:active { background: color-mix(in srgb, var(--blue) 11%, var(--surface)); box-shadow: none; }
+.app-version-number { color: var(--secondary); letter-spacing: -.02em; }
+.app-version-update { display: inline-flex; align-items: center; gap: .3125rem; color: color-mix(in srgb, var(--blue) 85%, var(--text)); font-family: inherit; font-size: .6875rem; font-weight: 600; line-height: 1; }
+.app-version-update svg { flex-shrink: 0; }
+
 .folder-split { height: 1.75rem; display: flex; border-radius: var(--radius-md); border: 1px solid var(--line); overflow: hidden; }
 .folder-split button { display: flex; align-items: center; justify-content: center; height: 100%; width: 1.625rem; color: var(--secondary); }
 .folder-split button:first-child { width: 1.875rem; border-right: 1px solid var(--line); }
@@ -561,10 +571,8 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 
 .workspace-menu-list { flex: 1 1 auto; min-height: 0; max-height: 16rem; overflow-y: auto; overscroll-behavior: contain; }
 
-/* The Agent menu scrolls its engine list between the fixed heading and note. */
+/* Keep the engine list scrollable when the Agent menu is height constrained. */
 .agent-menu .composer-tool-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-
-.agent-menu > .composer-note { flex: 0 0 auto; }
 
 .session-menu { top: 2.1875rem; left: 0; width: 12.8125rem; }
 
@@ -1224,6 +1232,7 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
   .branch-button { max-width: 7rem; overflow: hidden; text-overflow: ellipsis; }
 }
 @container main-pane (max-width: 30rem) {
+  .app-version { display: none; }
   .branch-button { display: none; }
   .conversation-header { padding: 0 .625rem; gap: .25rem; }
   .folder-split { display: none; }

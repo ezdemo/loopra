@@ -11,10 +11,12 @@ export type UsageDTO = {
   lastPromptTokens: number; maxContextTokens: number; totalTokens: number; model: string;
   hasPrice: boolean; totalCost: number; currency: string; contextEstimate?: ContextEstimate | null;
   inputCost?: number; cacheCost?: number; outputCost?: number;
+  contextSource?: 'agent' | 'loopra' | null;
+  contextEstimateScope?: 'request' | 'transcript' | null;
 };
 
 export type ContextPart = { name: string; tokens: number; color: string };
-export type ContextUsage = { parts: ContextPart[]; total: number; limit: number; percent: number; exact?: boolean; metrics?: UsageMetrics };
+export type ContextUsage = { parts: ContextPart[]; total: number; limit: number; percent: number; exact?: boolean; metrics?: UsageMetrics; source?: 'agent' | 'loopra'; estimatedComposition?: boolean; windowKnown?: boolean };
 export type UsageMetrics = { promptTokens: number; completionTokens: number; totalCost: number; hasPrice: boolean; currency: string; cacheHitRate: number | null; inputCost: number; cacheCost: number; outputCost: number };
 
 const colors = { system: '#566274', tools: '#8b6048', user: '#42b7a0', assistant: '#e4b467', result: '#d9695f' };
@@ -54,9 +56,10 @@ function cacheHitRate(usage: UsageDTO) {
  */
 export function contextFromUsage(usage: UsageDTO | null | undefined, fallback: ContextUsage): ContextUsage {
   const estimate = usage?.contextEstimate;
-  const total = estimate?.totalTokens || usage?.lastPromptTokens || 0;
-  if (!usage || total <= 0) return fallback;
-  const parts: ContextPart[] = estimate
+  const reported = usage?.contextSource === 'agent';
+  const total = reported ? usage.lastPromptTokens : estimate?.totalTokens || usage?.lastPromptTokens || 0;
+  if (!usage || (!usage.contextSource && total <= 0)) return fallback;
+  const parts: ContextPart[] = estimate && estimate.totalTokens > 0
     ? [
         { name: '系统指令', tokens: estimate.systemTokens, color: colors.system },
         { name: '工具定义', tokens: estimate.toolDefinitionTokens, color: colors.tools },
@@ -64,14 +67,18 @@ export function contextFromUsage(usage: UsageDTO | null | undefined, fallback: C
         { name: '助手消息', tokens: estimate.assistantTokens, color: colors.assistant },
         { name: '工具结果', tokens: estimate.toolResultTokens, color: colors.result },
       ].filter(part => part.tokens > 0)
-    : [{ name: '会话上下文', tokens: total, color: colors.system }];
-  const limit = usage.maxContextTokens > 0 ? usage.maxContextTokens : fallback.limit;
+    : total > 0 ? [{ name: '会话上下文', tokens: total, color: colors.system }] : [];
+  const partial = usage.contextEstimateScope === 'transcript';
+  const limit = usage.maxContextTokens > 0 ? usage.maxContextTokens : partial ? 0 : fallback.limit;
   return {
     parts,
     total,
     limit,
-    percent: Math.min(100, total / limit * 100),
+    percent: limit > 0 ? Math.min(100, total / limit * 100) : 0,
     exact: !!estimate?.exactTokenizer,
+    source: usage.contextSource || (estimate ? 'loopra' : 'agent'),
+    estimatedComposition: partial && !!estimate && estimate.totalTokens > 0,
+    windowKnown: limit > 0,
     metrics: {
       promptTokens: usage.promptTokens || 0,
       completionTokens: usage.completionTokens || 0,
@@ -85,4 +92,9 @@ export function contextFromUsage(usage: UsageDTO | null | undefined, fallback: C
       outputCost: usage.outputCost || 0,
     },
   };
+}
+
+export function contextPartPercent(part: ContextPart, usage: ContextUsage) {
+  const total = usage.parts.reduce((sum, item) => sum + item.tokens, 0);
+  return total > 0 ? part.tokens / total * 100 : 0;
 }

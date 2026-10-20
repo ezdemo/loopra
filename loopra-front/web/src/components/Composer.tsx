@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
 import { Button, Chip, Input, Spinner, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Star, Trash2, X, Zap } from 'lucide-react';
 import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands } from '../composer';
 import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
-import { contextFromUsage, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
+import { contextFromUsage, contextPartPercent, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
 import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
 import { useLocalState, type Provider } from '../lib';
 import type { AcpCommand, AcpSessionState, AgentEngine, LoopraClient, Workspace } from '../backend';
@@ -14,6 +14,7 @@ import type { PetStore } from '../usePets';
 import ReasoningControl from './ReasoningControl';
 import AgentConfigControls from './AgentConfigControls';
 import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
+import { useMenuPlacement } from '../layout/menu-placement';
 
 type Props = {
   agentId?: string; engines?: AgentEngine[];
@@ -53,7 +54,6 @@ export default function Composer(props: Props) {
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [dismissedDraft, setDismissedDraft] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [popoverHeight, setPopoverHeight] = useState(500);
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([]);
   const [discoveredCommands, setDiscoveredCommands] = useState<AcpCommand[]>([]);
   const [remoteCommands, setRemoteCommands] = useState<ServerCommand[]>([]);
@@ -64,19 +64,25 @@ export default function Composer(props: Props) {
   const dragDepth = useRef(0);
   const root = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const menuPlacement = useMenuPlacement(!!menu, root, { offsetRem: 4.375 });
+  const menuPlacementStyle = menuPlacement.maxHeight
+    ? { '--composer-popover-max-height': `${menuPlacement.maxHeight}px` } as CSSProperties
+    : undefined;
   const models = getModelCatalog(providers);
   const selected = models.find(model => model.id === options.modelId);
-  const usage = contextFromUsage(remoteUsage, estimateContext(props.history, draft, context, selected?.contextTokens, props.systemPrompt));
+  const localUsage = estimateContext(props.history, draft, context, selected?.contextTokens, props.systemPrompt);
+  const usage = contextFromUsage(remoteUsage, external ? { ...localUsage, limit: 0, percent: 0, windowKnown: false } : localUsage);
+  const usagePercent = usage.windowKnown === false ? '—' : `${usage.percent.toFixed(1)}%`;
   // ACP Agents report context usage but no cumulative token counters, so omit the
   // empty counter instead of printing "总 token 0" next to a real USD cost.
-  const usageNote = usage.metrics
+  const usageMetricsNote = usage.metrics
     ? [
         usage.metrics.promptTokens + usage.metrics.completionTokens > 0
           ? `总 token ${formatTokens(usage.metrics.promptTokens + usage.metrics.completionTokens)}` : '',
         usage.metrics.hasPrice ? `费用 ${formatUsageCost(usage.metrics.totalCost, usage.metrics.currency)}` : '',
         usage.metrics.cacheHitRate != null ? `命中率 ${usage.metrics.cacheHitRate.toFixed(1)}%` : '',
-      ].filter(Boolean).join(' · ') || '上下文来自 Agent 上报'
-    : '根据文字长度估算，附件只计入文件名；上下文窗口来自 Loopra 模型配置。';
+      ].filter(Boolean).join(' · ')
+    : '';
   const effortIndex = effortLevels.findIndex(level => level.value === options.effort);
   const effort = effortLevels[effortIndex];
   // ACP owns the per-session choices. Its standard categories map onto the
@@ -215,7 +221,8 @@ export default function Composer(props: Props) {
     void props.api.request('/prompt-presets', 'PUT', presetPayload(next))
       .catch((error: unknown) => notify(`常用要求同步失败：${error instanceof Error ? error.message : String(error)}`));
   }
-  // Real token usage for the active session, refreshed as the conversation grows.
+  useEffect(() => { setRemoteUsage(null); }, [props.workspaceHash, props.sessionName, props.agentId]);
+  // Usage and composition estimates for the active session, refreshed as it grows.
   useEffect(() => {
     if (!props.workspaceHash || !props.sessionName) { setRemoteUsage(null); return; }
     const controller = new AbortController();
@@ -225,18 +232,7 @@ export default function Composer(props: Props) {
         .catch(() => { if (!controller.signal.aborted) setRemoteUsage(null); });
     }, 400);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [props.api, props.workspaceHash, props.sessionName, props.history.length, props.generating]);
-  useLayoutEffect(() => {
-    const measure = () => {
-      const scale = parseFloat(getComputedStyle(document.documentElement).fontSize) / 16;
-      setPopoverHeight(Math.max(130 * scale, (root.current?.getBoundingClientRect().bottom || window.innerHeight) - 82 * scale));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    if (root.current) observer.observe(root.current);
-    window.addEventListener('resize', measure);
-    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
-  }, [menu, home]);
+  }, [props.api, props.workspaceHash, props.sessionName, props.agentId, props.agentConfig?.options, props.history.length, props.generating]);
   useEffect(() => {
     const pointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) close(); };
     const escape = (event: KeyboardEvent) => {
@@ -295,7 +291,7 @@ export default function Composer(props: Props) {
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
   const hasContext = contextImages.length > 0 || context.projects.length > 0 || context.skills.length > 0 || contextFiles.length > 0;
 
-  return <div ref={root} data-popover style={{ '--composer-popover-height': `${popoverHeight}px` } as CSSProperties} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
+  return <div ref={root} data-popover data-placement={menuPlacement.side} style={menuPlacementStyle} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
     onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
@@ -348,7 +344,7 @@ export default function Composer(props: Props) {
         {props.history.length > 0 && <Tooltip content={draft.trim() ? '先发送或清空草稿' : '继续生成'} delay={600}><Button isIconOnly variant="light" className="composer-icon continue-button" aria-label="继续生成" isDisabled={agentBusy || props.busy || !!draft.trim()} onPress={props.onContinue}><Play size="1rem" /></Button></Tooltip>}
       </div>
       <div className={`composer-right ${agentOptions ? 'has-agent-config' : ''}`}>
-        <Tooltip content={`上下文 ${usage.percent.toFixed(1)}% · ${usage.metrics ? '服务端统计' : '本地估算'}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
+        <Tooltip content={`上下文 ${usagePercent}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${usage.windowKnown === false ? 0 : Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
         {agentOptions ? <>
           {otherAgentOptions.length > 0 && <Tooltip content="更多 Agent 配置" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'more' ? 'is-active' : ''}`} aria-label="更多 Agent 配置" aria-expanded={menu === 'more'} onPress={() => open('more')}><Settings2 size="1rem" /></Button></Tooltip>}
           {agentModel && <Tooltip content={agentOptionDescription(agentModel)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} aria-label={`选择模型：${agentOptionLabel(agentModel)}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{activeModelLabel}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
@@ -468,7 +464,27 @@ export default function Composer(props: Props) {
             : <><p className="composer-note">点击要求追加到输入框，可自行编辑。</p><div className="preset-list">{presets.map(preset => <div className="preset-row" key={preset.id}><button className="preset-append" onClick={() => { onDraft(appendPreset(draft, preset.text)); close(); focusInput(); }}><strong>{preset.name}</strong><small>{preset.text}</small></button><Button isIconOnly size="sm" variant="light" aria-label={`编辑要求：${preset.name}`} onPress={() => setEditing({ ...preset })}><Pencil size="0.875rem" /></Button><Button isIconOnly size="sm" variant="light" aria-label={`删除要求：${preset.name}`} onPress={() => { const next = presets.filter(item => item.id !== preset.id); setPresets(next); persistPresets(next); }}><Trash2 size="0.875rem" /></Button></div>)}{!presets.length && <p className="composer-empty">还没有常用要求，添加一条试试。</p>}</div><div className="popover-footer"><span>保存在服务端</span><Button size="sm" variant="light" onPress={() => setEditing({ id: crypto.randomUUID(), name: '', text: '' })}><Plus size="0.875rem" />添加要求</Button></div></>}
         </>}
 
-        {menu === 'context' && <div className="context-body"><div className="context-total"><strong>{formatTokens(usage.total)}<small> / {formatTokens(usage.limit)}</small></strong><span className={usage.percent >= 80 ? 'context-high' : usage.percent >= 50 ? 'context-medium' : 'context-low'}>{usage.percent.toFixed(1)}%</span></div>{formatTokenSpeed(props.liveSpeed) && <p className="composer-note">生成速度 {formatTokenSpeed(props.liveSpeed)}{props.liveSpeed?.completionTokens ? ` · 已生成 ${formatTokens(props.liveSpeed.completionTokens)} tokens` : ''}</p>}<div className="context-gauge" role="img" aria-label={`上下文占用 ${usage.percent.toFixed(1)}%，折叠阈值 ${FOLD_THRESHOLD_RATIO * 100}%`}>{usage.parts.map(part => <span key={part.name} style={{ background: part.color, width: `${part.tokens / usage.limit * 100}%` }} />)}<span className="context-gauge-threshold" style={{ left: `${FOLD_THRESHOLD_RATIO * 100}%` }} title="折叠阈值 (80%)" /></div><div className="context-gauge-scale"><span>当前 {formatTokens(usage.total)}</span><span>窗口 {formatTokens(usage.limit)}</span></div><p className="composer-note context-threshold-note">折叠阈值: {formatTokens(foldThreshold(usage.limit))} ({FOLD_THRESHOLD_RATIO * 100}%)</p>{usage.parts.map(part => <div className="context-breakdown" key={part.name}><span><i style={{ background: part.color }} />{part.name}</span><strong>{formatTokens(part.tokens)}</strong><small>{(part.tokens / usage.total * 100).toFixed(1)}%</small></div>)}<p className="composer-note context-disclaimer">{usageNote}</p></div>}
+        {menu === 'context' && <div className="context-body">
+          <div className="context-total">
+            <strong>{usage.source === 'loopra' ? '约 ' : ''}{formatTokens(usage.total)}<small> / {usage.windowKnown === false ? '窗口未知' : formatTokens(usage.limit)}</small></strong>
+            <span className={usage.percent >= 80 ? 'context-high' : usage.percent >= 50 ? 'context-medium' : 'context-low'}>{usagePercent}</span>
+          </div>
+          {formatTokenSpeed(props.liveSpeed) && <p className="composer-note">生成速度 {formatTokenSpeed(props.liveSpeed)}{props.liveSpeed?.completionTokens ? ` · 已生成 ${formatTokens(props.liveSpeed.completionTokens)} tokens` : ''}</p>}
+          {usage.windowKnown !== false && <>
+            <div className="context-gauge" role="img" aria-label={`上下文占用 ${usagePercent}${external ? '' : `，折叠阈值 ${FOLD_THRESHOLD_RATIO * 100}%`}`}>
+              {usage.parts.map(part => <span key={part.name} style={{ background: part.color, width: `${contextPartPercent(part, usage) / 100 * usage.percent}%` }} />)}
+              {!external && <span className="context-gauge-threshold" style={{ left: `${FOLD_THRESHOLD_RATIO * 100}%` }} title="折叠阈值 (80%)" />}
+            </div>
+            <div className="context-gauge-scale"><span>当前 {formatTokens(usage.total)}</span><span>窗口 {formatTokens(usage.limit)}</span></div>
+            {!external && <p className="composer-note context-threshold-note">折叠阈值: {formatTokens(foldThreshold(usage.limit))} ({FOLD_THRESHOLD_RATIO * 100}%)</p>}
+          </>}
+          {usage.parts.map(part => <div className="context-breakdown" key={part.name}>
+            <span><i style={{ background: part.color }} />{part.name}</span>
+            {!usage.estimatedComposition && <strong>{formatTokens(part.tokens)}</strong>}
+            <small>{contextPartPercent(part, usage).toFixed(1)}%</small>
+          </div>)}
+          {usageMetricsNote && <p className="composer-note context-disclaimer">{usageMetricsNote}</p>}
+        </div>}
       </section>}
     </Popup>
     <Popup open={!!suggestions.length} className="composer-popover popover-left composer-suggestions"><section aria-label={slash ? '输入指令' : '工作区文件'}><div className="suggestions-heading">{slash ? '输入指令' : '工作区文件'}<small>↑ ↓ 选择 · Tab / Enter 确认</small></div>{suggestions.map((item, index) => <button key={item.id} className={suggestionIndex % suggestions.length === index ? 'is-selected' : ''} onMouseEnter={() => setSuggestionIndex(index)} onClick={() => selectSuggestion(index)}>{slash ? <SquareTerminal size="1.0625rem" /> : <FileText size="1.0625rem" />}<span><strong>{item.label}<em>{item.title}</em></strong><small>{item.description}</small></span></button>)}</section></Popup>

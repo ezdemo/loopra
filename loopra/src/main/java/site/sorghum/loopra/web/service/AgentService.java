@@ -1662,14 +1662,13 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
      */
     public UsageDTO getSessionUsageMap(String workspacePath, String sessionName) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
-        // External Agents report context usage over ACP; never create a Native Agent for
-        // their conversations, which would show an empty native context estimate.
+        // Estimate external transcript composition without creating a Native Agent.
         if (sessionName != null && !sessionName.isBlank()) {
             SessionStore store = sessionStoreFor(workspacePath);
             if (store != null) {
                 try {
                     if (!"native".equals(store.getAcpBinding(sessionName).agentId())) {
-                        return sessionUsageService.readAcp(store.getAcpUsage(sessionName));
+                        return sessionUsageService.readAcp(store, sessionName);
                     }
                 } finally { store.shutdown(); }
             }

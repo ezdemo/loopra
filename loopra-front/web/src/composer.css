@@ -7,7 +7,7 @@
 .rich-composer .composer-right { gap: 0.125rem; margin-left: auto; max-width: 100%; }
 .rich-composer .composer-right.has-agent-config { flex-wrap: wrap; justify-content: flex-end; }
 /* Agent-specific options without a shared composer control (Claude personas…). */
-.agent-option-list { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.125rem 0.25rem 0.375rem; }
+.agent-option-list { display: flex; flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; flex-direction: column; gap: 0.75rem; padding: 0.125rem 0.25rem 0.375rem; }
 .agent-option-group { display: flex; flex-direction: column; gap: 0.25rem; }
 .agent-option-group > header { display: flex; flex-direction: column; gap: 0.125rem; padding: 0.125rem 0.5rem; }
 .agent-option-group > header strong { font-size: 0.8125rem; font-weight: 600; }
@@ -82,7 +82,11 @@
 .composer-context-chips .context-chip-size { margin-left: 0.25rem; color: var(--muted); font-size: 0.625rem; font-weight: 400; }
 .usage-ring { width: 1rem; height: 1rem; border-radius: 50%; background: conic-gradient(var(--blue) var(--usage), var(--line) 0); position: relative; }
 .usage-ring::after { content: ''; position: absolute; inset: 0.15625rem; border-radius: inherit; background: var(--surface); }
-.composer-popover { position: absolute; bottom: 4.375rem; z-index: 90; width: min(22.8125rem, calc(100vw - 2.5rem)); max-height: min(37.5rem, var(--composer-popover-height, 31.25rem)); overflow: auto; border: 1px solid var(--line); border-radius: 1.0625rem; background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000006, 0 0.875rem 2.8125rem #00000017; color: var(--text); font-size: 0.8125rem; text-align: left; padding: 0.375rem; }
+.composer-popover { position: absolute; bottom: 4.375rem; z-index: 90; display: flex; flex-direction: column; width: min(22.8125rem, calc(100vw - 2.5rem)); max-height: min(37.5rem, var(--composer-popover-max-height, 31.25rem)); overflow: hidden; border: 1px solid var(--line); border-radius: 1.0625rem; background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000006, 0 0.875rem 2.8125rem #00000017; color: var(--text); font-size: 0.8125rem; text-align: left; padding: 0.375rem; }
+/* The popup is measured from the composer toolbar, so its downward fallback
+   starts below the whole composer. */
+.rich-composer[data-placement="bottom"] > .composer-popover { top: calc(100% + 0.4375rem); bottom: auto; }
+.composer-popover > section { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: hidden; }
 /* The suggestion list re-mounts on every keystroke while typing, so it is excluded
    from the open animation; every other composer menu (models, tools, projects…)
    pops in when it opens. */
@@ -92,16 +96,16 @@
 .composer-popover button { border-radius: var(--radius-md); }
 .composer-popover button:hover { background: var(--hover); }
 .composer-popover button:focus-visible { outline: 0.125rem solid var(--blue); outline-offset: -0.125rem; }
-.composer-popover-header { display: flex; justify-content: space-between; align-items: center; min-height: 2.375rem; padding: 0 0.25rem 0 0.625rem; }
+.composer-popover-header { display: flex; flex: 0 0 auto; justify-content: space-between; align-items: center; min-height: 2.375rem; padding: 0 0.25rem 0 0.625rem; }
 .composer-popover-header > div { display: flex; align-items: center; gap: 0.4375rem; }
 .composer-popover-header strong { font-size: 0.875rem; font-weight: 600; }
 .composer-popover-header button { width: 1.75rem; min-width: 1.75rem; height: 1.75rem; color: var(--secondary); }
 .demo-badge { font-size: 0.625rem; background: var(--soft); border: 1px solid var(--line); color: var(--muted); border-radius: var(--radius-sm); padding: 0 0.25rem; }
-.popover-search { padding: 0.1875rem 0.4375rem 0.625rem; }
+.popover-search { flex: 0 0 auto; padding: 0.1875rem 0.4375rem 0.625rem; }
 .popover-search [data-slot="input-wrapper"], .custom-effort [data-slot="input-wrapper"], .preset-form [data-slot="input-wrapper"] { border: 1px solid var(--line); box-shadow: none; border-radius: var(--radius-md); background: var(--surface); }
 .popover-search input { font-size: 0.8125rem; color: var(--text); }
 .popover-search svg { color: var(--muted); flex-shrink: 0; }
-.model-group-list { max-height: 20.9375rem; overflow: auto; padding: 0 0.125rem 0.4375rem; }
+.model-group-list { flex: 1 1 auto; min-height: 0; max-height: 20.9375rem; overflow: auto; overscroll-behavior: contain; padding: 0 0.125rem 0.4375rem; }
 .model-group-heading { display: flex; align-items: center; gap: 0.4375rem; width: 100%; padding: 0.5rem 0.5625rem; color: var(--secondary); font-size: 0.75rem; }
 .provider-dot { width: 0.4375rem; height: 0.4375rem; border-radius: 50%; flex-shrink: 0; }
 .model-group-heading small { margin-left: auto; color: var(--muted); font-size: 0.6875rem; }
@@ -116,13 +120,13 @@
 .agent-model-row > button:first-child small { color: var(--muted); font-size: 0.6875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-model-row .model-star { background: transparent; min-width: 1.8125rem; width: 1.8125rem; height: 1.8125rem; color: var(--muted); margin-right: 0.25rem; }
 .composer-model-row .model-star[aria-pressed="true"] { color: #d3a043; }
-.popover-footer { border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 0.25rem; padding: 0.4375rem 0.375rem 0.125rem; }
+.popover-footer { flex: 0 0 auto; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 0.25rem; padding: 0.4375rem 0.375rem 0.125rem; }
 .popover-footer > span { flex: 1; color: var(--muted); font-size: 0.6875rem; }
 .popover-footer button { min-width: 0; font-size: 0.75rem; gap: 0.3125rem; padding: 0 0.5625rem; }
 .composer-empty { padding: 1.5625rem 0.625rem; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 0.375rem; }
 .composer-empty small { font-size: 0.6875rem; }
 .composer-note { color: var(--muted); font-size: 0.6875rem; line-height: 1.6; padding: 0.375rem 0.625rem; }
-.effort-body { padding: 0.125rem 0.8125rem 0.3125rem; }
+.effort-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0.125rem 0.8125rem 0.3125rem; }
 .effort-summary { display: flex; align-items: center; gap: 0.625rem; padding: 0.1875rem 0 1.125rem; }
 .effort-symbol { width: 2.375rem; height: 2.375rem; display: grid; place-items: center; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .effort-summary strong { font-size: 0.875rem; font-weight: 500; }
@@ -213,6 +217,7 @@
 .composer-toggle-row > div:first-child { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
 .composer-toggle-row span { display: flex; align-items: center; gap: 0.3125rem; flex-shrink: 0; }
 .composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-tool-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .composer-tool-list > button, .composer-tool-list > .agent-option > button:first-child, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
 .composer-tool-list > button > svg:first-child, .composer-tool-list > .agent-option > button:first-child > svg:first-child, .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
 .composer-tool-list > button > span:not(.keycap), .composer-tool-list > .agent-option > button:first-child > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }
@@ -228,22 +233,22 @@
 .composer-tool-list em { font-size: 0.6875rem; font-style: normal; color: var(--blue); }
 .composer-menu-divider { border-top: 1px solid var(--line); margin: 0.25rem 0.5rem; }
 .keycap { border: 1px solid var(--line); border-radius: var(--radius-sm); font: 0.6875rem monospace; padding: 1px 0.3125rem; color: var(--muted); }
-.composer-selection-list { max-height: 18.125rem; overflow: auto; }
+.composer-selection-list { flex: 1 1 auto; min-height: 0; max-height: 18.125rem; overflow: auto; overscroll-behavior: contain; }
 .composer-selection-list button[aria-checked="true"] { background: color-mix(in srgb, var(--blue) 7%, var(--surface)); }
 .composer-selection-list button > svg:last-child:not(:first-child) { color: var(--blue); }
 .composer-checkbox { border: 1px solid var(--line); border-radius: var(--radius-sm); width: 1.0625rem; height: 1.0625rem; display: grid; place-items: center; flex-shrink: 0; }
 .composer-checkbox.checked { background: var(--blue); border-color: var(--blue); color: white; }
-.preset-list { max-height: 18.75rem; overflow: auto; }
+.preset-list { flex: 1 1 auto; min-height: 0; max-height: 18.75rem; overflow: auto; overscroll-behavior: contain; }
 .preset-row { display: flex; gap: 1px; align-items: center; margin: 0.1875rem; }
 .preset-append { flex: 1; min-width: 0; text-align: left; padding: 0.5625rem 0.4375rem; }
 .preset-append strong { font-weight: 500; font-size: 0.8125rem; }
 .preset-append small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); font-size: 0.6875rem; line-height: 1.5; margin-top: 0.25rem; }
 .preset-row > button:not(.preset-append) { min-width: 1.6875rem; width: 1.6875rem; height: 1.75rem; color: var(--muted); }
 .preset-row > button:last-child:hover { color: var(--danger); }
-.preset-form { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.4375rem 0.625rem 0.625rem; }
+.preset-form { display: flex; flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; flex-direction: column; gap: 0.75rem; padding: 0.4375rem 0.625rem 0.625rem; }
 .preset-form textarea { font-size: 0.8125rem; min-height: 4.5rem; line-height: 1.6; padding: 0; }
 .preset-form > div:last-child { display: flex; justify-content: flex-end; gap: 0.3125rem; }
-.context-body { padding: 0.25rem 0.75rem 0.5rem; }
+.context-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0.25rem 0.75rem 0.5rem; }
 .context-total { display: flex; align-items: center; justify-content: space-between; }
 .context-total > strong { font-size: 1.4375rem; font-weight: 500; }
 .context-total small { font-size: 0.8125rem; color: var(--muted); }

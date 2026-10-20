@@ -12,6 +12,7 @@ import { Messages } from './components/Conversation';
 import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
 import Settings, { defaultPreferences } from './components/Settings';
+import { CoreServiceUpdateDialog, useCoreServiceUpdate } from './components/CoreServiceUpdate';
 import type { Preferences } from './components/Settings';
 import Search from './components/Search';
 import type { FileChange, Message } from './chat';
@@ -20,7 +21,6 @@ import Composer from './components/Composer';
 import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
 import { applySeed, newSessionSeed, seedChanges, type AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
-import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
@@ -152,6 +152,7 @@ export default function App() {
   const remoteRunRef = useRef<string | null>(null);
   const historyRequest = useRef<AbortController>();
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
+  const notifiedUpdate = useRef('');
   const textarea = useRef<HTMLTextAreaElement>(null);
   const scrollArea = useRef<HTMLDivElement>(null);
   // Legacy Chat.vue scroll state: programmatic follow only while the user has
@@ -220,6 +221,13 @@ export default function App() {
   }, [preferences.fontScale]);
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
+  const coreUpdate = useCoreServiceUpdate(api, notify, () => { setSettingsOpen(false); setMenu(null); }, settingsOpen);
+  useEffect(() => {
+    const check = backend.updateCheck;
+    if (!check?.hasNewVersion || !check.latestVersion || notifiedUpdate.current === check.latestVersion) return;
+    notifiedUpdate.current = check.latestVersion;
+    notify(`发现新版本 v${check.latestVersion}，点击顶栏版本查看`);
+  }, [backend.updateCheck]);
   function selectMainTab(path: string | null, hash = workspace) { const key = `${server}/${hash}`; setWorkspaceEditors(current => ({ ...current, [key]: { ...(current[key] || emptyWorkspaceTabs), active: path } })); }
   function openFile(file: WorkspaceFile) { setWorkspaceEditors(current => ({ ...current, [editorKey]: openWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, file) })); if (narrow) setChanges(false); }
   function changeFilePath(from: string, to?: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: updateWorkspaceFilePath(current[editorKey] || emptyWorkspaceTabs, from, to) })); }
@@ -481,6 +489,10 @@ export default function App() {
   }
   function toggleMenu(name: string) { setMenu(current => current === name ? null : name); }
   function openSettings(tab = '通用') { setSettingsTab(tab); setSettingsOpen(true); setMenu(null); }
+  function openCoreUpdate() {
+    if (coreUpdate.update?.running || coreUpdate.startingUpdate) coreUpdate.show();
+    else coreUpdate.prepare(backend.version || backend.updateCheck?.currentVersion || '-', backend.updateCheck);
+  }
   // Legacy Sidebar.vue footer exposed 工具 / 子代理 / 数据面板 / 主题 / 设置; the
   // theme button flipped light↔dark without touching 跟随系统.
   function openSessionsManager() { setSessionsOpen(true); setMenu(null); if (narrow) setSidebar(false); }
@@ -592,14 +604,6 @@ export default function App() {
     newSession(workspace || workspaces[0]?.hash || '');
     setDraft('调用 npx petdex@latest install boba 初始化一个宠物');
     notify('已新建会话，确认后发送即可初始化宠物');
-  }
-  async function autoUpdate() {
-    // Legacy 「更新核心服务」新建会话并把更新指令发给 Agent 执行；这里直接新建会话并发送。
-    if (backend.status !== 'connected' || !backend.ready || !currentWorkspace) { notify('请先连接 Loopra 并选择工作区'); return; }
-    newSession(workspace || workspaces[0]?.hash || '');
-    setSettingsOpen(false);
-    await sendMessage(buildUpdatePrompt(loadUpdateSource()), undefined, undefined, true);
-    notify('已新建更新会话并发送更新指令');
   }
   function openTerminal() { setTerminal(true); setMenu(null); }
   async function openWorkspace(application = preferences.openWith) {
@@ -1068,6 +1072,7 @@ export default function App() {
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
+          latestVersion={backend.updateCheck?.hasNewVersion ? backend.updateCheck.latestVersion : undefined} onVersion={openCoreUpdate}
           gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
           applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onCopyPath={copyPath}
           onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
@@ -1115,7 +1120,8 @@ export default function App() {
       onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}
       pets={pets}
       onInitPet={initPet}
-      onAutoUpdate={() => void autoUpdate()}
+      updateCheck={backend.updateCheck}
+      coreUpdate={coreUpdate}
       onRefresh={() => backend.refresh()}
       workspaces={workspaces}
       server={server}
@@ -1137,6 +1143,7 @@ export default function App() {
       onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }}
       notify={notify}
     />
+    <CoreServiceUpdateDialog controller={coreUpdate} notify={notify} />
     <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>
   </div></AppMotion>;

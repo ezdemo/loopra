@@ -82,14 +82,13 @@ export default function AgentSwitcher({ engines, agentId, disabled, onSelect, on
         return <div key={engine.id} className="agent-option">
           <button type="button" disabled={!engine.available}
             onClick={() => { setOpen(false); onSelect(engine.id); }}>
-            <span><strong>{engine.name}</strong><small>{engine.detail || (engine.available ? (engine.id === 'native' ? '使用 Loopra 模型配置' : `使用本机 ${engine.name} 登录和配置`) : '后端未检测到运行环境，请重启后端后重试')}</small></span>
+            <span><strong>{engine.name}</strong></span>
             {selected && <Check size="1rem" />}
           </button>
           {installable && <button type="button" className="agent-install" aria-label={`安装 ${engine.name} ACP 依赖`}
             title="查看安装提示词" onClick={() => openInstall(engine)}>安装</button>}
         </div>;
       })}</div>
-      <p className="composer-note">切换 Agent 会新建会话。</p>
     </Popup>
     <Modal isOpen={!!installing} onClose={() => setInstalling(null)} placement="center" scrollBehavior="inside"
       classNames={{ base: 'app-dialog agent-install-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }}

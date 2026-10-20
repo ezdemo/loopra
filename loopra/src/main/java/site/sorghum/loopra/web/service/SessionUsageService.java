@@ -1,7 +1,9 @@
 package site.sorghum.loopra.web.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.noear.snack4.ONode;
 import site.sorghum.loopra.bin.agent.context.ContextTokenEstimate;
+import site.sorghum.loopra.bin.agent.context.ContextTokenEstimator;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.model.ModelPriceProvider;
@@ -12,6 +14,7 @@ import site.sorghum.loopra.web.model.UsageDTO;
 
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
 
 /** 将已选择 Agent 的用量与上下文估算转换为查询视图；不创建或切换 Agent。 */
 @Slf4j
@@ -20,6 +23,7 @@ final class SessionUsageService {
     private final Supplier<Map<String, Map<String, Double>>> prices;
     private final Supplier<ModelPriceProvider> priceProvider;
     private final Supplier<String> defaultModel;
+    private final ToIntFunction<String> contextSize;
 
     SessionUsageService() {
         this(() -> ConfigService.getConfig().price(), ModelMetaPriceProvider::getInstance,
@@ -28,15 +32,22 @@ final class SessionUsageService {
 
     SessionUsageService(Supplier<Map<String, Map<String, Double>>> prices,
                         Supplier<ModelPriceProvider> priceProvider, Supplier<String> defaultModel) {
+        this(prices, priceProvider, defaultModel, SessionUsageService::configuredContextSize);
+    }
+
+    SessionUsageService(Supplier<Map<String, Map<String, Double>>> prices,
+                        Supplier<ModelPriceProvider> priceProvider, Supplier<String> defaultModel,
+                        ToIntFunction<String> contextSize) {
         this.prices = prices;
         this.priceProvider = priceProvider;
         this.defaultModel = defaultModel;
+        this.contextSize = contextSize;
     }
 
     UsageDTO read(LoopraAgent agent) {
         if (agent == null) {
             return new UsageDTO(0, 0, 0, 0, 0, 128000, 0,
-                    null, false, 0, 0, 0, 0, null, null);
+                    null, false, 0, 0, 0, 0, null, null, null, null);
         }
         long[] usage = agent.getSessionUsage();
         String model = agent.getModel();
@@ -64,23 +75,58 @@ final class SessionUsageService {
                 agent.getMaxContextTokens(), usage[0] + usage[1], model, cost.hasPrice(),
                 UsageCostCalculator.round4(cost.inputCost()), UsageCostCalculator.round4(cost.cacheCost()),
                 UsageCostCalculator.round4(cost.outputCost()), UsageCostCalculator.round4(cost.totalCost()),
-                cost.hasPrice() ? "CNY" : null, estimate);
+                cost.hasPrice() ? "CNY" : null, estimate, "loopra", "request");
     }
 
     /**
-     * 外部 ACP Agent 只上报上下文占用，不提供累计 token 与分项费用。
-     * <p>复用 {@code lastPromptTokens}/{@code maxContextTokens} 让前端上下文面板
-     * 直接展示 Agent 的真实窗口与已用量，而不是本地估算。</p>
+     * 外部 Agent 的总占用以 ACP 上报为准，构成比例根据 Loopra 可见的会话估算。
+     * 隐藏指令、工具定义以及 Agent 内部压缩后的历史不在可见范围内。
      */
-    UsageDTO readAcp(SessionStore.AcpUsage usage) {
-        if (usage == null || usage.used() < 0 || usage.size() <= 0) {
-            return new UsageDTO(0, 0, 0, 0, 0, 0, 0, null, false, 0, 0, 0, 0, null, null);
+    UsageDTO readAcp(SessionStore store, String name) {
+        SessionStore.AcpUsage usage = store.getAcpUsage(name);
+        String model = usage == null ? null : usage.model();
+        if (model == null || model.isBlank()) {
+            String saved = store.getAgentConfig(name).get("model");
+            if (saved != null && !saved.isBlank()) {
+                try { model = ONode.ofJson(saved).getString(); }
+                catch (RuntimeException ignored) { model = saved; }
+            }
         }
-        long used = usage.used();
-        int size = usage.size() > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) usage.size();
-        boolean priced = usage.cost() != null;
-        return new UsageDTO(0, 0, 0, 0, used, size, 0, usage.model(), priced,
-                0, 0, 0, priced ? usage.cost() : 0, priced ? usage.currency() : null, null);
+        ContextTokenEstimate estimate = null;
+        try {
+            estimate = ContextTokenEstimator.estimate(store.load(name), null, null);
+        } catch (java.io.IOException | RuntimeException exception) {
+            log.warn("[usage] 估算外部 Agent 会话构成失败: session={}", name, exception);
+        }
+        return readAcp(usage, estimate, model);
+    }
+
+    UsageDTO readAcp(SessionStore.AcpUsage usage) {
+        return readAcp(usage, null, usage == null ? null : usage.model());
+    }
+
+    private UsageDTO readAcp(SessionStore.AcpUsage usage, ContextTokenEstimate estimate, String model) {
+        boolean reported = usage != null && usage.used() >= 0 && usage.size() > 0;
+        int size = usage != null && usage.size() > 0 ? (int) Math.min(Integer.MAX_VALUE, usage.size()) : 0;
+        if (size <= 0 && model != null && !model.isBlank()) {
+            try { size = Math.max(0, contextSize.applyAsInt(model)); }
+            catch (RuntimeException exception) { log.warn("[usage] 读取外部 Agent 模型窗口失败: model={}", model, exception); }
+        }
+        boolean priced = usage != null && usage.cost() != null;
+        return new UsageDTO(0, 0, 0, 0, reported ? usage.used() : 0, size, 0, model, priced,
+                0, 0, 0, priced ? usage.cost() : 0, priced ? usage.currency() : null, estimate,
+                reported ? "agent" : "loopra", "transcript");
+    }
+
+    private static int configuredContextSize(String model) {
+        var config = ConfigService.getConfig();
+        if (config == null) return 0;
+        // External model ids have no Loopra channel binding. Conflicting windows
+        // must remain unknown instead of silently using the Native model's window.
+        var sizes = config.modelChannels().stream().map(channel -> channel.modelEntry(model))
+                .filter(java.util.Objects::nonNull).map(entry -> entry.contextTokens())
+                .filter(size -> size > 0).distinct().toList();
+        return sizes.size() == 1 ? sizes.get(0) : 0;
     }
 
     private static CostBreakdown calculate(Map<String, Map<String, Double>> prices, ModelPriceProvider provider,
