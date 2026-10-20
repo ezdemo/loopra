@@ -52,7 +52,7 @@ export default function WorkspaceTabs({ api, workspaceHash, state, children, onS
     {state.agents.map((agent, index) => {
       const key = subAgentTabKey(agent.subSessionId);
       return <div className="workspace-file-view workspace-subagent-view" id={`workspace-subagent-view-${index}`} role="tabpanel" aria-labelledby={`workspace-subagent-tab-${index}`} hidden={state.active !== key} key={key}>
-        <SubAgentView api={api} workspaceHash={workspaceHash} sessionName={agent.sessionName} subSessionId={agent.subSessionId} label={agent.label} notify={notify} onDiff={path => onOpen({ path, mode: 'diff' })} />
+        <SubAgentView api={api} workspaceHash={workspaceHash} sessionName={agent.sessionName} subSessionId={agent.subSessionId} label={agent.label} notify={notify} onOpenFile={path => onOpen({ path, mode: 'content' })} onDiff={path => onOpen({ path, mode: 'diff' })} />
       </div>;
     })}
   </div>;
