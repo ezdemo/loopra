@@ -3,6 +3,15 @@ import { useLayoutEffect, useState, type RefObject } from 'react';
 export type MenuPlacement = { side: 'top' | 'bottom'; maxHeight: number };
 /** The box the popup can actually paint inside: the clipping ancestors' box. */
 export type MenuBounds = { top: number; bottom: number };
+export type MenuPlacementOptions = {
+  /** Distance from the anchor's bottom edge to the popup's nearest edge. */
+  offset?: number;
+  /** The same distance in rem, for popups whose CSS position uses rem. */
+  offsetRem?: number;
+  gap?: number;
+  margin?: number;
+  minimumHeight?: number;
+};
 
 /** Matches the `0.4375rem` gap between an anchor and its popup. */
 export const MENU_GAP = 7;
@@ -18,9 +27,9 @@ export const MENU_MIN_SIDE_REM = 11;
  * only if that side really has more room). The returned height caps the popup
  * on the chosen side, so the list scrolls instead of being clipped.
  */
-export function computeMenuPlacement(anchor: { top: number; bottom: number }, bounds: MenuBounds, gap = MENU_GAP, margin = MENU_VIEWPORT_MARGIN, minimumHeight = MENU_MIN_SIDE_REM * 16): MenuPlacement {
+export function computeMenuPlacement(anchor: { top: number; bottom: number }, bounds: MenuBounds, gap = MENU_GAP, margin = MENU_VIEWPORT_MARGIN, minimumHeight = MENU_MIN_SIDE_REM * 16, belowGap = gap): MenuPlacement {
   const above = Math.max(0, anchor.top - gap - margin - bounds.top);
-  const below = Math.max(0, bounds.bottom - anchor.bottom - gap - margin);
+  const below = Math.max(0, bounds.bottom - anchor.bottom - belowGap - margin);
   const side = above >= minimumHeight || below <= above ? 'top' : 'bottom';
   return { side, maxHeight: side === 'top' ? above : below };
 }
@@ -47,9 +56,15 @@ export function measureMenuBounds(element: HTMLElement, viewportHeight: number):
   return bounds;
 }
 
-/** Placement for a menu that is mounted only while it is open. */
-export function useMenuPlacement(open: boolean, anchorRef: RefObject<HTMLElement>): MenuPlacement {
+/**
+ * Placement for a menu that is mounted only while it is open. Most menus sit
+ * just above their anchor. The composer menu is offset from its bottom toolbar
+ * instead, so `offsetRem` moves the measured popup edge without changing the
+ * shared clipping and flip rules.
+ */
+export function useMenuPlacement(open: boolean, anchorRef: RefObject<HTMLElement>, options: MenuPlacementOptions = {}): MenuPlacement {
   const [placement, setPlacement] = useState<MenuPlacement>({ side: 'top', maxHeight: 0 });
+  const { offset = 0, offsetRem, gap = MENU_GAP, margin = MENU_VIEWPORT_MARGIN, minimumHeight } = options;
   useLayoutEffect(() => {
     if (!open) return;
     const update = () => {
@@ -57,18 +72,31 @@ export function useMenuPlacement(open: boolean, anchorRef: RefObject<HTMLElement
       if (!anchor) return;
       const rootFontSize = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
       const bounds = measureMenuBounds(anchor, window.innerHeight);
-      const next = computeMenuPlacement(anchor.getBoundingClientRect(), bounds, MENU_GAP, MENU_VIEWPORT_MARGIN, MENU_MIN_SIDE_REM * rootFontSize);
+      const rect = anchor.getBoundingClientRect();
+      const popupOffset = offsetRem === undefined ? offset : offsetRem * rootFontSize;
+      const next = computeMenuPlacement(
+        popupOffset ? { top: rect.bottom - popupOffset, bottom: rect.bottom } : rect,
+        bounds,
+        popupOffset ? 0 : gap,
+        margin,
+        minimumHeight ?? MENU_MIN_SIDE_REM * rootFontSize,
+        gap,
+      );
       // Scrolling inside the popup also reaches this listener; keep the old
       // object when nothing moved so it does not re-render per scroll event.
       setPlacement(previous => previous.side === next.side && previous.maxHeight === next.maxHeight ? previous : next);
     };
     update();
+    const anchor = anchorRef.current;
+    const observer = anchor && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    if (anchor) observer?.observe(anchor);
     window.addEventListener('resize', update);
     window.addEventListener('scroll', update, true);
     return () => {
+      observer?.disconnect();
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [open, anchorRef]);
+  }, [open, anchorRef, offset, offsetRem, gap, margin, minimumHeight]);
   return placement;
 }

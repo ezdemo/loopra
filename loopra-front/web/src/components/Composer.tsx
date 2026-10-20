@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
 import { Button, Chip, Input, Spinner, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Star, Trash2, X, Zap } from 'lucide-react';
 import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands } from '../composer';
@@ -14,6 +14,7 @@ import type { PetStore } from '../usePets';
 import ReasoningControl from './ReasoningControl';
 import AgentConfigControls from './AgentConfigControls';
 import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
+import { useMenuPlacement } from '../layout/menu-placement';
 
 type Props = {
   agentId?: string; engines?: AgentEngine[];
@@ -53,7 +54,6 @@ export default function Composer(props: Props) {
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [dismissedDraft, setDismissedDraft] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [popoverHeight, setPopoverHeight] = useState(500);
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([]);
   const [discoveredCommands, setDiscoveredCommands] = useState<AcpCommand[]>([]);
   const [remoteCommands, setRemoteCommands] = useState<ServerCommand[]>([]);
@@ -64,6 +64,10 @@ export default function Composer(props: Props) {
   const dragDepth = useRef(0);
   const root = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const menuPlacement = useMenuPlacement(!!menu, root, { offsetRem: 4.375 });
+  const menuPlacementStyle = menuPlacement.maxHeight
+    ? { '--composer-popover-max-height': `${menuPlacement.maxHeight}px` } as CSSProperties
+    : undefined;
   const models = getModelCatalog(providers);
   const selected = models.find(model => model.id === options.modelId);
   const localUsage = estimateContext(props.history, draft, context, selected?.contextTokens, props.systemPrompt);
@@ -229,17 +233,6 @@ export default function Composer(props: Props) {
     }, 400);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [props.api, props.workspaceHash, props.sessionName, props.agentId, props.agentConfig?.options, props.history.length, props.generating]);
-  useLayoutEffect(() => {
-    const measure = () => {
-      const scale = parseFloat(getComputedStyle(document.documentElement).fontSize) / 16;
-      setPopoverHeight(Math.max(130 * scale, (root.current?.getBoundingClientRect().bottom || window.innerHeight) - 82 * scale));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    if (root.current) observer.observe(root.current);
-    window.addEventListener('resize', measure);
-    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
-  }, [menu, home]);
   useEffect(() => {
     const pointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) close(); };
     const escape = (event: KeyboardEvent) => {
@@ -298,7 +291,7 @@ export default function Composer(props: Props) {
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
   const hasContext = contextImages.length > 0 || context.projects.length > 0 || context.skills.length > 0 || contextFiles.length > 0;
 
-  return <div ref={root} data-popover style={{ '--composer-popover-height': `${popoverHeight}px` } as CSSProperties} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
+  return <div ref={root} data-popover data-placement={menuPlacement.side} style={menuPlacementStyle} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
     onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
