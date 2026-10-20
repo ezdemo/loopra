@@ -3,7 +3,7 @@ import { demoMessages } from './chat';
 import type { Message } from './chat';
 export type { Message } from './chat';
 
-export const UI_SCALE_LEVELS = [80, 90, 100, 125, 150] as const;
+export const UI_SCALE_LEVELS = [80, 90, 100, 110, 120] as const;
 export function normalizeUiScale(value: number): number {
   if (!Number.isFinite(value)) return 100;
   return UI_SCALE_LEVELS.reduce<number>((nearest, level) => Math.abs(level - value) < Math.abs(nearest - value) ? level : nearest, 100);

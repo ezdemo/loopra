@@ -47,7 +47,7 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
     <div className="effort-summary"><span className="effort-symbol"><Brain size="1.375rem" /></span><div><strong>{effort?.label || (allowCustom ? '自定义' : displayed)}强度</strong><p>{effort?.description || displayed}</p></div></div>
     {/* The wrapper carries the level so composer.css can scale the track's spark field with it. */}
     <div className="effort-slider" style={{ '--effort-level': String(sparkLevel) } as CSSProperties}>
-      <Slider aria-label="推理强度" size="sm" minValue={0} maxValue={Math.max(0, levels.length - 1)} step={1} value={sparkLevel} isDisabled={disabled}
+      <Slider aria-label="推理强度" className="effort-range" size="sm" minValue={0} maxValue={Math.max(0, levels.length - 1)} step={1} value={sparkLevel} isDisabled={disabled}
         onChange={position => { revision.current++; setPreview(levelAt(position)); setCustom(''); }}
         onChangeEnd={position => { void commit(levelAt(position)); }} />
     </div>

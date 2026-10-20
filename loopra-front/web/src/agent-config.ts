@@ -2,7 +2,7 @@ export type AgentConfigValue = { value: string; name: string; description?: stri
 export type AgentConfigOption = { id: string; name: string; description?: string; category?: string; type: 'select' | 'boolean'; currentValue: string | boolean; options: AgentConfigValue[] };
 export type AgentConfigState = {
   options?: AgentConfigOption[]; busy: boolean; error?: string;
-  onPrepare: () => void; onChange: (id: string, value: string | boolean) => void;
+  onPrepare: () => void; onChange: (id: string, value: string | boolean) => void | Promise<void>;
 };
 export type AgentEffortLevel = { value: string; label: string; description?: string };
 
