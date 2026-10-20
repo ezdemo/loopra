@@ -27,7 +27,7 @@
   <a href="#从源码开发">从源码开发</a>
 </p>
 
-> 当前版本：`26.9.91`。完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+> 当前版本：`26.9.91`。完整变更记录见 [CHANGELOG.md](https://github.com/ezdemo/loopra-release/blob/main/CHANGELOG.md)。
 
 ## 技术交流群
 

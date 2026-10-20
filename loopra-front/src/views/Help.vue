@@ -365,33 +365,12 @@
             <div class="section-icon">📝</div>
             <div class="section-title">
               <h3>更新日志</h3>
-              <p>版本更新记录</p>
+              <p>查看各版本的新功能、改进和修复，随正式发版自动更新。</p>
             </div>
           </div>
           
           <div class="section-content">
-            <div class="changelog-list">
-              <div 
-                v-for="release in changelog" 
-                :key="release.version"
-                class="release-card"
-              >
-                <div class="release-header">
-                  <div class="release-version">{{ release.version }}</div>
-                  <div class="release-date">{{ release.date }}</div>
-                </div>
-                <div class="release-changes">
-                  <div 
-                    v-for="(change, index) in release.changes" 
-                    :key="index"
-                    class="change-item"
-                  >
-                    <span class="change-type" :class="change.type">{{ change.type }}</span>
-                    <span class="change-desc">{{ change.desc }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <a href="https://github.com/ezdemo/loopra-release/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">查看完整更新日志 ↗</a>
           </div>
         </section>
       </main>
@@ -499,23 +478,6 @@ const apiEndpoints = [
   { method: 'GET', path: '/api/tools', desc: '列出所有工具' },
   { method: 'GET', path: '/api/config', desc: '获取当前配置' },
   { method: 'GET', path: '/api/usage', desc: '获取 Token 用量统计' }
-]
-
-// 更新日志
-const changelog = [
-  {
-    version: 'v1.0.0',
-    date: '2024-03-20',
-    changes: [
-      { type: '新增', desc: '初始版本发布' },
-      { type: '新增', desc: '支持 OpenAI 兼容 API' },
-      { type: '新增', desc: '文件操作工具集' },
-      { type: '新增', desc: '会话管理和持久化' },
-      { type: '新增', desc: '流式输出支持' },
-      { type: '新增', desc: '计划模式（/plan 只读探索 + submit_plan 提交计划 + /execute 批准执行）' },
-      { type: '新增', desc: '深色/浅色主题' }
-    ]
-  }
 ]
 
 // 计算属性

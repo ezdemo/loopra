@@ -3,7 +3,7 @@ import { Input, Modal, ModalContent } from '@nextui-org/react';
 import { HelpCircle, Search as SearchIcon, X } from 'lucide-react';
 import { IconButton } from './ui';
 import {
-  helpChangelog, helpCommands, helpConfigOptions, helpConfigSample, helpEndpoints, helpIssues,
+  helpChangelogUrl, helpCommands, helpConfigOptions, helpConfigSample, helpEndpoints, helpIssues,
   helpSections, helpShortcuts, helpSteps, helpTools, searchHelp,
 } from '../help';
 
@@ -127,11 +127,8 @@ export default function Help({ open, onClose, server }: { open: boolean; onClose
 
               <section className="help-section" {...sectionProps('changelog')}>
                 <h2>📝 更新日志</h2>
-                <p className="section-note">版本更新记录</p>
-                {helpChangelog.map(release => <article className="help-release" key={release.version}>
-                  <header><strong>{release.version}</strong><time>{release.date}</time></header>
-                  <ul>{release.changes.map(change => <li key={change.desc}><span className={`help-change help-change-${change.type}`}>{change.type}</span>{change.desc}</li>)}</ul>
-                </article>)}
+                <p className="section-note">查看各版本的新功能、改进和修复，随正式发版自动更新。</p>
+                <p className="section-note"><a href={helpChangelogUrl} target="_blank" rel="noopener noreferrer">查看完整更新日志 ↗</a></p>
               </section>
             </>}
           </div>

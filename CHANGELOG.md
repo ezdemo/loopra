@@ -1,6 +1,6 @@
 # 更新日志
 
-所有重要的变更都会记录在此文件中。
+正式发布版本的更新日志已迁移至 [loopra-release/CHANGELOG.md](https://github.com/ezdemo/loopra-release/blob/main/CHANGELOG.md)，随发版自动更新。以下保留源码仓库的历史记录与未发布变更。
 
 ---
 

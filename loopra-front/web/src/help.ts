@@ -89,20 +89,7 @@ export const helpEndpoints = [
   { method: 'GET', path: '/api/usage', desc: '获取 Token 用量统计' },
 ];
 
-export const helpChangelog = [
-  {
-    version: 'v1.0.0', date: '2024-03-20',
-    changes: [
-      { type: '新增', desc: '初始版本发布' },
-      { type: '新增', desc: '支持 OpenAI 兼容 API' },
-      { type: '新增', desc: '文件操作工具集' },
-      { type: '新增', desc: '会话管理和持久化' },
-      { type: '新增', desc: '流式输出支持' },
-      { type: '新增', desc: '计划模式（/plan 只读探索 + submit_plan 提交计划 + /execute 批准执行）' },
-      { type: '新增', desc: '深色/浅色主题' },
-    ],
-  },
-];
+export const helpChangelogUrl = 'https://github.com/ezdemo/loopra-release/blob/main/CHANGELOG.md';
 
 export const helpConfigOptions = [
   { name: 'baseUrl', desc: 'OpenAI 兼容 API 的基础 URL' },
