@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { createDesktopUpdater, registerDesktopUpdateIpc } = require('../../electron/desktop-updater.cjs');
+const { createDesktopUpdater, registerDesktopUpdateIpc, desktopUpdateSupport, readDesktopUpdateOptions, loadDesktopUpdater } = require('../../electron/desktop-updater.cjs');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture(options = {}) {
   const updater = new EventEmitter();
@@ -104,6 +104,77 @@ test('development and other platforms never contact the updater or install', asy
     assert.equal(calls.check, 0); assert.equal(calls.download, 0);
     assert.throws(() => controller.install(), /尚未下载/);
   }
+});
+
+test('signed macOS waits for native verification before exposing installation', async () => {
+  const nativeUpdater = new EventEmitter();
+  const { updater, calls, controller } = fixture({ platform: 'darwin', macSigned: true, nativeUpdater });
+  assert.equal(controller.getState().supported, true);
+  await controller.check(); await flush();
+  assert.equal(calls.download, 1);
+  updater.emit('update-downloaded', { version: '26.10.2002' });
+  assert.equal(controller.getState().status, 'verifying');
+  assert.throws(() => controller.install(), /尚未下载/);
+  await controller.check(); await controller.download();
+  assert.equal(calls.download, 1); assert.equal(calls.check, 1);
+  assert.deepEqual(calls.install, []);
+  nativeUpdater.emit('update-downloaded');
+  assert.equal(controller.getState().status, 'downloaded');
+  controller.install(); assert.equal(calls.install.length, 1);
+});
+
+test('macOS signature failure stays visible and never enables installation', async () => {
+  const nativeUpdater = new EventEmitter();
+  const { updater, controller } = fixture({ platform: 'darwin', macSigned: true, nativeUpdater });
+  await controller.check(); await flush();
+  updater.emit('update-downloaded', { version: '26.10.2002' });
+  updater.emit('error', new Error('signature invalid'));
+  nativeUpdater.emit('update-downloaded');
+  assert.equal(controller.getState().status, 'error');
+  assert.equal(controller.getState().error, 'signature invalid');
+  assert.throws(() => controller.install(), /尚未下载/);
+});
+
+test('Linux DEB and AppImage download automatically and preserve restart installation', async () => {
+  for (const options of [{ linuxPackageType: 'deb' }, { appImagePath: '/home/user/Loopra.AppImage' }]) {
+    const { updater, calls, controller } = fixture({ platform: 'linux', ...options });
+    assert.equal(controller.getState().supported, true);
+    await controller.check(); await flush();
+    assert.equal(calls.download, 1);
+    updater.emit('update-downloaded', { version: '26.10.2002' });
+    assert.equal(controller.getState().status, 'downloaded');
+    assert.equal(updater.autoInstallOnAppQuit, true);
+    assert.deepEqual(calls.install, []);
+    controller.install(); assert.deepEqual(calls.install, [[true, true]]);
+    if (options.linuxPackageType) assert.match(controller.getState().installHint, /管理员授权/);
+  }
+});
+
+test('platform selection never loads an installer for development, ad-hoc macOS or unsupported Linux packages', () => {
+  for (const options of [{ isPackaged: false, platform: 'win32' }, { isPackaged: true, platform: 'darwin' },
+    { isPackaged: true, platform: 'linux', linuxPackageType: 'rpm' }]) {
+    assert.equal(loadDesktopUpdater(options, () => { throw new Error('must not load updater'); }), null);
+    assert.equal(desktopUpdateSupport(options).supported, false);
+    assert.ok(desktopUpdateSupport(options).unsupportedReason);
+  }
+  const library = { autoUpdater: 'native', AppImageUpdater: class { kind = 'image'; }, DebUpdater: class { kind = 'deb'; } };
+  const load = () => library;
+  assert.equal(loadDesktopUpdater({ isPackaged: true, platform: 'win32' }, load), 'native');
+  assert.equal(loadDesktopUpdater({ isPackaged: true, platform: 'darwin', macSigned: true }, load), 'native');
+  assert.equal(loadDesktopUpdater({ isPackaged: true, platform: 'linux', linuxPackageType: 'deb' }, load).kind, 'deb');
+  // APPIMAGE takes precedence over a package-type marker included in shared build resources.
+  assert.equal(loadDesktopUpdater({ isPackaged: true, platform: 'linux', linuxPackageType: 'deb', appImagePath: '/tmp/Loopra.AppImage' }, load).kind, 'image');
+});
+
+test('reads signing metadata and Linux package identity from the packaged app, failing closed for unmarked builds', () => {
+  const app = { isPackaged: true, getAppPath: () => '/app' };
+  for (const signed of [true, false, 'true', undefined]) {
+    const options = readDesktopUpdateOptions(app, { platform: 'darwin', env: {}, readFileSync: () => JSON.stringify({ loopraDesktopUpdate: { macSigned: signed } }) });
+    assert.equal(options.macSigned, signed === true);
+  }
+  assert.equal(readDesktopUpdateOptions(app, { platform: 'darwin', env: {}, readFileSync: () => { throw new Error('missing'); } }).macSigned, false);
+  const linux = readDesktopUpdateOptions(app, { platform: 'linux', resourcesPath: '/resources', env: { APPIMAGE: '/tmp/app.AppImage' }, readFileSync: () => 'deb\n' });
+  assert.equal(linux.linuxPackageType, 'deb'); assert.equal(linux.appImagePath, '/tmp/app.AppImage');
 });
 
 test('failed installer launch retains the downloaded update for retry', () => {

@@ -117,6 +117,31 @@ const desktopState = {
   error: '', checkedAt: '', revision: 2,
 };
 
+test('platform update dialog explains manual macOS updates, waits for verification, and shows Linux authorization', async () => {
+  for (const state of [
+    { ...desktopState, supported: false, status: 'unsupported', unsupportedReason: '此 macOS 版本未使用正式签名，请从发布页下载安装。' },
+    { ...desktopState, status: 'verifying' },
+    { ...desktopState, status: 'downloaded', packageType: 'deb', installHint: '安装更新时，系统可能要求管理员授权。' },
+  ]) {
+    const controller = { state, open: true, available: true, close() {}, show() {}, async check() {}, async install() {}, error: '', blockedReason: '' };
+    function Host() { return createElement(DesktopUpdateDialog, { controller }); }
+    const view = await mount(undefined, Host);
+    try {
+      if (state.status === 'unsupported') {
+        assert.match(view.container.textContent, /macOS.*正式签名/);
+        assert.equal(buttonIn(view.container, '重启并安装'), undefined);
+      } else if (state.status === 'verifying') {
+        assert.match(view.container.querySelector('[role="status"]').textContent, /正在验证更新/);
+        assert.equal(buttonIn(view.container, '重启并安装'), undefined);
+        assert.equal(buttonIn(view.container, '正在验证').disabled, true);
+      } else {
+        assert.match(view.container.textContent, /管理员授权/);
+        assert.ok(buttonIn(view.container, '重启并安装'));
+      }
+    } finally { await view.close(); }
+  }
+});
+
 test('desktop header shows download progress and a guarded restart without confusing the backend version', async () => {
   let listener; let installs = 0; let unsubscribed = false;
   dom.window.electronAPI = { desktopUpdate: {
