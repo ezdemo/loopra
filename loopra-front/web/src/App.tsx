@@ -13,6 +13,7 @@ import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
 import Settings, { defaultPreferences } from './components/Settings';
 import { CoreServiceUpdateDialog, useCoreServiceUpdate } from './components/CoreServiceUpdate';
+import { DesktopUpdateDialog, useDesktopUpdate } from './components/DesktopUpdate';
 import type { Preferences } from './components/Settings';
 import Search from './components/Search';
 import type { FileChange, Message } from './chat';
@@ -222,12 +223,15 @@ export default function App() {
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
   const coreUpdate = useCoreServiceUpdate(api, notify, () => { setSettingsOpen(false); setMenu(null); }, settingsOpen);
+  const desktopUpdate = useDesktopUpdate(generatingId || remoteRun ? '任务正在运行，请在任务结束后重启安装。'
+    : coreUpdate.update?.running || coreUpdate.startingUpdate ? '核心服务正在更新，请在完成后重启安装。' : '',
+    () => { setSettingsOpen(false); setMenu(null); });
   useEffect(() => {
     const check = backend.updateCheck;
-    if (!check?.hasNewVersion || !check.latestVersion || notifiedUpdate.current === check.latestVersion) return;
+    if (desktopUpdate.available || !check?.hasNewVersion || !check.latestVersion || notifiedUpdate.current === check.latestVersion) return;
     notifiedUpdate.current = check.latestVersion;
     notify(`发现新版本 v${check.latestVersion}，点击顶栏版本查看`);
-  }, [backend.updateCheck]);
+  }, [backend.updateCheck, desktopUpdate.available]);
   function selectMainTab(path: string | null, hash = workspace) { const key = `${server}/${hash}`; setWorkspaceEditors(current => ({ ...current, [key]: { ...(current[key] || emptyWorkspaceTabs), active: path } })); }
   function openFile(file: WorkspaceFile) { setWorkspaceEditors(current => ({ ...current, [editorKey]: openWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, file) })); if (narrow) setChanges(false); }
   function changeFilePath(from: string, to?: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: updateWorkspaceFilePath(current[editorKey] || emptyWorkspaceTabs, from, to) })); }
@@ -1072,7 +1076,8 @@ export default function App() {
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
-          latestVersion={backend.updateCheck?.hasNewVersion ? backend.updateCheck.latestVersion : undefined} onVersion={openCoreUpdate}
+          latestVersion={backend.updateCheck?.hasNewVersion ? backend.updateCheck.latestVersion : undefined} desktopUpdate={desktopUpdate.state}
+          onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
           gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
           applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onCopyPath={copyPath}
           onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
@@ -1122,6 +1127,7 @@ export default function App() {
       onInitPet={initPet}
       updateCheck={backend.updateCheck}
       coreUpdate={coreUpdate}
+      desktopUpdate={desktopUpdate.available ? desktopUpdate : undefined}
       onRefresh={() => backend.refresh()}
       workspaces={workspaces}
       server={server}
@@ -1144,6 +1150,7 @@ export default function App() {
       notify={notify}
     />
     <CoreServiceUpdateDialog controller={coreUpdate} notify={notify} />
+    <DesktopUpdateDialog controller={desktopUpdate} />
     <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>
   </div></AppMotion>;

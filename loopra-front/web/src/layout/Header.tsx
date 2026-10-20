@@ -2,6 +2,7 @@ import { Archive, Check, ChevronDown, Copy, Download, FileCode2, FolderClosed, G
 import { IconButton } from '../components/ui';
 import { Popup } from '../components/Motion';
 import type { Session } from '../lib';
+import type { DesktopUpdateState } from '../desktop-update';
 
 export type HeaderProps = {
   sidebarOpen: boolean;
@@ -30,6 +31,7 @@ export type HeaderProps = {
   onShowChanges: () => void;
   onVersion: () => void;
   latestVersion?: string;
+  desktopUpdate?: DesktopUpdateState;
 };
 
 function statusLabel(backend: HeaderProps['backend']) {
@@ -43,6 +45,17 @@ export default function Header(p: HeaderProps) {
   const version = backend.version.replace(/^v/i, '');
   const latestVersion = p.latestVersion?.replace(/^v/i, '');
   const versionLabel = version ? `v${version}` : 'v—';
+  const desktop = p.desktopUpdate;
+  const desktopVersion = desktop ? `v${desktop.currentVersion}` : versionLabel;
+  const desktopText = desktop?.status === 'downloading' ? `下载中 ${Math.floor(desktop.percent)}%`
+    : desktop?.status === 'downloaded' ? '重启并安装'
+    : desktop?.status === 'installing' ? '正在安装…'
+    : desktop?.status === 'checking' ? '检查更新…'
+    : desktop?.status === 'error' ? '更新失败，重试'
+    : desktop?.status === 'available' ? '发现新版' : '';
+  const updateText = desktop ? desktopText : latestVersion ? '发现新版' : '';
+  const updateTitle = desktop ? `桌面端 ${desktopVersion}${desktop.latestVersion ? ` · 最新 v${desktop.latestVersion}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
+    : latestVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`;
   return <header className={`conversation-header ${p.isHome ? 'home-header' : ''}`}>
     {!p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
     {!p.isHome && session && <div className="breadcrumb">
@@ -63,13 +76,13 @@ export default function Header(p: HeaderProps) {
     {/* Electron drag area: the empty stretch between the title and the actions. */}
     <div className="header-drag" aria-hidden="true" />
     <div className="header-actions">
-      <button type="button" className={`app-version${latestVersion ? ' has-update' : ''}`}
-        title={latestVersion ? `发现新版本 v${latestVersion}，当前版本 ${versionLabel}` : `当前版本 ${versionLabel}`}
-        aria-label={latestVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`}
+      <button type="button" className={`app-version${updateText ? ' has-update' : ''}`}
+        title={updateTitle}
+        aria-label={updateTitle}
         onClick={p.onVersion}>
-        {latestVersion
-          ? <span className="app-version-update"><Download size="0.75rem" strokeWidth={1.8} aria-hidden="true" /><span>发现新版</span></span>
-          : <span className="app-version-number">{versionLabel}</span>}
+        {updateText
+          ? <span className="app-version-update"><Download size="0.75rem" strokeWidth={1.8} aria-hidden="true" /><span>{updateText}</span></span>
+          : <span className="app-version-number">{desktopVersion}</span>}
       </button>
       <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
       {!p.isHome && <>

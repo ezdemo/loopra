@@ -28,11 +28,12 @@ async function sourceUrl(name, dependencies = {}) {
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isLoading, isDisabled, isIconOnly, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isLoading || !!isDisabled, onClick: onPress, ...rest }, startContent, children);
-export const Modal = ({ isOpen, children, onClose, classNames, placement, scrollBehavior, ...rest }) => isOpen ? createElement('section', { role: 'dialog', ...rest }, children) : null;
+export const Modal = ({ isOpen, children, onClose, classNames, placement, scrollBehavior, hideCloseButton, isDismissable, size, ...rest }) => isOpen ? createElement('section', { role: 'dialog', ...rest }, children) : null;
 export const ModalContent = ({ children }) => createElement('div', null, children);
 export const ModalHeader = ({ children }) => createElement('header', null, children);
 export const ModalBody = ({ children }) => createElement('div', null, children);
 export const ModalFooter = ({ children }) => createElement('footer', null, children);
+export const Progress = ({ value, ...rest }) => createElement('progress', { value, max: 100, ...rest });
 `);
 const iconsStub = dataUrl('export const ArrowRight=()=>null;export const ArrowUpRight=()=>null;export const Check=()=>null;export const CircleAlert=()=>null;export const CircleCheck=()=>null;export const CirclePause=()=>null;export const Copy=()=>null;export const Download=()=>null;export const FileText=()=>null;export const LoaderCircle=()=>null;export const RefreshCw=()=>null;export const Server=()=>null;export const Square=()=>null;export const Terminal=()=>null;');
 const controlsStub = dataUrl(`export const errorText = cause => cause instanceof Error ? cause.message : String(cause);`);
@@ -66,6 +67,11 @@ const { default: Header } = await import(await sourceUrl('layout/Header.tsx', {
     export const IconButton = ({ label, children, onClick }) => createElement('button', { 'aria-label': label, onClick }, children);
   `),
   '../components/Motion': dataUrl('export const Popup = () => null;'),
+}));
+const { DesktopUpdateDialog, useDesktopUpdate } = await import(await sourceUrl('components/DesktopUpdate.tsx', {
+  ...sharedDependencies,
+  '../desktop-shell': await sourceUrl('desktop-shell.ts'),
+  '../desktop-update': await sourceUrl('desktop-update.ts'),
 }));
 
 async function mount(initialCheck, Component = VersionInfo, scenario = {}) {
@@ -104,6 +110,90 @@ async function mount(initialCheck, Component = VersionInfo, scenario = {}) {
 }
 const buttonIn = (element, text) => [...element.querySelectorAll('button')].find(candidate => candidate.textContent.includes(text));
 async function click(element) { await act(async () => { element.click(); await Promise.resolve(); await Promise.resolve(); }); }
+
+const desktopState = {
+  supported: true, currentVersion: '26.10.2001', latestVersion: '26.10.2002',
+  status: 'downloading', percent: 48.9, transferred: 48, total: 100, bytesPerSecond: 10,
+  error: '', checkedAt: '', revision: 2,
+};
+
+test('desktop header shows download progress and a guarded restart without confusing the backend version', async () => {
+  let listener; let installs = 0; let unsubscribed = false;
+  dom.window.electronAPI = { desktopUpdate: {
+    getState: async () => desktopState,
+    onState: callback => { listener = callback; return () => { unsubscribed = true; }; },
+    install: async () => { installs++; }, check: async () => desktopState,
+  } };
+  function Host() {
+    const [running, setRunning] = useState(true);
+    const controller = useDesktopUpdate(running ? '任务正在运行' : '');
+    return createElement('div', null,
+      createElement(Header, { sidebarOpen: true, isHome: true, menu: null,
+        backend: { status: 'connected', ready: true, error: '', version: '26.9.91' },
+        latestVersion: '26.99.1', desktopUpdate: controller.state, onVersion: controller.show }),
+      createElement('button', { onClick: () => setRunning(false) }, '任务结束'),
+      createElement(DesktopUpdateDialog, { controller }));
+  }
+  const view = await mount(undefined, Host);
+  try {
+    const header = view.container.querySelector('.app-version');
+    assert.equal(header.textContent, '下载中 48%');
+    assert.match(header.title, /桌面端 v26\.10\.2001/);
+    assert.doesNotMatch(header.title, /26\.99/);
+    assert.match(view.container.querySelector('.backend-status').title, /v26\.9\.91/);
+    await click(header);
+    assert.equal(view.container.querySelector('progress').value, 48.9);
+    await act(async () => listener({ ...desktopState, status: 'downloaded', percent: 100, revision: 3 }));
+    assert.equal(header.textContent, '重启并安装');
+    const install = buttonIn(view.container.querySelector('[role="dialog"]'), '重启并安装');
+    assert.equal(install.disabled, true);
+    await click(install); assert.equal(installs, 0);
+    await click(buttonIn(view.container, '任务结束'));
+    assert.equal(install.disabled, false);
+    await click(install); assert.equal(installs, 1);
+  } finally { await view.close(); delete dom.window.electronAPI; }
+  assert.equal(unsubscribed, true);
+});
+
+test('a delayed initial desktop state cannot overwrite a newer update event', async () => {
+  let listener; let resolveInitial;
+  dom.window.electronAPI = { desktopUpdate: {
+    getState: () => new Promise(resolve => { resolveInitial = resolve; }),
+    onState: callback => { listener = callback; return () => {}; },
+  } };
+  function Host() {
+    const controller = useDesktopUpdate();
+    return createElement('span', null, controller.state?.status || 'waiting');
+  }
+  const view = await mount(undefined, Host);
+  try {
+    await act(async () => listener({ ...desktopState, status: 'downloaded', revision: 4 }));
+    await act(async () => resolveInitial(desktopState));
+    assert.equal(view.container.textContent, 'downloaded');
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
+
+test('desktop errors remain actionable and retries do not invoke the core update API', async () => {
+  let checks = 0;
+  dom.window.electronAPI = { desktopUpdate: {
+    getState: async () => ({ ...desktopState, status: 'error', error: '网络中断' }),
+    onState: () => () => {},
+    check: async () => { checks++; throw new Error('请检查网络'); },
+  } };
+  function Host() {
+    const controller = useDesktopUpdate();
+    return createElement('div', null, createElement('button', { onClick: controller.show }, '更新'), createElement(DesktopUpdateDialog, { controller }));
+  }
+  const view = await mount(undefined, Host);
+  try {
+    await click(buttonIn(view.container, '更新'));
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /网络中断/);
+    await click(buttonIn(view.container, '重试更新'));
+    assert.equal(checks, 1);
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /请检查网络/);
+    assert.deepEqual(globalThis.__calls, []);
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
 
 test('reads the current version on mount', async () => {
   const view = await mount();
@@ -252,7 +342,7 @@ test('the top bar opens confirmation directly and shares its source and running 
     assert.equal(globalThis.__calls.length, 0);
     assert.equal(view.container.querySelector('.app-version').textContent, '发现新版');
     assert.equal(view.container.querySelector('.app-version-number'), null);
-    assert.match(view.container.querySelector('.app-version').title, /v26\.10\.1.*v26\.9\.91/);
+    assert.match(view.container.querySelector('.app-version').title, /v26\.9\.91.*v26\.10\.1/);
     await click(view.container.querySelector('.app-version'));
     let dialog = view.container.querySelector('[aria-label="核心服务更新"]');
     assert.ok(dialog);

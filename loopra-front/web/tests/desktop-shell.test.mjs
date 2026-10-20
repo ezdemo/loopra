@@ -82,8 +82,8 @@ test('the shell first row is the drag region with no-drag controls', () => {
 
 test('the header shows the connected backend version beside its status', () => {
   assert.match(header, /const version = backend\.version\.replace\(\/\^v\/i, ''\);/);
-  assert.match(header, /<button type="button" className=\{`app-version\$\{latestVersion \? ' has-update' : ''\}`\}/);
-  assert.match(header, /<span className="app-version-update"><Download[^>]+aria-hidden="true" \/><span>发现新版<\/span><\/span>/);
+  assert.match(header, /<button type="button" className=\{`app-version\$\{updateText \? ' has-update' : ''\}`\}/);
+  assert.match(header, /<span className="app-version-update"><Download[^>]+aria-hidden="true" \/><span>\{updateText\}<\/span><\/span>/);
   const versionIndex = header.indexOf('className={`app-version');
   assert.ok(versionIndex >= 0 && versionIndex < header.indexOf('className={`backend-status'));
   assert.match(styles, /\.app-version \{[^}]*font-variant-numeric: tabular-nums;[^}]*\}/);
@@ -94,7 +94,7 @@ test('the header shows the connected backend version beside its status', () => {
   assert.match(loopraHook, /setInterval\(check, VERSION_CHECK_INTERVAL_MS\)/);
   assert.match(loopraHook, /clearInterval\(timer\)/);
   assert.match(app, /发现新版本 v\$\{check\.latestVersion\}，点击顶栏版本查看/);
-  assert.match(app, /onVersion=\{openCoreUpdate\}/);
+  assert.match(app, /onVersion=\{desktopUpdate\.available \? desktopUpdate\.show : openCoreUpdate\}/);
   assert.match(app, /function openCoreUpdate\(\) \{[\s\S]*?coreUpdate\.show\(\);[\s\S]*?coreUpdate\.prepare\(backend\.version \|\| backend\.updateCheck\?\.currentVersion \|\| '-', backend\.updateCheck\);/);
   assert.match(app, /<Settings[\s\S]*?coreUpdate=\{coreUpdate\}/);
   assert.match(app, /<CoreServiceUpdateDialog controller=\{coreUpdate\}/);

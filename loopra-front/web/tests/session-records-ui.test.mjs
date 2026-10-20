@@ -30,7 +30,9 @@ export const ModalBody = ModalContent, ModalHeader = ModalContent;`);
 const controls = dataUrl(`import { useEffect, useState } from ${JSON.stringify(reactUrl)};
 export const query = value => new URLSearchParams(value).toString(); export const RemoteState = () => null;
 export function useRemote(api, path, revision) { const [state, setState] = useState({ loading: true }); useEffect(() => { let live = true; api.request(path).then(data => { if (live) setState({ data, loading: false }); }); return () => { live = false; }; }, [api, path, revision]); return state; }`);
-const { default: SessionDetails } = await import(await sourceUrl('components/SessionDetails.tsx', { '@nextui-org/react': nextui, 'lucide-react': icons, '../backend': dataUrl('export const sessionQuery = () => "workspaceHash=test&sessionName=test";'), './RemoteControls': controls, '../session-prompt': await sourceUrl('session-prompt.ts'), './Markdown': markdown, './RawSessionRecords': rawUrl }));
+const { default: SessionDetails } = await import(await sourceUrl('components/SessionDetails.tsx', { '@nextui-org/react': nextui, 'lucide-react': import.meta.resolve('lucide-react'),
+  './ui': dataUrl('export const IconButton = () => null;'), '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
+  '../backend': dataUrl('export const sessionQuery = () => "workspaceHash=test&sessionName=test";'), './RemoteControls': controls, '../session-prompt': await sourceUrl('session-prompt.ts'), './Markdown': markdown, './RawSessionRecords': rawUrl }));
 const messages = [{ role: 'user', content: 'check the project' }, { role: 'assistant', content: 'Checking.', tool_calls: [{ id: 'a', name: 'bash', arguments: { command: 'git status' } }] }, { role: 'tool', tool_call_id: 'a', content: 'unique-result: main branch' }];
 let copied;
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copied = text; } } });
