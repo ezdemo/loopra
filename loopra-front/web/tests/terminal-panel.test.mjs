@@ -19,7 +19,7 @@ const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toStr
 async function sourceUrl(name, dependencies = {}) {
   const source = await readFile(new URL(`../src/${name}`, import.meta.url), 'utf8');
   let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } });
-  for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), ...dependencies })) {
+  for (const [specifier, url] of Object.entries({ react: reactUrl, 'react-dom': import.meta.resolve('react-dom'), 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), ...dependencies })) {
     outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
   }
   return dataUrl(outputText);
@@ -73,7 +73,7 @@ const sessions = [
   { sessionId: 's-2', workspace: 'C:/code/loopra', command: 'sleep 1', workdir: 'C:/code/loopra', startedAt: Date.now() - 900_000, status: 'completed' },
 ];
 
-async function mount({ floating = false, initialSessions = sessions, actions } = {}) {
+async function mount({ floating = false, initialSessions = sessions, actions, toolbarTarget } = {}) {
   let currentSessions = initialSessions;
   let hold = false;
   globalThis.__calls = []; globalThis.__notify = []; globalThis.__copied = [];
@@ -90,7 +90,7 @@ async function mount({ floating = false, initialSessions = sessions, actions } =
   const root = createRoot(container);
   function Floating() {
     const [open, setOpen] = useState(false);
-    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', connected: true, open, onOpenChange: setOpen, notify: () => {}, actions }, createElement('textarea', { 'aria-label': '输入消息' }));
+    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', connected: true, open, onOpenChange: setOpen, notify: () => {}, actions, toolbarTarget }, createElement('textarea', { 'aria-label': '输入消息' }));
   }
   await act(async () => root.render(floating ? createElement(Floating) : createElement(TerminalPanel, { api, workspaceHash: 'hash 1', onClose: () => {}, notify: message => globalThis.__notify.push(message) })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
@@ -165,6 +165,21 @@ test('composer actions share the toolbar after Background and remain available w
       assert.ok(view.container.querySelector('textarea'));
     } finally { await view.close(); }
   }
+});
+
+test('a toolbar mounted beside the Agent still opens the task panel and restores focus', async () => {
+  const slot = document.createElement('div'); document.body.append(slot);
+  const view = await mount({ floating: true, toolbarTarget: slot });
+  try {
+    assert.equal(view.container.querySelector('.background-tasks-trigger'), null);
+    const trigger = slot.querySelector('.background-tasks-trigger');
+    assert.ok(trigger);
+    await act(async () => trigger.click());
+    assert.ok(view.container.querySelector('[role="dialog"]'));
+    await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    assert.equal(view.container.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, trigger);
+  } finally { await view.close(); slot.remove(); }
 });
 
 test('opening and reopening use cached tasks and logs without waiting for any network request', async () => {

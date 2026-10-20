@@ -40,7 +40,7 @@ function harness() {
     ...queue, activeRequest: { current: undefined }, sendingQueued: { current: new Set() },
     sendMessageRef: { current: undefined }, sessionsRef: { current: [] }, queuedRef: { current: {} }, remoteRunRef: { current: null },
     backend: { status: 'connected', ready: true }, workspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
-    preferences: { sound: false, notifications: false }, composerContext: context, emptyContext: context,
+    preferences: { sound: false, notifications: false }, composerContext: context, emptyContext: context, composerConfigBusy: false,
     LARGE_PASTE_THRESHOLD_CHARS: 10000, preparedNewSession: { current: null },
     userScrolledAway: { current: false }, scrollArea: { current: null }, agentConfigKey: 'a::external',
     notify: text => notices.push(text), composeOutgoing: text => text,
@@ -175,6 +175,20 @@ test('an attachment-only queued turn does not pick up the current composer draft
   assert.equal(h.streams[0].body.message, '请查看附件');
   assert.deepEqual(h.streams[0].body.images, ['data:image/png;base64,abc']);
   assert.deepEqual(h.drafts, []);
+  h.streams[0].finish();
+  await sending;
+});
+
+test('loading Agent configuration blocks sending without clearing the draft, then allows it when ready', async () => {
+  const h = harness();
+  h.shared.composerConfigBusy = true;
+  assert.equal(await h.render(undefined).sendMessage(), false);
+  assert.equal(h.requests.length, 0);
+  assert.deepEqual(h.drafts, []);
+  h.shared.composerConfigBusy = false;
+  const sending = h.render(undefined).sendMessage();
+  await until(() => h.streams.length === 1);
+  assert.equal(h.streams[0].body.message, 'unrelated draft');
   h.streams[0].finish();
   await sending;
 });

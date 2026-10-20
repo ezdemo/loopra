@@ -5,6 +5,9 @@
 .composer-task-toolbar { position: absolute; right: 0; bottom: calc(100% + .5rem); left: 0; display: flex; align-items: center; flex-wrap: wrap; gap: .375rem; padding: 0 .75rem; pointer-events: none; }
 .composer-task-toolbar:empty { display: none; }
 .composer-task-toolbar button, .composer-task-toolbar .progress-body { pointer-events: auto; }
+.welcome-task-toolbar { display: flex; align-items: center; margin-left: .25rem; }
+.welcome-task-toolbar:not(:has(button)) { display: none; }
+.welcome-task-toolbar > .composer-task-toolbar { position: static; padding: 0; flex-wrap: nowrap; }
 .background-tasks-trigger { display: inline-flex; align-items: center; gap: .375rem; height: 1.75rem; padding: 0 .625rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 .125rem .375rem #00000008; color: var(--secondary); font-size: .75rem; white-space: nowrap; cursor: pointer; }
 .background-tasks-trigger:hover { background: var(--hover); color: var(--text); }
 .background-tasks-trigger.active { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 35%, var(--line)); background: color-mix(in srgb, var(--blue) 6%, var(--surface)); }

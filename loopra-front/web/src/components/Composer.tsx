@@ -91,6 +91,8 @@ export default function Composer(props: Props) {
   const planOn = agentPlan?.id === 'collaboration_mode' ? 'plan' : 'on';
   const planOff = agentPlan?.id === 'collaboration_mode' ? 'default' : 'off';
   const agentBusy = !!props.agentConfig?.busy;
+  const sendDisabled = agentBusy || (!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy);
+  function sendDraft() { if (!sendDisabled) props.onSend(); }
   const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
   const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
@@ -332,7 +334,7 @@ export default function Composer(props: Props) {
           else selectSuggestion(suggestionIndex % suggestions.length);
           return;
         }
-        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); props.onSend(); }
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendDraft(); }
       }} />
     <div className="composer-bottom">
       <div className="composer-left">
@@ -343,7 +345,7 @@ export default function Composer(props: Props) {
           {!external && options.mode === '完全自动' ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{external ? '由 Agent 请求审批' : options.mode}</span>
         </Button>}
         <Tooltip content="常用要求" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'presets' ? 'is-active' : ''}`} aria-label="常用要求" aria-expanded={menu === 'presets'} onPress={() => open('presets')}><BookOpen size="1rem" /></Button></Tooltip>
-        {props.history.length > 0 && <Tooltip content={draft.trim() ? '先发送或清空草稿' : '继续生成'} delay={600}><Button isIconOnly variant="light" className="composer-icon continue-button" aria-label="继续生成" isDisabled={props.busy || !!draft.trim()} onPress={props.onContinue}><Play size="1rem" /></Button></Tooltip>}
+        {props.history.length > 0 && <Tooltip content={draft.trim() ? '先发送或清空草稿' : '继续生成'} delay={600}><Button isIconOnly variant="light" className="composer-icon continue-button" aria-label="继续生成" isDisabled={agentBusy || props.busy || !!draft.trim()} onPress={props.onContinue}><Play size="1rem" /></Button></Tooltip>}
       </div>
       <div className={`composer-right ${agentOptions ? 'has-agent-config' : ''}`}>
         <Tooltip content={`上下文 ${usage.percent.toFixed(1)}% · ${usage.metrics ? '服务端统计' : '本地估算'}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
@@ -361,7 +363,7 @@ export default function Composer(props: Props) {
           </>}
         {props.generating ? <Button isIconOnly aria-label="停止生成" className="send-button generating" onPress={props.onStop}><Square size="0.75rem" fill="currentColor" /></Button>
           : props.remoteRunning ? <Button isIconOnly aria-label="停止后台任务" className="send-button generating" onPress={props.onStopRemote}><Square size="0.75rem" fill="currentColor" /></Button> : null}
-        <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={(!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy)} onPress={props.onSend}><ArrowUp size="1rem" strokeWidth={2.25} /></Button>
+        <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={sendDisabled} onPress={sendDraft}><ArrowUp size="1rem" strokeWidth={2.25} /></Button>
       </div>
     </div>
     <input ref={fileInput} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.properties,.cfg,.conf,.env,.vue,.svelte" onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />

@@ -92,6 +92,7 @@ export default function App() {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [requirementsOpen, setRequirementsOpen] = useState(false);
   const [terminal, setTerminal] = useState(false);
+  const [homeTaskToolbar, setHomeTaskToolbar] = useState<HTMLDivElement | null>(null);
   const [gitBranch, setGitBranch] = useState('工作区');
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('通用');
@@ -169,6 +170,7 @@ export default function App() {
   const agentId = session?.agentId || (session ? 'native' : newAgentId);
   const externalAgent = agentId !== 'native';
   const agentConfigKey = `${workspace}::${agentId}`;
+  const composerConfigBusy = !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey);
   useEffect(() => {
     setAgentConfigError('');
     if (!session?.name || !session.workspaceHash || backend.status !== 'connected') return;
@@ -774,6 +776,7 @@ export default function App() {
   }
 
   async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false, queuedSession?: Session, queuedMessageId?: string): Promise<boolean> {
+    if (!queuedSession && composerConfigBusy) return false;
     const sendSession = queuedSession || session;
     const sendWorkspace = queuedSession ? workspaces.find(item => item.hash === queuedSession.workspaceHash) : currentWorkspace;
     const sendAgentId = queuedSession ? queuedSession.agentId || 'native' : agentId;
@@ -1030,8 +1033,8 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
-  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} actions={!isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
-    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey), error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
+  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
@@ -1078,6 +1081,7 @@ export default function App() {
           {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}
             engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun} onAgent={switchAgent}
+            onTaskToolbarMount={setHomeTaskToolbar}
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={<IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} />}>{composer}</HomeView> : <>
