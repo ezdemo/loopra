@@ -27,9 +27,9 @@ async function sourceUrl(name, dependencies = {}) {
 
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const Button = ({ children, onPress, isLoading, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isLoading, onClick: onPress, ...rest }, startContent, children);
+export const Button = ({ children, onPress, isLoading, isDisabled, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isLoading || !!isDisabled, onClick: onPress, ...rest }, startContent, children);
 `);
-const iconsStub = dataUrl('export const ArrowUpRight=()=>null;export const Download=()=>null;export const RefreshCw=()=>null;export const Server=()=>null;export const Sparkles=()=>null;');
+const iconsStub = dataUrl('export const ArrowUpRight=()=>null;export const Download=()=>null;export const RefreshCw=()=>null;export const Server=()=>null;export const Square=()=>null;');
 const controlsStub = dataUrl(`export const errorText = cause => cause instanceof Error ? cause.message : String(cause);`);
 const settingControlsStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
@@ -47,22 +47,35 @@ const VersionInfo = (await import(await sourceUrl('components/VersionInfo.tsx', 
   '../update-scripts': updateScriptsUrl,
 }))).default;
 
-async function mount() {
-  globalThis.__calls = []; globalThis.__notify = []; globalThis.__auto = 0; globalThis.__copied = null;
+async function mount(initialCheck) {
+  globalThis.__calls = []; globalThis.__notify = []; globalThis.__copied = null;
+  const idle = { running: false, state: 'idle', platform: '', target: '', logFile: '', log: '', message: '暂无更新任务' };
+  const running = {
+    running: true, state: 'running', platform: 'Windows', target: '桌面端核心服务',
+    logFile: '/tmp/loopra-update.log', log: '[Loopra] 正在下载并安装新版本',
+    message: '核心服务更新中',
+  };
+  const stopped = { ...running, running: false, state: 'stopped', log: '[Loopra] 更新已停止', message: '更新已停止' };
+  let updateState = idle;
   dom.window.localStorage.clear();
   Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value: { writeText: async text => { globalThis.__copied = text; } } });
   const api = {
     base: 'http://127.0.0.1:4567',
-    request: (path, method = 'GET') => {
-      globalThis.__calls.push({ path, method });
+    request: (path, method = 'GET', body) => {
+      const call = { path, method };
+      if (body !== undefined) call.body = body;
+      globalThis.__calls.push(call);
       if (path === '/version/') return Promise.resolve({ version: '26.9.91', name: 'Loopra' });
       if (path === '/version/check') return Promise.resolve({ currentVersion: '26.9.91', latestVersion: '26.10.1', hasNewVersion: true, releaseUrl: 'https://github.com/ezdemo/loopra-release/releases/tag/v26.10.1', checkTime: '2026-10-13 09:00:00' });
+      if (path === '/version/update' && method === 'GET') return Promise.resolve(updateState);
+      if (path === '/version/update' && method === 'POST') { updateState = running; return Promise.resolve(running); }
+      if (path === '/version/update/stop') { updateState = stopped; return Promise.resolve(stopped); }
       return Promise.resolve(null);
     },
   };
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
-  await act(async () => root.render(createElement(VersionInfo, { api, notify: message => globalThis.__notify.push(message), onAutoUpdate: () => { globalThis.__auto++; } })));
+  await act(async () => root.render(createElement(VersionInfo, { api, initialCheck, notify: message => globalThis.__notify.push(message) })));
   return { container, root, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 const buttonIn = (element, text) => [...element.querySelectorAll('button')].find(candidate => candidate.textContent.includes(text));
@@ -89,6 +102,20 @@ test('checking reports the new version and links the release page', async () => 
   } finally { await view.close(); }
 });
 
+test('shows the startup update result before another manual check', async () => {
+  const view = await mount({
+    currentVersion: '26.9.91',
+    latestVersion: '26.10.1',
+    hasNewVersion: true,
+    releaseUrl: 'https://github.com/ezdemo/loopra-release/releases/tag/v26.10.1',
+  });
+  try {
+    assert.ok(view.container.textContent.includes('v26.10.1'));
+    assert.ok(view.container.textContent.includes('新版'));
+    assert.ok(!globalThis.__calls.some(call => call.path === '/version/check'));
+  } finally { await view.close(); }
+});
+
 test('copies the update command and switches the download source', async () => {
   const view = await mount();
   try {
@@ -102,10 +129,22 @@ test('copies the update command and switches the download source', async () => {
   } finally { await view.close(); }
 });
 
-test('the auto-update button calls back into the app', async () => {
+test('the update button asks the Java service to update without creating an agent session', async () => {
   const view = await mount();
   try {
     await click(buttonIn(view.container, '更新核心服务'));
-    assert.equal(globalThis.__auto, 1);
+    const request = globalThis.__calls.find(call => call.path === '/version/update' && call.method === 'POST');
+    assert.deepEqual(request, { path: '/version/update', method: 'POST', body: { source: 'normal' } });
+    assert.equal(buttonIn(view.container, '更新中').disabled, true);
+    assert.ok(view.container.textContent.includes('/tmp/loopra-update.log'));
+    assert.ok(view.container.textContent.includes('更新日志'));
+    assert.ok(view.container.textContent.includes('正在下载并安装新版本'));
+    assert.deepEqual(globalThis.__notify, ['核心服务更新中']);
+
+    await click(buttonIn(view.container, '停止更新'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/version/update/stop' && call.method === 'POST'));
+    assert.ok(!buttonIn(view.container, '停止更新'));
+    assert.ok(view.container.textContent.includes('已停止'));
+    assert.ok(view.container.textContent.includes('[Loopra] 更新已停止'));
   } finally { await view.close(); }
 });

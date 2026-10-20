@@ -4,11 +4,17 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Controller;
+import org.noear.solon.annotation.Body;
 import org.noear.solon.annotation.Get;
+import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
+import org.noear.solon.annotation.Post;
 import site.sorghum.loopra.web.model.ApiResponse;
 import site.sorghum.loopra.web.model.SystemVersionDTO;
 import site.sorghum.loopra.web.model.VersionCheckDTO;
+import site.sorghum.loopra.web.model.VersionUpdateDTO;
+import site.sorghum.loopra.web.model.VersionUpdateRequest;
+import site.sorghum.loopra.web.service.VersionUpdateService;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -29,6 +35,9 @@ import java.time.format.DateTimeFormatter;
 @Controller
 @Mapping("/api/version")
 public class VersionController {
+
+    @Inject
+    private VersionUpdateService versionUpdateService;
 
     /**
      * 最新发布页地址（独立发版仓库）。通过访问其 302 重定向目标地址提取最新版本标签。
@@ -137,6 +146,40 @@ public class VersionController {
                     checkTime
             ));
         }
+    }
+
+    /**
+     * 在当前机器上直接启动核心服务更新。
+     *
+     * <p>Java 服务会自动识别 CLI / 桌面运行时和操作系统，在独立进程执行
+     * 官方更新脚本。当前进程保持运行。</p>
+     */
+    @ApiOperation(value = "自动更新核心服务",
+            notes = "由 Java 服务识别平台并后台执行更新脚本，不会创建 Agent 会话")
+    @Post
+    @Mapping("/update")
+    public ApiResponse<VersionUpdateDTO> update(@Body VersionUpdateRequest request) {
+        return ApiResponse.ok(versionUpdateService.start(request == null ? null : request.getSource()));
+    }
+
+    /**
+     * 获取当前更新任务的状态与日志。
+     */
+    @ApiOperation(value = "获取核心服务更新状态", notes = "返回任务状态、日志文件路径和最近的日志内容")
+    @Get
+    @Mapping("/update")
+    public ApiResponse<VersionUpdateDTO> updateStatus() {
+        return ApiResponse.ok(versionUpdateService.status());
+    }
+
+    /**
+     * 停止当前正在执行的核心服务更新。
+     */
+    @ApiOperation(value = "停止核心服务更新", notes = "停止更新进程并保留已经产生的日志")
+    @Post
+    @Mapping("/update/stop")
+    public ApiResponse<VersionUpdateDTO> stopUpdate() {
+        return ApiResponse.ok(versionUpdateService.stop());
     }
 
     /**

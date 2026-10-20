@@ -1,29 +1,74 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { ArrowUpRight, Download, RefreshCw, Server, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Download, RefreshCw, Server, Square } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { errorText } from './RemoteControls';
 import { PageActions, SelectField, SettingRow } from './SettingControls';
 import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL, buildUpdateCommand, loadUpdateSource, saveUpdateSource } from '../update-scripts';
+import type { VersionCheck } from '../version';
 
 type SystemVersion = { version: string; name?: string; buildTime?: string };
-type VersionCheck = { currentVersion: string; latestVersion: string; hasNewVersion: boolean; releaseUrl?: string | null; releaseNotes?: string | null; checkTime?: string | null };
 
 // 设置 → 关于：核心服务版本、检查更新与更新命令（旧 VersionInfoPanel.vue）。
-export default function VersionInfo({ api, notify, onAutoUpdate }: { api: LoopraClient; notify: (text: string) => void; onAutoUpdate: () => void }) {
+type VersionUpdate = {
+  running: boolean;
+  state: 'idle' | 'starting' | 'running' | 'success' | 'failed' | 'stopped';
+  platform: string;
+  target: string;
+  logFile: string;
+  log: string;
+  message: string;
+};
+
+const UPDATE_STATE_LABEL: Record<VersionUpdate['state'], string> = {
+  idle: '无任务',
+  starting: '启动中',
+  running: '更新中',
+  success: '已完成',
+  failed: '失败',
+  stopped: '已停止',
+};
+
+export default function VersionInfo({ api, notify, initialCheck }: { api: LoopraClient; notify: (text: string) => void; initialCheck?: VersionCheck }) {
   const [current, setCurrent] = useState<SystemVersion>();
-  const [check, setCheck] = useState<VersionCheck>();
+  const [check, setCheck] = useState<VersionCheck | undefined>(initialCheck);
   const [checking, setChecking] = useState(false);
+  const [update, setUpdate] = useState<VersionUpdate>();
+  const [startingUpdate, setStartingUpdate] = useState(false);
+  const [stoppingUpdate, setStoppingUpdate] = useState(false);
   const [error, setError] = useState('');
   const [source, setSource] = useState(loadUpdateSource);
 
   useEffect(() => { saveUpdateSource(source); }, [source]);
+  useEffect(() => { setCheck(initialCheck); }, [initialCheck]);
   useEffect(() => {
     const controller = new AbortController();
     void api.request<SystemVersion>('/version/', 'GET', undefined, controller.signal)
       .then(data => { if (!controller.signal.aborted) setCurrent(data); })
       .catch(cause => { if (!controller.signal.aborted) setError(errorText(cause)); });
     return () => controller.abort();
+  }, [api]);
+  useEffect(() => {
+    let active = true;
+    let controller: AbortController | undefined;
+    const refreshUpdate = async () => {
+      controller?.abort();
+      const nextController = new AbortController();
+      controller = nextController;
+      try {
+        const result = await api.request<VersionUpdate>('/version/update', 'GET', undefined, nextController.signal);
+        if (active && !nextController.signal.aborted) setUpdate(result);
+      } catch {
+        // Keep the last known task state when a polling request is interrupted.
+      }
+    };
+    void refreshUpdate();
+    const timer = window.setInterval(() => void refreshUpdate(), 1500);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.clearInterval(timer);
+    };
   }, [api]);
 
   async function checkLatest() {
@@ -41,12 +86,47 @@ export default function VersionInfo({ api, notify, onAutoUpdate }: { api: Loopra
     catch { notify('复制失败，请手动选择命令'); }
   }
 
+  async function updateCore() {
+    setStartingUpdate(true);
+    setError('');
+    try {
+      const result = await api.request<VersionUpdate>('/version/update', 'POST', { source });
+      setUpdate(result);
+      notify(result.message || '更新已启动');
+    } catch (cause) {
+      const message = errorText(cause);
+      setError(message);
+      notify(`更新启动失败：${message}`);
+    } finally {
+      setStartingUpdate(false);
+    }
+  }
+
+  async function stopUpdate() {
+    setStoppingUpdate(true);
+    setError('');
+    try {
+      const result = await api.request<VersionUpdate>('/version/update/stop', 'POST', {});
+      setUpdate(result);
+      notify('更新已停止');
+    } catch (cause) {
+      const message = errorText(cause);
+      setError(message);
+      notify(`停止更新失败：${message}`);
+    } finally {
+      setStoppingUpdate(false);
+    }
+  }
+
   const version = check?.currentVersion || current?.version || '-';
   const latest = check?.latestVersion;
   const hasNew = !!check?.hasNewVersion;
   const releaseUrl = check?.releaseUrl || RELEASE_LATEST_URL;
   const commands = buildUpdateCommand(source);
   const options = [{ value: UPDATE_SOURCE_NORMAL, label: '直连（GitHub）' }, ...MIRROR_SOURCES.map(mirror => ({ value: mirror.value, label: `镜像 · ${mirror.label}` }))];
+  const updateRunning = !!update?.running;
+  const updateBusy = startingUpdate || stoppingUpdate;
+  const showUpdateLog = !!update && update.state !== 'idle' && !!(update.logFile || update.log || update.message);
 
   return <>
     <PageActions title="版本与更新" />
@@ -70,10 +150,26 @@ export default function VersionInfo({ api, notify, onAutoUpdate }: { api: Loopra
       <button type="button" className="version-command" title="点击复制" onClick={() => void copy(commands.unix)}><span className="uc-badge unix">sh</span><code>{commands.unixLabel}</code></button>
       <div className="version-actions">
         <Button size="sm" variant="flat" isLoading={checking} onPress={() => void checkLatest()} startContent={<RefreshCw size="0.875rem" />}>检查更新</Button>
-        <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'} onPress={onAutoUpdate} startContent={<Server size="0.875rem" />}>更新核心服务</Button>
+        <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'}
+          isDisabled={checking || updateRunning || updateBusy} isLoading={startingUpdate} onPress={() => void updateCore()}
+          startContent={<Server size="0.875rem" />}>{updateRunning ? '更新中…' : startingUpdate ? '启动中…' : '更新核心服务'}</Button>
+        {updateRunning && <Button size="sm" color="danger" variant="flat" isLoading={stoppingUpdate} isDisabled={updateBusy && !stoppingUpdate}
+          onPress={() => void stopUpdate()} startContent={<Square size="0.75rem" fill="currentColor" />}>停止更新</Button>}
         <Button size="sm" variant="light" onPress={() => window.open(RELEASE_LATEST_URL, '_blank', 'noreferrer')} startContent={<Download size="0.875rem" />}>下载桌面端（推荐）</Button>
       </div>
-      <p className="section-note"><Sparkles size="0.75rem" /> 「更新核心服务」会新建一个会话并发送更新指令，由 Agent 执行脚本。</p>
+      {showUpdateLog && <div aria-live="polite" style={{ borderTop: '1px solid var(--line)', padding: '.875rem 1rem 1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.75rem' }}>
+          <strong style={{ fontSize: '.8125rem' }}>更新日志</strong>
+          <span className={`tag ${update.state === 'failed' ? '' : 'is-ok'}`}>{UPDATE_STATE_LABEL[update.state]}</span>
+        </div>
+        <p className="section-note" style={{ margin: '.375rem 0 .625rem' }}>{update.message}</p>
+        {update.logFile && <code style={{ display: 'block', overflowWrap: 'anywhere', color: 'var(--muted)', fontSize: '.75rem' }}>{update.logFile}</code>}
+        <pre aria-label="更新日志" style={{
+          margin: '.625rem 0 0', maxHeight: '14rem', overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+          padding: '.75rem', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)',
+          background: 'var(--soft)', color: 'var(--secondary)', font: '.75rem/1.6 ui-monospace, "JetBrains Mono", Consolas, monospace',
+        }}>{update.log || '等待更新输出…'}</pre>
+      </div>}
     </div>
   </>;
 }

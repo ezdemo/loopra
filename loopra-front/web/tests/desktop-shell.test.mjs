@@ -15,6 +15,7 @@ const { desktopPlatform, desktopWindowApi, isDesktopWindow, usesNativeWindowCont
 const titleBar = await readFile(new URL('../src/components/DesktopTitleBar.tsx', import.meta.url), 'utf8');
 const header = await readFile(new URL('../src/layout/Header.tsx', import.meta.url), 'utf8');
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const loopraHook = await readFile(new URL('../src/useLoopra.ts', import.meta.url), 'utf8');
 const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 const routing = await import('../../src/entry-routing.js');
 
@@ -77,6 +78,22 @@ test('the shell first row is the drag region with no-drag controls', () => {
   assert.match(nativeMetrics, /height: 36px;/);
   assert.match(styles, /padding-left: 80px;/);
   assert.doesNotMatch(nativeMetrics, /rem/);
+});
+
+test('the header shows the connected backend version beside its status', () => {
+  assert.match(header, /const version = backend\.version\.replace\(\/\^v\/i, ''\);/);
+  assert.match(header, /<button type="button" className=\{`app-version\$\{latestVersion \? ' has-update' : ''\}`\}/);
+  assert.match(header, /<span className="app-version-update">新版<\/span>/);
+  const versionIndex = header.indexOf('className={`app-version');
+  assert.ok(versionIndex >= 0 && versionIndex < header.indexOf('className={`backend-status'));
+  assert.match(styles, /\.app-version \{[^}]*font-variant-numeric: tabular-nums;[^}]*\}/);
+  assert.match(styles, /\.app-version\.has-update \{[^}]*color: var\(--blue\);/);
+  assert.match(styles, /@container main-pane \(max-width: 30rem\) \{\s*\.app-version \{ display: none; \}/);
+  assert.match(loopraHook, /VERSION_CHECK_INTERVAL_MS = 5 \* 60_000/);
+  assert.match(loopraHook, /api\.request<VersionCheck>\('\/version\/check'/);
+  assert.match(loopraHook, /setInterval\(check, VERSION_CHECK_INTERVAL_MS\)/);
+  assert.match(loopraHook, /clearInterval\(timer\)/);
+  assert.match(app, /发现新版本 v\$\{check\.latestVersion\}，点击顶栏版本查看/);
 });
 
 test('entry routing uses React by default in Electron and preserves auxiliary windows', () => {

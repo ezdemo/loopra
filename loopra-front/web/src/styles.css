@@ -211,6 +211,11 @@ svg { flex-shrink: 0; }
 
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: .25rem; flex-shrink: 0; }
 
+.app-version { display: inline-flex; align-items: center; justify-content: center; gap: .3125rem; height: 1.5rem; padding: 0 .4375rem; border: 1px solid var(--line); border-radius: 999px; background: var(--soft); color: var(--muted); font: 500 .6875rem/1 ui-monospace, "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
+.app-version:hover { border-color: var(--line-strong); background: var(--hover); color: var(--secondary); }
+.app-version.has-update { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); background: color-mix(in srgb, var(--blue) 9%, var(--soft)); color: var(--blue); }
+.app-version-update { display: inline-flex; align-items: center; height: 1rem; padding: 0 .25rem; border-radius: 999px; background: var(--blue); color: #fff; font: 500 .625rem/1 ui-monospace, "JetBrains Mono", Consolas, monospace; }
+
 .folder-split { height: 1.75rem; display: flex; border-radius: var(--radius-md); border: 1px solid var(--line); overflow: hidden; }
 .folder-split button { display: flex; align-items: center; justify-content: center; height: 100%; width: 1.625rem; color: var(--secondary); }
 .folder-split button:first-child { width: 1.875rem; border-right: 1px solid var(--line); }
@@ -1222,6 +1227,7 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
   .branch-button { max-width: 7rem; overflow: hidden; text-overflow: ellipsis; }
 }
 @container main-pane (max-width: 30rem) {
+  .app-version { display: none; }
   .branch-button { display: none; }
   .conversation-header { padding: 0 .625rem; gap: .25rem; }
   .folder-split { display: none; }
