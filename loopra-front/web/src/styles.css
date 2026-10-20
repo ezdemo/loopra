@@ -211,10 +211,15 @@ svg { flex-shrink: 0; }
 
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: .25rem; flex-shrink: 0; }
 
-.app-version { display: inline-flex; align-items: center; justify-content: center; gap: .3125rem; height: 1.5rem; padding: 0 .4375rem; border: 1px solid var(--line); border-radius: 999px; background: var(--soft); color: var(--muted); font: 500 .6875rem/1 ui-monospace, "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; transition: border-color .12s, background .12s, color .12s; }
-.app-version:hover { border-color: var(--line-strong); background: var(--hover); color: var(--secondary); }
-.app-version.has-update { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); background: color-mix(in srgb, var(--blue) 9%, var(--soft)); color: var(--blue); }
-.app-version-update { display: inline-flex; align-items: center; height: 1rem; padding: 0 .25rem; border-radius: 999px; background: var(--blue); color: #fff; font: 500 .625rem/1 ui-monospace, "JetBrains Mono", Consolas, monospace; }
+.app-version { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; height: 1.75rem; padding: 0 .5625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--secondary); font: 500 .6875rem/1 "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; box-shadow: var(--shadow-sm); transition: border-color .16s, background .16s, box-shadow .16s; }
+.app-version:hover { border-color: var(--line-strong); background: var(--soft); }
+.app-version:active { box-shadow: none; background: var(--hover); }
+.app-version.has-update { padding: 0 .625rem; border-color: color-mix(in srgb, var(--blue) 24%, var(--line)); background: color-mix(in srgb, var(--blue) 6%, var(--surface)); color: var(--blue); }
+.app-version.has-update:hover { border-color: color-mix(in srgb, var(--blue) 55%, var(--line)); background: color-mix(in srgb, var(--blue) 7%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 7%, transparent); }
+.app-version.has-update:active { background: color-mix(in srgb, var(--blue) 11%, var(--surface)); box-shadow: none; }
+.app-version-number { color: var(--secondary); letter-spacing: -.02em; }
+.app-version-update { display: inline-flex; align-items: center; gap: .3125rem; color: color-mix(in srgb, var(--blue) 85%, var(--text)); font-family: inherit; font-size: .6875rem; font-weight: 600; line-height: 1; }
+.app-version-update svg { flex-shrink: 0; }
 
 .folder-split { height: 1.75rem; display: flex; border-radius: var(--radius-md); border: 1px solid var(--line); overflow: hidden; }
 .folder-split button { display: flex; align-items: center; justify-content: center; height: 100%; width: 1.625rem; color: var(--secondary); }

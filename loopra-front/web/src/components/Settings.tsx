@@ -21,7 +21,8 @@ import { normalizeSettingsSection, settingsCategories, settingsCategoryFor } fro
 import { visibleApplications } from '../workspace-launcher';
 import PetSettings from './PetSettings';
 import type { PetStore } from '../usePets';
-import VersionInfo from './VersionInfo';
+import { VersionInfoPanel } from './VersionInfo';
+import type { CoreServiceUpdateController } from './CoreServiceUpdate';
 import BrowserSettings from './BrowserSettings';
 import ProxySettings from './ProxySettings';
 import { GITEE_HOME_URL, GITHUB_HOME_URL } from '../update-scripts';
@@ -48,11 +49,12 @@ type Props = {
   options: ComposerOptions; onOptions: (value: ComposerOptions) => void;
   defaultModel: string; onDefaultModel: (id: string) => void;
   updateCheck?: VersionCheck;
+  coreUpdate: CoreServiceUpdateController;
 };
 
 export default function Settings(props: Props) {
   const api = useMemo(() => new LoopraClient(props.server), [props.server]);
-  const { open, onClose, preferences: prefs, onPreferences, providers, onProviders, sessions, onRestore, notify, config, onConfig: saveConfig } = props;
+  const { open, onClose, preferences: prefs, onPreferences, providers, onProviders, sessions, onRestore, notify, config, onConfig: saveConfig, coreUpdate } = props;
   const onConfig = (next: AgentSettings) => Promise.resolve(saveConfig(next)).catch(error => notify(error instanceof Error ? error.message : '保存配置失败'));
   const [tab, setTab] = useState(() => normalizeSettingsSection(props.initialTab));
   const [expandedCategory, setExpandedCategory] = useState(() => settingsCategoryFor(props.initialTab).name);
@@ -127,7 +129,7 @@ export default function Settings(props: Props) {
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}
         {tab === '浏览器' && <BrowserSettings api={api} />}
         {tab === '快捷键' && <><PageActions title="快捷键" /><div className="settings-card">{[['新建会话', 'Ctrl / ⌘ + N'], ['搜索会话或工作区', 'Ctrl / ⌘ + K'], ['打开设置', 'Ctrl / ⌘ + ,'], ['切换侧边栏', 'Ctrl / ⌘ + B'], ['发送消息', 'Enter'], ['消息换行', 'Shift + Enter'], ['输入指令 / 文件引用', '/ 或 @'], ['选择建议', '↑ ↓ / Tab / Enter'], ['关闭弹窗', 'Esc']].map(([name, key]) => <SettingRow key={name} title={name}><kbd>{key}</kbd></SettingRow>)}</div></>}
-        {tab === '关于' && <><VersionInfo api={api} notify={notify} initialCheck={props.updateCheck} /><div className="settings-card"><SettingRow title="Loopra Web 服务" description={props.server}><Button size="sm" variant="light" onPress={() => openCategory('服务器')}>连接设置</Button></SettingRow><SettingRow title="开源主页" description="在 Gitee 或 GitHub 上关注 Loopra，欢迎点个 Star"><span className="about-community"><Button size="sm" variant="light" startContent={<Star size="0.875rem" />} onPress={() => window.open(GITEE_HOME_URL, '_blank', 'noreferrer')}>Gitee</Button><Button size="sm" variant="light" startContent={<Star size="0.875rem" />} onPress={() => window.open(GITHUB_HOME_URL, '_blank', 'noreferrer')}>GitHub</Button></span></SettingRow><SettingRow title="帮助中心" description="快速入门、命令参考与故障排除"><Button size="sm" variant="flat" onPress={props.onOpenHelp}>打开帮助中心</Button></SettingRow><SettingRow title="数据存储" description="工作区、会话与运行配置保存在后端；界面偏好保存在当前浏览器。"><span /></SettingRow></div></>}
+        {tab === '关于' && <><VersionInfoPanel api={api} notify={notify} initialCheck={props.updateCheck} coreUpdate={coreUpdate} /><div className="settings-card"><SettingRow title="Loopra Web 服务" description={props.server}><Button size="sm" variant="light" onPress={() => openCategory('服务器')}>连接设置</Button></SettingRow><SettingRow title="开源主页" description="在 Gitee 或 GitHub 上关注 Loopra，欢迎点个 Star"><span className="about-community"><Button size="sm" variant="light" startContent={<Star size="0.875rem" />} onPress={() => window.open(GITEE_HOME_URL, '_blank', 'noreferrer')}>Gitee</Button><Button size="sm" variant="light" startContent={<Star size="0.875rem" />} onPress={() => window.open(GITHUB_HOME_URL, '_blank', 'noreferrer')}>GitHub</Button></span></SettingRow><SettingRow title="帮助中心" description="快速入门、命令参考与故障排除"><Button size="sm" variant="flat" onPress={props.onOpenHelp}>打开帮助中心</Button></SettingRow><SettingRow title="数据存储" description="工作区、会话与运行配置保存在后端；界面偏好保存在当前浏览器。"><span /></SettingRow></div></>}
         {tab === '已归档的会话' && <><PageActions title="已隐藏会话" />{sessions.some(session => session.archived) ? <div className="settings-card">{sessions.filter(session => session.archived).map(session => <SettingRow key={session.id} title={session.title} description={session.workspace}><Button variant="light" className="restore-button" onPress={() => onRestore(session.id)}>恢复会话</Button></SettingRow>)}</div> : <div className="empty-setting"><Archive size="1.75rem" strokeWidth={1.5} /><h3>暂无隐藏会话</h3><p>在本机隐藏的会话可以在这里恢复。</p></div>}</>}
         </>}
       </Enter>

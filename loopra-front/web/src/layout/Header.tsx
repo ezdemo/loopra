@@ -67,8 +67,9 @@ export default function Header(p: HeaderProps) {
         title={latestVersion ? `发现新版本 v${latestVersion}，当前版本 ${versionLabel}` : `当前版本 ${versionLabel}`}
         aria-label={latestVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`}
         onClick={p.onVersion}>
-        <span className="app-version-number">{versionLabel}</span>
-        {latestVersion && <span className="app-version-update">新版</span>}
+        {latestVersion
+          ? <span className="app-version-update"><Download size="0.75rem" strokeWidth={1.8} aria-hidden="true" /><span>发现新版</span></span>
+          : <span className="app-version-number">{versionLabel}</span>}
       </button>
       <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
       {!p.isHome && <>
