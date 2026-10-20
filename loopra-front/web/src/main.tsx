@@ -22,6 +22,8 @@ import './dialogs.css';
 import './session-records.css';
 import './project-manager.css';
 
+document.documentElement.classList.add('workspace-theme');
+
 async function initialize() {
   // Keep explicit browser preferences; otherwise migrate the original console's
   // address and honor config.json without pinning packaged Web pages to port 4567.

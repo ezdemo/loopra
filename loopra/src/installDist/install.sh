@@ -3,16 +3,19 @@
 #  Loopra Web Installer (Linux / macOS)
 #  支持重复安装，保留已有 config.json
 #  复用系统 Java 17+ 或已有捆绑 JRE；都没有时自动下载 JRE 25（支持 LOOPRA_MIRROR 镜像）
+#  桌面端可用 --skip-java 先更新核心文件，随后单独引导安装 Java。
 #  兼容 bash, zsh, sh 等多种 shell
 # =============================================
 
 GUI_INSTALL=false
 SETUP_INSTALL=false
+SKIP_JAVA=false
 
 for arg in "$@"; do
     case "$arg" in
         --gui) GUI_INSTALL=true ;;
         --setup) SETUP_INSTALL=true ;;
+        --skip-java) SKIP_JAVA=true ;;
         *)
             echo "[Error] Unknown argument: $arg"
             exit 2
@@ -60,6 +63,9 @@ SOURCE_AGENTS="$SOURCE_DIR/loopra.md"
 # 都没有时自动下载 JRE 25（参考桌面端逻辑，支持 LOOPRA_MIRROR 镜像）
 # =============================================
 echo ""
+if [ "$SKIP_JAVA" = true ]; then
+    echo "[Pre-check] Core-only install: Java setup is managed by the desktop app."
+else
 echo -e "${YELLOW}[Pre-check]${NC} Verifying Java 17+ installation..."
 
 JAVA_EXE=""
@@ -260,6 +266,7 @@ if [ -z "$JAVA_EXE" ]; then
 fi
 
 echo -e "      ${GREEN}Java ready (${JAVA_SOURCE}): $("$JAVA_EXE" -version 2>&1 | head -n1)${NC}"
+fi
 echo ""
 
 # =============================================
@@ -596,7 +603,11 @@ echo -e "${GREEN}============================================${NC}"
 echo ""
 echo "  Install path: $TARGET_DIR"
 echo "  Config path:  $LOOPRA_CONFIG_DIR"
-echo "  Java:         System Java 17+ / existing bundled JRE / auto-downloaded JRE 25 ($JRE25_DIR)"
+if [ "$SKIP_JAVA" = true ]; then
+    echo "  Java:         Setup deferred to desktop app; JRE/JDK required to start"
+else
+    echo "  Java:         System Java 17+ / existing bundled JRE / auto-downloaded JRE 25 ($JRE25_DIR)"
+fi
 echo ""
 
 if [ "$IS_GUI_INSTALL" = "1" ]; then

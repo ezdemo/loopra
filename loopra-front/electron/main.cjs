@@ -1184,9 +1184,18 @@ function openDesktopPetWindow() {
 }
 
 async function openDesktopWorkspace() {
-  // A healthy existing core can open the workspace immediately. Installation
-  // and service startup remain available through the dedicated setup window.
+  // Run bundled updates before reusing a healthy service as well.
+  const bundledVersion = isLoopraCoreBundled() ? readBundledCoreVersion() : ''
+  const installedVersion = readLoopraGuiVersion()
+  if (bundledVersion && (!isLoopraGuiInstalled() || !installedVersion || compareVersions(bundledVersion, installedVersion) > 0)) {
+    createSplashWindow()
+    return
+  }
   if (await healthCheck(currentPort || 4567)) {
+    if (!(await detectJavaStatus()).usable) {
+      createSplashWindow()
+      return
+    }
     currentPort = currentPort || 4567
     createWindow()
   } else {
@@ -1656,7 +1665,7 @@ function runLoopraCoreInstaller(child) {
   })
 }
 
-// 从安装包内置核心运行时本地安装（无需下载核心包；JRE 缺失时由安装脚本在线下载）
+// 先安装核心文件；JRE/JDK 由启动页在更新完成后检查并引导安装。
 function installLoopraCoreLocal() {
   const coreDir = getLoopraCoreDir()
   const installScript = path.join(coreDir, isWin ? 'install.ps1' : 'install.sh')
@@ -1666,18 +1675,18 @@ function installLoopraCoreLocal() {
   if (isWin) {
     child = spawn('powershell', [
       '-ExecutionPolicy', 'Bypass', '-NoProfile',
-      '-File', installScript, '-Gui', '-Setup'
+      '-File', installScript, '-Gui', '-Setup', '-SkipJava'
     ], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
-    sendInstallLog('>> 执行: install.ps1 -Gui -Setup')
+    sendInstallLog('>> 执行: install.ps1 -Gui -Setup -SkipJava')
   } else {
     // bash 显式执行，不依赖 tar 解压后的可执行权限
-    child = spawn('bash', [installScript, '--gui', '--setup'], {
+    child = spawn('bash', [installScript, '--gui', '--setup', '--skip-java'], {
       stdio: ['ignore', 'pipe', 'pipe']
     })
-    sendInstallLog('>> 执行: install.sh --gui --setup')
+    sendInstallLog('>> 执行: install.sh --gui --setup --skip-java')
   }
   return runLoopraCoreInstaller(child)
 }
