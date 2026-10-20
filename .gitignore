@@ -68,7 +68,7 @@ venv/
 .next/
 .nuxt/
 .turbo/
-.vercel/"_script_*.bat"  
+.vercel/"_script_*.bat"
 "_script_*"
 
 /.codegraph/
@@ -82,3 +82,4 @@ venv/
 # local build/error logs
 compile-errors.txt
 *.log
+.tmp/
