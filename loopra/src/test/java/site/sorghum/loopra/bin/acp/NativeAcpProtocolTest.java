@@ -111,22 +111,22 @@ class NativeAcpProtocolTest {
                             "a.txt", "old line\n", "new line\n", false)));
             return "done";
         });
-        List<SessionUpdate> updates = new CopyOnWriteArrayList<>();
+        CompletableFuture<ToolCallUpdateNotification> completedUpdate = new CompletableFuture<>();
         try (JsonRpcLoopback wire = new JsonRpcLoopback()) {
             LoopraAcpAgent nativeAgent = new LoopraAcpAgent(backend);
             AcpAgentSupport server = AcpAgentSupport.create(nativeAgent).transport(wire.agent()).build();
             nativeAgent.setUpdateSender(server.getAgent()::sendSessionUpdate);
             server.start();
             try (var client = AcpClient.sync(wire.client())
-                    .sessionUpdateConsumer(event -> updates.add(event.update())).build()) {
+                    .sessionUpdateConsumer(event -> {
+                        if (event.update() instanceof ToolCallUpdateNotification update
+                                && update.status() == ToolCallStatus.COMPLETED) completedUpdate.complete(update);
+                    }).build()) {
                 client.initialize(new InitializeRequest(1, new ClientCapabilities()));
                 client.newSession(new NewSessionRequest("workspace", List.of()));
                 client.prompt(new PromptRequest("native-session", List.of(new TextContent("hello"))));
-                ToolCallUpdateNotification completed = updates.stream()
-                        .filter(ToolCallUpdateNotification.class::isInstance)
-                        .map(ToolCallUpdateNotification.class::cast)
-                        .filter(update -> update.status() == ToolCallStatus.COMPLETED)
-                        .findFirst().orElseThrow();
+                // The prompt response and session notifications are dispatched independently.
+                ToolCallUpdateNotification completed = completedUpdate.get(5, TimeUnit.SECONDS);
                 ToolCallDiff diff = completed.content().stream()
                         .filter(ToolCallDiff.class::isInstance).map(ToolCallDiff.class::cast)
                         .findFirst().orElseThrow();
