@@ -6,7 +6,6 @@ import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.ai.talents.mount.Mount;
 import org.noear.solon.ai.talents.mount.MountManager;
 import org.noear.solon.ai.talents.mount.MountType;
-import org.noear.solon.ai.talents.mount.source.FileMountSource;
 import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.solon.mcp.ProjectMcpSkill;
 
@@ -36,7 +35,7 @@ public class LoopraSkillProvider implements SolonToTools {
         poolManager.register(Mount.builder()
                 .type(MountType.SKILLS)
                 .alias("@loopra-skills")
-                .source(FileMountSource.of(Paths.get(System.getProperty("user.home"), ".loopra", "skills")))
+                .source(new SkillFileMountSource(Paths.get(System.getProperty("user.home"), ".loopra", "skills")))
                 .build());
         // 项目 Skill 与用户 Skill 分开挂载；不存在时保留挂载，后续 refresh 可发现新目录。
         if (workDir != null && !workDir.isBlank() && !"~".equals(workDir)) {
@@ -45,7 +44,7 @@ public class LoopraSkillProvider implements SolonToTools {
             poolManager.register(Mount.builder()
                     .type(MountType.SKILLS)
                     .alias("@project-skills")
-                    .source(FileMountSource.of(projectSkills))
+                    .source(new SkillFileMountSource(projectSkills))
                     .build());
         }
         skillTalent = new LoopraSkillTalent(poolManager);
