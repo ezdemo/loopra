@@ -53,7 +53,7 @@ final class ExternalAcpSessions implements AutoCloseable {
         // a failure here would otherwise leak the lock and the session would look
         // "running" for every later request.
         AcpTranscriptOutput[] transcriptRef = new AcpTranscriptOutput[1];
-        ClaudeSubAgentRecorder[] recorderRef = new ClaudeSubAgentRecorder[1];
+        AcpSubAgentRecorder[] recorderRef = new AcpSubAgentRecorder[1];
         boolean success = false;
         try {
             refreshMcp(connection, key, cwd);
@@ -61,8 +61,8 @@ final class ExternalAcpSessions implements AutoCloseable {
             AcpTranscriptOutput transcript = new AcpTranscriptOutput(output, store);
             transcriptRef[0] = transcript;
             Path sessionsDir = store.sessionsDir();
-            ClaudeSubAgentRecorder recorder = sessionsDir == null ? null
-                    : new ClaudeSubAgentRecorder(new SubAgentSessionStore(sessionsDir), name);
+            AcpSubAgentRecorder recorder = sessionsDir == null ? null
+                    : new AcpSubAgentRecorder(new SubAgentSessionStore(sessionsDir), name);
             recorderRef[0] = recorder;
             // A configuration read may have opened a session before linked projects were known.
             // ACP binds additionalDirectories at session setup, so rebuild the empty session;
@@ -73,11 +73,11 @@ final class ExternalAcpSessions implements AutoCloseable {
                 connection.client = null;
                 connection.directories = List.of();
             }
-            if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(connection.agentId, cwd), transcript);
+            if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(connection.agentId, cwd), transcript,
+                    "codex".equals(connection.agentId));
             else connection.client.bindOutput(transcript);
             AcpWorkbenchClient client = connection.client;
-            // Nested Claude traffic is flattened onto the root session, so mirror it into the
-            // same sub-session store the native engine writes, and the replay panel can list it.
+            // Both flattened Claude traffic and native Codex child sessions use the replay store.
             client.setSubAgentListener(recorder == null ? null : recorder::record);
             active.accept(client);
             open(connection, cwd, name, store, directories);
@@ -91,8 +91,23 @@ final class ExternalAcpSessions implements AutoCloseable {
                     : linkedProjectContext + "\n\n" + (message.getText() == null ? "" : message.getText());
             UserMessage outbound = java.util.Objects.equals(text, message.getText())
                     ? message : UserMessage.of(text, message.getImages());
-            client.prompt(outbound, Map.of());
-            output.sendEvent("complete", "{}");
+            var response = client.prompt(outbound, Map.of());
+            if (response == null || response.stopReason() == null) throw new ServiceException("Agent 未返回回合结束原因");
+            String reason = response.stopReason().name().toLowerCase(Locale.ROOT);
+            String notice = switch (response.stopReason()) {
+                case MAX_TOKENS -> "Agent 已达到本轮输出上限，任务可能尚未完成";
+                case MAX_TURN_REQUESTS -> "Agent 已达到本轮请求次数上限，任务可能尚未完成";
+                case REFUSAL -> "Agent 拒绝了本次请求";
+                default -> null;
+            };
+            if (notice != null) output.onLog(site.sorghum.loopra.tool.LogLevel.WARN, notice);
+            output.sendEvent("complete", org.noear.snack4.ONode.serialize(Map.of("stopReason", reason,
+                    "status", switch (response.stopReason()) {
+                        case END_TURN -> "completed";
+                        case CANCELLED -> "cancelled";
+                        case REFUSAL -> "refused";
+                        default -> "limited";
+                    })));
             success = true;
         } finally {
             boolean interrupted = Thread.interrupted();
@@ -120,10 +135,16 @@ final class ExternalAcpSessions implements AutoCloseable {
     List<site.sorghum.loopra.bin.acp.AcpConfigOption> configuration(String key, Path cwd, String name,
                     SessionStore store, String configId, Object value) throws Exception {
         Connection connection = acquire(key, cwd, store.getAcpBinding(name).agentId(), false);
+        AcpSubAgentRecorder recorder = null;
         boolean success = false;
         try {
             refreshMcp(connection, key, cwd);
-            if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(connection.agentId, cwd), AgentOutput.NOOP);
+            if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(connection.agentId, cwd), AgentOutput.NOOP,
+                    "codex".equals(connection.agentId));
+            if (store.sessionsDir() != null) {
+                recorder = new AcpSubAgentRecorder(new SubAgentSessionStore(store.sessionsDir()), name);
+                connection.client.setSubAgentListener(recorder::record);
+            }
             // Configuration reads must not pretend the linked-directory set changed.
             open(connection, cwd, name, store, connection.directories);
             var options = configId == null ? connection.client.configOptions() : connection.client.setConfigOption(configId, value);
@@ -136,7 +157,10 @@ final class ExternalAcpSessions implements AutoCloseable {
             return options;
         } finally {
             boolean interrupted = Thread.interrupted();
-            try { if (!success) discard(key, connection); }
+            try {
+                if (!success) discard(key, connection);
+                if (recorder != null) recorder.finish();
+            }
             finally {
                 connection.lastUsed = System.nanoTime(); connection.lock.unlock();
                 if (interrupted) Thread.currentThread().interrupt();
@@ -158,6 +182,14 @@ final class ExternalAcpSessions implements AutoCloseable {
     private void open(Connection connection, Path cwd, String name, SessionStore store,
                       List<String> additionalDirectories) throws Exception {
         AcpWorkbenchClient client = connection.client;
+        client.setPlanListener(entries -> {
+            try { store.setAcpPlan(name, entries); }
+            catch (java.io.IOException e) { log.warn("[acp] 保存计划进度失败: session={}", name, e); }
+        });
+        client.setCommandsListener(commands -> {
+            try { store.setAcpCommands(name, commands); }
+            catch (java.io.IOException e) { log.warn("[acp] 保存命令列表失败: session={}", name, e); }
+        });
         List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
         if (client.sessionId() != null) {
             if (!connection.directories.equals(directories)) {

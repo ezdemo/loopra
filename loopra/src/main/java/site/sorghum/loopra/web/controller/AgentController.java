@@ -211,6 +211,15 @@ public class AgentController {
         return ApiResponse.ok(agentService.getCommandMetaList());
     }
 
+    @Get
+    @Mapping("/acp-state")
+    public ApiResponse<site.sorghum.loopra.bin.session.SessionStore.AcpState> acpState(
+            @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @Param(value = "sessionName", required = true) String sessionName) {
+        if (sessionName == null || sessionName.isBlank()) throw new ServiceException("sessionName 不能为空");
+        return ApiResponse.ok(agentService.acpSessionState(agentService.resolveProjectHashOrThrow(workspaceHash), sessionName));
+    }
+
     @ApiOperation(value = "获取当前会话的系统提示词",
             notes = "返回切片聚合后的完整 system 内容（含项目文档、环境信息与工具协作约定）")
     @Get

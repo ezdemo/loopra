@@ -767,6 +767,30 @@ public class JsonlSessionStore implements SessionStore {
     }
 
     @Override
+    public AcpState getAcpState(String name) {
+        ONode meta = readMeta(name);
+        List<AcpPlanEntry> plan = new java.util.ArrayList<>();
+        List<AcpCommand> commands = new java.util.ArrayList<>();
+        if (meta != null && meta.get("acpPlan").isArray()) for (ONode item : meta.get("acpPlan").getArray()) {
+            plan.add(new AcpPlanEntry(item.get("content").getString(), item.get("status").getString(), item.get("priority").getString()));
+        }
+        if (meta != null && meta.get("acpCommands").isArray()) for (ONode item : meta.get("acpCommands").getArray()) {
+            commands.add(new AcpCommand(item.get("name").getString(), item.get("description").getString(), item.get("inputHint").getString()));
+        }
+        return new AcpState(List.copyOf(plan), List.copyOf(commands));
+    }
+
+    @Override
+    public void setAcpPlan(String name, List<AcpPlanEntry> entries) throws IOException {
+        writeMeta(name, meta -> meta.set("acpPlan", entries));
+    }
+
+    @Override
+    public void setAcpCommands(String name, List<AcpCommand> commands) throws IOException {
+        writeMeta(name, meta -> meta.set("acpCommands", commands));
+    }
+
+    @Override
     public void setAgentConfig(String name, Map<String, String> values) throws IOException {
         writeMeta(name, meta -> meta.set("agentConfig", values));
     }

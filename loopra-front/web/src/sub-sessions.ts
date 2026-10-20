@@ -106,6 +106,14 @@ export function subSessionBlocks(events: SubSessionEvent[]) {
       if (target) { target.result = result; target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception)/i.test(result) ? '失败' : '成功'; }
       return;
     }
+    if (type === 'sub_tool_update') {
+      const target = blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
+      if (target?.type === 'tool_call') {
+        if (event.name) target.name = event.name;
+        if (event.args != null) target.args = argsObject(event.args);
+      }
+      return;
+    }
     if (type === 'sub_error') {
       blocks.push({ id: nextId(), type: 'content', content: `❌ ${text(event.error ?? event.content) || '未知错误'}` });
       return;

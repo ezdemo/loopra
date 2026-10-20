@@ -1059,6 +1059,13 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
         }
     }
 
+    public SessionStore.AcpState acpSessionState(String workspace, String name) {
+        SessionStore store = sessionStoreFor(workspace);
+        if (store == null) throw new ServiceException("会话存储不可用");
+        try { return store.getAcpState(name); }
+        finally { store.shutdown(); }
+    }
+
     private List<com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigOption> nativeConfigOptions(String workspace, String name) {
         SessionStore store = sessionStoreFor(workspace);
         if (store == null) return List.of();
@@ -1114,6 +1121,17 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
     public List<Map<String, Object>> pendingAcpPermissions(String workspacePath, String sessionName) {
         AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
         return client == null ? List.of() : client.pendingPermissions();
+    }
+
+    public void resolveAcpElicitation(String workspacePath, String sessionName, String id, String action, Map<String, Object> content) {
+        AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
+        if (client == null) throw new ServiceException(409, "当前会话没有待处理的 ACP 提问");
+        client.resolveElicitation(id, action, content);
+    }
+
+    public List<Map<String, Object>> pendingAcpElicitations(String workspacePath, String sessionName) {
+        AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
+        return client == null ? List.of() : client.pendingElicitations();
     }
 
     /** Binds one ACP connection to an existing workbench session; Native retains session ownership. */

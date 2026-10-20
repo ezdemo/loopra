@@ -7,14 +7,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 把 Claude Code 在根会话里上报的子代理事件，按子会话落盘到 {@link SubAgentSessionStore}，
+ * 把外部 ACP Agent 的子代理事件，按子会话落盘到 {@link SubAgentSessionStore}，
  * 供右侧「子代理」面板回放。
  * <p>
  * 文本增量（{@code sub_content} / {@code sub_reasoning}）按段聚合后再写，
  * 避免每个 token 打开一次文件；工具调用、结束等事件先刷出未落盘的文本，保持事件顺序。
  * </p>
  */
-final class ClaudeSubAgentRecorder {
+final class AcpSubAgentRecorder {
 
     private final SubAgentSessionStore store;
     private final String parentSessionName;
@@ -24,8 +24,9 @@ final class ClaudeSubAgentRecorder {
     private final Map<String, String> bufferTypes = new HashMap<>();
     /** subSessionId → 事件公共字段（subId / subSessionId），用于补全聚合后的事件 */
     private final Map<String, Map<String, Object>> stamps = new HashMap<>();
+    private boolean idle;
 
-    ClaudeSubAgentRecorder(SubAgentSessionStore store, String parentSessionName) {
+    AcpSubAgentRecorder(SubAgentSessionStore store, String parentSessionName) {
         this.store = store;
         this.parentSessionName = parentSessionName;
     }
@@ -45,6 +46,8 @@ final class ClaudeSubAgentRecorder {
             if (current != null && !current.equals(type)) flush(subSessionId);
             bufferTypes.put(subSessionId, type);
             buffers.computeIfAbsent(subSessionId, ignored -> new StringBuilder()).append(text);
+            // The root SSE turn may be over while a native child keeps producing text.
+            if (idle) flush(subSessionId);
             return;
         }
 
@@ -62,6 +65,7 @@ final class ClaudeSubAgentRecorder {
      * 未收到 sub_end 的运行保留 running 状态（进程异常中断时用户仍能看到已有输出）。
      */
     synchronized void finish() {
+        idle = true;
         for (String subSessionId : new java.util.ArrayList<>(buffers.keySet())) flush(subSessionId);
     }
 

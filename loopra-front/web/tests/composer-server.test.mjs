@@ -9,7 +9,7 @@ const load = async name => {
   return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 };
 
-const { mergeSlashCommands, serverSlashCommands, localSlashCommands, presetPayload, presetsFromServer, formatTokenSpeed } = await load('composer.ts');
+const { acpSlashCommands, mergeSlashCommands, serverSlashCommands, localSlashCommands, presetPayload, presetsFromServer, formatTokenSpeed } = await load('composer.ts');
 const { contextFromUsage, usagePath } = await load('usage.ts');
 
 test('server slash commands merge skills, drop plan toggles and keep local actions first', () => {
@@ -23,6 +23,13 @@ test('server slash commands merge skills, drop plan toggles and keep local actio
   assert.equal(merged[0].action instanceof Function, true);
   assert.deepEqual(merged.map(item => item.id), ['/new', '/compact', '/init', '/skill:code-review']);
   assert.equal(merged.find(item => item.id === '/compact').insert, '/compact ');
+});
+
+test('external Agent command discovery retains plan commands and native skill syntax is not invented', () => {
+  const commands = acpSlashCommands([{ name: 'plan', description: '计划' }, { name: 'review', inputHint: 'branch' }, { name: 'custom-skill' }, { name: 'plan' }, { name: '' }]);
+  assert.deepEqual(commands.map(command => command.id), ['/plan', '/review', '/custom-skill']);
+  assert.equal(commands[0].insert, '/plan ');
+  assert.equal(commands[1].description, 'branch');
 });
 
 test('local slash commands expose the browser-side actions the legacy menu had', () => {

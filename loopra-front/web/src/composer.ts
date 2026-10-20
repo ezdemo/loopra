@@ -66,6 +66,17 @@ export function appendPreset(draft: string, text: string) { return draft.trimEnd
  * Server-provided slash commands and skills, minus the plan-mode toggles the UI
  * owns. Selecting one inserts the command text so the backend handles it.
  */
+export function acpSlashCommands(commands: import('./backend').AcpCommand[] = []): SlashCommand[] {
+  const seen = new Set<string>();
+  return commands.flatMap(command => {
+    const name = command.name?.replace(/^\/+/, '').trim();
+    if (!name || /\s/.test(name) || seen.has(name)) return [];
+    seen.add(name);
+    const id = `/${name}`;
+    return [{ id, title: id, description: [command.description, command.inputHint].filter(Boolean).join(' · '), insert: `${id} ` }];
+  });
+}
+
 export function serverSlashCommands(commands: ServerCommand[] = [], skills: ServerSkill[] = []): SlashCommand[] {
   const list: SlashCommand[] = [];
   const seen = new Set<string>();

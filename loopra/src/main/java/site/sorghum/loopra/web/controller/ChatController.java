@@ -43,6 +43,26 @@ import java.util.UUID;
 @Mapping("/api/chat")
 public class ChatController {
     public record PermissionAnswer(String workspaceHash, String sessionName, String permissionRequestId, String optionId) {}
+    public record ElicitationAnswer(String workspaceHash, String sessionName, String elicitationRequestId, String action, Map<String, Object> content) {}
+
+    @Post
+    @Mapping("/elicitation")
+    public ApiResponse<String> elicitation(@Body ElicitationAnswer answer) {
+        if (answer == null || answer.workspaceHash() == null || answer.sessionName() == null || answer.elicitationRequestId() == null) {
+            throw new ServiceException("提问答案需要项目、会话和请求 ID");
+        }
+        agentService.resolveAcpElicitation(agentService.resolveProjectHashOrThrow(answer.workspaceHash()), answer.sessionName(),
+                answer.elicitationRequestId(), answer.action(), answer.content());
+        return ApiResponse.ok("答案已提交");
+    }
+
+    @Get
+    @Mapping("/elicitations")
+    public ApiResponse<List<Map<String, Object>>> elicitations(
+            @Param(value = "workspaceHash", required = true) String workspaceHash,
+            @Param(value = "sessionName", required = true) String sessionName) {
+        return ApiResponse.ok(agentService.pendingAcpElicitations(agentService.resolveProjectHashOrThrow(workspaceHash), sessionName));
+    }
 
     @Post
     @Mapping("/permission")

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalHeader } from '@nextui-org/react';
 import { Copy, Download, FileText, ListTree, RefreshCw } from 'lucide-react';
-import { sessionQuery, type LoopraClient } from '../backend';
+import { sessionQuery, type AcpPlanEntry, type AcpSessionState, type LoopraClient } from '../backend';
 import type { Session } from '../lib';
 import { query, RemoteState, useRemote } from './RemoteControls';
 import { promptText } from '../session-prompt';
@@ -82,10 +82,24 @@ function ProgressCard({ item, checklist }: { item: Progress; checklist: boolean 
   </details>;
 }
 
-export function SessionProgress({ api, session, revision }: { api: LoopraClient; session: Session; revision: number }) {
+export function acpPlanProgress(entries: AcpPlanEntry[]): Progress | null {
+  if (!entries.length) return null;
+  const status = { pending: 'PENDING', in_progress: 'IN_PROGRESS', completed: 'DONE' };
+  const done = entries.filter(entry => entry.status === 'completed').length;
+  return { title: '任务进度', status: done === entries.length ? 'COMPLETED' : 'ACTIVE', totalSteps: entries.length, doneSteps: done,
+    steps: entries.map((entry, index) => ({ id: String(index), description: entry.content, status: status[entry.status] || 'PENDING' })) };
+}
+
+export function SessionProgress({ api, session, revision, externalPlan }: { api: LoopraClient; session: Session; revision: number; externalPlan?: AcpPlanEntry[] }) {
   const suffix = query({ workspaceHash: session.workspaceHash });
-  const goal = useRemote<Progress | null>(api, `/sessions/${encodeURIComponent(session.name || '')}/goal?${suffix}`, revision);
-  const checklist = useRemote<Progress | null>(api, `/sessions/${encodeURIComponent(session.name || '')}/checklist?${suffix}`, revision);
+  const external = !!session.agentId && session.agentId !== 'native';
+  const goal = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/goal?${suffix}`, revision);
+  const checklist = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/checklist?${suffix}`, revision);
+  const acp = useRemote<AcpSessionState>(api, external ? `/agent/acp-state?${sessionQuery(session)}` : null, revision);
+  if (external) {
+    const plan = acpPlanProgress(externalPlan ?? acp.data?.plan ?? []);
+    return plan ? <div className="session-progress"><ProgressCard item={plan} checklist={false} /></div> : null;
+  }
   const items = [goal.data, checklist.data].filter((item): item is Progress => !!item?.title);
   if (!items.length) return null;
   return <div className="session-progress">{goal.data?.title && <ProgressCard item={goal.data} checklist={false} />}{checklist.data?.title && <ProgressCard item={checklist.data} checklist />}</div>;

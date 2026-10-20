@@ -59,8 +59,20 @@ Windows npm shim。后端的 `GET /api/agent-engines` 按注册的 Provider 返�
 托管 MCP 与 Claude 使用同一套全局/项目合并规则；2.2.2 的 Codex 适配器声明支持
 stdio 和 HTTP、不支持 SSE。遇到不支持的传输会明确报错。
 
-Codex 子 Agent 当前使用适配器的普通工具活动回退，没有启用其原生子会话扩展。
-Claude 的扁平子任务转录继续由已有逻辑处理。
+Codex 在 initialize 协商原生子会话能力；子代理及嵌套子代理的文本、思考、工具和
+完成状态转换为工作台子代理事件，支持实时展示、右侧面板回放及 session/load 历史重建。
+未声明该能力的旧适配器继续使用普通工具活动回退。Claude 继续沿用扁平子任务转录。
+上游 2.2.2 不支持单独取消或关闭子会话，工作台取消仍作用于根会话。
+
+客户端声明 ACP 表单提问能力，接收 `elicitation/create`：选择题、补充文本、数值、
+布尔及多选通过独立问答面板回答；提交会恢复原 RPC，不新增聊天回合。待答问题可在
+刷新后恢复，跳过、超时、停止会释放等待；答案不额外写入本地提问事件。URL elicitation
+未声明支持。Codex 的提问工具是否可用仍由其 CLI/模式决定；React 的计划模式开关
+已对应 Codex `collaboration_mode` 的 `default` / `plan`，不会调整文件访问权限。
+
+标准 `plan`、`available_commands_update` 保存在会话元数据。React 主聊天显示 Agent
+上报的任务进度和斜杠菜单，切换会话或刷新后恢复；不会混入 Native 的技能命令。
+回合结束会区分正常结束、取消、输出/请求次数上限和拒绝，上限与拒绝另行提示。
 定时任务、需求执行、Native 上下文回滚及 Native 专用计划接口不在本次迁移范围。
 
 ## 验证
@@ -69,6 +81,8 @@ Claude 的扁平子任务转录继续由已有逻辑处理。
 
 - `CodexAcpProcessTest`：安装路径、npm 布局、显式入口和子进程环境。
 - `ExternalAcpSessionsTest`：针对 Claude/Codex 标识验证多轮、恢复、MCP、配置、审批、取消和进程退出。
+- `CodexSubAgentSessionsTest`：原生子会话协商、嵌套、审批、取消、失败、历史重建与旧版回退。
+- `AcpElicitationsTest` / `ExternalAcpInteractionTest`：结构化问答、跳过/取消/超时、计划与命令持久化及结束原因。
 - `ExternalAgentRoutingTest`：工作台实际路由、Provider 配置隔离、重启恢复及空会话隔离重置。
 - 现有 Claude 安装检测、Native ACP、进程释放和 Native 回合测试继续回归。
 

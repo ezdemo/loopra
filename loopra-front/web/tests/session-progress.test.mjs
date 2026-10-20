@@ -94,19 +94,20 @@ const checklist = {
   ],
 };
 
-async function mount({ responses = { goal, checklist }, session = { id: 'aaa/one', title: 'one', name: 'one', workspaceHash: 'aaa' } } = {}) {
+async function mount({ responses = { goal, checklist }, session = { id: 'aaa/one', title: 'one', name: 'one', workspaceHash: 'aaa' }, externalPlan } = {}) {
   globalThis.__calls = [];
   const api = {
     request: (path, method = 'GET') => {
       globalThis.__calls.push({ path, method });
       if (path.includes('/goal?')) return Promise.resolve(responses.goal);
       if (path.includes('/checklist?')) return Promise.resolve(responses.checklist);
+      if (path.includes('/acp-state?')) return Promise.resolve(responses.acp);
       return Promise.resolve(null);
     },
   };
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
-  await act(async () => root.render(createElement(SessionProgress, { api, session, revision: 0 })));
+  await act(async () => root.render(createElement(SessionProgress, { api, session, revision: 0, externalPlan })));
   return { container, root, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 
@@ -118,6 +119,19 @@ test('polls both endpoints for the active session', async () => {
       { path: '/sessions/one/checklist?workspaceHash=aaa', method: 'GET' },
     ]);
   } finally { await view.close(); }
+});
+
+test('external plans render reported progress, restore saved state and accept empty replacements', async () => {
+  const plan = [{ content: '读取项目', status: 'completed' }, { content: '修复问题', status: 'in_progress' }];
+  for (const externalPlan of [undefined, [], [{ content: '新计划', status: 'pending' }]]) {
+    const view = await mount({ session: { id: 'aaa/one', name: 'one', workspaceHash: 'aaa', agentId: 'codex' }, responses: { acp: { plan, commands: [] } }, externalPlan });
+    try {
+      assert.equal(globalThis.__calls.length, 1, 'External sessions must not query Native Goal/checklist endpoints');
+      assert.match(globalThis.__calls[0].path, /\/agent\/acp-state\?/);
+      if (externalPlan?.length === 0) assert.equal(view.container.querySelector('.session-progress'), null);
+      else assert.match(view.container.textContent, externalPlan ? /新计划/ : /1\/2/);
+    } finally { await view.close(); }
+  }
 });
 
 test('renders the goal card with status, progress, blocked reason and steps', async () => {

@@ -156,6 +156,8 @@ function generateRequestId() {
 
 // 聊天 API
 export const chatAPI = {
+  elicitation: (answer) => api.post('/chat/elicitation', answer),
+  elicitations: (workspaceHash, sessionName) => api.get('/chat/elicitations', { params: { workspaceHash, sessionName } }),
   permission: (answer) => api.post('/chat/permission', answer),
   permissions: (workspaceHash, sessionName) => api.get('/chat/permissions', { params: { workspaceHash, sessionName } }),
   // 同步聊天 - POST /api/chat
