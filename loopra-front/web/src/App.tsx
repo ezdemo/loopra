@@ -17,14 +17,14 @@ import Search from './components/Search';
 import type { FileChange, Message } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
-import type { AgentEngine } from './backend';
+import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
 import { applySeed, newSessionSeed, seedChanges, type AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { buildUpdatePrompt, loadUpdateSource } from './update-scripts';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
-import { applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
+import { acpStopMessage, applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
 import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
@@ -39,6 +39,8 @@ import SessionsManager from './components/SessionsManager';
 import RequirementBoard from './components/RequirementBoard';
 import PlanReview from './components/PlanReview';
 import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
+import ElicitationForm from './components/ElicitationForm';
+import type { ElicitationRequest } from './elicitation';
 import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
@@ -97,7 +99,10 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
   const [engines, setEngines] = useState<AgentEngine[]>([]);
-  // The backend re-detects Node/Claude on every request; bump this to refresh
+  const [acpPlans, setAcpPlans] = useState<Record<string, AcpPlanEntry[]>>({});
+  const [acpCommands, setAcpCommands] = useState<Record<string, AcpCommand[]>>({});
+  const [pendingInputs, setPendingInputs] = useState<Record<string, ElicitationRequest[]>>({});
+  // The backend re-detects installed Agent runtimes on every request; bump this to refresh
   // after the user installs a missing runtime outside the app.
   const [enginesRevision, setEnginesRevision] = useState(0);
   const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});
@@ -612,6 +617,8 @@ export default function App() {
     if (running || observe.running) {
       const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
       const permissions = running ? await api.request<StreamEvent[]>(`/chat/permissions?${sessionQuery(target)}`, 'GET', undefined, controller.signal) : [];
+      const inputs = running ? await api.request<ElicitationRequest[]>(`/chat/elicitations?${sessionQuery(target)}`, 'GET', undefined, controller.signal) : [];
+      if (!controller.signal.aborted) setPendingInputs(current => ({ ...current, [target.id]: inputs }));
       if (!controller.signal.aborted && (history.length || permissions.length)) setSessions(current => current.map(item => {
         if (item.id !== target.id) return item;
         const messages = historyMessages(history);
@@ -686,6 +693,13 @@ export default function App() {
     }
     if (!outgoing.length) return;
     void (async () => { for (const value of outgoing) await sendMessage(value, undefined, undefined, false, true); })();
+  }
+  async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline', content: Record<string, unknown>) {
+    if (!session) return;
+    const target = session;
+    await api.request('/chat/elicitation', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name,
+      elicitationRequestId: request.elicitationRequestId, action, content });
+    setPendingInputs(current => ({ ...current, [target.id]: (current[target.id] || []).filter(input => input.elicitationRequestId !== request.elicitationRequestId) }));
   }
   async function branchSession(messageId: string) {
     if (!session || generatingId) return;
@@ -775,6 +789,7 @@ export default function App() {
     // user bubble — an answer is a control reply, not something the user typed.
     const silent = !!action || autoAnswer;
     let completed = false;
+    let agentStopReason: string | undefined;
     const assistant: Message = { id: answerId, role: 'assistant', text: '', time, startedAt: now, blocks: [] };
     let petAnswer = assistant;
     try {
@@ -822,7 +837,18 @@ export default function App() {
       const attachments = context.attachments || [];
       const documentText = attachments.filter(file => file.text !== undefined).map(file => `附件：${file.name}\n${file.text}`).join('\n\n');
       await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+        if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
+        if (event.type === 'elicitation' && event.elicitationRequestId && event.schema) {
+          const input: ElicitationRequest = { elicitationRequestId: event.elicitationRequestId, message: event.message || '请回答以下问题', schema: event.schema };
+          setPendingInputs(current => ({ ...current, [id]: [...(current[id] || []).filter(item => item.elicitationRequestId !== input.elicitationRequestId), input] }));
+          return;
+        }
+        if (event.type === 'elicitation_resolved') {
+          setPendingInputs(current => ({ ...current, [id]: (current[id] || []).filter(input => input.elicitationRequestId !== event.elicitationRequestId) })); return;
+        }
+        if (event.type === 'acp_plan') { setAcpPlans(current => ({ ...current, [id]: event.entries || [] })); return; }
+        if (event.type === 'acp_commands') { setAcpCommands(current => ({ ...current, [id]: event.commands || [] })); return; }
         if (event.type === 'plan_submitted') { setPendingPlan(event.plan || undefined); setComposerOptions(current => ({ ...current, plan: true })); return; }
         if (event.type === 'mode_changed') { setComposerOptions(current => ({ ...current, plan: event.mode === 'plan' })); if (event.mode !== 'plan') setPendingPlan(undefined); return; }
         if (event.type === 'snapshot' && event.msgId) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, rollbackId: event.msgId, ...(event.hasCodeSnapshot ? { snapshotId: event.msgId } : {}) } : entry) } : item));
@@ -845,8 +871,9 @@ export default function App() {
       completed = true;
       const preview = petReplyPreview(petAnswer);
       if (preview) setPetReply({ id: answerId, text: preview });
-      if (preferences.notifications) notify('回复已完成');
-      if (preferences.sound) playCompletionSound();
+      const stopped = acpStopMessage(agentStopReason);
+      if (stopped || preferences.notifications) notify(stopped || '回复已完成');
+      if (!stopped && preferences.sound) playCompletionSound();
     } catch (error) {
       const content = controller.signal.aborted || activeRequest.current?.stopping ? '> 本次回复已停止。' : `> 请求失败：${error instanceof Error ? error.message : error}`;
       setPetReply({ id: answerId, text: content.replace(/^> /, ''), activity: controller.signal.aborted || activeRequest.current?.stopping ? 'idle' : 'failed' });
@@ -855,6 +882,7 @@ export default function App() {
     } finally {
       if (target) {
         const id = target.id;
+        setPendingInputs(current => ({ ...current, [id]: [] }));
         notifyWorkspaceChanged(target.workspaceHash);
         setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: Date.now() } : entry) } : item));
         try {
@@ -963,11 +991,12 @@ export default function App() {
   });
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
+  const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: !!agentConfigBusy || (!session && newAgentConfig?.key !== agentConfigKey), error: agentConfigError, onPrepare: retryAgentConfig, onChange: (id, value) => void changeAgentConfig(id, value) }}
-    agentId={agentId} engines={engines}
+    agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !sessionsOpen && !helpOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId && generatingId === activeId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -1016,7 +1045,7 @@ export default function App() {
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} />}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={message => { setRollbackMessage(message); setRollbackCode(false); }} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
-            <div className="chat-composer-area">{composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{composer}</div>
+            <div className="chat-composer-area">{!externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}<SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} />{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
       </main>

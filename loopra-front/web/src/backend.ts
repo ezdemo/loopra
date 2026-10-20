@@ -2,14 +2,21 @@ import { mergeFileDiffs } from './diff';
 import type { ChatBlock, Message } from './chat';
 import type { Provider, Session } from './lib';
 import type { AgentConfigOption } from './agent-config';
+import type { ElicitationRequest } from './elicitation';
 
 export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
+export function acpStopMessage(reason?: string) {
+  return ({ cancelled: '本次回复已停止', max_tokens: '已达到本轮输出上限，任务可能尚未完成', max_turn_requests: '已达到本轮请求次数上限，任务可能尚未完成', refusal: 'Agent 拒绝了本次请求' } as Record<string, string>)[reason || ''] || '';
+}
 export type Workspace = { hash: string; name: string; path: string; displayName?: string | null };
 export type AgentEngine = { id: string; name: string; available: boolean; detail?: string };
+export type AcpPlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: string };
+export type AcpCommand = { name: string; description?: string; inputHint?: string };
+export type AcpSessionState = { plan: AcpPlanEntry[]; commands: AcpCommand[] };
 export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };
-export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema'] };
 export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
 
 export function serverAddress(value: string) {
@@ -119,7 +126,7 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
   const id = `${message.id}-${blocks.length}`;
   const content = event.content ?? event.token ?? '';
   if (event.type === 'sub_choice') {
-    blocks.push({ id, type: 'choice', subId: String(event.subId), question: event.title || '子代理工具调用需要审批', description: event.description, options: (event.options || []).map(option => ({ title: option.title, value: option.value, description: option.summary })) });
+    blocks.push({ id, type: 'choice', subId: String(event.subId), ...(event.permissionRequestId ? { permissionRequestId: event.permissionRequestId } : {}), question: event.title || '子代理工具调用需要审批', description: event.description, options: (event.options || []).map(option => ({ title: option.title, value: option.value, description: option.summary })) });
   } else if (event.type.startsWith('sub_')) {
     const subId = `${message.id}-sub-${event.subId || 'agent'}`;
     let sub = blocks.find(block => block.id === subId && block.type === 'sub_agent');

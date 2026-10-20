@@ -16,6 +16,19 @@ test('endpoint helpers scope every call to the parent session', () => {
   assert.equal(subSessionChatPath('sub/2', 'h', 's'), '/sub-sessions/sub%2F2/chat?workspaceHash=h&sessionName=s');
 });
 
+test('replay applies delayed tool arguments without losing a completed result', () => {
+  const { blocks } = subSessionBlocks([
+    { type: 'sub_tool_call', toolCallId: 'read-1', name: 'pending', args: {} },
+    { type: 'sub_tool_result', toolCallId: 'read-1', result: 'file contents', status: 'completed' },
+    { type: 'sub_tool_update', toolCallId: 'read-1', name: 'Read', args: { path: 'a.txt' } },
+  ]);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].name, 'Read');
+  assert.deepEqual(blocks[0].args, { path: 'a.txt' });
+  assert.equal(blocks[0].result, 'file contents');
+  assert.equal(blocks[0].status, '成功');
+});
+
 test('labels and statuses follow the legacy mapping', () => {
   assert.equal(subSessionLabel({ subSessionId: 'x', name: '小瓜', title: '修复登录' }), '小瓜：修复登录');
   assert.equal(subSessionLabel({ subSessionId: 'x', task: '旧任务' }), '旧任务');

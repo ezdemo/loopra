@@ -26,6 +26,12 @@ public interface SessionStore {
     }
 
     record AcpBinding(String agentId, String remoteSessionId, String cwd) {}
+    record AcpPlanEntry(String content, String status, String priority) {}
+    record AcpCommand(String name, String description, String inputHint) {}
+    record AcpState(List<AcpPlanEntry> plan, List<AcpCommand> commands) {}
+    default AcpState getAcpState(String name) { return new AcpState(List.of(), List.of()); }
+    default void setAcpPlan(String name, List<AcpPlanEntry> entries) throws IOException {}
+    default void setAcpCommands(String name, List<AcpCommand> commands) throws IOException {}
     default Map<String, String> getAgentConfig(String name) { return Map.of(); }
     default void setAgentConfig(String name, Map<String, String> values) throws IOException {
         throw new UnsupportedOperationException("Agent configuration storage is unavailable");

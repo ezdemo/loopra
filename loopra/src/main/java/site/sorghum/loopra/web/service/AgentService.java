@@ -71,7 +71,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
-public class AgentService implements ProjectRuntimeAccess {
+public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
 
     /**
      * 最大缓存 Agent 数量
@@ -79,7 +79,10 @@ public class AgentService implements ProjectRuntimeAccess {
     private static final int MAX_CACHE_SIZE = 50;
     private final Object runtimeMonitor = new Object();
     private final ConcurrentHashMap<String, AcpWorkbenchClient> acpTurns = new ConcurrentHashMap<>();
-    private final ExternalAcpSessions externalAcpSessions = new ExternalAcpSessions();
+    private final ExternalAcpSessions externalAcpSessions;
+
+    public AgentService() { this(new ExternalAcpSessions()); }
+    AgentService(ExternalAcpSessions externalAcpSessions) { this.externalAcpSessions = externalAcpSessions; }
     @Inject
     ChatCommandRegistry commandRegistry;
 
@@ -553,7 +556,7 @@ public class AgentService implements ProjectRuntimeAccess {
      * 共享组件是否已初始化
      */
     public boolean isReady() {
-        return isNativeReady() || ClaudeAcpProcess.detect().available();
+        return isNativeReady() || ExternalAcpProviders.all().stream().anyMatch(provider -> provider.detect().available());
     }
 
     public boolean isNativeReady() { return ConfigService.getConfig() != null && sharedToolRegistry != null; }
@@ -569,7 +572,7 @@ public class AgentService implements ProjectRuntimeAccess {
     public void selectSessionAgent(String workspacePath, String name, String requested) throws IOException {
         if (name == null || name.isBlank()) throw new ServiceException("请选择会话");
         String id = requested == null || requested.isBlank() ? sessionAgentId(workspacePath, name) : requested;
-        if (!List.of("native", "claude-code").contains(id)) throw new ServiceException("未知 Agent");
+        if (!"native".equals(id)) ExternalAcpProviders.require(id);
         String key = generateSessionKey(workspacePath, name);
         ReentrantLock lock = sessionCache.getLock(key);
         lock.lock();
@@ -583,9 +586,10 @@ public class AgentService implements ProjectRuntimeAccess {
                         throw new ServiceException(409, "已有消息的会话不能切换 Agent，请新建会话");
                     }
                     sessionCache.dispose(key);
+                    externalAcpSessions.close(key);
                     store.setAcpBinding(name, new SessionStore.AcpBinding(id, null, null));
                     // Configuration belongs to the conversation's current engine. Native values
-                    // such as mode=approval are invalid for Claude (and vice versa), so a switch
+                    // such as mode=approval may be invalid for another engine, so a switch
                     // must not carry the previous engine's choices into the new session.
                     store.setAgentConfig(name, Map.of());
                 }
@@ -934,7 +938,7 @@ public class AgentService implements ProjectRuntimeAccess {
         String effectiveSessionName = sessionName != null ? sessionName : "default";
         try {
             String sessionKey = generateSessionKey(workspacePath, sessionName);
-            if ("claude-code".equals(sessionAgentId(workspacePath, sessionName))) {
+            if (ExternalAcpProviders.isExternal(sessionAgentId(workspacePath, sessionName))) {
                 if (action != null && !action.isBlank()) throw new ServiceException("此操作暂只支持 Loopra Native");
                 String project = sessionKey.split("::", 2)[0];
                 SessionStore store = sessionStoreFor(project);
@@ -1025,7 +1029,7 @@ public class AgentService implements ProjectRuntimeAccess {
         AcpWorkbenchClient active = acpTurns.get(key);
         if (active != null) {
             var options = configId == null ? active.configOptions() : active.setConfigOption(configId, value);
-            if (configId != null && "claude-code".equals(sessionAgentId(workspacePath, sessionName))) {
+            if (configId != null && ExternalAcpProviders.isExternal(sessionAgentId(workspacePath, sessionName))) {
                 SessionStore store = sessionStoreFor(workspacePath);
                 if (store == null) throw new ServiceException("会话存储不可用");
                 try {
@@ -1035,7 +1039,7 @@ public class AgentService implements ProjectRuntimeAccess {
             }
             return options;
         }
-        if ("claude-code".equals(sessionAgentId(workspacePath, sessionName))) {
+        if (ExternalAcpProviders.isExternal(sessionAgentId(workspacePath, sessionName))) {
             SessionStore store = sessionStoreFor(workspacePath);
             if (store == null) throw new ServiceException("会话存储不可用");
             try { return externalAcpSessions.configuration(key, resolveSessionEnvironment(workspacePath, sessionName).executionRoot(),
@@ -1053,6 +1057,13 @@ public class AgentService implements ProjectRuntimeAccess {
                 }
             }
         }
+    }
+
+    public SessionStore.AcpState acpSessionState(String workspace, String name) {
+        SessionStore store = sessionStoreFor(workspace);
+        if (store == null) throw new ServiceException("会话存储不可用");
+        try { return store.getAcpState(name); }
+        finally { store.shutdown(); }
     }
 
     private List<com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigOption> nativeConfigOptions(String workspace, String name) {
@@ -1110,6 +1121,17 @@ public class AgentService implements ProjectRuntimeAccess {
     public List<Map<String, Object>> pendingAcpPermissions(String workspacePath, String sessionName) {
         AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
         return client == null ? List.of() : client.pendingPermissions();
+    }
+
+    public void resolveAcpElicitation(String workspacePath, String sessionName, String id, String action, Map<String, Object> content) {
+        AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
+        if (client == null) throw new ServiceException(409, "当前会话没有待处理的 ACP 提问");
+        client.resolveElicitation(id, action, content);
+    }
+
+    public List<Map<String, Object>> pendingAcpElicitations(String workspacePath, String sessionName) {
+        AcpWorkbenchClient client = acpTurns.get(generateSessionKey(workspacePath, sessionName));
+        return client == null ? List.of() : client.pendingElicitations();
     }
 
     /** Binds one ACP connection to an existing workbench session; Native retains session ownership. */
@@ -1508,10 +1530,10 @@ public class AgentService implements ProjectRuntimeAccess {
             // 未开始对话的会话则丢弃进程并解除远端会话绑定，下次按新目录重建。
             if (!"native".equals(store.getAcpBinding(sessionName).agentId())) {
                 if (!store.load(sessionName).isEmpty()) {
-                    throw new ServiceException(409, "已有消息的 Claude 会话不能切换隔离分支模式，请新建会话");
+                    throw new ServiceException(409, "已有消息的外部 Agent 会话不能切换隔离分支模式，请新建会话");
                 }
                 externalAcpSessions.close(sessionKey);
-                store.setAcpBinding(sessionName, new SessionStore.AcpBinding("claude-code", null, null));
+                store.setAcpBinding(sessionName, new SessionStore.AcpBinding(store.getAcpBinding(sessionName).agentId(), null, null));
             }
             store.setWorktreeMode(sessionName, enabled);
         } catch (java.io.IOException e) {

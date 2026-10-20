@@ -5,7 +5,7 @@
       <select v-model="agentEngine" aria-label="选择 Agent" :disabled="streaming || sessionTaskRunning || messages.length > 0" @change="rememberAgentEngine">
         <option v-for="engine in agentEngines" :key="engine.id" :value="engine.id" :disabled="!engine.available">{{ engine.name }}{{ engine.available ? '' : '（未配置）' }}</option>
       </select>
-      <small v-if="agentEngine === 'claude-code'">使用本机 Claude 配置与审批</small>
+      <small v-if="agentEngine !== 'native'">使用所选 Agent 的本机配置与审批</small>
     </label>
     <div v-if="!props.subAgent" class="agent-session-config" :aria-busy="agentConfigBusy">
       <button v-if="!agentConfigOptions || agentConfigError" class="btn btn-ghost btn-sm" :disabled="agentConfigBusy" :title="agentConfigError" @click="prepareAgentConfiguration">{{ agentConfigBusy ? '正在加载配置…' : agentConfigError ? '重试 Agent 配置' : '配置 Agent' }}</button>
@@ -319,6 +319,7 @@
     </Teleport>
 
     <!-- 输入区（独立组件） -->
+    <AcpElicitationForm v-if="acpInputs.length" :key="acpInputs[0].elicitationRequestId" :request="acpInputs[0]" :answer="answerAcpInput" />
     <Transition name="welcome-input-drop">
     <ChatInput v-if="props.sessionName && (props.subAgent || messages.length > 0)"
         ref="chatInput"
@@ -434,6 +435,7 @@ import {buildHistoryItems, mergeFileChanges, moveFileChangesToEnd} from '../util
 import {applySubAgentEvent, findSubAgentBlock} from '../utils/subAgentBlocks'
 import {getAssistantTurnBoundaries} from '../utils/sessionBranch'
 import ChatInput from '../components/ChatInput.vue'
+import AcpElicitationForm from '../components/AcpElicitationForm.vue'
 import ActionConfirmDialog from '../components/ActionConfirmDialog.vue'
 
 const ChatMessage = defineAsyncComponent(() => import('../components/ChatMessage.vue'))
@@ -597,6 +599,13 @@ const chatInput = ref(null)
 const welcomeInput = ref(null)
 const welcomeText = ref('')
 const agentEngine = ref(localStorage.getItem('loopra-agent-engine') || 'native')
+const acpInputs = ref([])
+watch([() => props.sessionName, () => props.workspaceHash], () => { acpInputs.value = [] })
+async function answerAcpInput(request, action, content) {
+  await chatAPI.elicitation({workspaceHash: props.workspaceHash, sessionName: props.sessionName,
+    elicitationRequestId: request.elicitationRequestId, action, content})
+  acpInputs.value = acpInputs.value.filter(input => input.elicitationRequestId !== request.elicitationRequestId)
+}
 const agentEngines = ref([{id: 'native', name: 'Loopra Native', available: true}])
 const rememberAgentEngine = () => { localStorage.setItem('loopra-agent-engine', agentEngine.value); agentConfigOptions.value = null; if (props.sessionName) void prepareAgentConfiguration() }
 const setAgentEngine = (id) => { agentEngine.value = id || 'native'; localStorage.setItem('loopra-agent-engine', agentEngine.value); agentConfigOptions.value = null }
@@ -1382,6 +1391,8 @@ const pollSessionStatus = async (token, workspaceHash, sessionName) => {
       await loadHistory(sessionName, true, workspaceHash, token)
       if (running && isCurrentSessionStatus(token, workspaceHash, sessionName)) {
         const pending = await chatAPI.permissions(workspaceHash, sessionName)
+        const inputs = await chatAPI.elicitations(workspaceHash, sessionName)
+        if (isCurrentSessionStatus(token, workspaceHash, sessionName) && inputs?.success) acpInputs.value = inputs.data || []
         if (isCurrentSessionStatus(token, workspaceHash, sessionName) && pending?.success) {
           for (const permission of pending.data || []) {
             let last = messages.value.at(-1)
@@ -1399,6 +1410,7 @@ const pollSessionStatus = async (token, workspaceHash, sessionName) => {
       }
     }
     if (!running) {
+      acpInputs.value = []
       sessionStatusObservedRunning = false
       sessionStatusStopping.value = false
       if (!isCurrentSessionStatus(token, workspaceHash, sessionName)) return
@@ -2229,6 +2241,13 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             }
             return
           }
+          if (data.type === 'elicitation' || data.type === 'elicitation_resolved') {
+            if (props.sessionName === sessionName && props.workspaceHash === targetWorkspaceHash) {
+              acpInputs.value = acpInputs.value.filter(input => input.elicitationRequestId !== data.elicitationRequestId)
+              if (data.type === 'elicitation') acpInputs.value.push(data)
+            }
+            return
+          }
           // 静默命令：首次收到有内容的数据时才创建助手气泡（只创建一次）
           if (isSilent && !silentBubbleCreated) {
             if (!data.type || data.type === 'done') return
@@ -2269,6 +2288,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
             msg.blocks.push({
               type: 'choice',
               subId: data.subId,
+              permissionRequestId: data.permissionRequestId,
               options: options,
               question,
               description: desc,
@@ -2477,6 +2497,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
         enqueueStreamEvent,
         () => {
           flushStreamEvents()
+          if (props.sessionName === sessionName && props.workspaceHash === targetWorkspaceHash) acpInputs.value = []
           const completedMessage = getMsg()
           if (completedMessage) {
             completedMessage.turnFinishedAt = Date.now()
@@ -2503,6 +2524,7 @@ const sendMessage = async (images = [], overrideText = null, modelSelection = nu
         () => {
           flushStreamEvents()
           store.setSessionStreaming(sessionName, false)
+          if (props.sessionName === sessionName && props.workspaceHash === targetWorkspaceHash) acpInputs.value = []
           if (requestAction === 'execute_plan') {
             planModeBusy.value = false
             void syncPlanMode()

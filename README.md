@@ -46,6 +46,7 @@ Loopra 将用户任务、模型推理与受控工具调用组织成持续执行�
 Web 默认使用 React + NextUI 工作台，包含聊天、模型与输入栏、设置和远程模型选择；源码和开发说明见 [loopra-front/web](loopra-front/web/README.md)。Vue 高级控制台保留在 `/legacy.html`，Electron 窗口沿用原实现。
 
 主聊天的 Native ACP 接入、协议扩展与当前迁移范围见 [Native ACP 接入](docs/acp-native.md)。
+外部 Agent 接入见 [Claude Code](docs/acp-claude.md) 和 [Codex](docs/acp-codex.md)，主聊天可在三个引擎间选择。
 
 ```text
 任务 -> 模型推理 -> 工具调用 -> 结果反馈 -> 模型推理 -> ... -> 完成

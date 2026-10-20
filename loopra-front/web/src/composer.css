@@ -29,9 +29,6 @@
 .composer-effort > span { overflow: hidden; text-overflow: ellipsis; }
 .rich-composer .is-active { background: var(--accent-soft); color: var(--accent); }
 .rich-composer .send-button { margin-left: 0.3125rem; }
-.composer-caption { display: flex; justify-content: space-between; gap: .5rem; font-size: .6875rem; color: var(--muted); margin: .25rem .25rem 0; line-height: 1rem; opacity: .8; }
-@container (max-width: 30rem) { .composer-caption { display: none; } }
-.composer-caption span span { margin: 0 0.1875rem; }
 .composer-context-chips { display: flex; flex-wrap: wrap; gap: 0.3125rem; max-height: 4.625rem; overflow: auto; }
 .composer-context-chips:not(:empty) { padding-bottom: 0.5625rem; }
 .composer-context-chips .context-chip { background: var(--soft); color: var(--secondary); border: 1px solid var(--line); height: 1.625rem; max-width: 14.375rem; }
@@ -292,8 +289,5 @@
   .rich-composer { padding: 0.8125rem 0.625rem 0.5rem 0.8125rem; min-height: 9.5rem; }
   .rich-composer .composer-model { font-size: 0.8125rem; }
   .rich-composer .composer-effort { font-size: 0.75rem; }
-  .composer-caption { font-size: 0.625rem; margin-right: 0.125rem; }
-  .composer-caption > span:first-child { display: none; }
-  .composer-caption > span:last-child { margin-left: auto; }
   .composer-popover { width: min(22.8125rem, calc(100vw - 2.625rem)); }
 }

@@ -9,6 +9,10 @@ public final class FakeAcpProcess {
     private static List<String> directories = List.of();
     private static String mcp = "[]";
     private static String setup = "new";
+    private static boolean nativeChildren;
+    private static String permissionChild;
+    private static boolean forms;
+    private static boolean answeringInput;
     public static void main(String[] args) {
         Scanner input = new Scanner(System.in, java.nio.charset.StandardCharsets.UTF_8);
         Object promptId = null;
@@ -18,7 +22,21 @@ public final class FakeAcpProcess {
             Object id = message.get("id").getValue();
             if (method == null) {
                 if (promptId == null) continue;
+                if (answeringInput) {
+                    update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "input:" + message.get("result").toJson())));
+                    response(promptId, Map.of("stopReason", "end_turn"));
+                    promptId = null; answeringInput = false;
+                    continue;
+                }
                 String outcome = message.get("result").get("outcome").get("optionId").getString();
+                if (permissionChild != null) {
+                    childUpdate(permissionChild, Map.of("sessionUpdate", "tool_call_update", "toolCallId", "child-permission",
+                            "status", "allow".equals(outcome) ? "completed" : "failed", "rawOutput", "result:" + outcome));
+                    endChild("fake-session", permissionChild, "completed");
+                    response(promptId, Map.of("stopReason", "end_turn"));
+                    promptId = null; permissionChild = null;
+                    continue;
+                }
                 update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "call-1", "status",
                         "allow".equals(outcome) ? "completed" : "failed", "rawOutput", "result:" + outcome));
                 update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "answered")));
@@ -26,9 +44,15 @@ public final class FakeAcpProcess {
                 continue;
             }
             switch (method) {
-                case "initialize" -> response(id, Map.of("protocolVersion", 1,
+                case "initialize" -> {
+                    forms = message.get("params").get("clientCapabilities").get("elicitation").get("form").isObject();
+                    nativeChildren = message.get("params").get("clientCapabilities").get("subagents").isObject()
+                            && !Boolean.getBoolean("loopra.fake.noSubagents");
+                    response(id, Map.of("protocolVersion", 1,
                         "agentCapabilities", Map.of("loadSession", true, "additionalDirectories", true,
+                                "sessionCapabilities", nativeChildren ? Map.of("subagents", Map.of()) : Map.of(),
                                 "mcpCapabilities", Map.of("http", true, "sse", true))));
+                }
                 case "session/new" -> {
                     // Tests use this to keep a configuration request inside session setup,
                     // which is where a real Agent spawns its process and restores a session.
@@ -52,6 +76,7 @@ public final class FakeAcpProcess {
                     setup = "load";
                     directories = readDirectories(message);
                     update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "OLD REPLAY")));
+                    if (nativeChildren && Boolean.getBoolean("loopra.fake.replayChildren")) nativeTranscript();
                     response(id, Map.of("configOptions", config()));
                 }
                 case "session/set_mode" -> response(id, Map.of());
@@ -69,6 +94,58 @@ public final class FakeAcpProcess {
                 }
                 case "session/prompt" -> {
                     String text = message.get("params").get("prompt").get(0).get("text").getString();
+                    if (List.of("input", "child-input", "input-timeout").contains(text)) {
+                        if (!forms) { response(id, Map.of("stopReason", "refusal")); continue; }
+                        String source = "child-input".equals(text) ? "child-1" : "fake-session";
+                        if (!source.equals("fake-session")) spawnChild("fake-session", source, "Explorer", "Ask a question");
+                        Map<String, Object> request = new LinkedHashMap<>();
+                        request.put("sessionId", source); request.put("mode", "form"); request.put("message", "午餐吃什么？");
+                        request.put("requestedSchema", Map.of("type", "object", "required", List.of("food"), "properties", Map.of(
+                                "food", Map.of("type", "string", "title", "选择午餐", "oneOf", List.of(Map.of("const", "chicken", "title", "黄焖鸡"), Map.of("const", "kfc", "title", "肯德基"))),
+                                "food_note", Map.of("type", "string", "title", "补充说明"))));
+                        if (text.equals("input-timeout")) request.put("_meta", Map.of("codex", Map.of("autoResolutionMs", 150)));
+                        promptId = id; answeringInput = true;
+                        send(Map.of("jsonrpc", "2.0", "id", "form-request", "method", "elicitation/create", "params", request));
+                        continue;
+                    }
+                    if (text.equals("progress")) {
+                        update(Map.of("sessionUpdate", "plan", "entries", List.of(Map.of("content", "Read project", "status", "completed", "priority", "high"),
+                                Map.of("content", "Implement", "status", "in_progress", "priority", "medium"))));
+                        update(Map.of("sessionUpdate", "available_commands_update", "availableCommands", List.of(Map.of("name", "review", "description", "Review code", "input", Map.of("hint", "branch")), Map.of("name", "plan", "description", "Plan changes"))));
+                        response(id, Map.of("stopReason", "end_turn")); continue;
+                    }
+                    if (text.equals("clear-progress")) {
+                        update(Map.of("sessionUpdate", "plan", "entries", List.of()));
+                        update(Map.of("sessionUpdate", "available_commands_update", "availableCommands", List.of()));
+                        response(id, Map.of("stopReason", "end_turn")); continue;
+                    }
+                    if (text.startsWith("stop:")) { response(id, Map.of("stopReason", text.substring(5))); continue; }
+                    if (text.startsWith("native-")) {
+                        if (!nativeChildren) {
+                            update(Map.of("sessionUpdate", "tool_call", "toolCallId", "spawn", "title", "spawnAgent", "status", "completed", "rawOutput", "legacy result"));
+                        } else if ("native-agent".equals(text)) {
+                            nativeTranscript();
+                        } else if ("native-permission".equals(text) || "native-root-permission".equals(text)) {
+                            spawnChild("fake-session", "child-1", "Explorer", "Read project");
+                            childUpdate("child-1", Map.of("sessionUpdate", "tool_call", "toolCallId", "child-permission", "title", "Read", "status", "pending"));
+                            permissionChild = "child-1"; promptId = id;
+                            send(Map.of("jsonrpc", "2.0", "id", "child-approval", "method", "session/request_permission", "params", Map.of(
+                                    "sessionId", "native-permission".equals(text) ? "child-1" : "fake-session",
+                                    "toolCall", Map.of("toolCallId", "child-permission", "title", "Read project"),
+                                    "options", List.of(Map.of("optionId", "allow", "name", "Allow once", "kind", "allow_once")))));
+                            continue;
+                        } else if ("native-wait".equals(text)) {
+                            spawnChild("fake-session", "child-1", "Explorer", "Waiting");
+                            promptId = id;
+                            continue;
+                        } else if ("native-failure".equals(text)) {
+                            spawnChild("fake-session", "child-1", "Explorer", "Failing");
+                            endChild("fake-session", "child-1", "failed");
+                        }
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "root finished")));
+                        response(id, Map.of("stopReason", "end_turn"));
+                        continue;
+                    }
                     if ("exit".equals(text)) System.exit(0);
                     if ("echo-mcp".equals(text)) {
                         update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", setup + ":" + mcp)));
@@ -167,7 +244,34 @@ public final class FakeAcpProcess {
                 Map.of("id", "future", "name", "Future", "type", "unknown_future_type", "currentValue", 4));
     }
     private static void update(Map<String, Object> update) {
-        send(Map.of("jsonrpc", "2.0", "method", "session/update", "params", Map.of("sessionId", "fake-session", "update", update)));
+        childUpdate("fake-session", update);
+    }
+    private static void childUpdate(String session, Map<String, Object> update) {
+        send(Map.of("jsonrpc", "2.0", "method", "session/update", "params", Map.of("sessionId", session, "update", update)));
+    }
+    private static void spawnChild(String parent, String child, String name, String task) {
+        childUpdate(parent, Map.of("sessionUpdate", "subagent_spawned", "subagentSessionId", child, "name", name, "task", task, "capabilities", Map.of()));
+    }
+    private static void endChild(String parent, String child, String state) {
+        childUpdate(parent, Map.of("sessionUpdate", "subagent_state_update", "subagentSessionId", child, "state", state));
+    }
+    private static void nativeTranscript() {
+        String child = System.getProperty("loopra.fake.childId", "child-1");
+        childUpdate("unrelated", Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "MUST NOT LEAK")));
+        spawnChild("fake-session", child, "Explorer", "Read project");
+        spawnChild("fake-session", child, "Explorer", "duplicate announcement");
+        childUpdate(child, Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "child answer")));
+        childUpdate(child, Map.of("sessionUpdate", "agent_thought_chunk", "content", Map.of("type", "text", "text", "child reasoning")));
+        childUpdate(child, Map.of("sessionUpdate", "tool_call", "toolCallId", "child-read", "title", "Read", "status", "in_progress", "rawInput", Map.of("path", "a.txt")));
+        spawnChild(child, "grandchild", "Reviewer", "Review file");
+        // Item IDs are scoped to their ACP session, so children may reuse one.
+        childUpdate("grandchild", Map.of("sessionUpdate", "tool_call", "toolCallId", "child-read", "title", "Search", "status", "in_progress"));
+        childUpdate("grandchild", Map.of("sessionUpdate", "tool_call_update", "toolCallId", "child-read", "status", "completed", "rawOutput", "search results"));
+        childUpdate("grandchild", Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "nested answer")));
+        childUpdate("grandchild", Map.of("sessionUpdate", "usage_update", "used", 999999, "size", 1000000));
+        endChild(child, "grandchild", "completed");
+        childUpdate(child, Map.of("sessionUpdate", "tool_call_update", "toolCallId", "child-read", "status", "completed", "rawOutput", "file contents"));
+        endChild("fake-session", child, "completed");
     }
     private static void response(Object id, Object result) { send(Map.of("jsonrpc", "2.0", "id", id, "result", result)); }
     private static void send(Object value) { System.out.println(ONode.serialize(value)); System.out.flush(); }

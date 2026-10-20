@@ -8,7 +8,16 @@ const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileM
 const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
-const { SseParser, LoopraClient, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { acpStopMessage, SseParser, LoopraClient, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+
+test('ACP stop notices distinguish completion from cancellation and limits', () => {
+  assert.equal(acpStopMessage('end_turn'), '');
+  assert.equal(acpStopMessage(undefined), '');
+  assert.match(acpStopMessage('cancelled'), /已停止/);
+  assert.match(acpStopMessage('max_tokens'), /尚未完成/);
+  assert.match(acpStopMessage('max_turn_requests'), /请求次数上限/);
+  assert.match(acpStopMessage('refusal'), /拒绝/);
+});
 
 test('SSE preserves fragmented UTF-8, CRLF, comments and multiline frames', () => {
   const events = [];
@@ -59,6 +68,15 @@ test('history merges assistant turns and tool results, preserving branch counts 
   assert.equal(history[2].historyCount, 7);
   const toolTurn = historyMessages([{ role: 'assistant', tool_calls: [{ id: 'finish', function: { name: 'finish', arguments: {} } }] }, { role: 'tool', tool_call_id: 'finish', content: 'done' }]);
   assert.equal(toolTurn[0].historyCount, 2);
+});
+
+test('ACP child permissions keep their request identity and resolve in the parent conversation', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  message = applyEvent(message, { type: 'sub_choice', subId: 'codex-child', permissionRequestId: 'child-request', title: 'Read', options: [{ title: 'Allow once', value: 'allow' }] });
+  assert.equal(message.blocks[0].permissionRequestId, 'child-request');
+  assert.equal(message.blocks[0].subId, 'codex-child');
+  message = applyEvent(message, { type: 'permission_resolved', permissionRequestId: 'child-request', optionId: 'allow' });
+  assert.equal(message.blocks[0].selected, 'Allow once');
 });
 
 test('session IDs isolate duplicate session names across workspaces and encode routes', () => {

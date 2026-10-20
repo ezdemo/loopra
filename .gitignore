@@ -83,3 +83,6 @@ venv/
 compile-errors.txt
 *.log
 .tmp/
+
+/.codex
+/.codegraph

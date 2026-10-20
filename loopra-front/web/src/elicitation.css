@@ -1,0 +1,18 @@
+.choice-popup.elicitation-form { max-height: min(50dvh, 28rem); overflow: hidden; }
+.elicitation-form .choice-popup-head { flex: 0 0 auto; max-height: none; overflow: visible; padding-bottom: 8px; }
+.elicitation-fields { display: flex; flex-direction: column; gap: 16px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 4px; }
+.elicitation-message { flex-shrink: 0; margin: 0; font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
+.elicitation-field { border: 0; padding: 0; margin: 0; min-width: 0; }
+.elicitation-form .elicitation-field { flex-shrink: 0; }
+.elicitation-form .choice-popup-options { flex: none; max-height: none; overflow: visible; }
+.elicitation-form .choice-desc { max-height: none; overflow: visible; }
+.elicitation-form .choice-popup-foot { flex: 0 0 auto; padding-top: 10px; }
+.elicitation-field legend { font-weight: 600; margin-bottom: 8px; }
+.elicitation-required, .elicitation-error { color: var(--danger, #c33); }
+.elicitation-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 10px 12px; background: var(--surface, white); color: inherit; font: inherit; resize: vertical; }
+.elicitation-input:focus-visible { outline: 2px solid var(--blue, #4867ff); outline-offset: 2px; }
+.elicitation-submit, .elicitation-skip, .elicitation-prev, .elicitation-next { border-radius: 8px; padding: 8px 14px; font: inherit; font-size: .8125rem; cursor: pointer; }
+.elicitation-submit, .elicitation-next { background: var(--blue, #4867ff); color: white; border: 1px solid transparent; }
+.elicitation-skip, .elicitation-prev { border: 1px solid var(--line, #ddd); background: transparent; color: inherit; }
+.elicitation-skip { margin-right: auto; }
+.elicitation-form button:disabled { opacity: .55; cursor: default; }

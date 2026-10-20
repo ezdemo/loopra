@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
 import { Button, Chip, Input, Spinner, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Star, Trash2, X, Zap } from 'lucide-react';
-import { appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands } from '../composer';
+import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands } from '../composer';
 import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
 import { contextFromUsage, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
 import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
 import { useLocalState, type Provider } from '../lib';
-import type { AgentEngine, LoopraClient, Workspace } from '../backend';
+import type { AcpCommand, AcpSessionState, AgentEngine, LoopraClient, Workspace } from '../backend';
 import { Collapse, Popup } from './Motion';
 import PetCompanion from './PetCompanion';
 import { petScale, type PetAnimation, type PetReply } from '../pets';
@@ -18,6 +18,7 @@ import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDes
 type Props = {
   agentId?: string; engines?: AgentEngine[];
   agentConfig?: AgentConfigState;
+  acpCommands?: AcpCommand[];
   home: boolean; language: string; draft: string; onDraft: (text: string) => void;
   inputRef: RefObject<HTMLTextAreaElement>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void | Promise<void>;
   skillOptions: { name: string; description: string }[]; systemPrompt: string; petEnabled: boolean; pets: PetStore; petActivity: PetAnimation;
@@ -54,6 +55,7 @@ export default function Composer(props: Props) {
   const [dragging, setDragging] = useState(false);
   const [popoverHeight, setPopoverHeight] = useState(500);
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([]);
+  const [discoveredCommands, setDiscoveredCommands] = useState<AcpCommand[]>([]);
   const [remoteCommands, setRemoteCommands] = useState<ServerCommand[]>([]);
   const [remoteSkills, setRemoteSkills] = useState<ServerSkill[]>([]);
   const [remoteUsage, setRemoteUsage] = useState<UsageDTO | null>(null);
@@ -79,15 +81,17 @@ export default function Composer(props: Props) {
   const effort = effortLevels[effortIndex];
   // ACP owns the per-session choices. Its standard categories map onto the
   // composer's existing permission, model and reasoning controls, so Native and
-  // Claude Code look and behave the same; only the advertised values differ.
+  // external engines look and behave the same; only the advertised values differ.
   const agentOptions = props.agentConfig?.options;
   const agentMode = findAgentOption(agentOptions, 'mode', 'mode');
   const agentModel = findAgentOption(agentOptions, 'model', 'model');
   const agentEffort = findAgentOption(agentOptions, 'effort', 'thought_level');
   const agentFast = findAgentOption(agentOptions, 'fast', 'model_config');
-  const agentPlan = findAgentOption(agentOptions, 'plan');
+  const agentPlan = findAgentOption(agentOptions, 'plan') || findAgentOption(agentOptions, 'collaboration_mode', 'collaboration_mode');
+  const planOn = agentPlan?.id === 'collaboration_mode' ? 'plan' : 'on';
+  const planOff = agentPlan?.id === 'collaboration_mode' ? 'default' : 'off';
   const agentBusy = !!props.agentConfig?.busy;
-  const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? 'Claude Code' : 'Loopra Native');
+  const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
   const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const handledOptions = new Set([agentMode, agentModel, agentEffort, agentFast, agentPlan].filter(Boolean).map(option => option!.id));
@@ -103,7 +107,7 @@ export default function Composer(props: Props) {
   const agentModelValue = agentModel ? configValue(agentModel) : '';
   const agentModeValue = agentMode ? configValue(agentMode) : '';
   const agentEffortValue = agentEffort ? configValue(agentEffort) : '';
-  const planActive = agentPlan ? configValue(agentPlan) === 'on' : options.plan;
+  const planActive = agentPlan ? configValue(agentPlan) === planOn : !external && options.plan;
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
 
@@ -178,15 +182,26 @@ export default function Composer(props: Props) {
   function toggleContext(key: 'projects' | 'skills', value: string) {
     onContext({ ...context, [key]: context[key].includes(value) ? context[key].filter(item => item !== value) : [...context[key], value] });
   }
-  // Slash commands and skills live on the backend; fetch once per client.
+  // Native commands and skills must not leak into an external Agent's menu.
   useEffect(() => {
     const controller = new AbortController();
+    setRemoteCommands([]); setRemoteSkills([]);
+    if (external) return () => controller.abort();
     void props.api.request<ServerCommand[]>('/agent/commands', 'GET', undefined, controller.signal)
       .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteCommands(list); }).catch(() => {});
     void props.api.request<ServerSkill[]>('/agent/skills', 'GET', undefined, controller.signal)
       .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteSkills(list); }).catch(() => {});
     return () => controller.abort();
-  }, [props.api]);
+  }, [props.api, external]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setDiscoveredCommands([]);
+    if (!external || !props.workspaceHash || !props.sessionName) return () => controller.abort();
+    const suffix = new URLSearchParams({ workspaceHash: props.workspaceHash, sessionName: props.sessionName });
+    void props.api.request<AcpSessionState>(`/agent/acp-state?${suffix}`, 'GET', undefined, controller.signal)
+      .then(state => { if (!controller.signal.aborted) setDiscoveredCommands(state.commands || []); }).catch(() => {});
+    return () => controller.abort();
+  }, [props.api, external, props.agentId, props.workspaceHash, props.sessionName, props.agentConfig?.options, props.generating]);
   // Prompt presets are server-side config; the local cache is only a fallback.
   useEffect(() => {
     const controller = new AbortController();
@@ -239,9 +254,10 @@ export default function Composer(props: Props) {
     onTerminal: props.onTerminal,
     onClear: props.onClear,
     hasHistory: !!props.history.length, busy: props.busy, notify,
-  }).map(command => ({ ...command, action: () => { onDraft(''); command.action?.(); } }));
+  }).filter(command => !external || command.id !== '/skills')
+    .map(command => ({ ...command, action: () => { onDraft(''); command.action?.(); } }));
   // Server commands/skills insert their text so the agent handles them.
-  const remoteSlash = serverSlashCommands(remoteCommands, remoteSkills)
+  const remoteSlash = (external ? acpSlashCommands((props.generating ? props.acpCommands : undefined) ?? discoveredCommands) : serverSlashCommands(remoteCommands, remoteSkills))
     .map(command => ({ ...command, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
   const commands = mergeSlashCommands(localCommands, remoteSlash);
   const mention = draft.match(/(?:^|\s)@([^\s]*)$/);
@@ -297,7 +313,7 @@ export default function Composer(props: Props) {
         endContent={<button className="context-chip-remove" aria-label={`移除附件：${file.name}`} onClick={() => removeAttachment(file.name)}><X size="0.75rem" /></button>}>
         {file.name}{file.chars != null ? <small className="context-chip-size">{file.chars.toLocaleString()} 字符</small> : file.size != null ? <small className="context-chip-size">{formatFileSize(file.size)}</small> : null}
       </Chip>)}
-      {planActive && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label="退出计划模式" disabled={agentBusy} onClick={() => { if (agentPlan) changeAgent(agentPlan.id, 'off'); else update('plan', false); }}><X size="0.75rem" /></button>}>计划模式</Chip>}
+      {planActive && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label="退出计划模式" disabled={agentBusy} onClick={() => { if (agentPlan) changeAgent(agentPlan.id, planOff); else update('plan', false); }}><X size="0.75rem" /></button>}>计划模式</Chip>}
       {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>清除</button>}
     </div>
     {props.remoteRunning && <div className="composer-run-status" role="status"><i /><span>该会话正在后台执行，输入的内容会加入队列</span></div>}
@@ -348,7 +364,6 @@ export default function Composer(props: Props) {
         <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={(!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy)} onPress={props.onSend}><ArrowUp size="1rem" strokeWidth={2.25} /></Button>
       </div>
     </div>
-    <div className="composer-caption"><span><span>/</span> 指令 <span>·</span> <span>@</span> 上下文</span><span>Loopra <span>·</span> Shift + Enter 换行</span></div>
     <input ref={fileInput} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.properties,.cfg,.conf,.env,.vue,.svelte" onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />
 
     <Popup open={!!menu} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
@@ -411,10 +426,10 @@ export default function Composer(props: Props) {
 
         {menu === 'tools' && <div className="composer-tool-list">
           <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>上传文件</strong><small>图片、文本、PDF、Word、Excel · 读取内容发送</small></span><Plus size="0.9375rem" /></button>
-          {agentPlan ? <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? 'on' : 'off')} /></div>
+          {agentPlan ? <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>
             : !external && !props.agentConfig && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={options.plan} onChange={value => update('plan', value)} /></div>}
           <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>
-          <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>
+          {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
             : !external && !props.agentConfig && <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{options.mode}</small></span><ChevronRight size="0.9375rem" /></button>}
           <div className="composer-menu-divider" />
