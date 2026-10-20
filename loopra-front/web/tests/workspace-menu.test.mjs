@@ -163,12 +163,13 @@ test('the popup is a capped column and only the list scrolls', () => {
   assert.match(menu, /max-height:\s*var\(--menu-max-height/);
   assert.match(menu, /display:\s*flex/);
   assert.match(menu, /flex-direction:\s*column/);
-  const flipped = ruleBody(styles, '.workspace-selector[data-placement="bottom"] .workspace-menu');
+  // Shared by the project and Agent switchers: both are `menu-anchor`s.
+  const flipped = ruleBody(styles, '.menu-anchor[data-placement="bottom"] > .workspace-menu');
   assert.match(flipped, /top:\s*calc\(100% \+ 0\.4375rem\)/);
   assert.match(flipped, /bottom:\s*auto/);
   // The composer sits in a z-index:12 stacking context, so the open anchor has
   // to outrank it or the flipped menu is painted underneath the input box.
-  assert.match(ruleBody(styles, '.workspace-selector:has(> .workspace-menu)'), /z-index:\s*20/);
+  assert.match(ruleBody(styles, '.menu-anchor:has(> .workspace-menu)'), /z-index:\s*20/);
   const list = ruleBody(styles, '.workspace-menu-list');
   assert.match(list, /flex:\s*1 1 auto/);
   assert.match(list, /min-height:\s*0/);

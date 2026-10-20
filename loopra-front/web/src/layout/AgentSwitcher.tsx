@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Popup } from '../components/Motion';
 import type { AgentEngine } from '../backend';
 import { agentAcpInstallPrompt } from '../agent-install';
+import { useMenuPlacement } from './menu-placement';
 
 /**
  * Agent chooser shown beside the project switcher on the home screen. Switching
@@ -18,6 +19,10 @@ export default function AgentSwitcher({ engines, agentId, disabled, onSelect, on
   const [installing, setInstalling] = useState<AgentEngine | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const root = useRef<HTMLDivElement>(null);
+  // Same placement rules as the project menu: upward by default, capped to the
+  // room its clipping pane leaves, and flipped below only when that is unusable.
+  const placement = useMenuPlacement(open, root);
+  const placementStyle = (placement.maxHeight ? { '--menu-max-height': `${placement.maxHeight}px` } : undefined) as CSSProperties | undefined;
   useEffect(() => {
     if (!open) return undefined;
     const pointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
@@ -62,7 +67,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, onSelect, on
       setCopyState('failed');
     }
   }
-  return <div className="agent-selector menu-anchor" data-popover ref={root}>
+  return <div className="agent-selector menu-anchor" data-popover ref={root} data-placement={placement.side} style={placementStyle}>
     <button type="button" aria-label="选择 Agent" aria-expanded={open} disabled={disabled}
       title={disabled ? '任务运行中，结束后才能切换 Agent' : '选择 Agent'} onClick={toggle}>
       <span className={`agent-dot ${agentId !== 'native' ? 'external' : ''}`} />
