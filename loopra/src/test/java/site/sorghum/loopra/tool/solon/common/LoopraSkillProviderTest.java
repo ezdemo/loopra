@@ -7,6 +7,7 @@ import org.noear.solon.ai.chat.tool.FunctionTool;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -15,6 +16,56 @@ import static org.junit.jupiter.api.Assertions.*;
 class LoopraSkillProviderTest {
     @TempDir
     Path workspace;
+
+    @Test
+    void linkedSkillsCanBeDiscoveredReadAndRefreshedWithoutAllowingNestedEscapes() throws Exception {
+        String previousHome = System.getProperty("user.home");
+        Path home = Files.createDirectories(workspace.resolve("home"));
+        System.setProperty("user.home", home.toString());
+        try {
+            Path installed = Files.createDirectories(home.resolve(".loopra/skills"));
+            Path shared = Files.createDirectories(workspace.resolve("shared library/browser-use"));
+            Files.writeString(shared.resolve("SKILL.md"), "---\ndescription: Browser skill\n---\nLinked browser body.");
+            directoryLink(installed.resolve("browser-use"), shared);
+            Path ordinary = Files.createDirectories(installed.resolve("ordinary"));
+            Files.writeString(ordinary.resolve("SKILL.md"), "---\ndescription: Ordinary skill\n---\nOrdinary body.");
+            Path outside = Files.createDirectories(workspace.resolve("private"));
+            Files.writeString(outside.resolve("secret.txt"), "must not be exposed");
+            directoryLink(shared.resolve("escape"), outside);
+            directoryLink(installed.resolve("broken"), workspace.resolve("missing"));
+
+            LoopraSkillProvider provider = LoopraSkillProvider.getOrCreate(workspace.toString());
+            var catalog = provider.getPoolManager().getSkillCatalog();
+            assertEquals(2, catalog.getSkillCount());
+            assertTrue(catalog.readContent("@loopra-skills/browser-use").getText().contains("Linked browser body."));
+            assertNotNull(catalog.readContent("@loopra-skills/ordinary"));
+            assertEquals(installed.resolve("browser-use"), provider.getPoolManager()
+                    .resolveResource("@loopra-skills/browser-use").getLocalPath().orElseThrow());
+            SkillFileMountSource source = new SkillFileMountSource(installed);
+            assertThrows(SecurityException.class, () -> source.openRead("browser-use/escape/secret.txt"));
+            assertThrows(SecurityException.class, () -> source.openRead("../private/secret.txt"));
+
+            Path projectSkills = Files.createDirectories(workspace.resolve(".loopra/skills"));
+            directoryLink(projectSkills.resolve("browser-use"), shared);
+            LoopraSkillProvider.refreshAllSkillPools();
+            assertEquals(3, catalog.getSkillCount());
+            assertNotNull(catalog.readContent("@project-skills/browser-use"));
+        } finally {
+            LoopraSkillProvider.removeFor(workspace.toString());
+            System.setProperty("user.home", previousHome);
+        }
+    }
+
+    private static void directoryLink(Path link, Path target) throws Exception {
+        if (System.getProperty("os.name").toLowerCase(Locale.ROOT).startsWith("windows")) {
+            Process process = new ProcessBuilder("cmd.exe", "/c", "mklink", "/J", link.toString(), target.toString())
+                    .redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes());
+            assertEquals(0, process.waitFor(), output);
+        } else {
+            Files.createSymbolicLink(link, target);
+        }
+    }
 
     @Test
     void userAndProjectSkillsKeepDistinctAliasesAndRefreshDiscoversNewDirectories() throws Exception {

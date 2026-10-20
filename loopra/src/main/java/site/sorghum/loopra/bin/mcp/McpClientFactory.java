@@ -16,7 +16,10 @@ import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -32,7 +35,7 @@ public final class McpClientFactory {
             ProtocolVersions.MCP_2025_06_18, ProtocolVersions.MCP_2025_11_25);
 
     public static StdioClientTransport stdioTransport(McpServerParameters parameters, Path cwd) {
-        return new StdioClientTransport(ServerParameters.builder(parameters.getCommand())
+        return new StdioClientTransport(ServerParameters.builder(resolveCommand(parameters, cwd))
                 .args(parameters.getArgs() == null ? List.of() : parameters.getArgs())
                 .env(parameters.getEnv() == null ? Map.of() : parameters.getEnv()).build(), McpJsonDefaults.getMapper()) {
             @Override public List<String> protocolVersions() { return STDIO_VERSIONS; }
@@ -42,6 +45,46 @@ public final class McpClientFactory {
                 return builder;
             }
         };
+    }
+
+    // CreateProcess does not perform the shell's .cmd/.bat lookup (npm shims).
+    // Pass the resolved path as one argument, preserving ProcessBuilder's quoting.
+    static String resolveCommand(McpServerParameters parameters, Path cwd) {
+        String command = parameters.getCommand();
+        if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows")
+                || command == null || command.isBlank()) return command;
+        Path executable = Path.of(command);
+        Path directory = cwd == null ? Path.of("").toAbsolutePath() : cwd.toAbsolutePath();
+        List<Path> directories = new ArrayList<>();
+        if (executable.isAbsolute() || executable.getParent() != null) {
+            directories.add(directory);
+        } else {
+            directories.add(directory);
+            String searchPath = environment(parameters, "PATH");
+            if (searchPath != null) {
+                for (String item : searchPath.split(";")) {
+                    if (!item.isBlank()) directories.add(directory.resolve(item.replace("\"", "")));
+                }
+            }
+        }
+        for (Path search : directories) {
+            Path candidate = search.resolve(executable).normalize();
+            // npm also installs an extensionless POSIX script beside the Windows shim.
+            for (String extension : List.of(".exe", ".com", ".cmd", ".bat", "")) {
+                Path file = Path.of(candidate + extension);
+                if (Files.isRegularFile(file)) return file.toAbsolutePath().toString();
+            }
+        }
+        return command;
+    }
+
+    private static String environment(McpServerParameters parameters, String name) {
+        if (parameters.getEnv() != null) {
+            for (var entry : parameters.getEnv().entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(name)) return entry.getValue();
+            }
+        }
+        return System.getenv(name);
     }
 
     public static McpClientProvider create(String name, McpServerParameters parameters, Path cwd) throws IOException {
