@@ -23,7 +23,7 @@ final class AcpProcessTransport implements AcpClientTransport {
     private final Path cwd;
     private final Set<Object> pending = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final CountDownLatch closeFinished = new CountDownLatch(1);
+    private final CompletableFuture<Void> closeFinished = new CompletableFuture<>();
     private volatile Thread closingThread;
     private final ExecutorService readers = Executors.newFixedThreadPool(2, task -> {
         Thread thread = new Thread(task, "loopra-acp-stdio"); thread.setDaemon(true); return thread;
@@ -96,34 +96,72 @@ final class AcpProcessTransport implements AcpClientTransport {
         if (!closed.compareAndSet(false, true)) {
             // EOF and the session owner may close concurrently. Do not return to
             // the owner while the reader is still releasing the process and cwd.
-            if (closingThread != Thread.currentThread()) {
-                try { closeFinished.await(5, TimeUnit.SECONDS); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            }
+            if (closingThread != Thread.currentThread()) awaitClosed(closeFinished);
             return;
         }
         closingThread = Thread.currentThread();
-        try { closeProcess(); }
-        finally { closeFinished.countDown(); }
+        boolean interrupted = Thread.interrupted();
+        try {
+            closeProcess();
+            closeFinished.complete(null);
+        } catch (RuntimeException | Error error) {
+            closeFinished.completeExceptionally(error);
+            throw error;
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
+        }
     }
 
     private void closeProcess() {
         failRequests("ACP 连接已关闭");
         Process owned = process;
-        if (owned != null) {
-            var children = owned.descendants().toList();
-            children.forEach(ProcessHandle::destroy);
-            owned.destroy();
-            children.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
-            if (owned.isAlive()) owned.destroyForcibly();
-            // Windows 下子进程工作目录/日志句柄要等进程真正退出才释放；不等的话
-            // 紧随其后的目录清理会报“文件正被另一个进程使用”。
-            try {
-                owned.waitFor(3, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        try {
+            if (owned != null) {
+                var children = owned.descendants().toList();
+                var childExits = children.stream().map(ProcessHandle::onExit).toArray(CompletableFuture<?>[]::new);
+                try {
+                    children.forEach(ProcessHandle::destroyForcibly);
+                    // Reap descendants while their parent can still collect them. Killing
+                    // a process does not mean its Windows cwd/handles have been released.
+                    awaitClosed(CompletableFuture.allOf(childExits));
+                } finally {
+                    CompletableFuture<ProcessHandle> exit = owned.toHandle().onExit();
+                    owned.destroyForcibly();
+                    awaitClosed(exit);
+                }
             }
+        } finally {
+            if (owned != null) {
+                closeStream(owned.getOutputStream());
+                closeStream(owned.getInputStream());
+                closeStream(owned.getErrorStream());
+            }
+            readers.shutdownNow();
         }
-        readers.shutdownNow();
+    }
+
+    /** Cancellation must not let the owner release a workspace before its Agent exits. */
+    private static void awaitClosed(CompletableFuture<?> finished) {
+        boolean interrupted = Thread.interrupted();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        try {
+            while (true) {
+                try {
+                    finished.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+                    return;
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                } catch (ExecutionException | TimeoutException e) {
+                    throw new IllegalStateException("ACP Agent 进程未能完成清理", e);
+                }
+            }
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void closeStream(Closeable stream) {
+        try { stream.close(); }
+        catch (IOException ignored) { /* The process may already have closed its pipes on exit. */ }
     }
 }

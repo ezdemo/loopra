@@ -1,5 +1,7 @@
 package site.sorghum.loopra.bin.mcp;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +27,24 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(30)
 class McpClientFactoryTest {
     @TempDir Path root;
+    private String previousHome;
+    private Object previousConfig;
+
+    @BeforeEach void isolateConfig() throws Exception {
+        previousHome = System.getProperty("user.home");
+        var field = ConfigService.class.getDeclaredField("config");
+        field.setAccessible(true);
+        previousConfig = field.get(null);
+        System.setProperty("user.home", root.toString());
+        ConfigService.reload();
+    }
+
+    @AfterEach void restoreConfig() throws Exception {
+        System.setProperty("user.home", previousHome);
+        var field = ConfigService.class.getDeclaredField("config");
+        field.setAccessible(true);
+        field.set(null, previousConfig);
+    }
 
     @Test
     @EnabledOnOs(OS.WINDOWS)
