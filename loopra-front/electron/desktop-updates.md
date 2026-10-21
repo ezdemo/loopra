@@ -4,6 +4,8 @@
 
 桌面版本读取 Electron `app.getVersion()`；核心服务版本仍单独显示。更新包来自 `ezdemo/loopra-release` 的 GitHub Releases，不接受渲染进程指定的更新地址。更新请求和下载使用设置中的 Electron 代理。开发模式、临时签名的 macOS 版本及未知 Linux 打包方式保留发布页下载，并显示原因。
 
+桌面更新弹窗展示当前版本、目标版本、下载大小和速度，以及当前版本之后至目标版本的正式发布日志；已是最新版时展示当前版本的说明。日志通过受主窗口校验的 IPC 在主进程中读取固定的官方 GitHub Releases API，遵循 Electron 会话代理，排除草稿和预发布，按版本从新到旧排列。请求合并并缓存 5 分钟，发现缓存之外的新目标会立即刷新；20 秒超时，可独立重试，不影响后台更新。最多分页读取最近 1000 条发布记录，历史超出范围时显示提示。Markdown 保留分类和折叠提交记录，过滤不安全 HTML，隐藏重复的下载链接和构建元数据。
+
 发布需要源码仓库和相邻 `loopra-release` 仓库的改动同时合入 main。发布流程生成并上传 Windows `latest.yml`、Linux `latest-linux.yml` 及对应软件包；正式签名的 macOS 构建还上传 `latest-mac.yml` 和 ZIP 的差分文件。先校验每个清单条目的版本、软件包名称、大小及 SHA-512，再连同其余平台软件包一起核对 SHA-256 后发布。清单不能在生成后单独改软件包文件名。
 
 macOS 复用发布仓库现有的 `MAC_CERTIFICATE_P12` / `MAC_CERTIFICATE_P12_PASSWORD`。CI 在正式签名分支设置包内 `loopraDesktopUpdate.macSigned=true`，并检查产物的 Developer ID 签名。没有证书则保留 ad-hoc ZIP，将标记设为 false，发布时不提供该版本的 macOS 自动更新清单。正式签名版还要等 Squirrel 完成系统验证，才能进入可安装状态；签名失败会保留错误供重试，不会显示安装按钮。Apple 公证继续复用已有凭据。

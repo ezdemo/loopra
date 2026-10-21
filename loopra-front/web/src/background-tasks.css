@@ -74,8 +74,96 @@
 .version-update-copy-path { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; flex-shrink: 0; border-radius: var(--radius-sm); color: var(--secondary); }
 .version-update-modal .app-dialog-footer { gap: .75rem; padding: 1rem 1.5rem; }
 .version-update-footer-note { display: inline-flex; align-items: center; gap: .375rem; min-width: 0; margin-right: auto; color: var(--secondary); font-size: .6875rem; line-height: 1.6; }
-.app-dialog.version-update-confirmation { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; height: auto; }
+.app-dialog.desktop-update-modal { width: min(54rem, calc(100vw - 2rem)) !important; max-width: 54rem !important; height: min(46rem, calc(100dvh - 2rem)); }
+.desktop-update-modal .app-dialog-header { border-bottom: 1px solid var(--line); margin-bottom: 1.25rem; }
+.desktop-update-modal .desktop-update-header-icon { border-color: color-mix(in srgb, var(--blue) 16%, var(--line)); background: var(--accent-soft); color: var(--blue); }
+.desktop-update-modal .app-dialog-body { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; }
+.desktop-update-overview { --desktop-status: var(--secondary); flex-shrink: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: linear-gradient(115deg, color-mix(in srgb, var(--blue) 5%, var(--surface)), var(--surface) 75%); }
+.desktop-update-overview[data-tone="active"] { --desktop-status: var(--blue); }
+.desktop-update-overview[data-tone="success"] { --desktop-status: var(--success); }
+.desktop-update-overview[data-tone="error"] { --desktop-status: var(--danger); }
+.desktop-update-status { display: flex; align-items: center; gap: .75rem; padding: 1rem 1.25rem; }
+.desktop-update-status-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2.375rem; height: 2.375rem; border-radius: 50%; color: var(--desktop-status); background: color-mix(in srgb, var(--desktop-status) 10%, var(--surface)); }
+.desktop-update-status strong { display: block; color: var(--text); font-size: .875rem; font-weight: 600; line-height: 1.6; }
+.desktop-update-status p { margin-top: .125rem; color: var(--secondary); font-size: .6875rem; }
+.desktop-update-version-path { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 1.5rem; margin: 0 1.25rem; padding: 1rem 0 1.125rem; border-top: 1px solid var(--line); }
+.desktop-update-version-path dl { min-width: 0; margin: 0; }
+.desktop-update-version-path dt { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; color: var(--secondary); font-size: .6875rem; }
+.desktop-update-version-path dt span { padding: .0625rem .3125rem; border-radius: .25rem; background: var(--soft); color: var(--secondary); font-size: .5625rem; }
+.desktop-update-version-path dd { margin: .375rem 0 0; color: var(--text); font: 500 1.375rem/1.4 "JetBrains Mono Variable", "Cascadia Code", Consolas, "Microsoft YaHei", monospace; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.desktop-update-version-path > svg { color: var(--muted); }
+.desktop-update-target dd { color: var(--blue); }
+.desktop-update-download { padding: 0 1.25rem 1rem; }
+.desktop-update-download > div:last-child { display: flex; justify-content: space-between; gap: .5rem; margin-top: .375rem; color: var(--secondary); font-size: .625rem; font-variant-numeric: tabular-nums; }
+.desktop-update-notice { color: var(--secondary); font-size: .75rem; line-height: 1.65; }
+.desktop-release-notes { display: flex; flex: 1; min-height: 13rem; flex-direction: column; }
+.desktop-release-heading { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: .75rem; padding: .25rem 0 .875rem; }
+.desktop-release-heading h3 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: 0; color: var(--text); font-size: .8125rem; font-weight: 600; }
+.desktop-release-heading h3 > svg { color: var(--secondary); }
+.desktop-release-heading h3 > span { color: var(--secondary); font-size: .625rem; font-weight: 400; }
+.desktop-release-heading p { margin-top: .25rem; color: var(--secondary); font-size: .6875rem; }
+.desktop-release-heading > button { min-width: 1.875rem; width: 1.875rem; height: 1.875rem; color: var(--secondary); }
+.desktop-release-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.desktop-release-scroll:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; border-radius: var(--radius-sm); }
+.desktop-release-timeline { padding: .125rem .375rem .125rem .125rem; }
+.desktop-release-entry { position: relative; padding: 0 0 1rem 1.5rem; }
+.desktop-release-entry::before { content: ''; position: absolute; top: 1rem; bottom: -.75rem; left: .3125rem; border-left: 1px solid var(--line); }
+.desktop-release-entry:last-child::before { bottom: 1rem; }
+.desktop-release-entry > summary { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; min-height: 2rem; padding-inline-start: 0; list-style: none; cursor: pointer; border-radius: var(--radius-sm); }
+.desktop-release-entry > summary::before { display: none; }
+.desktop-release-entry > summary::-webkit-details-marker { display: none; }
+.desktop-release-entry > summary:hover .desktop-release-version { color: var(--blue); }
+.desktop-release-entry > summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.desktop-release-marker { position: absolute; top: .6875rem; left: -1.5rem; width: .6875rem; height: .6875rem; border: 2px solid var(--line-strong); border-radius: 50%; background: var(--surface); }
+.desktop-release-entry:first-child .desktop-release-marker { border-color: var(--blue); background: var(--blue); box-shadow: 0 0 0 .1875rem var(--accent-soft); }
+.desktop-release-version { color: var(--text); font: 500 .8125rem/1.5 "JetBrains Mono Variable", Consolas, monospace; }
+.desktop-release-badge { padding: .0625rem .375rem; border-radius: .25rem; background: var(--accent-soft); color: var(--blue); font-size: .5625rem; }
+.desktop-release-installed { display: inline-flex; align-items: center; gap: .1875rem; color: var(--success); font-size: .625rem; }
+.desktop-release-entry time { margin-left: auto; color: var(--secondary); font-size: .625rem; }
+.desktop-release-chevron { color: var(--muted); transition: transform .15s; }
+.desktop-release-entry[open] > summary .desktop-release-chevron { transform: rotate(180deg); }
+.desktop-release-content { padding: .625rem .875rem .875rem; margin-top: .375rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--secondary); font-size: .75rem; line-height: 1.8; overflow-wrap: anywhere; }
+.desktop-release-content :is(h1,h2,h3,h4,h5,h6) { margin: .875rem 0 .375rem; color: var(--text); font-size: .75rem; font-weight: 600; }
+.desktop-release-content > :first-child { margin-top: 0; }
+.desktop-release-content :is(ul,ol) { margin: .375rem 0 .625rem; padding-left: 1.25rem; list-style: revert; }
+.desktop-release-content li + li { margin-top: .3125rem; }
+.desktop-release-content p + p { margin-top: .5rem; }
+.desktop-release-content a { color: var(--blue); text-decoration: underline; text-underline-offset: .1875rem; }
+.desktop-release-content code { padding: .0625rem .1875rem; border-radius: .1875rem; background: var(--soft); font-size: .6875rem; }
+.desktop-release-content pre { max-width: 100%; padding: .75rem; overflow: auto; background: var(--soft); border-radius: var(--radius-sm); }
+.desktop-release-content blockquote { padding-left: .75rem; border-left: 2px solid var(--line-strong); }
+.desktop-release-content table { display: block; max-width: 100%; overflow: auto; }
+.desktop-release-content :is(th,td) { padding: .375rem .625rem; border: 1px solid var(--line); }
+.desktop-release-content details { margin-top: .625rem; }
+.desktop-release-content summary { cursor: pointer; }
+.desktop-release-content .desktop-release-original { display: inline-flex; align-items: center; gap: .375rem; margin-top: .75rem; color: var(--secondary); font-size: .625rem; text-decoration: none; }
+.desktop-release-content .desktop-release-original:hover { color: var(--blue); }
+.desktop-release-empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: .5rem; min-height: 10rem; height: 100%; padding: 1.25rem; border: 1px dashed var(--line); border-radius: var(--radius-md); color: var(--muted); text-align: center; }
+.desktop-release-empty strong { color: var(--secondary); font-size: .8125rem; font-weight: 500; }
+.desktop-release-empty p { max-width: 26rem; color: var(--secondary); font-size: .75rem; }
+.desktop-release-empty > a { color: var(--blue); font-size: .6875rem; text-decoration: underline; text-underline-offset: .1875rem; }
+.desktop-update-modal .is-spinning > svg, .desktop-release-notes svg.is-spinning { animation: version-update-spin 1.2s linear infinite; }
+@media (max-width: 540px) {
+  .desktop-update-modal .app-dialog-header { margin-bottom: .875rem; }
+  .desktop-update-status { padding: .875rem; }
+  .desktop-update-version-path { margin: 0 .875rem; gap: .625rem; }
+  .desktop-update-version-path dd { font-size: 1.0625rem; }
+  .desktop-update-download { padding-right: .875rem; padding-left: .875rem; }
+  .desktop-release-content { padding: .625rem; }
+  .desktop-release-entry time { font-size: .5625rem; }
+  .desktop-release-entry { padding-left: 1.125rem; }
+  .desktop-release-marker { left: -1.125rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-update-modal .is-spinning > svg, .desktop-release-notes svg.is-spinning { animation: none; }
+  .desktop-release-chevron { transition: none; }
+}
+
+.app-dialog.version-update-confirmation { width: min(54rem, calc(100vw - 2rem)) !important; max-width: 54rem !important; height: min(49rem, calc(100dvh - 2rem)); }
 .version-update-confirmation .app-dialog-body { overflow-y: auto; }
+.version-update-confirmation .version-update-versions { flex-shrink: 0; padding: 1rem 1.25rem; }
+.version-update-confirmation .version-update-source { flex-shrink: 0; padding-top: .75rem; }
+.version-update-confirmation .version-update-check-row { flex-shrink: 0; }
 .version-update-versions { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 1rem; padding: 1.5rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--soft); }
 .version-update-versions dl { min-width: 0; margin: 0; }
 .version-update-versions dt { margin-bottom: .5rem; color: var(--secondary); font-size: .75rem; }

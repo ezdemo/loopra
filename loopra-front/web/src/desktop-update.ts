@@ -1,3 +1,5 @@
+import type { ReleaseNotes } from './release-notes';
+
 export type DesktopUpdateState = {
   supported: boolean;
   unsupportedReason?: string;
@@ -15,8 +17,11 @@ export type DesktopUpdateState = {
   revision: number;
 };
 
+export type DesktopReleaseNotes = ReleaseNotes;
+
 export type DesktopUpdateApi = {
   getState: () => Promise<DesktopUpdateState>;
+  getReleaseNotes: () => Promise<DesktopReleaseNotes>;
   check: () => Promise<DesktopUpdateState>;
   download: () => Promise<DesktopUpdateState>;
   install: () => Promise<DesktopUpdateState>;

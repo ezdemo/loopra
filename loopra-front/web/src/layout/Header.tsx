@@ -3,6 +3,7 @@ import { IconButton } from '../components/ui';
 import { Popup } from '../components/Motion';
 import type { Session } from '../lib';
 import type { DesktopUpdateState } from '../desktop-update';
+import { compareVersions } from '../update-scripts';
 
 export type HeaderProps = {
   sidebarOpen: boolean;
@@ -47,16 +48,21 @@ export default function Header(p: HeaderProps) {
   const versionLabel = version ? `v${version}` : 'v—';
   const desktop = p.desktopUpdate;
   const desktopVersion = desktop ? `v${desktop.currentVersion}` : versionLabel;
+  const installedVersion = desktop ? desktop.currentVersion.replace(/^v/i, '') : version;
+  const releaseVersion = desktop?.latestVersion?.replace(/^v/i, '') || latestVersion;
+  // Manual-update builds also need a badge, even when the core is already current.
+  const hasNewVersion = !!releaseVersion && /^\d+(?:\.\d+)*$/.test(installedVersion)
+    && /^\d+(?:\.\d+)*$/.test(releaseVersion) && compareVersions(releaseVersion, installedVersion) > 0;
   const desktopText = desktop?.status === 'downloading' ? `下载中 ${Math.floor(desktop.percent)}%`
     : desktop?.status === 'verifying' ? '正在验证更新…'
     : desktop?.status === 'downloaded' ? '重启并安装'
     : desktop?.status === 'installing' ? '正在安装…'
     : desktop?.status === 'checking' ? '检查更新…'
     : desktop?.status === 'error' ? '更新失败，重试'
-    : desktop?.status === 'available' ? '发现新版' : '';
-  const updateText = desktop ? desktopText : latestVersion ? '发现新版' : '';
-  const updateTitle = desktop ? `桌面端 ${desktopVersion}${desktop.latestVersion ? ` · 最新 v${desktop.latestVersion}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
-    : latestVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`;
+    : desktop?.status === 'available' || hasNewVersion ? '发现新版' : '';
+  const updateText = desktop ? desktopText : hasNewVersion ? '发现新版' : '';
+  const updateTitle = desktop ? `桌面端 ${desktopVersion}${hasNewVersion ? ` · 最新 v${releaseVersion}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
+    : hasNewVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`;
   return <header className={`conversation-header ${p.isHome ? 'home-header' : ''}`}>
     {!p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
     {!p.isHome && session && <div className="breadcrumb">

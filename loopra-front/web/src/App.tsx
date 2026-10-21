@@ -1076,7 +1076,7 @@ export default function App() {
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
-          latestVersion={backend.updateCheck?.hasNewVersion ? backend.updateCheck.latestVersion : undefined} desktopUpdate={desktopUpdate.state}
+          latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
           gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
           applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onCopyPath={copyPath}

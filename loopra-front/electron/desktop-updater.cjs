@@ -38,7 +38,7 @@ function loadDesktopUpdater(options, load = () => require('electron-updater')) {
 }
 
 // Keep installer control in the main process. No feed URLs or paths come from IPC.
-function createDesktopUpdater({ app, updater, nativeUpdater, publish = () => {}, platform = process.platform, ...options }) {
+function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, publish = () => {}, platform = process.platform, ...options }) {
   const support = desktopUpdateSupport({ isPackaged: app.isPackaged, platform, ...options })
   const supported = support.supported && !!updater
   let state = {
@@ -125,11 +125,11 @@ function createDesktopUpdater({ app, updater, nativeUpdater, publish = () => {},
     interval.unref?.()
   }
   function dispose() { clearTimeout(startupTimer); clearInterval(interval) }
-  return { getState, check, download, install, start, dispose }
+  return { getState, check, download, install, start, dispose, getReleaseNotes }
 }
 
 function registerDesktopUpdateIpc(ipcMain, controller, getWindow) {
-  for (const action of ['getState', 'check', 'download', 'install']) {
+  for (const action of ['getState', 'check', 'download', 'install', 'getReleaseNotes']) {
     ipcMain.handle(`desktop-update-${action}`, (event) => {
       const window = getWindow()
       if (!window || window.isDestroyed() || event.sender !== window.webContents ||
