@@ -339,3 +339,33 @@ test('only the latest reasoning step follows within an expanded chain', async ()
     container.remove();
   }
 });
+
+test('chain summary stays neutral after a tool fails while details retain its status', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const blocks = [
+    { id: 'r', type: 'reasoning', content: '尝试读取文件' },
+    { id: 't', type: 'tool_call', name: 'read_file', args: {}, status: '失败', result: 'File not found' },
+  ];
+  const render = status => act(async () => root.render(createElement(BlockRenderer, {
+    blocks: [blocks[0], { ...blocks[1], status }], notify: () => {},
+  })));
+  try {
+    await render('执行中');
+    assert.ok(container.querySelector('.chain-head .tool-icon.running'));
+    await render('失败');
+    const heading = container.querySelector('.chain-head');
+    assert.equal(heading.querySelector('.tool-icon'), null);
+    assert.ok(heading.querySelector('.lucide-list-tree'));
+    assert.match(heading.textContent, /1 次思考 · 1 次工具/);
+    await act(async () => heading.click());
+    assert.ok(container.querySelector('.chain-steps .tool-icon.failed'));
+    assert.equal(container.querySelector('.tool-status').textContent, '失败');
+    await act(async () => container.querySelector('.tool-head').click());
+    assert.match(container.querySelector('.tool-detail').textContent, /File not found/);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});

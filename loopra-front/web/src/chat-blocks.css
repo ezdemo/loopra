@@ -72,8 +72,8 @@
 .loopra-conversation .compacted-summary pre { max-height: 21rem; overflow: auto; padding: .625rem; margin: 0 .5rem .5rem; background: var(--chat-subtle); border-radius: var(--radius-sm); white-space: pre-wrap; }
 
 /* ── Assistant process (thinking + tools) ───────────────── */
-.loopra-conversation .assistant-process-summary { margin-bottom: .5rem; }
-.loopra-conversation .assistant-process-toggle { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; color: var(--chat-fg-3); font-size: .8125rem; text-align: left; border-radius: var(--radius-sm); transition: color .12s; }
+.loopra-conversation .assistant-process-summary { display: flex; flex-direction: column; gap: .375rem; margin-bottom: .375rem; }
+.loopra-conversation .assistant-process-toggle { display: flex; align-self: flex-start; align-items: center; gap: .25rem; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; color: var(--chat-fg-3); font-size: .8125rem; line-height: 1.25rem; text-align: left; border-radius: var(--radius-sm); transition: color .12s; }
 .loopra-conversation .assistant-process-toggle > svg { color: var(--chat-fg-4); transition: transform .15s; }
 .loopra-conversation .assistant-process-detail { margin: 0; padding: 0; border: 0; }
 .loopra-conversation .msg-blocks { display: flex; flex-direction: column; gap: .125rem; min-width: 0; }
@@ -132,8 +132,8 @@
 .loopra-conversation .finish-content { padding: .25rem 0 0; }
 
 /* ── Markdown body ──────────────────────────────────────── */
-.loopra-conversation .block-content { color: var(--chat-fg); line-height: 1.75; overflow-wrap: anywhere; min-width: 0; }
-.loopra-conversation .block-content p { margin: .75em 0; }
+.loopra-conversation .block-content { color: var(--chat-fg); line-height: 1.65; overflow-wrap: anywhere; min-width: 0; }
+.loopra-conversation .block-content p { margin: .5em 0; }
 .loopra-conversation .block-content > :first-child { margin-top: 0; }
 .loopra-conversation .block-content > :last-child { margin-bottom: 0; }
 .loopra-conversation .block-content strong { font-weight: 600; }
@@ -143,9 +143,12 @@
 .loopra-conversation .block-content h4 { font-size: 1em; }
 .loopra-conversation .block-content :is(h1,h2,h3,h4,h5,h6) { font-weight: 600; margin: 1.5em 0 .5em; line-height: 1.4; letter-spacing: -.01em; }
 .loopra-conversation .block-content a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); text-underline-offset: .15em; }
-.loopra-conversation .block-content ul { list-style: disc; padding-left: 1.6em; margin: .6em 0; }
-.loopra-conversation .block-content ol { list-style: decimal; padding-left: 1.6em; margin: .6em 0; }
-.loopra-conversation .block-content li { margin: .25em 0; }
+.loopra-conversation .block-content ul { list-style: disc; padding-left: 1.6em; margin: .4em 0; }
+.loopra-conversation .block-content ol { list-style: decimal; padding-left: 1.6em; margin: .4em 0; }
+.loopra-conversation .block-content li { margin: .125em 0; }
+.loopra-conversation .block-content li > p { margin: .25em 0; }
+.loopra-conversation .block-content li > :first-child { margin-top: 0; }
+.loopra-conversation .block-content li > :last-child { margin-bottom: 0; }
 .loopra-conversation .block-content .task-list-item { list-style: none; }
 .loopra-conversation .block-content input[type="checkbox"] { accent-color: var(--chat-green); margin-right: 0.4375rem; }
 .loopra-conversation .block-content blockquote { border-left: 0.1875rem solid var(--chat-border); background: var(--chat-muted); border-radius: 0 0.3125rem 0.3125rem 0; color: var(--chat-fg-3); margin: .8em 0; padding: 0.5rem 0.75rem; }
@@ -318,6 +321,8 @@
 
 /* ── Reasoning chain: consecutive thinking / tool steps folded into one quiet row (no boxes) ── */
 .loopra-conversation .block-chain { margin: .25rem 0 .5rem; }
+/* The process summary owns spacing around its nested chain. */
+.loopra-conversation .assistant-process-detail .block-chain { margin: 0; }
 .loopra-conversation .chain-head { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; border: 0; background: transparent; color: var(--chat-fg-3); font-size: .8125rem; line-height: 1.4; text-align: left; cursor: pointer; transition: color .12s; }
 .loopra-conversation .chain-summary:first-of-type { color: var(--chat-fg-3); }
 .loopra-conversation .chain-summary { color: var(--chat-fg-3); font-size: .8125rem; line-height: 1.25rem; white-space: nowrap; }
