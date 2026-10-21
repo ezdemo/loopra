@@ -3,8 +3,14 @@ import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Progr
 import { ArrowRight, CircleAlert, CircleCheck, Download, ExternalLink, LoaderCircle, Monitor, RefreshCw } from 'lucide-react';
 import { electronApi } from '../desktop-shell';
 import { desktopUpdateLabel, type DesktopUpdateState } from '../desktop-update';
-import { RELEASE_LATEST_URL } from '../update-scripts';
+import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL } from '../update-scripts';
 import { ReleaseNotesPanel, useReleaseNotes } from './ReleaseNotes';
+import { SelectField } from './SettingControls';
+
+const UPDATE_SOURCE_OPTIONS = [
+  { value: UPDATE_SOURCE_NORMAL, label: '直连（GitHub）' },
+  ...MIRROR_SOURCES.map(mirror => ({ value: mirror.value, label: `镜像 · ${mirror.label}` })),
+];
 
 export function useDesktopUpdate(blockedReason = '', onOpen?: () => void) {
   const bridge = electronApi()?.desktopUpdate;
@@ -33,8 +39,13 @@ export function useDesktopUpdate(blockedReason = '', onOpen?: () => void) {
     try { await bridge?.install(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
+  async function setSource(source: string) {
+    setError('');
+    try { await bridge?.setSource(source); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
   function show() { onOpen?.(); setOpen(true); }
-  return { available: !!bridge, state, open, show, close: () => setOpen(false), check, install, error, blockedReason };
+  return { available: !!bridge, state, open, show, close: () => setOpen(false), check, install, setSource, error, blockedReason };
 }
 
 export type DesktopUpdateController = ReturnType<typeof useDesktopUpdate>;
@@ -54,7 +65,7 @@ export function DesktopUpdateDialog({ controller: c }: { controller: DesktopUpda
   }, [bridge]);
   const releaseNotes = useReleaseNotes(c.open, loadNotes, [s?.currentVersion, s?.latestVersion, s?.checkedAt].join(':'));
   const { notes, loading } = releaseNotes;
-  const busy = !!s && ['checking', 'available', 'downloading', 'verifying', 'installing'].includes(s.status);
+  const busy = !!s && (s.changingSource || ['checking', 'available', 'downloading', 'verifying', 'installing'].includes(s.status));
   const ready = s?.status === 'downloaded';
   const latestVersion = s?.latestVersion || notes?.latestVersion;
   const currentVersion = s?.currentVersion || notes?.currentVersion;
@@ -89,6 +100,14 @@ export function DesktopUpdateDialog({ controller: c }: { controller: DesktopUpda
             <div><span>{formatBytes(s.transferred)} / {s.total > 0 ? formatBytes(s.total) : '计算大小中…'}</span><span>{s.bytesPerSecond > 0 ? `${formatBytes(s.bytesPerSecond)}/s` : '正在连接…'}</span></div>
           </div>}
         </section>
+        {s?.supported && <div className="version-update-source"><span>更新源</span>
+          <SelectField compact label="桌面端更新源" value={s.source || UPDATE_SOURCE_NORMAL}
+            onChange={source => void c.setSource(source)} options={UPDATE_SOURCE_OPTIONS}
+            disabled={s.changingSource || ['verifying', 'downloaded', 'installing'].includes(s.status)} />
+        </div>}
+        {s?.supported && <p className="desktop-update-notice" role="status">{s.changingSource
+          ? '正在切换更新源，重新检查后继续下载…'
+          : '记住所选下载源；切换后重新检查更新，正在进行的下载会取消并重新开始。'}</p>}
         {s?.installHint && <p className="desktop-update-notice">{s.installHint}</p>}
         {ready && c.blockedReason && <p role="status">{c.blockedReason}</p>}
         {(c.error || s?.error) && <p className="settings-error" role="alert">{c.error || s?.error}</p>}
@@ -97,7 +116,7 @@ export function DesktopUpdateDialog({ controller: c }: { controller: DesktopUpda
       <ModalFooter className="app-dialog-footer">
         <span className="version-update-footer-note">{s?.checkedAt ? `上次检查 ${new Date(s.checkedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '更新下载期间可继续使用 Loopra'}</span>
         <Button variant="light" size="sm" onPress={() => window.open(RELEASE_LATEST_URL, '_blank', 'noreferrer')} startContent={<ExternalLink size=".875rem" />}>查看发布页</Button>
-        {ready ? <Button color="primary" size="sm" isDisabled={!!c.blockedReason} onPress={() => void c.install()} startContent={<RefreshCw size=".875rem" />}>重启并安装</Button>
+        {ready ? <Button color="primary" size="sm" isDisabled={!!c.blockedReason || s.changingSource} onPress={() => void c.install()} startContent={<RefreshCw size=".875rem" />}>重启并安装</Button>
           : (!s || s.supported) && <Button color="primary" size="sm" isLoading={busy} onPress={() => void c.check()} startContent={busy ? undefined : <Download size=".875rem" />}>{s?.status === 'error' ? '重试更新' : s?.status === 'downloading' ? '下载中…' : s?.status === 'verifying' ? '正在验证…' : s?.status === 'installing' ? '正在安装…' : '检查更新'}</Button>}
       </ModalFooter>
     </ModalContent>

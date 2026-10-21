@@ -40,9 +40,9 @@
 .loopra-conversation .msg:hover .msg-footer, .loopra-conversation .msg:focus-within .msg-footer { opacity: 1; }
 @media (hover: none) { .loopra-conversation .msg-footer { opacity: 1; } }
 .loopra-conversation .user-body { position: relative; }
-.loopra-conversation .msg.user { margin-bottom: 1.75rem; }
-/* Hover actions hang below the bubble so the hidden row never pads it. */
-.loopra-conversation .msg.user .msg-footer { position: absolute; top: 100%; right: 0; margin: 0; min-height: 1.5rem; justify-content: flex-end; gap: .75rem; white-space: nowrap; }
+.loopra-conversation .msg.user { margin-bottom: 2.25rem; }
+/* Padding separates actions from the bubble while keeping the hover area connected. */
+.loopra-conversation .msg.user .msg-footer { position: absolute; top: 100%; right: 0; margin: 0; padding-top: .5rem; min-height: 2rem; justify-content: flex-end; gap: .75rem; white-space: nowrap; }
 .loopra-conversation .msg-time { font-size: .6875rem; color: var(--chat-fg-4); font-variant-numeric: tabular-nums; }
 .loopra-conversation .msg-time-group { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .625rem; }
 .loopra-conversation .msg-file-stat { font-size: .6875rem; color: var(--chat-fg-3); }

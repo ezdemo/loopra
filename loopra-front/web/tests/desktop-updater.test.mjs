@@ -1,18 +1,23 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
 const { createDesktopUpdater, registerDesktopUpdateIpc, desktopUpdateSupport, readDesktopUpdateOptions, loadDesktopUpdater } = require('../../electron/desktop-updater.cjs');
+const { MIRROR_SOURCES, normalizeUpdateSource, desktopUpdateFeed, readDesktopUpdateSource, saveDesktopUpdateSource } = require('../../electron/desktop-update-source.cjs');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture(options = {}) {
   const updater = new EventEmitter();
-  const calls = { check: 0, download: 0, install: [] };
+  const calls = { check: 0, download: 0, install: [], feeds: [] };
   const states = [];
   updater.checkForUpdates = async () => { calls.check++; updater.emit('update-available', { version: '26.10.2002' }); };
   updater.downloadUpdate = async () => { calls.download++; };
   updater.quitAndInstall = (...args) => calls.install.push(args);
+  updater.setFeedURL = feed => calls.feeds.push(feed);
   const controller = createDesktopUpdater({ app: { isPackaged: true, getVersion: () => '26.10.2001' },
     updater, publish: state => states.push(state), platform: 'win32', ...options });
   return { updater, calls, states, controller };
@@ -211,4 +216,136 @@ test('release notes IPC uses the main-process reader and accepts no renderer URL
   const result = await handlers.get('desktop-update-getReleaseNotes')({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, 'https://other.invalid');
   assert.deepEqual(result, { releases: [] });
   assert.equal(calls, 1);
+});
+
+test('desktop mirrors match the core list and only fixed official release feeds can be selected', () => {
+  const coreSource = readFileSync(new URL('../src/update-scripts.ts', import.meta.url), 'utf8');
+  const coreMirrors = [...coreSource.matchAll(/\{ value: '(https:\/\/[^']+)', label:/g)].map(match => match[1]);
+  assert.deepEqual(MIRROR_SOURCES, coreMirrors);
+  assert.deepEqual(desktopUpdateFeed('normal'), { provider: 'github', owner: 'ezdemo', repo: 'loopra-release' });
+  assert.equal(normalizeUpdateSource('mirror'), MIRROR_SOURCES[0]);
+  assert.equal(normalizeUpdateSource('https://ghproxy.net'), 'https://ghproxy.net/');
+  for (const value of ['https://evil.example/', 'http://ghproxy.net/', 'https://ghproxy.net/other/', {}, null]) {
+    assert.throws(() => desktopUpdateFeed(value), /请选择/);
+  }
+  for (const source of MIRROR_SOURCES) {
+    const { controller, updater, calls } = fixture({ source });
+    assert.equal(controller.getState().source, source);
+    assert.deepEqual(calls.feeds[0], { provider: 'generic',
+      url: `${source}https://github.com/ezdemo/loopra-release/releases/latest/download/`, useMultipleRangeRequest: false });
+    assert.equal(updater.disableDifferentialDownload, true);
+  }
+});
+
+test('the real generic provider fetches both the manifest and installer through the selected mirror', async () => {
+  const { GenericProvider } = require('electron-updater/out/providers/GenericProvider');
+  for (const platform of ['win32', 'linux', 'darwin']) {
+    const feed = desktopUpdateFeed('https://ghproxy.net/');
+    const provider = new GenericProvider(feed, {}, { platform, executor: {} });
+    let manifestUrl;
+    provider.httpRequest = async url => {
+      manifestUrl = url.href;
+      return 'version: 26.10.2002\nfiles:\n  - url: Loopra-windows-x64.exe\n    sha512: test-checksum\n    size: 123\n';
+    };
+    const info = await provider.getLatestVersion();
+    const channel = platform === 'win32' ? 'latest' : platform === 'linux' ? 'latest-linux' : 'latest-mac';
+    assert.equal(manifestUrl, feed.url + channel + '.yml');
+    assert.equal(provider.resolveFiles(info)[0].url.href, feed.url + 'Loopra-windows-x64.exe');
+    assert.equal(info.files[0].sha512, 'test-checksum');
+  }
+});
+
+test('saves the selected source and restores it on the next desktop launch', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'loopra-update-source-'));
+  const file = join(directory, 'preferences', 'desktop-update.json');
+  try {
+    assert.equal(readDesktopUpdateSource(file), 'normal');
+    const { controller } = fixture({ saveSource: source => saveDesktopUpdateSource(file, source) });
+    await controller.setSource('https://ghproxy.net/');
+    assert.equal(readDesktopUpdateSource(file), 'https://ghproxy.net/');
+    const next = fixture({ source: readDesktopUpdateSource(file) });
+    assert.equal(next.controller.getState().source, 'https://ghproxy.net/');
+    writeFileSync(file, '{"source":"https://evil.example/"}');
+    assert.equal(readDesktopUpdateSource(file), 'normal');
+    writeFileSync(file, '{broken');
+    assert.equal(readDesktopUpdateSource(file), 'normal');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('switching mirrors cancels an active download before replacing the provider and restarting', async () => {
+  const { updater, calls, controller } = fixture();
+  let cancel;
+  const token = { cancel: () => cancel?.() };
+  updater.checkForUpdates = async () => {
+    calls.check++;
+    updater.emit('update-available', { version: '26.10.2002' });
+    return { cancellationToken: calls.check === 1 ? token : { cancel() {} } };
+  };
+  updater.downloadUpdate = receivedToken => {
+    calls.download++;
+    if (calls.download > 1) return Promise.resolve();
+    assert.equal(receivedToken, token);
+    return new Promise((_, reject) => {
+      cancel = () => {
+        assert.equal(calls.feeds.length, 1);
+        reject(new Error('cancelled'));
+      };
+    });
+  };
+  await controller.check(); await flush();
+  assert.equal(controller.getState().status, 'downloading');
+  await controller.setSource('https://ghproxy.net/'); await flush();
+  assert.equal(calls.check, 2); assert.equal(calls.download, 2);
+  assert.equal(controller.getState().source, 'https://ghproxy.net/');
+  assert.equal(controller.getState().changingSource, false);
+  assert.equal(controller.getState().error, '');
+  assert.equal(calls.feeds.at(-1).provider, 'generic');
+  assert.equal(controller.getState().status, 'downloading');
+});
+
+test('switching while checking waits for the old check without downloading from the old provider', async () => {
+  const { updater, calls, controller } = fixture();
+  let finishCheck;
+  updater.checkForUpdates = () => {
+    calls.check++;
+    if (calls.check > 1) { updater.emit('update-available', { version: '26.10.2002' }); return Promise.resolve(); }
+    return new Promise(resolve => { finishCheck = () => { updater.emit('update-available', { version: '26.10.2002' }); resolve(); }; });
+  };
+  const pending = controller.check(); await flush();
+  const switching = controller.setSource('https://ghfast.top/');
+  assert.equal(controller.getState().changingSource, true);
+  await assert.rejects(controller.setSource('https://ghproxy.net/'), /正在切换/);
+  assert.equal(calls.feeds.length, 1);
+  finishCheck(); await pending; await switching; await flush();
+  assert.equal(calls.check, 2); assert.equal(calls.download, 1);
+  assert.equal(controller.getState().source, 'https://ghfast.top/');
+});
+
+test('switching back to GitHub restores its provider and differential downloads; save failures retain the old source', async () => {
+  const { updater, calls, controller } = fixture({ source: 'mirror' });
+  updater.checkForUpdates = async () => updater.emit('update-not-available');
+  await controller.setSource('normal');
+  assert.equal(calls.feeds.at(-1).provider, 'github');
+  assert.equal(updater.disableDifferentialDownload, false);
+  const failed = fixture({ saveSource: () => { throw new Error('disk full'); } });
+  await assert.rejects(failed.controller.setSource('https://ghproxy.net/'), /disk full/);
+  assert.equal(failed.controller.getState().source, 'normal');
+  assert.equal(failed.controller.getState().changingSource, false);
+  assert.equal(failed.calls.feeds.at(-1).provider, 'github');
+  assert.equal(failed.calls.check, 0);
+});
+
+test('source IPC validates choices and does not replace a verified or installing update', async () => {
+  const { updater, controller, calls } = fixture();
+  const handlers = new Map();
+  const window = { webContents: { mainFrame: {} }, isDestroyed: () => false };
+  const event = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  registerDesktopUpdateIpc({ handle: (name, handler) => handlers.set(name, handler) }, controller, () => window);
+  await assert.rejects(handlers.get('desktop-update-setSource')(event, 'https://evil.example/'), /请选择/);
+  assert.equal(calls.feeds.length, 1); assert.equal(calls.check, 0);
+  updater.emit('update-downloaded', { version: '26.10.2002' });
+  await assert.rejects(controller.setSource('https://ghproxy.net/'), /已下载/);
+  controller.install();
+  await assert.rejects(controller.setSource('https://ghproxy.net/'), /已下载/);
+  assert.equal(controller.getState().status, 'installing');
 });

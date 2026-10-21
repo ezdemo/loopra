@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   desktopUpdate: {
     getState: () => ipcRenderer.invoke('desktop-update-getState'),
     getReleaseNotes: () => ipcRenderer.invoke('desktop-update-getReleaseNotes'),
+    setSource: (source) => ipcRenderer.invoke('desktop-update-setSource', source),
     check: () => ipcRenderer.invoke('desktop-update-check'),
     download: () => ipcRenderer.invoke('desktop-update-download'),
     install: () => ipcRenderer.invoke('desktop-update-install'),

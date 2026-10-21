@@ -25,7 +25,7 @@ const { default: Controls } = await import(await moduleUrl('components/AgentConf
   '../agent-config': agentConfigUrl,
   'lucide-react': import.meta.resolve('lucide-react'),
 }));
-const { agentEffortLevels, agentModelGroups, findAgentOption, isDangerousAgentMode, agentOptionLabel, applySeed, newSessionSeed, seedChanges } = await import(agentConfigUrl);
+const { agentEffortLevels, agentModelGroups, findAgentOption, isDangerousAgentMode, agentOptionLabel } = await import(agentConfigUrl);
 function render(state, options = state.options) {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
@@ -113,63 +113,17 @@ test('Native channel and model names split into the same grouped model list', ()
     [['one', ['alpha', 'beta']], ['two', ['gamma']]]);
 });
 
-test('a new conversation inherits the last new conversation\'s choices', () => {
-  const chosen = [
-    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'remote-magpie/group/auto-deep', options: [
-      { value: 'default', name: 'Default' }, { value: 'remote-magpie/group/auto-deep', name: 'auto-deep' }] },
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'bypassPermissions', options: [
-      { value: 'default', name: 'Manual' }, { value: 'bypassPermissions', name: 'Bypass permissions' }] },
-    { id: 'plan', type: 'select', currentValue: 'on', options: [{ value: 'off', name: 'Off' }, { value: 'on', name: 'On' }] },
-    { id: 'fast', type: 'boolean', currentValue: false, options: [] },
-  ];
-  // Plan mode is turn-scoped and never carried into a new conversation.
-  assert.deepEqual(newSessionSeed(chosen), { model: 'remote-magpie/group/auto-deep', mode: 'bypassPermissions', fast: false });
-
-  const prepared = [
-    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'default', options: [
-      { value: 'default', name: 'Default' }, { value: 'remote-magpie/group/auto-deep', name: 'auto-deep' }] },
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'default', options: [
-      { value: 'default', name: 'Manual' }, { value: 'bypassPermissions', name: 'Bypass permissions' }] },
-    { id: 'plan', type: 'select', currentValue: 'off', options: [{ value: 'off', name: 'Off' }, { value: 'on', name: 'On' }] },
-    { id: 'fast', type: 'boolean', currentValue: true, options: [] },
-  ];
-  assert.deepEqual(seedChanges(prepared, newSessionSeed(chosen)), [
-    { id: 'model', value: 'remote-magpie/group/auto-deep' },
-    { id: 'mode', value: 'bypassPermissions' },
-    { id: 'fast', value: false },
-  ]);
-  // Values the Agent no longer offers are skipped rather than failing the draft.
-  assert.deepEqual(seedChanges(prepared, { model: 'retired-model', mode: 'gone', fast: 'yes' }), []);
-  // Equal values need no round trip.
-  assert.deepEqual(seedChanges(prepared, { model: 'default', fast: true }), []);
-  // The local preview already shows the remembered choices, so the factory
-  // default never flashes while the writes are in flight.
-  const preview = applySeed(prepared, newSessionSeed(chosen));
-  assert.deepEqual(preview.map(option => [option.id, option.currentValue]), [
-    ['model', 'remote-magpie/group/auto-deep'], ['mode', 'bypassPermissions'], ['plan', 'off'], ['fast', false],
-  ]);
-  // Plan mode and retired values are never applied to the preview either.
-  assert.deepEqual(applySeed(prepared, { plan: 'on', model: 'retired' }).map(option => option.currentValue), ['default', 'default', 'off', true]);
-});
-
-test('a fresh draft applies the remembered choices, while a session keeps its own', async () => {
+test('drafts use backend preferences without replaying origin-scoped local defaults', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /useLocalState<Record<string, Record<string, string \| boolean>>>\('new-session-config'/);
-  // Seeding runs in the background so the home composer shows its controls at once…
-  assert.match(app, /seeding = seedNewConfig\(workspaceHash, prepared\.sessionName/);
-  assert.match(app, /storeNewAgentConfig\(\{ key, options: applySeed\(prepared\.configOptions/);
-  // …and the first send waits for it, so the turn never starts on factory defaults.
-  assert.match(app, /await newConfigSeed\.current\?\.catch\(\(\) => \{\}\);/);
-  assert.match(app, /session \? prepared\.configOptions\s*: await seedNewConfig/);
-  assert.match(app, /if \(!session\) rememberFallbackConfig\(target\.agentId \|\| agentId, next\)/);
-  assert.match(app, /rememberNewConfig\(target\.agentId \|\| agentId, result\.configOptions\)/);
+  assert.doesNotMatch(app, /seedNewConfig|rememberNewConfig|new-session-config/);
+  assert.match(app, /storeNewAgentConfig\(\{ key, options: prepared\.configOptions \}\)/);
   // The last preset is cached so the composer can show it disabled while the
   // Agent reconnects, then swap in the authoritative options.
   assert.match(app, /useLocalState<Record<string, AgentConfigOption\[\]>>\('agent-config-cache'/);
   assert.match(app, /newAgentConfig\?\.key === agentConfigKey \? newAgentConfig\.options : agentConfigCache\[newConfigKey\(agentId\)\]/);
-  assert.match(app, /const composerConfigBusy = !!agentConfigBusy \|\| \(!session && newAgentConfig\?\.key !== agentConfigKey\)/);
+  assert.match(app, /!agentPreferencesReady \|\| agentSelectionBusy \|\| newAgentConfig\?\.key !== agentConfigKey/);
   assert.match(app, /busy: composerConfigBusy/);
-  assert.match(app, /cacheAgentConfig\(prepared\.agentId, options\)/);
+  assert.match(app, /cacheAgentConfig\(prepared\.agentId, prepared\.configOptions\)/);
 });
 
 test('the agent switcher sits beside the project switcher and locks while running', async () => {
@@ -183,7 +137,7 @@ test('the agent switcher sits beside the project switcher and locks while runnin
   assert.match(home, /<AgentSwitcher engines=\{engines\}/);
   assert.match(switcher, /disabled=\{disabled\}/);
   assert.match(switcher, /任务运行中，结束后才能切换 Agent/);
-  assert.match(app, /agentDisabled=\{!!generatingId \|\| !!remoteRun\}/);
+  assert.match(app, /agentDisabled=\{!!generatingId \|\| !!remoteRun \|\| !agentPreferencesReady \|\| agentSelectionBusy\}/);
   assert.match(app, /if \(generatingId \|\| remoteRun\) \{ notify\('任务运行中，结束后才能切换 Agent'\); return; \}/);
   // Agent switching lives beside the project switcher on the home screen only.
   // A conversation keeps the Agent it was created with, so the composer has no switcher.

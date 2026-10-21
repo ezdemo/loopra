@@ -175,7 +175,7 @@ loopra web 0
 
 `models` 兼容旧版字符串数组。每个模型条目还可配置 `contextTokens`、`maxTokens`、`imageInput` 和 `price`；其中 `maxTokens` 是该模型单次请求的最大输出 token 数，包含推理 token，Chat Completions 映射为 `max_tokens`，Responses 映射为 `max_output_tokens`。未配置时使用默认值 32768。若当前模型的 `imageInput` 为 `false`，可在模型渠道页选择 `imageUnderstandingModel` 与 `imageUnderstandingModelChannelId`，由该模型先把 `read_image` 的图片转换为文字，再交给当前模型继续处理。`read_image` 的 `prompt` 参数用于描述本次识别任务，例如要求提取 OCR、定位报错或读取表格数值。
 
-除全局默认模型外，每个会话可单独选择模型、渠道与推理强度（聊天页会话栏的模型选择器），选择持久化在服务端会话元数据中，重开或切换会话时自动恢复；未选择过时使用全局默认值。
+除全局默认模型外，每个会话可单独选择模型、渠道与推理强度，选择持久化在服务端会话元数据中，重开或切换会话时自动恢复。首页当前选择的 Agent，以及每个 Agent 最近明确选择的模型、权限和推理强度等配置，分别保存到核心服务所在机器的 `~/.loopra/agent-preferences.json`。新会话继承对应 Agent 的上次配置，已有会话保留自己的设置；计划模式不继承，已移除或不再支持的选项会跳过。未保存过 Agent 偏好时使用该引擎的默认配置。
 
 ## 核心能力
 

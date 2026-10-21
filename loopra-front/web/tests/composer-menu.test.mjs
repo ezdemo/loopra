@@ -22,9 +22,9 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { target: t
 const placementUrl = 'data:text/javascript;base64,' + Buffer.from(outputText.replaceAll("'react'", JSON.stringify(reactUrl))).toString('base64');
 const { useMenuPlacement } = await import(placementUrl);
 
-function Harness() {
+function Harness({ suggestions = false }) {
   const anchorRef = useRef(null);
-  const placement = useMenuPlacement(true, anchorRef, { offsetRem: 4.375 });
+  const placement = useMenuPlacement(true, anchorRef, suggestions ? {} : { offsetRem: 4.375 });
   return createElement('div', {
     ref: anchorRef,
     className: 'composer-anchor',
@@ -35,7 +35,7 @@ function Harness() {
 
 const rectOf = ({ top, bottom }) => ({ top, bottom, left: 0, right: 800, width: 800, height: bottom - top, x: 0, y: top, toJSON() {} });
 
-async function mount(anchor, bounds) {
+async function mount(anchor, bounds, suggestions = false) {
   Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: 640 });
   const original = dom.window.Element.prototype.getBoundingClientRect;
   dom.window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
@@ -49,7 +49,7 @@ async function mount(anchor, bounds) {
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(createElement(Harness)));
+    await act(async () => root.render(createElement(Harness, { suggestions })));
   } finally {
     dom.window.Element.prototype.getBoundingClientRect = original;
   }
@@ -77,6 +77,22 @@ test('the composer menu flips below only when the measured space above is unusab
   } finally { await view.close(); }
 });
 
+test('suggestions measure above the entire input box instead of covering its textarea', async () => {
+  const view = await mount({ top: 450, bottom: 600 }, { top: 48, bottom: 640 }, true);
+  try {
+    assert.equal(view.anchor.dataset.side, 'top');
+    assert.equal(view.anchor.style.getPropertyValue('--menu-max-height'), '387px');
+  } finally { await view.close(); }
+});
+
+test('suggestions flip below the input when the clipping pane has no room above', async () => {
+  const view = await mount({ top: 40, bottom: 120 }, { top: 0, bottom: 640 }, true);
+  try {
+    assert.equal(view.anchor.dataset.side, 'bottom');
+    assert.equal(view.anchor.style.getPropertyValue('--menu-max-height'), '505px');
+  } finally { await view.close(); }
+});
+
 function ruleBody(css, selector) {
   const pattern = new RegExp('^[ \\t]*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}', 'm');
   const match = css.match(pattern);
@@ -98,5 +114,5 @@ test('composer menus cap the popup and scroll the body under a fixed heading', a
   assert.match(ruleBody(styles, '.composer-popover > section'), /min-height:\s*0/);
   assert.match(ruleBody(styles, '.composer-popover-header'), /flex:\s*0 0 auto/);
   assert.match(ruleBody(styles, '.composer-tool-list'), /overflow-y:\s*auto/);
-  assert.match(ruleBody(styles, '.rich-composer[data-placement="bottom"] > .composer-popover'), /top:\s*calc\(100% \+ 0\.4375rem\)/);
+  assert.match(ruleBody(styles, '.rich-composer[data-placement="bottom"] > .composer-popover:not(.composer-suggestions)'), /top:\s*calc\(100% \+ 0\.4375rem\)/);
 });

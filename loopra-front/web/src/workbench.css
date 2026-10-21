@@ -4,7 +4,7 @@
 .workbench-tabs button[role="tab"]:hover { background: var(--hover); color: var(--text); }
 .workbench-tabs button[role="tab"][aria-selected="true"] { background: var(--selected); color: var(--text); font-weight: 500; }
 .panel-more-menu { top: calc(100% + .25rem); left: 0; min-width: 8.5rem; }
-.workbench-body { flex: 1; min-height: 0; overflow: auto; }
+.workbench-body { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .workspace-files { padding: .75rem; }
 .workspace-files input, .workbench-form input, .workbench-form textarea, .workbench-form select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-md); padding: .4375rem .625rem; background: var(--surface); font-size: .8125rem; color: var(--text); transition: border-color .12s, box-shadow .12s; }
 .workbench-form input:focus, .workbench-form textarea:focus, .workbench-form select:focus, .workbench-fields input:focus, .workbench-fields select:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -166,7 +166,7 @@ label.workbench-actions:not(.settings-next-checkbox) > input[type="checkbox"] { 
 .resource-table th, .resource-table td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
 .resource-table th { color: var(--secondary); font-weight: 600; }
 /* 工作区文件面板 */
-.workbench-body[data-tab="files"] { display: flex; overflow: hidden; }
+.workbench-body[data-tab="files"] { display: flex; overflow: hidden; scrollbar-gutter: auto; }
 .workspace-files { --file-green: var(--success); --file-red: var(--danger); display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; padding: .625rem; overflow: hidden; }
 .dark .workspace-files { --file-green: #6acaa1; --file-red: #f19494; }
 .workspace-files > .file-search { display: flex; align-items: center; gap: .4rem; margin-bottom: .5rem; padding: 0 .5rem; border: 0; border-radius: var(--radius-md); background: var(--soft); color: var(--muted); transition: box-shadow .12s; }

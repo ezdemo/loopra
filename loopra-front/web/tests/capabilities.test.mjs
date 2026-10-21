@@ -13,6 +13,7 @@ for (const [key, value] of Object.entries(globals)) Object.defineProperty(global
 after(() => { dom.window.close(); for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
 
 const { act, createElement } = await import('react');
+const { Simulate } = await import('react-dom/test-utils');
 const { createRoot } = await import('react-dom/client');
 const reactUrl = import.meta.resolve('react');
 const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toString('base64');
@@ -25,7 +26,7 @@ async function sourceUrl(name, dependencies = {}) {
   return dataUrl(outputText);
 }
 
-const iconsStub = dataUrl('export const RefreshCw=()=>null;');
+const iconsStub = dataUrl('export const AlertCircle=()=>null, BookOpen=()=>null, ChevronRight=()=>null, Folder=()=>null, Plug=()=>null, Puzzle=()=>null, RefreshCw=()=>null, Search=()=>null, Wrench=()=>null, X=()=>null;');
 const uiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const IconButton = ({ label, children, onClick }) => createElement('button', { type: 'button', 'aria-label': label, onClick }, children);
@@ -33,15 +34,17 @@ export const IconButton = ({ label, children, onClick }) => createElement('butto
 const controlsStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
 export const errorText = cause => cause instanceof Error ? cause.message : String(cause);
-export function useRemote(api, path) {
+export function useRemote(api, path, revision) {
   const [state, setState] = React.useState({ data: undefined, error: '', loading: !!path });
   React.useEffect(() => {
     let live = true;
     if (!path) return undefined;
-    api.request(path, 'GET').then(data => { if (live) setState({ data, error: '', loading: false }); });
+    setState({ data: undefined, error: '', loading: true });
+    api.request(path, 'GET').then(data => { if (live) setState({ data, error: '', loading: false }); })
+      .catch(error => { if (live) setState({ data: undefined, error: error.message, loading: false }); });
     return () => { live = false; };
-  }, [api, path]);
-  return state;
+  }, [api, path, revision]);
+  return { ...state, setData: data => setState(current => ({ ...current, data })) };
 }
 export const RemoteState = ({ loading, error }) => error ? React.createElement('p', { role: 'alert' }, error) : null;
 `);
@@ -63,19 +66,21 @@ const payload = {
   ],
 };
 
-async function mount() {
+async function mount(request) {
   globalThis.__calls = []; globalThis.__notify = [];
   const api = {
     request: (path, method = 'GET', body) => {
       globalThis.__calls.push({ path, method, body });
-      return Promise.resolve(payload);
+      return request ? request(path, method, body) : Promise.resolve(payload);
     },
   };
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   await act(async () => root.render(createElement(Panel, { api, workspaceHash: 'hash 1', workspaceName: 'loopra', notify: message => globalThis.__notify.push(message) })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-  return { container, root, async close() { await act(async () => root.unmount()); container.remove(); } };
+  return { container, root,
+    async revision(value) { await act(async () => root.render(createElement(Panel, { api, workspaceHash: 'hash 1', workspaceName: 'loopra', revision: value, notify: () => {} }))); },
+    async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 
 test('renders only project-scoped skills plus the MCP summary', async () => {
@@ -122,4 +127,110 @@ test('skill and MCP empty states distinguish a missing file from an empty list',
   assert.equal(module.mcpStatusLabel({ enabled: false, loaded: true }), '已禁用');
   assert.equal(module.mcpStatusLabel({ enabled: true, loaded: false, error: 'boom' }), '加载失败');
   assert.equal(module.mcpStatusLabel({ enabled: true, loaded: false }), '未加载');
+});
+
+test('category filters show only the selected type and restore the overview', async () => {
+  const view = await mount();
+  try {
+    const filters = [...view.container.querySelectorAll('.capabilities-filters button')];
+    await act(async () => filters[1].click());
+    assert.equal(filters[1].getAttribute('aria-pressed'), 'true');
+    assert.ok(view.container.querySelector('[aria-label="项目 Skill"]'));
+    assert.equal(view.container.querySelector('[aria-label="项目 MCP"]'), null);
+    await act(async () => filters[2].click());
+    assert.equal(view.container.querySelector('[aria-label="项目 Skill"]'), null);
+    assert.ok(view.container.querySelector('[aria-label="项目 MCP"]'));
+    await act(async () => filters[0].click());
+    assert.ok(view.container.querySelector('[aria-label="项目 Skill"]'));
+    assert.ok(view.container.querySelector('[aria-label="项目 MCP"]'));
+  } finally { await view.close(); }
+});
+
+test('search finds a server through its tools, then clearing it restores all entries', async () => {
+  const view = await mount();
+  try {
+    const input = view.container.querySelector('input[type="search"]');
+    await act(async () => Simulate.change(input, { target: { value: 'WRITE_FILE' } }));
+    assert.match(view.container.textContent, /filesystem/);
+    assert.doesNotMatch(view.container.textContent, /project-helper/);
+    assert.doesNotMatch(view.container.textContent, /broken/);
+    await act(async () => Simulate.change(input, { target: { value: 'does-not-exist' } }));
+    assert.match(view.container.textContent, /没有匹配的能力/);
+    await act(async () => view.container.querySelector('[aria-label="清空能力搜索"]').click());
+    assert.match(view.container.textContent, /project-helper/);
+    assert.match(view.container.textContent, /broken/);
+  } finally { await view.close(); }
+});
+
+test('skill details contain the full description and source path, MCP has individual tool rows', async () => {
+  const view = await mount();
+  try {
+    const skill = view.container.querySelector('.skill-entry');
+    await act(async () => skill.querySelector('summary').click());
+    assert.equal(skill.open, true);
+    assert.equal(skill.querySelector('.capability-description').textContent, '项目内技能');
+    assert.match(skill.querySelector('.capability-source').textContent, /C:\/code\/loopra\/\.loopra\/skills\/project-helper/);
+    assert.equal(view.container.querySelector('.mcp-status.connected').textContent, '已连接');
+    assert.equal(view.container.querySelector('.mcp-status.disabled').textContent, '已禁用');
+    assert.deepEqual([...view.container.querySelectorAll('.mcp-tools code')].map(item => item.textContent), ['read_file', 'write_file']);
+  } finally { await view.close(); }
+});
+
+test('refresh retains visible entries while pending and replaces them with the POST result', async () => {
+  let finish;
+  const view = await mount((_path, method) => method === 'POST'
+    ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(payload));
+  try {
+    const button = view.container.querySelector('[aria-label="刷新项目能力"]');
+    await act(async () => button.click());
+    assert.equal(button.disabled, true);
+    assert.match(view.container.textContent, /project-helper/);
+    await act(async () => button.click());
+    assert.equal(globalThis.__calls.filter(call => call.method === 'POST').length, 1);
+    await act(async () => finish({ ...payload, skills: [], mcpServers: [] }));
+    assert.equal(button.disabled, false);
+    assert.match(view.container.textContent, /还没有项目 Skill/);
+    assert.doesNotMatch(view.container.textContent, /project-helper/);
+    assert.equal(globalThis.__calls.filter(call => call.method === 'GET').length, 1);
+  } finally { await view.close(); }
+});
+
+test('a failed refresh keeps the prior results and exposes a working inline retry', async () => {
+  let failed = true;
+  const view = await mount((_path, method) => method === 'POST' && failed ? Promise.reject(new Error('项目任务正在运行')) : Promise.resolve(payload));
+  try {
+    await act(async () => view.container.querySelector('[aria-label="刷新项目能力"]').click());
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /刷新失败.*项目任务正在运行/);
+    assert.match(view.container.textContent, /project-helper/);
+    failed = false;
+    await act(async () => view.container.querySelector('[role="alert"] button').click());
+    assert.equal(view.container.querySelector('[role="alert"]'), null);
+    assert.deepEqual(globalThis.__notify, ['项目能力已刷新']);
+  } finally { await view.close(); }
+});
+
+test('initial load errors can be recovered through the refresh endpoint', async () => {
+  const view = await mount((_path, method) => method === 'GET' ? Promise.reject(new Error('connection refused')) : Promise.resolve(payload));
+  try {
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /暂时无法读取项目能力/);
+    await act(async () => view.container.querySelector('[role="alert"] button').click());
+    assert.equal(view.container.querySelector('[role="alert"]'), null);
+    assert.match(view.container.textContent, /project-helper/);
+  } finally { await view.close(); }
+});
+
+test('the workbench toolbar revision reloads the capability summary', async () => {
+  const view = await mount();
+  try {
+    await view.revision(1);
+    assert.equal(globalThis.__calls.filter(call => call.method === 'GET').length, 2);
+  } finally { await view.close(); }
+});
+
+test('search is case-insensitive, includes skill descriptions, and never leaks global skills', async () => {
+  const { filterProjectCapabilities } = await import(capabilitiesUrl);
+  assert.deepEqual(filterProjectCapabilities(payload, ' 项目内 ').skills.map(skill => skill.name), ['project-helper']);
+  assert.deepEqual(filterProjectCapabilities(payload, 'WRITE_FILE').servers.map(server => server.name), ['filesystem']);
+  assert.deepEqual(filterProjectCapabilities(payload, 'global-helper').skills, []);
+  assert.deepEqual(filterProjectCapabilities(undefined, 'anything'), { skills: [], servers: [] });
 });

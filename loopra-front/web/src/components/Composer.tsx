@@ -46,6 +46,8 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 export default function Composer(props: Props) {
   const external = !!props.agentId && props.agentId !== 'native';
   const { home, draft, onDraft, inputRef, options, onOptions, context, onContext, providers, notify, workspaces } = props;
+  const slash = draft.startsWith('/') && !draft.includes('\n') && !draft.includes(' ');
+  const commandScope = JSON.stringify([props.agentId, props.workspaceHash, props.sessionName]);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<string[]>([]);
@@ -55,7 +57,8 @@ export default function Composer(props: Props) {
   const [dismissedDraft, setDismissedDraft] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([]);
-  const [discoveredCommands, setDiscoveredCommands] = useState<AcpCommand[]>([]);
+  const [commandDiscovery, setCommandDiscovery] = useState<{ scope: string; api: LoopraClient; commands: AcpCommand[]; loading: boolean; error: string }>();
+  const [commandRetry, setCommandRetry] = useState(0);
   const [remoteCommands, setRemoteCommands] = useState<ServerCommand[]>([]);
   const [remoteSkills, setRemoteSkills] = useState<ServerSkill[]>([]);
   const [remoteUsage, setRemoteUsage] = useState<UsageDTO | null>(null);
@@ -65,9 +68,11 @@ export default function Composer(props: Props) {
   const root = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const menuPlacement = useMenuPlacement(!!menu, root, { offsetRem: 4.375 });
-  const menuPlacementStyle = menuPlacement.maxHeight
-    ? { '--composer-popover-max-height': `${menuPlacement.maxHeight}px` } as CSSProperties
-    : undefined;
+  const suggestionPlacement = useMenuPlacement(!menu && (slash || /(?:^|\s)@[^\s]*$/.test(draft)), root);
+  const menuPlacementStyle = {
+    ...(menuPlacement.maxHeight ? { '--composer-popover-max-height': `${menuPlacement.maxHeight}px` } : {}),
+    '--composer-suggestions-max-height': `${suggestionPlacement.maxHeight}px`,
+  } as CSSProperties;
   const models = getModelCatalog(providers);
   const selected = models.find(model => model.id === options.modelId);
   const localUsage = estimateContext(props.history, draft, context, selected?.contextTokens, props.systemPrompt);
@@ -203,13 +208,21 @@ export default function Composer(props: Props) {
   }, [props.api, external]);
   useEffect(() => {
     const controller = new AbortController();
-    setDiscoveredCommands([]);
-    if (!external || !props.workspaceHash || !props.sessionName) return () => controller.abort();
+    if (!external || !props.workspaceHash || !props.sessionName) { setCommandDiscovery(undefined); return () => controller.abort(); }
+    setCommandDiscovery(current => ({
+      scope: commandScope, api: props.api,
+      commands: current?.scope === commandScope && current.api === props.api ? current.commands : [],
+      loading: true, error: '',
+    }));
     const suffix = new URLSearchParams({ workspaceHash: props.workspaceHash, sessionName: props.sessionName });
     void props.api.request<AcpSessionState>(`/agent/acp-state?${suffix}`, 'GET', undefined, controller.signal)
-      .then(state => { if (!controller.signal.aborted) setDiscoveredCommands(state.commands || []); }).catch(() => {});
+      .then(state => {
+        if (!controller.signal.aborted) setCommandDiscovery({ scope: commandScope, api: props.api, commands: state.commands || [], loading: false, error: '' });
+      }).catch(() => {
+        if (!controller.signal.aborted) setCommandDiscovery(current => current && { ...current, loading: false, error: '读取 Agent 指令失败' });
+      });
     return () => controller.abort();
-  }, [props.api, external, props.agentId, props.workspaceHash, props.sessionName, props.agentConfig?.options, props.generating]);
+  }, [props.api, external, commandScope, props.workspaceHash, props.sessionName, props.agentConfig?.options, props.generating, slash, commandRetry]);
   // Prompt presets are server-side config; the local cache is only a fallback.
   useEffect(() => {
     const controller = new AbortController();
@@ -255,9 +268,11 @@ export default function Composer(props: Props) {
   }).filter(command => !external || command.id !== '/skills')
     .map(command => ({ ...command, action: () => { onDraft(''); command.action?.(); } }));
   // Server commands/skills insert their text so the agent handles them.
-  const remoteSlash = (external ? acpSlashCommands((props.generating ? props.acpCommands : undefined) ?? discoveredCommands) : serverSlashCommands(remoteCommands, remoteSkills))
-    .map(command => ({ ...command, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
-  const commands = mergeSlashCommands(localCommands, remoteSlash);
+  const discovered = commandDiscovery?.scope === commandScope && commandDiscovery.api === props.api ? commandDiscovery : undefined;
+  const agentCommands = (props.generating ? props.acpCommands : undefined) ?? discovered?.commands ?? [];
+  const remoteSlash = (external ? acpSlashCommands(agentCommands) : serverSlashCommands(remoteCommands, remoteSkills))
+    .map(command => ({ ...command, title: external ? agentEngineName : command.title, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
+  const commands = external ? remoteSlash : mergeSlashCommands(localCommands, remoteSlash);
   const mention = draft.match(/(?:^|\s)@([^\s]*)$/);
   const mentionQuery = mention?.[1];
   useEffect(() => {
@@ -268,8 +283,7 @@ export default function Composer(props: Props) {
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [mentionQuery, props.api, props.workspaceHash]);
-  const slash = draft.startsWith('/') && !draft.includes('\n') && !draft.includes(' ');
-  const suggestions = menu || dismissedDraft === draft || (external && slash) ? [] : slash
+  const suggestions = menu || dismissedDraft === draft ? [] : slash
     ? commands.filter(command => command.id.includes(draft.toLowerCase())).map(command => ({ ...command, label: command.id }))
     : mention ? fileSuggestions.map(name => ({
       id: name, label: name, title: '引用项目文件', description: '将路径发送给 Loopra，由 Agent 按权限读取', action: () => {
@@ -277,6 +291,13 @@ export default function Composer(props: Props) {
         onDraft(draft.slice(0, draft.length - mention[1].length - 1));
       },
     })) : [];
+  const showCommandStatus = external && slash && !menu && dismissedDraft !== draft && !suggestions.length;
+  const commandStatus = !props.sessionName ? (agentBusy ? '正在准备 Agent 指令…' : '请先连接 Agent 以读取指令')
+    : discovered?.loading ? '正在读取 Agent 指令…'
+    : discovered?.error || (agentCommands.length ? '没有匹配的 Agent 指令' : '当前 Agent 尚未提供可用指令');
+  useEffect(() => {
+    root.current?.querySelector('.composer-suggestions .is-selected')?.scrollIntoView?.({ block: 'nearest' });
+  }, [suggestionIndex, draft]);
   function selectSuggestion(index: number) { suggestions[index]?.action?.(); setSuggestionIndex(0); if (suggestions[index]?.id !== '/skills') focusInput(); }
   function savePreset() {
     if (!editing?.name.trim() || !editing.text.trim()) return;
@@ -291,7 +312,7 @@ export default function Composer(props: Props) {
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
   const hasContext = contextImages.length > 0 || context.projects.length > 0 || context.skills.length > 0 || contextFiles.length > 0;
 
-  return <div ref={root} data-popover data-placement={menuPlacement.side} style={menuPlacementStyle} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
+  return <div ref={root} data-popover data-placement={menuPlacement.side} data-suggestions-placement={suggestionPlacement.side} style={menuPlacementStyle} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
     onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
@@ -350,13 +371,12 @@ export default function Composer(props: Props) {
           {agentModel && <Tooltip content={agentOptionDescription(agentModel)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} aria-label={`选择模型：${agentOptionLabel(agentModel)}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{activeModelLabel}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
           {(agentEffort || agentFast) && <Tooltip content="推理强度与快速模式" delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-effort ${menu === 'effort' ? 'is-active' : ''}`} aria-label="推理设置" aria-expanded={menu === 'effort'} onPress={() => open('effort')}>{agentFastOn ? <Zap size="0.875rem" /> : <Brain size="0.875rem" />}<span>{agentEffort ? agentOptionLabel(agentEffort) : '快速'}</span></Button></Tooltip>}
         </> : props.agentConfig
-          ? props.agentConfig.error
-            ? <Tooltip content={props.agentConfig.error} delay={300}><Button isIconOnly size="sm" variant="light" className="composer-icon" isDisabled={!!props.agentConfig.busy} onPress={props.agentConfig.onPrepare} aria-label="重试加载 Agent 配置"><RefreshCw size="1rem" /></Button></Tooltip>
-            : props.agentConfig.busy ? <span className="agent-config-loading" role="status" aria-label="正在加载 Agent 配置"><Spinner size="sm" /></span> : null
+          ? !props.agentConfig.error && props.agentConfig.busy ? <span className="agent-config-loading" role="status" aria-label="正在加载 Agent 配置"><Spinner size="sm" /></span> : null
           : <>
             {!external && <Tooltip content={selected ? `${selected.provider} / ${selected.name}` : '选择模型'} delay={600}><Button variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} aria-label={`选择模型：${selected?.name || '未选择'}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{selected?.name || '选择模型'}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
             {!external && <Tooltip content="推理强度与快速模式" delay={600}><Button variant="light" className={`composer-effort ${menu === 'effort' ? 'is-active' : ''}`} aria-label="推理设置" aria-expanded={menu === 'effort'} onPress={() => open('effort')}>{options.fast ? <Zap size="0.875rem" /> : <Brain size="0.875rem" />}<span>{effort ? effort.value === 'none' ? '无' : effort.value === 'xhigh' ? 'XHigh' : effort.value[0].toUpperCase() + effort.value.slice(1) : options.effort}</span></Button></Tooltip>}
           </>}
+        {props.agentConfig?.error && <Tooltip content={props.agentConfig.error} delay={300}><Button isIconOnly size="sm" variant="light" className="composer-icon" onPress={props.agentConfig.onPrepare} aria-label="重试加载 Agent 配置"><RefreshCw size="1rem" /></Button></Tooltip>}
         {props.generating ? <Button isIconOnly aria-label="停止生成" className="send-button generating" onPress={props.onStop}><Square size="0.75rem" fill="currentColor" /></Button>
           : props.remoteRunning ? <Button isIconOnly aria-label="停止后台任务" className="send-button generating" onPress={props.onStopRemote}><Square size="0.75rem" fill="currentColor" /></Button> : null}
         <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={sendDisabled} onPress={sendDraft}><ArrowUp size="1rem" strokeWidth={2.25} /></Button>
@@ -487,7 +507,36 @@ export default function Composer(props: Props) {
         </div>}
       </section>}
     </Popup>
-    <Popup open={!!suggestions.length} className="composer-popover popover-left composer-suggestions"><section aria-label={slash ? '输入指令' : '工作区文件'}><div className="suggestions-heading">{slash ? '输入指令' : '工作区文件'}<small>↑ ↓ 选择 · Tab / Enter 确认</small></div>{suggestions.map((item, index) => <button key={item.id} className={suggestionIndex % suggestions.length === index ? 'is-selected' : ''} onMouseEnter={() => setSuggestionIndex(index)} onClick={() => selectSuggestion(index)}>{slash ? <SquareTerminal size="1.0625rem" /> : <FileText size="1.0625rem" />}<span><strong>{item.label}<em>{item.title}</em></strong><small>{item.description}</small></span></button>)}</section></Popup>
+    <Popup open={!!suggestions.length || showCommandStatus} className="composer-popover composer-suggestions">
+      <section aria-label={slash ? '输入指令' : '工作区文件'}>
+        <div className="suggestions-heading">
+          <span>{slash ? '指令' : '引用文件'}{slash && external && <small>{agentEngineName}</small>}</span>
+          <span className="suggestions-count">{suggestions.length} 项</span>
+        </div>
+        <div className="suggestions-list">
+          {suggestions.map((item, index) => <button type="button" key={item.id}
+            className={suggestionIndex % suggestions.length === index ? 'is-selected' : ''}
+            title={`${item.label}\n${item.description}`}
+            onMouseDown={event => event.preventDefault()}
+            onMouseEnter={() => setSuggestionIndex(index)} onClick={() => selectSuggestion(index)}>
+            {slash ? <SquareTerminal size={15} /> : <FileText size={15} />}
+            <span className="suggestion-copy">
+              <strong>{item.label}{!(slash && external) && item.title !== item.label && <em>{item.title}</em>}</strong>
+              {item.description && <small>{item.description}</small>}
+            </span>
+            <kbd className="suggestion-enter" aria-hidden="true">↵</kbd>
+          </button>)}
+          {showCommandStatus && <div className="suggestions-status" role="status">
+            {commandStatus}
+            {props.sessionName && !discovered?.loading && !agentCommands.length && <button type="button" onClick={() => setCommandRetry(value => value + 1)}>重新读取</button>}
+          </div>}
+        </div>
+        <div className="suggestions-footer">
+          {suggestions.length > 0 && <span><kbd>↑</kbd><kbd>↓</kbd> 选择 <kbd>Tab</kbd> 补全</span>}
+          <span><kbd>Esc</kbd> 关闭</span>
+        </div>
+      </section>
+    </Popup>
     {dragging && <div className="composer-drop-hint"><Paperclip size="1.5rem" /><span>松开以添加附件</span></div>}
   </div>;
 }

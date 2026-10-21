@@ -85,7 +85,7 @@
 .composer-popover { position: absolute; bottom: 4.375rem; z-index: 90; display: flex; flex-direction: column; width: min(22.8125rem, calc(100vw - 2.5rem)); max-height: min(37.5rem, var(--composer-popover-max-height, 31.25rem)); overflow: hidden; border: 1px solid var(--line); border-radius: 1.0625rem; background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000006, 0 0.875rem 2.8125rem #00000017; color: var(--text); font-size: 0.8125rem; text-align: left; padding: 0.375rem; }
 /* The popup is measured from the composer toolbar, so its downward fallback
    starts below the whole composer. */
-.rich-composer[data-placement="bottom"] > .composer-popover { top: calc(100% + 0.4375rem); bottom: auto; }
+.rich-composer[data-placement="bottom"] > .composer-popover:not(.composer-suggestions) { top: calc(100% + 0.4375rem); bottom: auto; }
 .composer-popover > section { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: hidden; }
 /* The suggestion list re-mounts on every keystroke while typing, so it is excluded
    from the open animation; every other composer menu (models, tools, projects…)
@@ -277,15 +277,28 @@
 .context-breakdown strong { font-weight: 500; }
 .context-breakdown small { color: var(--muted); font-size: 0.6875rem; width: 2.625rem; text-align: right; }
 .context-disclaimer { border-top: 1px solid var(--line); margin-top: 0.625rem; padding-top: 0.75rem; }
-.composer-suggestions { width: min(25.3125rem, calc(100vw - 2.5rem)); }
-.suggestions-heading { display: flex; align-items: center; justify-content: space-between; padding: 0.5625rem 0.625rem; font-size: 0.75rem; color: var(--secondary); }
-.suggestions-heading small { font-size: 0.625rem; color: var(--muted); }
-.composer-suggestions button { display: flex; align-items: center; gap: 0.625rem; width: 100%; padding: 0.5625rem 0.625rem; text-align: left; }
-.composer-suggestions button.is-selected { background: color-mix(in srgb, var(--blue) 8%, var(--surface)); }
-.composer-suggestions button > svg { color: var(--secondary); flex-shrink: 0; }
-.composer-suggestions strong { font-size: 0.75rem; font-weight: 500; }
-.composer-suggestions em { font-size: 0.6875rem; font-style: normal; color: var(--muted); margin-left: 0.5625rem; }
-.composer-suggestions button small { display: block; font-size: 0.6875rem; color: var(--muted); margin-top: 0.1875rem; }
+.composer-suggestions { left: 0; top: auto; bottom: calc(100% + 7px); width: min(100%, 28rem); max-height: min(19rem, var(--composer-suggestions-max-height, 19rem)); padding: .25rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); }
+.rich-composer[data-suggestions-placement="bottom"] > .composer-suggestions { top: calc(100% + 7px); bottom: auto; }
+.suggestions-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: .5rem; min-height: 2rem; padding: .375rem .625rem; font-size: .6875rem; color: var(--secondary); }
+.suggestions-heading > span:first-child { display: flex; align-items: baseline; gap: .5rem; min-width: 0; }
+.suggestions-heading small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: inherit; color: var(--muted); }
+.suggestions-count { flex-shrink: 0; color: var(--muted); font-size: .625rem; }
+.suggestions-list { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.suggestions-list > button { display: flex; align-items: center; gap: .625rem; width: 100%; min-width: 0; padding: .4375rem .625rem; text-align: left; border-radius: var(--radius-md); }
+.suggestions-list > button.is-selected { background: var(--accent-soft); }
+.suggestions-list > button > svg { color: var(--secondary); flex-shrink: 0; }
+.suggestion-copy { flex: 1; min-width: 0; overflow: hidden; }
+.suggestion-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; line-height: 1.125rem; font-weight: 500; }
+.suggestion-copy em { font-size: .6875rem; font-style: normal; color: var(--secondary); margin-left: .5rem; }
+.suggestion-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary); font-size: .6875rem; line-height: 1rem; margin-top: .0625rem; }
+.composer-suggestions kbd { font: inherit; font-size: .625rem; }
+.suggestion-enter { flex-shrink: 0; color: var(--secondary); opacity: 0; }
+.is-selected > .suggestion-enter { opacity: 1; }
+.suggestions-footer { display: flex; flex: 0 0 auto; justify-content: space-between; flex-wrap: wrap; gap: .25rem .75rem; padding: .375rem .625rem .25rem; border-top: 1px solid var(--line); color: var(--secondary); font-size: .625rem; }
+.suggestions-footer > span { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; }
+.suggestions-footer kbd { padding: 0 .1875rem; border: 1px solid var(--line); border-radius: .1875rem; line-height: .875rem; }
+.suggestions-status { padding: .75rem .625rem; color: var(--secondary); font-size: .75rem; }
+.suggestions-status button { display: block; margin-top: .5rem; padding: .25rem .5rem; color: var(--accent); font-size: .6875rem; }
 .composer-drop-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 0.625rem; border: 1px dashed var(--blue); border-radius: inherit; background: color-mix(in srgb, var(--blue) 8%, var(--surface)); color: var(--blue); pointer-events: none; z-index: 100; font-size: 0.875rem; }
 /* Fit toolbars by the available main pane, including when the files panel is open. */
 @container (max-width: 32rem) {

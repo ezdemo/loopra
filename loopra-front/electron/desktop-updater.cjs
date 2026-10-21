@@ -1,6 +1,7 @@
 const { compareVersions } = require('./version.cjs')
 const fs = require('fs')
 const path = require('path')
+const { normalizeUpdateSource, desktopUpdateFeed } = require('./desktop-update-source.cjs')
 
 function desktopUpdateSupport({ isPackaged, platform, macSigned = false, linuxPackageType = '', appImagePath = '' }) {
   if (!isPackaged) return { supported: false, unsupportedReason: '开发环境不自动更新，请使用正式安装版。' }
@@ -37,22 +38,27 @@ function loadDesktopUpdater(options, load = () => require('electron-updater')) {
   return library.autoUpdater
 }
 
-// Keep installer control in the main process. No feed URLs or paths come from IPC.
-function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, publish = () => {}, platform = process.platform, ...options }) {
+// IPC selects an allowlisted source; only the main process builds the official feed URL.
+function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, source = 'normal', saveSource = () => {},
+  publish = () => {}, platform = process.platform, ...options }) {
   const support = desktopUpdateSupport({ isPackaged: app.isPackaged, platform, ...options })
   const supported = support.supported && !!updater
   let state = {
     ...support, supported, currentVersion: app.getVersion(), status: supported ? 'idle' : 'unsupported',
     latestVersion: '', percent: 0, transferred: 0, total: 0, bytesPerSecond: 0,
     error: '', checkedAt: '', revision: 0,
+    source: normalizeUpdateSource(source), changingSource: false,
   }
   let checking = null
   let downloading = null
+  let cancellationToken
+  let sourceChange = null
   let startupTimer
   let interval
   const getState = () => ({ ...state })
   const change = (patch) => { state = { ...state, ...patch, revision: state.revision + 1 }; publish(getState()) }
   const fail = (error) => {
+    if (state.changingSource) return
     if (state.status === 'installing') {
       change({ status: 'downloaded', error: error?.message || String(error) })
       return
@@ -62,26 +68,69 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, pu
   }
 
   function download() {
-    if (!supported || ['verifying', 'downloaded', 'installing'].includes(state.status)) return Promise.resolve(getState())
+    if (!supported || state.changingSource || ['verifying', 'downloaded', 'installing'].includes(state.status)) return Promise.resolve(getState())
     if (downloading) return downloading
     if (!state.latestVersion) return check()
     change({ status: 'downloading', error: '', percent: 0 })
-    downloading = Promise.resolve().then(() => updater.downloadUpdate())
+    downloading = Promise.resolve().then(() => updater.downloadUpdate(cancellationToken))
       .catch(fail).finally(() => { downloading = null })
       .then(getState)
     return downloading
   }
 
   function check() {
-    if (!supported || ['downloading', 'verifying', 'downloaded', 'installing'].includes(state.status)) return Promise.resolve(getState())
+    if (!supported || state.changingSource || ['downloading', 'verifying', 'downloaded', 'installing'].includes(state.status)) return Promise.resolve(getState())
     if (checking) return checking
     change({ status: 'checking', error: '' })
-    checking = Promise.resolve().then(() => updater.checkForUpdates())
+    checking = Promise.resolve().then(async () => {
+      const result = await updater.checkForUpdates()
+      cancellationToken = result?.cancellationToken
+      if (state.status === 'available' && !state.changingSource) void download()
+    })
       .catch(fail).finally(() => { checking = null }).then(getState)
     return checking
   }
 
+  function configureSource(next) {
+    if (!supported) return
+    updater.setFeedURL(desktopUpdateFeed(next))
+    // Mirrors need not support the multipart ranges used for differential downloads.
+    updater.disableDifferentialDownload = next !== 'normal'
+  }
+
+  async function setSource(value) {
+    const next = normalizeUpdateSource(value)
+    if (sourceChange) throw new Error('正在切换更新源，请稍候')
+    if (next === state.source) return getState()
+    if (['verifying', 'downloaded', 'installing'].includes(state.status)) throw new Error('更新已下载，请完成安装后再切换更新源')
+    change({ changingSource: true, error: '' })
+    sourceChange = (async () => {
+      try {
+        cancellationToken?.cancel()
+        // Wait for the old provider and download to settle before replacing either.
+        await Promise.all([checking, downloading])
+        if (['verifying', 'downloaded', 'installing'].includes(state.status)) throw new Error('更新已下载，请完成安装后再切换更新源')
+        configureSource(next)
+        try { saveSource(next) }
+        catch (error) { configureSource(state.source); throw error }
+        cancellationToken = undefined
+        change({ source: next, status: supported ? 'idle' : 'unsupported', latestVersion: '', checkedAt: '',
+          percent: 0, transferred: 0, total: 0, bytesPerSecond: 0, error: '' })
+      } catch (error) {
+        if (!['verifying', 'downloaded', 'installing'].includes(state.status)) {
+          change({ status: supported ? 'error' : 'unsupported', error: error.message || String(error) })
+        }
+        throw error
+      } finally {
+        change({ changingSource: false })
+      }
+      return check()
+    })().finally(() => { sourceChange = null })
+    return sourceChange
+  }
+
   function install() {
+    if (state.changingSource) throw new Error('正在切换更新源，请稍候')
     if (!supported || state.status !== 'downloaded') throw new Error('更新尚未下载完成')
     change({ status: 'installing', error: '' })
     try { updater.quitAndInstall(true, true) }
@@ -90,6 +139,7 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, pu
   }
 
   if (supported) {
+    configureSource(state.source)
     updater.autoDownload = false
     updater.autoInstallOnAppQuit = true
     updater.autoRunAppAfterInstall = true
@@ -102,10 +152,9 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, pu
         return
       }
       change({ status: 'available', latestVersion: info.version, checkedAt: new Date().toISOString() })
-      void download()
     })
     updater.on('update-not-available', () => change({ status: 'idle', latestVersion: '', checkedAt: new Date().toISOString() }))
-    updater.on('download-progress', (progress) => change({
+    updater.on('download-progress', (progress) => !state.changingSource && change({
       status: 'downloading', percent: Math.min(100, Math.max(0, Number(progress.percent) || 0)),
       transferred: progress.transferred, total: progress.total, bytesPerSecond: progress.bytesPerSecond,
     }))
@@ -125,16 +174,16 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, pu
     interval.unref?.()
   }
   function dispose() { clearTimeout(startupTimer); clearInterval(interval) }
-  return { getState, check, download, install, start, dispose, getReleaseNotes }
+  return { getState, check, download, install, start, dispose, getReleaseNotes, setSource }
 }
 
 function registerDesktopUpdateIpc(ipcMain, controller, getWindow) {
-  for (const action of ['getState', 'check', 'download', 'install', 'getReleaseNotes']) {
-    ipcMain.handle(`desktop-update-${action}`, (event) => {
+  for (const action of ['getState', 'check', 'download', 'install', 'getReleaseNotes', 'setSource']) {
+    ipcMain.handle(`desktop-update-${action}`, (event, source) => {
       const window = getWindow()
       if (!window || window.isDestroyed() || event.sender !== window.webContents ||
           event.senderFrame !== window.webContents.mainFrame) throw new Error('无权操作桌面更新')
-      return controller[action]()
+      return action === 'setSource' ? controller.setSource(source) : controller[action]()
     })
   }
 }
