@@ -26,8 +26,15 @@ function normalizeUpdateSource(source) {
   throw new Error('请选择列表中的 GitHub 直连或镜像源')
 }
 
-function desktopUpdateFeed(source) {
+function desktopUpdateFeed(source, packageType) {
   const normalized = normalizeUpdateSource(source)
+  // Squirrel clients must never consume an ad-hoc ZIP. The custom installer
+  // uses its own manifest, including when downloading directly from GitHub.
+  if (packageType === 'mac-unsigned') return {
+    provider: 'generic', channel: 'latest-unsigned',
+    url: (normalized === 'normal' ? '' : normalized) + RELEASE_DOWNLOADS,
+    useMultipleRangeRequest: false,
+  }
   return normalized === 'normal'
     ? { provider: 'github', owner: 'ezdemo', repo: 'loopra-release' }
     : { provider: 'generic', url: normalized + RELEASE_DOWNLOADS, useMultipleRangeRequest: false }

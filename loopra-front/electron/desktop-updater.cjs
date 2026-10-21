@@ -8,7 +8,7 @@ function desktopUpdateSupport({ isPackaged, platform, macSigned = false, linuxPa
   if (platform === 'win32') return { supported: true, packageType: 'nsis' }
   if (platform === 'darwin') return macSigned
     ? { supported: true, packageType: 'mac' }
-    : { supported: false, unsupportedReason: '此 macOS 版本未使用正式签名，请从发布页下载安装。' }
+    : { supported: true, packageType: 'mac-unsigned', installHint: '请将应用放在可写的应用程序目录；下载后退出应用即可安装更新。' }
   if (platform === 'linux') {
     if (appImagePath) return { supported: true, packageType: 'AppImage' }
     if (linuxPackageType === 'deb') return { supported: true, packageType: 'deb', installHint: '安装更新时，系统可能要求管理员授权。' }
@@ -21,7 +21,7 @@ function readDesktopUpdateOptions(app, { platform = process.platform, resourcesP
   let macSigned = false
   let linuxPackageType = ''
   if (app.isPackaged && platform === 'darwin') {
-    try { macSigned = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).loopraDesktopUpdate?.macSigned === true } catch { /* Unmarked builds retain manual updates. */ }
+    try { macSigned = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).loopraDesktopUpdate?.macSigned === true } catch { /* Unmarked builds use the unsigned installer. */ }
   }
   if (app.isPackaged && platform === 'linux') {
     try { linuxPackageType = readFileSync(path.join(resourcesPath, 'package-type'), 'utf8').trim() } catch { /* AppImage needs no package-type marker. */ }
@@ -33,6 +33,7 @@ function loadDesktopUpdater(options, load = () => require('electron-updater')) {
   const support = desktopUpdateSupport(options)
   if (!support.supported) return null
   const library = load()
+  if (support.packageType === 'mac-unsigned') return require('./unsigned-mac-updater.cjs').createUnsignedMacUpdater(library)
   if (support.packageType === 'AppImage') return new library.AppImageUpdater()
   if (support.packageType === 'deb') return new library.DebUpdater()
   return library.autoUpdater
@@ -46,9 +47,10 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, so
   let state = {
     ...support, supported, currentVersion: app.getVersion(), status: supported ? 'idle' : 'unsupported',
     latestVersion: '', percent: 0, transferred: 0, total: 0, bytesPerSecond: 0,
-    error: '', checkedAt: '', revision: 0,
+    error: updater?.installationError || '', checkedAt: '', revision: 0,
     source: normalizeUpdateSource(source), changingSource: false,
   }
+  if (supported && state.error) state.status = 'error'
   let checking = null
   let downloading = null
   let cancellationToken
@@ -93,7 +95,7 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, so
 
   function configureSource(next) {
     if (!supported) return
-    updater.setFeedURL(desktopUpdateFeed(next))
+    updater.setFeedURL(desktopUpdateFeed(next, support.packageType))
     // Mirrors need not support the multipart ranges used for differential downloads.
     updater.disableDifferentialDownload = next !== 'normal'
   }
@@ -133,7 +135,12 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, so
     if (state.changingSource) throw new Error('正在切换更新源，请稍候')
     if (!supported || state.status !== 'downloaded') throw new Error('更新尚未下载完成')
     change({ status: 'installing', error: '' })
-    try { updater.quitAndInstall(true, true) }
+    try {
+      const result = updater.quitAndInstall(true, true)
+      if (result?.then) return result.then(getState, error => {
+        change({ status: 'downloaded', error: error.message || String(error) }); throw error
+      })
+    }
     catch (error) { change({ status: 'downloaded', error: error.message || String(error) }); throw error }
     return getState()
   }
@@ -158,10 +165,11 @@ function createDesktopUpdater({ app, updater, nativeUpdater, getReleaseNotes, so
       status: 'downloading', percent: Math.min(100, Math.max(0, Number(progress.percent) || 0)),
       transferred: progress.transferred, total: progress.total, bytesPerSecond: progress.bytesPerSecond,
     }))
-    updater.on('update-downloaded', (info) => change({ status: platform === 'darwin' ? 'verifying' : 'downloaded', latestVersion: info.version, percent: 100, error: '' }))
+    updater.on('update-verifying', () => !state.changingSource && change({ status: 'verifying', percent: 100, error: '' }))
+    updater.on('update-downloaded', (info) => change({ status: support.packageType === 'mac' ? 'verifying' : 'downloaded', latestVersion: info.version, percent: 100, error: '' }))
     // MacUpdater emits its event before Squirrel verifies the signed ZIP.
     // Enable installation only when Electron confirms the native update is ready.
-    if (platform === 'darwin') nativeUpdater?.on('update-downloaded', () => {
+    if (support.packageType === 'mac') nativeUpdater?.on('update-downloaded', () => {
       if (state.status === 'verifying') change({ status: 'downloaded', error: '' })
     })
   }
