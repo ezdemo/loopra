@@ -46,7 +46,7 @@ import type { ElicitationRequest } from './elicitation';
 import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
-import { desktopPlatform, isDesktopWindow, usesNativeWindowControls } from './desktop-shell';
+import { desktopPlatform, isDesktopWindow, syncDesktopTheme, usesNativeWindowControls } from './desktop-shell';
 import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
 import { notifyWorkspaceChanged } from './workspace-events';
 import WorkspaceTabs from './components/WorkspaceTabs';
@@ -986,7 +986,10 @@ export default function App() {
     const onChange = () => { setNarrow(media.matches); setSidebar(!media.matches); };
     media.addEventListener('change', onChange); return () => media.removeEventListener('change', onChange);
   }, []);
-  useEffect(() => { document.documentElement.classList.toggle('dark', isDark); }, [isDark]);
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+    void syncDesktopTheme(preferences.theme).catch(error => console.warn('[desktop-theme] sync failed:', error));
+  }, [isDark, preferences.theme]);
   useEffect(() => {
     const catalog = getModelCatalog(providers);
     if (!catalog.some(model => model.id === composerOptions.modelId) && catalog.length) setComposerOptions(value => ({ ...value, modelId: catalog[0].id }));

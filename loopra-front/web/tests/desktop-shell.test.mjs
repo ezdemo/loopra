@@ -10,7 +10,7 @@ import ts from 'typescript';
 const shellSource = await readFile(new URL('../src/desktop-shell.ts', import.meta.url), 'utf8');
 const shellJs = ts.transpileModule(shellSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const shellUrl = 'data:text/javascript;base64,' + Buffer.from(shellJs).toString('base64');
-const { desktopPlatform, desktopWindowApi, isDesktopWindow, usesNativeWindowControls } = await import(shellUrl);
+const { desktopPlatform, desktopWindowApi, desktopThemeSource, isDesktopWindow, syncDesktopTheme, usesNativeWindowControls } = await import(shellUrl);
 
 const titleBar = await readFile(new URL('../src/components/DesktopTitleBar.tsx', import.meta.url), 'utf8');
 const header = await readFile(new URL('../src/layout/Header.tsx', import.meta.url), 'utf8');
@@ -41,6 +41,20 @@ test('platform defaults to win32 and only macOS uses native window controls', ()
   assert.equal(usesNativeWindowControls('darwin'), true);
   assert.equal(usesNativeWindowControls('win32'), false);
   assert.equal(usesNativeWindowControls('linux'), false);
+});
+
+test('renderer syncs the saved theme mode, preserving follow system instead of a resolved color', async () => {
+  assert.equal(desktopThemeSource('深色'), 'dark');
+  assert.equal(desktopThemeSource('浅色'), 'light');
+  assert.equal(desktopThemeSource('跟随系统'), 'system');
+  await withWindow(undefined, () => syncDesktopTheme('深色'));
+  await withWindow({ electronAPI: { isElectron: true } }, () => syncDesktopTheme('深色'));
+  const sources = [];
+  const bridge = { electronAPI: { desktopTheme: { set: async source => sources.push(source) } } };
+  for (const preference of ['深色', '浅色', '跟随系统']) {
+    await withWindow(bridge, () => syncDesktopTheme(preference));
+  }
+  assert.deepEqual(sources, ['dark', 'light', 'system']);
 });
 
 test('the app renders the title bar and shell class only on desktop', () => {
