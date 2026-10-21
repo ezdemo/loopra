@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { ArrowRight, Check, CircleAlert, CircleCheck, CirclePause, Copy, Download, FileText, LoaderCircle, RefreshCw, Server, Square, Terminal } from 'lucide-react';
 import type { LoopraClient } from '../backend';
@@ -6,6 +6,8 @@ import { errorText } from './RemoteControls';
 import { SelectField } from './SettingControls';
 import type { VersionCheck } from '../version';
 import { MIRROR_SOURCES, UPDATE_SOURCE_NORMAL, loadUpdateSource, saveUpdateSource } from '../update-scripts';
+import { loadWebReleaseNotes } from '../release-notes';
+import { ReleaseNotesPanel, useReleaseNotes } from './ReleaseNotes';
 
 type VersionUpdate = {
   running: boolean;
@@ -153,6 +155,9 @@ export function CoreServiceUpdateDialog({ controller, notify }: { controller: Co
   const { update, startingUpdate, stoppingUpdate, updateDialogOpen, error, stopUpdate, close } = controller;
   const { view, preparation, checkingVersions, versionError } = controller;
   const confirming = view === 'confirm';
+  const loadNotes = useCallback(() => loadWebReleaseNotes(preparation?.currentVersion || '', preparation?.latestVersion || ''),
+    [preparation?.currentVersion, preparation?.latestVersion]);
+  const releaseNotes = useReleaseNotes(updateDialogOpen && confirming && !checkingVersions && !!preparation?.latestVersion, loadNotes);
   const updateRunning = !!update?.running;
   const updateState = startingUpdate ? 'starting' : error && !updateRunning ? 'failed' : update?.state || 'idle';
   const UpdateStatusIcon = updateState === 'success' ? CircleCheck
@@ -195,6 +200,8 @@ export function CoreServiceUpdateDialog({ controller, notify }: { controller: Co
               <SelectField compact label="更新源" value={controller.source} onChange={controller.setSource}
                 options={UPDATE_SOURCE_OPTIONS} disabled={startingUpdate || updateRunning} />
             </div>
+            <ReleaseNotesPanel state={{ ...releaseNotes, loading: checkingVersions || releaseNotes.loading }}
+              currentVersion={preparation?.currentVersion} latestVersion={preparation?.latestVersion} />
           </> : <>
           <div className="version-update-summary" data-state={updateState} role="status">
             <span className="version-update-status-icon">

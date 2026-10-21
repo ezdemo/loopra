@@ -95,6 +95,7 @@ test('the header shows the connected backend version beside its status', () => {
   assert.match(loopraHook, /clearInterval\(timer\)/);
   assert.match(app, /发现新版本 v\$\{check\.latestVersion\}，点击顶栏版本查看/);
   assert.match(app, /onVersion=\{desktopUpdate\.available \? desktopUpdate\.show : openCoreUpdate\}/);
+  assert.match(app, /latestVersion=\{backend\.updateCheck\?\.latestVersion\}/);
   assert.match(app, /function openCoreUpdate\(\) \{[\s\S]*?coreUpdate\.show\(\);[\s\S]*?coreUpdate\.prepare\(backend\.version \|\| backend\.updateCheck\?\.currentVersion \|\| '-', backend\.updateCheck\);/);
   assert.match(app, /<Settings[\s\S]*?coreUpdate=\{coreUpdate\}/);
   assert.match(app, /<CoreServiceUpdateDialog controller=\{coreUpdate\}/);

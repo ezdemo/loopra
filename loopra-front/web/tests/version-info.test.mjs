@@ -28,7 +28,7 @@ async function sourceUrl(name, dependencies = {}) {
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isLoading, isDisabled, isIconOnly, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isLoading || !!isDisabled, onClick: onPress, ...rest }, startContent, children);
-export const Modal = ({ isOpen, children, onClose, classNames, placement, scrollBehavior, hideCloseButton, isDismissable, size, ...rest }) => isOpen ? createElement('section', { role: 'dialog', ...rest }, children) : null;
+export const Modal = ({ isOpen, children, onClose, classNames, placement, scrollBehavior, hideCloseButton, isDismissable, isKeyboardDismissDisabled, size, ...rest }) => isOpen ? createElement('section', { role: 'dialog', ...rest }, children) : null;
 export const ModalContent = ({ children }) => createElement('div', null, children);
 export const ModalHeader = ({ children }) => createElement('header', null, children);
 export const ModalBody = ({ children }) => createElement('div', null, children);
@@ -45,12 +45,23 @@ export const SelectField = ({ label, value, onChange, options, disabled }) => cr
   options.map(option => { const item = typeof option === 'string' ? { value: option, label: option } : option; return createElement('option', { key: item.value, value: item.value }, item.label); }));
 `);
 const updateScriptsUrl = await sourceUrl('update-scripts.ts');
+const releaseNotesPanelUrl = await sourceUrl('components/ReleaseNotes.tsx', {
+  '@nextui-org/react': nextuiStub,
+  'lucide-react': import.meta.resolve('lucide-react'),
+  'react-markdown': import.meta.resolve('react-markdown'),
+  'remark-gfm': import.meta.resolve('remark-gfm'),
+  'rehype-raw': import.meta.resolve('rehype-raw'),
+  'rehype-sanitize': import.meta.resolve('rehype-sanitize'),
+  '../update-scripts': updateScriptsUrl,
+});
 const sharedDependencies = {
   '@nextui-org/react': nextuiStub,
   'lucide-react': iconsStub,
   './RemoteControls': controlsStub,
   '../update-scripts': updateScriptsUrl,
   './SettingControls': settingControlsStub,
+  './ReleaseNotes': releaseNotesPanelUrl,
+  '../release-notes': dataUrl('export const loadWebReleaseNotes = (...args) => globalThis.__loadWebReleaseNotes(...args);'),
 };
 const coreServiceUpdateUrl = await sourceUrl('components/CoreServiceUpdate.tsx', sharedDependencies);
 const { CoreServiceUpdateDialog, useCoreServiceUpdate } = await import(coreServiceUpdateUrl);
@@ -62,6 +73,7 @@ const { default: VersionInfo, VersionInfoPanel } = await import(await sourceUrl(
 }));
 const { default: Header } = await import(await sourceUrl('layout/Header.tsx', {
   'lucide-react': import.meta.resolve('lucide-react'),
+  '../update-scripts': updateScriptsUrl,
   '../components/ui': dataUrl(`
     const { createElement } = await import(${JSON.stringify(reactUrl)});
     export const IconButton = ({ label, children, onClick }) => createElement('button', { 'aria-label': label, onClick }, children);
@@ -70,12 +82,18 @@ const { default: Header } = await import(await sourceUrl('layout/Header.tsx', {
 }));
 const { DesktopUpdateDialog, useDesktopUpdate } = await import(await sourceUrl('components/DesktopUpdate.tsx', {
   ...sharedDependencies,
+  'lucide-react': import.meta.resolve('lucide-react'),
+  'react-markdown': import.meta.resolve('react-markdown'),
+  'remark-gfm': import.meta.resolve('remark-gfm'),
+  'rehype-raw': import.meta.resolve('rehype-raw'),
+  'rehype-sanitize': import.meta.resolve('rehype-sanitize'),
   '../desktop-shell': await sourceUrl('desktop-shell.ts'),
   '../desktop-update': await sourceUrl('desktop-update.ts'),
 }));
 
 async function mount(initialCheck, Component = VersionInfo, scenario = {}) {
   globalThis.__calls = []; globalThis.__notify = []; globalThis.__copied = null;
+  globalThis.__loadWebReleaseNotes = scenario.loadReleaseNotes || (async (currentVersion, latestVersion) => ({ currentVersion, latestVersion, releases: [], complete: true }));
   const idle = { running: false, state: 'idle', platform: '', target: '', logFile: '', log: '', message: '暂无更新任务' };
   const running = {
     running: true, state: 'running', platform: 'Windows', target: '桌面端核心服务',
@@ -180,6 +198,64 @@ test('desktop header shows download progress and a guarded restart without confu
   assert.equal(unsubscribed, true);
 });
 
+test('desktop release badges compare against the client version even when the core is already current', async () => {
+  let opened = 0;
+  const cases = [
+    { status: 'unsupported', currentVersion: '26.9.91', latestVersion: '', release: '26.10.2014', highlighted: true },
+    { status: 'idle', currentVersion: '26.9.91', latestVersion: '', release: '26.10.2014', highlighted: true },
+    { status: 'idle', currentVersion: '26.9.91', latestVersion: '26.10.2014', release: undefined, highlighted: true },
+    { status: 'unsupported', currentVersion: '26.10.2014', latestVersion: '', release: '26.10.2014', highlighted: false },
+    { status: 'idle', currentVersion: '26.10.2015', latestVersion: '', release: '26.10.2014', highlighted: false },
+    { status: 'idle', currentVersion: '26.9.91', latestVersion: '', release: undefined, highlighted: false },
+    { status: 'unsupported', currentVersion: 'unknown', latestVersion: '', release: '26.10.2014', highlighted: false },
+  ];
+  for (const scenario of cases) {
+    function Host() { return createElement(Header, { sidebarOpen: true, isHome: true, menu: null,
+      backend: { status: 'connected', ready: true, error: '', version: '26.10.2014' },
+      latestVersion: scenario.release, desktopUpdate: { ...desktopState, ...scenario }, onVersion: () => { opened++; } }); }
+    const view = await mount(undefined, Host);
+    try {
+      const badge = view.container.querySelector('.app-version');
+      assert.equal(badge.classList.contains('has-update'), scenario.highlighted, JSON.stringify(scenario));
+      assert.equal(badge.textContent, scenario.highlighted ? '发现新版' : `v${scenario.currentVersion}`);
+      if (scenario.highlighted) {
+        assert.match(badge.title, /桌面端 v26\.9\.91.*最新 v26\.10\.2014/);
+        await click(badge);
+      }
+    } finally { await view.close(); }
+  }
+  assert.equal(opened, 3);
+});
+
+test('native desktop update progress retains its label and target ahead of the release fallback', async () => {
+  for (const [status, label] of [['available', '发现新版'], ['downloading', '下载中 48%'], ['verifying', '正在验证更新…'], ['downloaded', '重启并安装'], ['installing', '正在安装…'], ['error', '更新失败，重试']]) {
+    function Host() { return createElement(Header, { sidebarOpen: true, isHome: true, menu: null,
+      backend: { status: 'connected', ready: true, error: '', version: '26.9.91' },
+      latestVersion: '26.99.1', desktopUpdate: { ...desktopState, status } }); }
+    const view = await mount(undefined, Host);
+    try {
+      const badge = view.container.querySelector('.app-version');
+      assert.equal(badge.classList.contains('has-update'), true);
+      assert.equal(badge.textContent, label);
+      assert.match(badge.title, /最新 v26\.10\.2002/);
+      assert.doesNotMatch(badge.title, /26\.99/);
+    } finally { await view.close(); }
+  }
+});
+
+test('Web badges remain neutral for an equal or older latest version', async () => {
+  for (const latestVersion of ['26.10.2014', '26.9.91', undefined]) {
+    function Host() { return createElement(Header, { sidebarOpen: true, isHome: true, menu: null,
+      backend: { status: 'connected', ready: true, error: '', version: '26.10.2014' }, latestVersion }); }
+    const view = await mount(undefined, Host);
+    try {
+      const badge = view.container.querySelector('.app-version');
+      assert.equal(badge.classList.contains('has-update'), false);
+      assert.equal(badge.textContent, 'v26.10.2014');
+    } finally { await view.close(); }
+  }
+});
+
 test('a delayed initial desktop state cannot overwrite a newer update event', async () => {
   let listener; let resolveInitial;
   dom.window.electronAPI = { desktopUpdate: {
@@ -218,6 +294,115 @@ test('desktop errors remain actionable and retries do not invoke the core update
     assert.match(view.container.querySelector('[role="alert"]').textContent, /请检查网络/);
     assert.deepEqual(globalThis.__calls, []);
   } finally { await view.close(); delete dom.window.electronAPI; }
+});
+
+test('desktop changelog renders multiple releases, expandable Markdown, and sanitizes publisher HTML', async () => {
+  let requests = 0;
+  dom.window.electronAPI = { desktopUpdate: { getReleaseNotes: async () => {
+    requests++;
+    return { currentVersion: desktopState.currentVersion, latestVersion: desktopState.latestVersion, complete: true,
+      releases: [
+        { version: '26.10.2002', body: '### 新增\n\n- **更新日志**支持跨版本查看\n\n<details><summary>原始记录</summary>提交说明</details>\n\n<script>alert(1)</script><img src=x onerror=alert(1)><a href="javascript:alert(1)">unsafe</a>', publishedAt: '2026-10-21T00:00:00Z', url: 'https://github.com/ezdemo/loopra-release/releases/tag/v26.10.2002' },
+        { version: '26.10.2001', body: '### 修复\n\n- 修复下载问题', publishedAt: '2026-10-20T00:00:00Z', url: 'https://github.com/ezdemo/loopra-release/releases/tag/v26.10.2001' },
+      ] };
+  } } };
+  const controller = { state: desktopState, open: true, close() {}, async check() {}, async install() {}, error: '', blockedReason: '' };
+  function Host() { return createElement(DesktopUpdateDialog, { controller }); }
+  const view = await mount(undefined, Host);
+  try {
+    assert.equal(requests, 1);
+    assert.match(view.container.querySelector('.desktop-release-heading').textContent, /2 个版本/);
+    assert.match(view.container.textContent, /从 v26.10.2001 到 v26.10.2002/);
+    const entries = view.container.querySelectorAll('.desktop-release-entry');
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].open, true);
+    assert.equal(entries[1].open, false);
+    assert.equal(entries[0].querySelector('h3').textContent, '新增');
+    assert.equal(entries[0].querySelector('strong').textContent, '更新日志');
+    assert.ok(entries[0].querySelector('.desktop-release-content details summary'));
+    assert.equal(view.container.querySelector('script,img,[onerror],a[href^="javascript:"]'), null);
+    assert.equal(entries[0].querySelector('.desktop-release-original').rel, 'noopener noreferrer');
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
+
+test('failed desktop changelog loading can retry independently of the installer', async () => {
+  let requests = 0; let installs = 0;
+  dom.window.electronAPI = { desktopUpdate: { getReleaseNotes: async () => {
+    if (++requests === 1) throw new Error('发布服务暂时不可用');
+    return { currentVersion: desktopState.currentVersion, latestVersion: desktopState.currentVersion, complete: true,
+      releases: [{ version: desktopState.currentVersion, body: '', publishedAt: '', url: 'https://github.com/ezdemo/loopra-release/releases' }] };
+  } } };
+  const controller = { state: { ...desktopState, latestVersion: '', status: 'idle', checkedAt: '2026-10-21T01:00:00Z' }, open: true,
+    close() {}, async check() {}, async install() { installs++; }, error: '', blockedReason: '' };
+  function Host() { return createElement(DesktopUpdateDialog, { controller }); }
+  const view = await mount(undefined, Host);
+  try {
+    assert.match(view.container.textContent, /发布服务暂时不可用/);
+    await click(buttonIn(view.container, '重新加载'));
+    assert.equal(requests, 2);
+    assert.match(view.container.textContent, /此版本尚未提供更新说明/);
+    assert.match(view.container.querySelector('.desktop-release-installed').textContent, /当前版本/);
+    assert.equal(installs, 0);
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
+
+test('closing a desktop dialog ignores a late release notes response', async () => {
+  let finish;
+  dom.window.electronAPI = { desktopUpdate: { getReleaseNotes: () => new Promise(resolve => { finish = resolve; }) } };
+  function Host() {
+    const [open, setOpen] = useState(true);
+    return createElement('div', null, createElement('button', { onClick: () => setOpen(false) }, '关闭测试弹窗'),
+      createElement(DesktopUpdateDialog, { controller: { state: desktopState, open, close() {}, async check() {}, async install() {}, error: '', blockedReason: '' } }));
+  }
+  const view = await mount(undefined, Host);
+  try {
+    assert.match(view.container.textContent, /正在加载更新日志/);
+    await click(buttonIn(view.container, '关闭测试弹窗'));
+    await act(async () => finish({ currentVersion: '', latestVersion: '', releases: [], complete: true }));
+    assert.equal(view.container.querySelector('[role="dialog"]'), null);
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
+
+test('Web update confirmation displays core release notes without an Electron bridge or starting installation', async () => {
+  const requests = [];
+  const view = await mount(undefined, VersionInfo, { loadReleaseNotes: async (currentVersion, latestVersion) => {
+    requests.push({ currentVersion, latestVersion });
+    return { currentVersion, latestVersion, complete: true, releases: [
+      { version: '26.10.1', body: '### 新增\n\n- Web 环境支持查看版本更新记录', publishedAt: '2026-10-21T00:00:00Z', url: 'https://github.com/ezdemo/loopra-release/releases/tag/v26.10.1' },
+      { version: '26.9.92', body: '### 修复\n\n- 修复会话连接问题', publishedAt: '2026-10-20T00:00:00Z', url: 'https://github.com/ezdemo/loopra-release/releases/tag/v26.9.92' },
+    ] };
+  } });
+  try {
+    assert.equal(dom.window.electronAPI, undefined);
+    await click(buttonIn(view.container, '更新核心服务'));
+    assert.deepEqual(requests, [{ currentVersion: '26.9.91', latestVersion: '26.10.1' }]);
+    assert.match(view.container.querySelector('.desktop-release-heading').textContent, /2 个版本/);
+    assert.match(view.container.textContent, /从 v26.9.91 到 v26.10.1/);
+    assert.match(view.container.textContent, /Web 环境支持查看版本更新记录/);
+    const entries = view.container.querySelectorAll('.desktop-release-entry');
+    assert.equal(entries[0].open, true);
+    assert.equal(entries[1].open, false);
+    assert.equal(buttonIn(view.container, '开始更新').disabled, false);
+    assert.equal(globalThis.__calls.some(call => call.method === 'POST'), false);
+  } finally { await view.close(); }
+});
+
+test('Web release history failures are independently retryable and never block updating', async () => {
+  let requests = 0;
+  const view = await mount(undefined, VersionInfo, { loadReleaseNotes: async (currentVersion, latestVersion) => {
+    if (++requests === 1) throw new Error('无法连接官方发布服务');
+    return { currentVersion, latestVersion, complete: true, releases: [] };
+  } });
+  try {
+    await click(buttonIn(view.container, '更新核心服务'));
+    assert.match(view.container.textContent, /无法连接官方发布服务/);
+    assert.equal(buttonIn(view.container, '开始更新').disabled, false);
+    assert.equal(view.container.querySelector('.desktop-release-empty a').href, 'https://github.com/ezdemo/loopra-release/releases');
+    await click(buttonIn(view.container, '重新加载'));
+    assert.equal(requests, 2);
+    assert.match(view.container.textContent, /暂无可展示的更新日志/);
+    assert.equal(globalThis.__calls.some(call => call.method === 'POST'), false);
+  } finally { await view.close(); }
 });
 
 test('reads the current version on mount', async () => {

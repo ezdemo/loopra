@@ -201,3 +201,14 @@ test('update IPC rejects other windows, subframes and destroyed main windows', (
   window.isDestroyed = () => true;
   assert.throws(() => handlers.get('desktop-update-install')({ sender: window.webContents, senderFrame: window.webContents.mainFrame }), /无权/);
 });
+
+test('release notes IPC uses the main-process reader and accepts no renderer URL', async () => {
+  let calls = 0;
+  const { controller } = fixture({ getReleaseNotes: async (...args) => { calls++; assert.equal(args.length, 0); return { releases: [] }; } });
+  const handlers = new Map();
+  const window = { webContents: { mainFrame: {} }, isDestroyed: () => false };
+  registerDesktopUpdateIpc({ handle: (name, fn) => handlers.set(name, fn) }, controller, () => window);
+  const result = await handlers.get('desktop-update-getReleaseNotes')({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, 'https://other.invalid');
+  assert.deepEqual(result, { releases: [] });
+  assert.equal(calls, 1);
+});
