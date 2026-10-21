@@ -101,7 +101,7 @@ test('equal/older versions do not download; a current version check clears old e
 });
 
 test('development and other platforms never contact the updater or install', async () => {
-  for (const options of [{ app: { isPackaged: false, getVersion: () => '1.0.0' } }, { platform: 'darwin' }, { platform: 'linux' }]) {
+  for (const options of [{ app: { isPackaged: false, getVersion: () => '1.0.0' } }, { platform: 'linux' }]) {
     const { calls, controller } = fixture(options);
     controller.start(); await controller.check(); await controller.download(); controller.dispose();
     assert.equal(controller.getState().supported, false);
@@ -155,8 +155,8 @@ test('Linux DEB and AppImage download automatically and preserve restart install
   }
 });
 
-test('platform selection never loads an installer for development, ad-hoc macOS or unsupported Linux packages', () => {
-  for (const options of [{ isPackaged: false, platform: 'win32' }, { isPackaged: true, platform: 'darwin' },
+test('platform selection never loads an installer for development or unsupported Linux packages', () => {
+  for (const options of [{ isPackaged: false, platform: 'win32' },
     { isPackaged: true, platform: 'linux', linuxPackageType: 'rpm' }]) {
     assert.equal(loadDesktopUpdater(options, () => { throw new Error('must not load updater'); }), null);
     assert.equal(desktopUpdateSupport(options).supported, false);
@@ -171,7 +171,7 @@ test('platform selection never loads an installer for development, ad-hoc macOS 
   assert.equal(loadDesktopUpdater({ isPackaged: true, platform: 'linux', linuxPackageType: 'deb', appImagePath: '/tmp/Loopra.AppImage' }, load).kind, 'image');
 });
 
-test('reads signing metadata and Linux package identity from the packaged app, failing closed for unmarked builds', () => {
+test('reads signing metadata and Linux package identity; unmarked Mac builds use the custom installer', () => {
   const app = { isPackaged: true, getAppPath: () => '/app' };
   for (const signed of [true, false, 'true', undefined]) {
     const options = readDesktopUpdateOptions(app, { platform: 'darwin', env: {}, readFileSync: () => JSON.stringify({ loopraDesktopUpdate: { macSigned: signed } }) });
