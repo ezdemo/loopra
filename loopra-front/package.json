@@ -5,7 +5,7 @@
   "main": "dist/main/main.cjs",
   "type": "module",
   "description": "Loopra - 智能AI代码助手前端",
-  "homepage": "https://loopra.dev",
+  "homepage": "https://loopra.cn",
   "author": "Loopra Team",
   "license": "MIT",
   "scripts": {

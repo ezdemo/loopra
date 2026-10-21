@@ -5,17 +5,16 @@
 </p>
 
 <p align="center">
-  <strong>纯 Java 的 AI 编码代理</strong><br/>
+  <strong>以 Java 为核心的 AI 编码代理与工作台</strong><br/>
   面向本地代码库的推理循环、工具调用、会话协作与桌面工作台。
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Java-17-blue?logo=openjdk" alt="Java 17"/>
-  <img src="https://img.shields.io/badge/Solon-4.0.6-important?logo=java" alt="Solon 4.0.6"/>
-  <img src="https://img.shields.io/badge/Vue-3.4-4FC08D?logo=vue.js" alt="Vue 3"/>
-  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react" alt="React 18"/>
-  <img src="https://img.shields.io/badge/Electron-42.4-47848F?logo=electron" alt="Electron"/>
-  <img src="https://img.shields.io/badge/version-26.9.91-lightgrey" alt="Version 26.9.91"/>
+  <img src="https://img.shields.io/badge/Java-blue?logo=openjdk" alt="Java"/>
+  <img src="https://img.shields.io/badge/Solon-important" alt="Solon"/>
+  <img src="https://img.shields.io/badge/Vue-4FC08D?logo=vue.js" alt="Vue"/>
+  <img src="https://img.shields.io/badge/React-61DAFB?logo=react" alt="React"/>
+  <img src="https://img.shields.io/badge/Electron-47848F?logo=electron" alt="Electron"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"/>
 </p>
 
@@ -27,7 +26,7 @@
   <a href="#从源码开发">从源码开发</a>
 </p>
 
-> 当前版本：`26.9.91`。完整变更记录见 [CHANGELOG.md](https://github.com/ezdemo/loopra-release/blob/main/CHANGELOG.md)。
+安装包见 [Releases](https://github.com/ezdemo/loopra-release/releases/latest)，变更记录见 [CHANGELOG.md](https://github.com/ezdemo/loopra-release/blob/main/CHANGELOG.md)。
 
 ## 技术交流群
 
@@ -43,10 +42,10 @@ Loopra 将用户任务、模型推理与受控工具调用组织成持续执行�
 
 提供 Web 与 Electron Desktop 工作台，适合在本地代码库中完成开发、排障、测试、文档整理和多步骤协作。
 
-Web 默认使用 React + NextUI 工作台，包含聊天、模型与输入栏、设置和远程模型选择；源码和开发说明见 [loopra-front/web](loopra-front/web/README.md)。Vue 高级控制台保留在 `/legacy.html`，Electron 窗口沿用原实现。
+Web 与 Electron 主窗口默认使用 React + TypeScript + NextUI 工作台，包含项目与会话、聊天、模型配置、工具与集成、文件预览和 Git 面板。Vue 兼容控制台保留在 `/legacy.html`，安装、更新、宠物等独立辅助窗口仍使用 Vue。源码和开发说明见 [前端说明](loopra-front/README.md) 与 [Web 工作台](loopra-front/web/README.md)。
 
 主聊天的 Native ACP 接入、协议扩展与当前迁移范围见 [Native ACP 接入](docs/acp-native.md)。
-外部 Agent 接入见 [Claude Code](docs/acp-claude.md) 和 [Codex](docs/acp-codex.md)，主聊天可在三个引擎间选择。
+外部 Agent 接入见 [Claude Code](docs/acp-claude.md) 和 [Codex](docs/acp-codex.md)。新建会话时可选择引擎；外部引擎需要在后端所在机器安装相应依赖并完成认证，已有消息或远端绑定的会话不能直接切换引擎。下文的内置工具、模型渠道与审批规则主要适用于 Loopra Native，外部引擎的能力取决于各自适配器。
 
 ```text
 任务 -> 模型推理 -> 工具调用 -> 结果反馈 -> 模型推理 -> ... -> 完成
@@ -56,18 +55,18 @@ Web 默认使用 React + NextUI 工作台，包含聊天、模型与输入栏、
 |---|---|
 | 处理代码库任务 | 项目内文件读写、代码检索、命令执行与 API 调用 |
 | 保持任务连续性 | JSONL 会话、上下文折叠、Goal、Checklist 与项目记忆 |
-| 安全地协作 | 工具权限分类、HITL 审批、路径边界与独立校验模型 |
+| 控制工具执行 | 工具权限分类、按模式启用的 HITL 审批与路径审核、可选的独立校验模型 |
 | 使用合适的界面 | Web 管理界面与包含本地进程、文件、Git、浏览器的 Desktop 工作台 |
 
 ## 快速开始
 
-> 建议手动运行下面命令再安装桌面端
+桌面端与命令行安装可分别使用。
 
 桌面端下载地址：[Releases](https://github.com/ezdemo/loopra-release/releases/latest)。
 
-Desktop 首次启动会安装独立运行时到 `~/.loopra-gui`；CLI 仍安装在 `~/.loopra`，两者共用配置目录但不会复用或终止对方的服务进程。Desktop 启动时优先复用本机 `4567` 端口上的健康 Loopra Web 服务，并展示启动窗口（核心服务与依赖管理）；安装包内置核心运行时（`resources/loopra-core`），首次安装优先使用内置包本地安装（无网络也可完成；Java 优先复用系统 Java 17+ 或已有捆绑 JRE，缺失时安装脚本自动下载 JRE 25，也可在启动窗口中选择镜像安装/重装 JRE 25），内置包缺失或本地安装失败时自动回退到在线下载源（GitHub 直连或镜像加速）。下载源支持 GitHub 直连与镜像列表（自动测速并按延迟排序、可一键重测，选中的镜像同时用于 JRE 下载与更新脚本）；更新入口复用启动窗口，可直接更新核心服务与桌面端，也可以暂不更新继续使用。
+Desktop 通过启动页在线安装核心运行时到 `~/.loopra-gui`，配置继续使用 `~/.loopra`；CLI 安装在 `~/.loopra`。桌面端会检查本机 `4567` 端口的服务健康与版本，符合条件时可复用，否则启动自己的核心服务。Java 优先使用系统 Java 17+，也支持已有的捆绑 JRE；缺失时可在依赖管理页下载安装。安装与更新支持 GitHub 直连和镜像源。
 
-### 1. 安装
+### 1. 安装命令行入口
 
 Windows PowerShell：
 
@@ -118,12 +117,12 @@ export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://raw.githubuserc
 npm install -g loopra-dist
 
 # 不需要自动安装时，跳过 postinstall
-npm install --ignore-scripts
+npm install -g loopra-dist --ignore-scripts
 ```
 
-> npm 出于安全默认隐藏生命周期脚本输出（安装会正常跑完）；想看实时进度与镜像测速，用 `npm install -g loopra-dist --foreground-scripts`，或查看 `~/.loopra/install.log`。未设置 `LOOPRA_MIRROR` 时，postinstall 会自动测速各候选 GitHub 代理镜像并选用最快者（全部失败则回退直连）。
+> npm 的生命周期脚本是否执行取决于本机 npm 配置。想看安装进度与镜像测速，可使用 `npm install -g loopra-dist --foreground-scripts`；安装器执行后的日志位于 `~/.loopra/install.log`。未设置 `LOOPRA_MIRROR` 时，postinstall 会测速候选 GitHub 代理镜像并选择可用源，全部失败则回退直连。
 
-> **macOS 用户注意**：桌面端（Releases 中的 `Loopra-*.zip`）目前未做 Apple 签名与公证，首次打开可能提示 **“Loopra”已损坏，无法打开**。这是 macOS Gatekeeper 对未签名应用的拦截，安装包本身没有损坏，按下面任一种方式放行即可：
+> **macOS 用户注意**：未签名或未公证的桌面安装包可能被 Gatekeeper 拦截。确认安装包来自项目 Releases 且下载完整后，可尝试以下方式：
 >
 > 1. 将 `Loopra.app` 拖入「应用程序」后，在终端执行：
 >
@@ -146,7 +145,7 @@ loopra web 0
 
 ### 3. 配置模型渠道
 
-在 Web 设置页维护模型渠道，或直接编辑 `~/.loopra/config.json`。配置 API Key 后重启服务。每个渠道独立维护 API 地址、基础接口类型、特殊兼容与模型能力；`apiProtocol` 只支持 `chat_completions`、`responses` 和 `anthropic`，`specialCompatibility` 默认为空，目前可选 `opencode`。启用后由 OpenCode 兼容插件自动携带稳定的 `x-opencode-session` 会话路由头，适用于 OpenCode Zen/Go 兼容网关。首次使用且尚未配置模型渠道时，界面会显示引导提示，帮助完成 API 地址、密钥和模型配置。
+使用 Loopra Native 时，在设置页维护模型渠道并保存；直接编辑 `~/.loopra/config.json` 后需重启服务以重新加载。每个渠道独立维护 API 地址、密钥、协议、特殊兼容与模型能力。`apiProtocol` 支持 `chat_completions`、`responses` 和 `anthropic`；`specialCompatibility` 默认为空，可选 `opencode`，由兼容插件携带稳定的 `x-opencode-session` 会话路由头。
 
 ```json
 {
@@ -188,13 +187,13 @@ loopra web 0
 | 可扩展工具系统 | 内核基于 cutin 插件化框架，插件支持热插拔、可在设置页管理运行时，并通过 `/plugin add` 一行命令从 jar 直链或本地路径安装外置插件；工具经 Solon `@ToolMapping` 声明式注册，支持内置工具、MCP、OpenAPI、技能和 REST API。 |
 | 拓展包体系 | 基于 Solon H-SPI 的拓展包（ExtPack）机制：安装 jar 即扩展 Agent 工具与拦截能力，设置页可粘贴 jar 地址/本地路径安装，并支持启用/停用与卸载（`~/.loopra/extpacks`）；附 `loopra-extra-demo` 示例工程。 |
 | 代码库操作 | 在项目边界内读取、搜索、编辑文件，运行一次性或交互式命令。 |
-| 子代理协作 | 内置 `explore`、`implement`、`test`、`review`、`plan` 五种角色，支持隔离上下文、权限约束和超时控制；配置可在桌面端编辑并持久化，支持选择渠道模型。 |
+| 子代理协作 | 默认提供 `explore`、`implement`、`test`、`review`、`plan` 五种角色，支持独立上下文、工具范围和超时控制；可在智能体设置中编辑角色与渠道模型。 |
 | 计划模式 | 输入框一键进入只读探索，探索完成后提交计划供用户审查，批准后按计划执行。 |
 | 隔离分支 | 后端按会话维护 Agent 的本地/隔离分支执行根；Electron Desktop 的“环境信息”面板展示真实路径、分支和变更，并负责提交、合并与推送。 |
 | 需求池 | 以看板管理需求，支持 AI 自动执行、评论与执行日志、立即/定时执行，以及按需求配置模型和审批模式。 |
 | 持久协作状态 | Checklist、会话级 Goal、项目记忆和共享上下文支持长任务及父子代理协作。 |
-| 审批与边界 | 三态 HITL、工具白名单、路径边界保护，以及可选的独立校验模型。 |
-| 桌面工作台 | Electron Desktop 提供多聊天标签、文件资源管理器（实时监听磁盘变化）、Monaco 文件编辑器（含 Git 脏文件差异对比）、终端面板（node-pty，支持垂直/水平模式）、环境信息与 Git 操作面板、活动栏、元素检查、服务进程管理、AI 浏览器、需求池窗口、子代理会话面板（回放与续聊）与全局聊天搜索；会话/首页浮层菜单与原生标题栏、左侧边栏可拖拽调整宽度。 |
+| 审批与边界 | 三态 HITL、只读工具与项目内操作审核；`auto` 模式可追加独立校验模型，无法自动批准时转人工。详见下方模式说明。 |
+| 桌面工作台 | React 主工作台通过 Electron 桥接提供文件编辑、原生终端、环境与 Git 操作、进程管理和窗口控制；AI 浏览器、需求池、宠物等使用独立窗口。Web 与 Desktop 的可用功能取决于运行环境。 |
 
 ### 工具与扩展
 
@@ -233,7 +232,7 @@ Loopra 也可以在设置页的「MCP 服务器 → 发布 Loopra 工具」中�
 
 ### 子代理与长期协作
 
-子代理通过 `sub_agent` 派生。`explore`、`review` 和 `plan` 为只读角色；`implement` 与 `test` 可执行经过授权的写操作。每个子代理拥有独立推理上下文，并可经由共享上下文传递结构化结果。
+子代理通过 `sub_agent` 派生。默认配置中，`explore`、`review` 和 `plan` 只读项目内容，但可使用共享上下文进行协作通信；`implement` 与 `test` 可按配置执行写操作。每个子代理拥有独立推理上下文，不能继续派生子代理。
 
 项目记忆只保存稳定、可复用的项目事实，例如架构约定、已知限制和用户偏好。复杂任务可使用会话级 Goal 记录步骤、证据、阻塞原因与验证结果；Checklist 用于展示有序执行进度。
 
@@ -243,11 +242,11 @@ Loopra 也可以在设置页的「MCP 服务器 → 发布 Loopra 工具」中�
 
 | 模式 | 行为 |
 |---|---|
-| `free` | 所有工具直接执行。 |
-| `approval` | 非只读工具执行前等待用户批准。 |
-| `auto` | 白名单工具自动放行，其余调用等待批准。 |
+| `free` | 跳过工具审批审核，包括审核链的项目边界检查；工具自身的参数校验仍生效。 |
+| `approval` | 自动放行只读工具、普通项目内文件写入和可识别的项目内命令；其余调用转人工审批。 |
+| `auto` | 先应用与 `approval` 相同的规则，再使用已配置的校验模型审核剩余调用；未配置、未批准或审核失败时转人工。 |
 
-可配置 `validationModel` 与 `validationModelChannelId`，让独立模型在人工审批前评估高风险工具调用。无论当前模式或校验结果如何，访问项目边界外的路径仍需要人工确认。
+`validationModel` 与 `validationModelChannelId` 用于 `auto` 模式的独立 AI 审核。在 `approval` 与 `auto` 模式中，审核链识别到项目外文件写入或命令目标时会先要求人工确认，不能由校验模型放行。`free` 不提供这层审批约束。这是应用层审核，不是操作系统沙箱。
 
 ## 配置参考
 
@@ -280,22 +279,22 @@ Loopra 也可以在设置页的「MCP 服务器 → 发布 Loopra 工具」中�
 
 ### Web 与 Desktop
 
-`loopra web [port]` 启动 Web 服务，控制台会输出本地访问地址。Web 界面支持会话、项目、工具、模型渠道、Git 和配置管理，并提供需求池 API；Electron Desktop 在此基础上增加本地进程、文件资源管理器与文件编辑器、终端、浏览器、需求池窗口和桌面上下文菜单能力。
+`loopra web [port]` 启动 Web 服务，控制台会输出本地访问地址。Web 界面支持会话、项目、工具、模型渠道、文件预览、Git、配置与需求管理；Electron Desktop 增加原生终端、文件编辑、进程管理、AI 浏览器及独立辅助窗口。文件、命令与系统目录操作发生在后端所在机器。
 
 ### 聊天命令
 
-在聊天输入框中使用以下命令：
+Loopra Native 的常用命令与入口如下；完整列表以界面命令菜单和 `/help` 为准。外部 ACP Agent 的命令由各自引擎提供。
 
 | 命令 | 用途 |
 |---|---|
 | `/help` | 显示可用命令。 |
-| `/new` | 创建会话。 |
-| `/sessions` / `/load N` | 查看和加载历史会话。 |
+| 侧栏新建与会话列表 | 创建、打开与管理项目会话。 |
 | 计划模式按钮 | 输入框左侧按钮进入只读计划模式，探索完成后提交计划供审查，批准后自动按计划执行。 |
 | `/compact` | 手动折叠历史上下文。 |
 | `/goal ...` | 创建、查看、暂停、恢复、阻塞或完成会话目标。 |
 | `/hitl` / `/agree` / `/deny` | 切换审批模式或处理待审批工具调用。 |
-| `/retry` / `/rewind N` / `/continue` | 管理当前回复的重试、回退和继续。 |
+| `/continue` | 继续当前任务。 |
+| `/plugin ...` | 管理运行时插件。 |
 | `/init` | 分析项目并生成项目文档。 |
 
 ### 输入框辅助功能
@@ -303,23 +302,23 @@ Loopra 也可以在设置页的「MCP 服务器 → 发布 Loopra 工具」中�
 输入框底部的“常用要求”用于管理个人预设，数据保存到 `~/.loopra/prompt-presets.json`；点击预设会直接追加到当前输入框，首次使用时列表默认为空。生成期间发送的新消息会排队显示，可移除，也可以引导发送以停止当前生成并立即处理排队消息。重新打开或切换到仍在后台执行的会话时，输入区会保持锁定并提供停止入口，直到任务结束。
 ### ACP
 
-Web 进程可通过启动参数启用 Agent Client Protocol：
+Loopra 可以作为 ACP Agent 供外部客户端连接：
 
 ```bash
-# stdio 模式
-loopra web 0 --loopra.acp=true
+# stdio 模式（仅启动 ACP，不启动 HTTP 服务）
+loopra acp
 
 # WebSocket 模式
-loopra web 0 --loopra.acp=true --loopra.acp.ws.port=8765
+loopra acp 8765
 ```
 
 ## 从源码开发
 
 ### 前置条件
 
-- JDK 17
+- JDK 17+
 - Maven 3.9+
-- Node.js 18+
+- Node.js `^20.19.0` 或 `>=22.12.0`（以 `loopra-front/package.json` 的 `engines` 为准）
 - pnpm 8+
 
 ### 构建与测试
@@ -346,7 +345,10 @@ pnpm install
 # 启动前端开发服务
 pnpm dev
 
-# 运行前端测试并构建
+# 验证 React 工作台
+pnpm test:web
+
+# 运行 Vue 测试并构建全部前端入口
 pnpm test -- --run
 pnpm build
 
@@ -354,20 +356,23 @@ pnpm build
 pnpm dev:electron
 ```
 
+前端开发地址为 `http://127.0.0.1:3000/`，`/api` 默认代理到本机 `4567` 端口；单独开发前端时，先运行 `loopra web 4567`，或在设置中指定实际服务地址。`pnpm build` 输出到 `loopra-front/dist/renderer`；同步到 Java 静态资源及桌面打包由发版仓库脚本完成，单独执行 Maven 不会构建 React/Vue 源码。
+
 ## 项目结构
 
 ```text
 loopra/
 ├── cutin/           # Cutin 核心框架：插件化生命周期、ModelProvider、工具注册表、循环引擎
 ├── loopra/          # 基于 cutin 的单模块 Loopra：Agent 内核、内置工具、ACP、Solon Web、发布打包
-├── loopra-front/    # Vue 前端与 Electron Desktop
+├── loopra-front/    # React 主工作台、Vue 兼容/辅助页面与 Electron Desktop
+├── loopra-extra-demo/ # 拓展包示例（不在根 Maven 聚合模块中）
 ├── intro/           # 官网内容
 ├── docs/            # 项目文档
 ├── .workflow/       # 后端检查脚本与 Maven 配置
 └── .github/         # GitHub Actions 源码测试
 ```
 
-安装与发版工作流已迁至 [loopra-release](https://github.com/ezdemo/loopra-release)，固定从本仓库 `main` 取源码构建。操作与迁移配置见 [发版说明](docs/release.md)。
+安装与发版工作流位于 [loopra-release](https://github.com/ezdemo/loopra-release)，发布配置与操作以该仓库为准。应用版本由自动发布流程写入构建所需文件，README 不维护固定发布版本。
 
 ### 模块依赖关系
 
@@ -384,9 +389,10 @@ loopra      →  cutin
 
 | 层 | 技术 |
 |---|---|
-| 核心 | Java 17、Solon 4.0.6、Snack4、OkHttp |
+| 核心 | Java、Cutin、Solon、Snack4、OkHttp |
 | Web | Solon Web、Jetty、SSE、Knife4j |
-| 前端 | Vue 3、Vite、Pinia、Ant Design Vue |
+| 主工作台 | React、TypeScript、NextUI、Vite |
+| 兼容与辅助页面 | Vue、Pinia、Ant Design Vue |
 | 桌面 | Electron、electron-builder |
 | 协议 | MCP、OpenAPI、ACP、Chat Completions API、OpenCode 兼容网关、Responses API、Anthropic Messages API |
 | 持久化 | JSONL 会话、项目本地 JSON、项目 Markdown 记忆 |
