@@ -228,6 +228,41 @@ test('file change accumulation preserves the reversible patches', () => {
   assert.deepEqual(message.blocks[0].changes, [{ path: 'a.ts', additions: 3, deletions: 1, created: true, diff: 'patch1\npatch2' }]);
 });
 
+test('tool output snapshots update running calls by ID and survive final results and history reload', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  for (const toolCallId of ['read', 'shell']) message = applyEvent(message, { type: 'tool_call', toolCallId, name: 'Read', args: { path: toolCallId } });
+  message = applyEvent(message, { type: 'tool_update', toolCallId: 'read', result: 'first\n' });
+  message = applyEvent(message, { type: 'tool_update', toolCallId: 'shell', result: 'error\n' });
+  message = applyEvent(message, { type: 'tool_update', toolCallId: 'read', result: 'first\nsecond\n' });
+  assert.equal(message.blocks[0].result, 'first\nsecond\n');
+  assert.equal(message.blocks[0].status, '执行中');
+  assert.equal(message.blocks[1].result, 'error\n');
+  assert.deepEqual(message.blocks[0].args, { path: 'read' });
+  const saved = 'first\nsecond\n\nExit code: 0';
+  message = applyEvent(message, { type: 'tool_result', toolCallId: 'read', result: saved, status: 'completed' });
+  message = applyEvent(message, { type: 'tool_result', toolCallId: 'shell', result: 'error\n\nExit code: 7', status: 'failed' });
+  assert.equal(message.blocks[0].result, saved, 'the final snapshot replaces, rather than appends to, live output');
+  assert.equal(message.blocks[1].status, '失败');
+  const [reloaded] = historyMessages([
+    { role: 'assistant', tool_calls: [{ id: 'read', function: { name: 'Read', arguments: '{}' } }, { id: 'shell', function: { name: 'Run', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'read', content: saved },
+    { role: 'tool', tool_call_id: 'shell', content: '[failed] error\n\nExit code: 7' },
+  ]);
+  assert.equal(reloaded.blocks[0].result, saved);
+  assert.equal(reloaded.blocks[1].status, '失败', 'persisted external-agent failures retain their status');
+});
+
+test('live child tool output stays isolated from a parent call with the same ID', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  message = applyEvent(message, { type: 'tool_call', toolCallId: 'read', name: 'Read' });
+  message = applyEvent(message, { type: 'sub_start', subId: 'child', task: 'Explore' });
+  message = applyEvent(message, { type: 'sub_tool_call', subId: 'child', toolCallId: 'read', name: 'Read' });
+  message = applyEvent(message, { type: 'sub_tool_update', subId: 'child', toolCallId: 'read', result: 'child output' });
+  assert.equal(message.blocks[0].result, undefined);
+  assert.equal(message.blocks[1].blocks[0].result, 'child output');
+  assert.equal(message.blocks[1].blocks[0].status, '执行中');
+});
+
 test('sub-agent output stays isolated and approvals preserve backend IDs and values', () => {
   let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
   message = applyEvent(message, { type: 'sub_start', subId: 7, task: 'Explore' });

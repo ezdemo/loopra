@@ -111,6 +111,7 @@ export function subSessionBlocks(events: SubSessionEvent[]) {
       if (target?.type === 'tool_call') {
         if (event.name) target.name = event.name;
         if (event.args != null) target.args = argsObject(event.args);
+        if (event.result != null) target.result = text(event.result);
       }
       return;
     }

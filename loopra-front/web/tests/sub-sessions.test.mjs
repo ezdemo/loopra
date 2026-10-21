@@ -101,6 +101,22 @@ test('empty content segments do not create blank blocks', () => {
   assert.deepEqual(blocks, []);
 });
 
+test('subagent replay applies cumulative tool output without appending it twice or completing early', () => {
+  const events = [
+    { type: 'sub_tool_call', toolCallId: 'read', name: 'Read', args: { path: 'a.txt' } },
+    { type: 'sub_tool_update', toolCallId: 'read', result: 'first\n' },
+    { type: 'sub_tool_update', toolCallId: 'read', result: 'first\nsecond\n' },
+  ];
+  const running = subSessionBlocks(events);
+  assert.equal(running.blocks[0].result, 'first\nsecond\n');
+  assert.equal(running.blocks[0].status, '执行中');
+  assert.deepEqual(running.blocks[0].args, { path: 'a.txt' });
+  const result = 'first\nsecond\n\nExit code: 0';
+  const finished = subSessionBlocks([...events, { type: 'sub_tool_result', toolCallId: 'read', result, status: 'completed' }]);
+  assert.equal(finished.blocks[0].result, result);
+  assert.equal(finished.blocks[0].status, '成功');
+});
+
 // A replayed run can stop without a sub_end, so a duration derived from its start
 // would keep counting forever. The tab asks the shared renderer to omit it.
 test('the replayed sub-agent turn never shows an elapsed-time header', async () => {

@@ -39,6 +39,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final Map<String, PendingPermission> permissions = new ConcurrentHashMap<>();
     private final Map<String, String> toolNames = new ConcurrentHashMap<>();
+    private final Map<String, AcpToolOutput> toolOutputs = new ConcurrentHashMap<>();
     /** Raw input of each announced tool call, used to title a subagent's Agent/Task block. */
     private final Map<String, Object> toolInputs = new ConcurrentHashMap<>();
     /** Agent/Task tool calls that own a rendered subagent block. */
@@ -247,7 +248,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
                 new ClientCapabilities(new FileSystemCapability(false, false), false, new ElicitationCapabilities(Map.of(), null, null),
                         // Native events for Loopra; the historical Claude Code capability that keeps
                         // a subagent's transcript on the root session so it can be nested in the UI.
-                        Map.of(AcpAgentOutput.EXTENSION, true, SUBAGENT_TRANSCRIPT, true)),
+                        Map.of(AcpAgentOutput.EXTENSION, true, SUBAGENT_TRANSCRIPT, true, "terminal_output_delta", true)),
                 new Implementation("loopra-workbench", "26.9.91", "Loopra Workbench"), null));
         if (initialized.protocolVersion() == null || initialized.protocolVersion() != 1) {
             throw new IllegalStateException("Agent did not negotiate ACP v1");
@@ -299,6 +300,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         toolNames.keySet().removeIf(id -> !subToolParents.containsKey(id));
         toolInputs.keySet().removeIf(id -> !subToolParents.containsKey(id));
         toolDiffs.keySet().removeIf(id -> !subToolParents.containsKey(id));
+        toolOutputs.keySet().removeIf(id -> !subToolParents.containsKey(id));
         // Subagent routing survives the turn: a background Agent can start before a prompt
         // boundary and finish after the next one, and re-sending sub_start would truncate
         // the replay. Its call ids are unique, so stale entries cannot collide.
@@ -354,7 +356,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
             if (subId == null) output.onToolCall(call.toolCallId(), name, ONode.serialize(call.rawInput()));
             else sendSubEvent(subId, "sub_tool_call", Map.of("toolCallId", call.toolCallId(), "name", name,
                     "args", call.rawInput() == null ? "{}" : ONode.serialize(call.rawInput())));
-            finishTool(call.toolCallId(), key, name, call.status(), call.rawOutput(), call.content(), subId);
+            reportToolOutput(call.toolCallId(), key, name, call.status(), call.rawOutput(), call.content(), call.meta(), subId);
             if (child == null) finishSubAgent(call.toolCallId(), call.status(), call.rawOutput());
             if (child == null) acceptCodexCollaboration(name, call.rawInput());
         } else if (update instanceof ToolCallUpdateNotification call) {
@@ -373,7 +375,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
                             "args", call.rawInput() == null ? "{}" : ONode.serialize(call.rawInput())));
                 }
             }
-            finishTool(call.toolCallId(), key, name, call.status(), call.rawOutput(), call.content(), subId);
+            reportToolOutput(call.toolCallId(), key, name, call.status(), call.rawOutput(), call.content(), call.meta(), subId);
             if (child == null) finishSubAgent(call.toolCallId(), call.status(), call.rawOutput());
             if (child == null) acceptCodexCollaboration(name, call.rawInput());
         } else if (child == null && update instanceof UsageUpdate usage) {
@@ -590,15 +592,25 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         output.sendEvent("usage", ONode.serialize(event));
     }
 
-    private void finishTool(String id, String key, String name, ToolCallStatus status, Object raw,
-                            List<ToolCallContent> content, String subId) {
-        if (status != ToolCallStatus.COMPLETED && status != ToolCallStatus.FAILED) return;
-        String result = raw instanceof String value ? value : raw != null ? ONode.serialize(raw) : toolText(content);
-        boolean failed = status == ToolCallStatus.FAILED;
+    private void reportToolOutput(String id, String key, String name, ToolCallStatus status, Object raw,
+                                  List<ToolCallContent> content, Map<String, Object> meta, String subId) {
+        AcpToolOutput accumulated = toolOutputs.computeIfAbsent(key, ignored -> new AcpToolOutput());
+        String previous = accumulated.text();
+        accumulated.update(raw, content, meta);
+        String result = accumulated.text();
+        if (status != ToolCallStatus.COMPLETED && status != ToolCallStatus.FAILED) {
+            if (!previous.equals(result)) {
+                Map<String, Object> event = Map.of("toolCallId", id, "result", result);
+                if (subId == null) output.sendEvent("tool_update", ONode.serialize(event));
+                else sendSubEvent(subId, "sub_tool_update", event);
+            }
+            return;
+        }
+        boolean failed = status == ToolCallStatus.FAILED || accumulated.failed();
         if (subId == null) output.onToolResult(id, name, result, failed);
         else sendSubEvent(subId, "sub_tool_result", Map.of("toolCallId", id, "name", name,
                 "result", result, "status", failed ? "failed" : "completed"));
-        if (status == ToolCallStatus.COMPLETED && !replaying) reportFileChanges(key);
+        if (!failed && !replaying) reportFileChanges(key);
     }
 
     /**
@@ -704,12 +716,6 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     private static String toolName(String title, Map<String, Object> meta) {
         return meta != null && meta.get("loopra.dev/toolName") instanceof String name ? name
                 : title == null ? "unknown" : title;
-    }
-    private static String toolText(List<ToolCallContent> content) {
-        if (content == null) return "";
-        return content.stream().filter(ToolCallContentBlock.class::isInstance).map(ToolCallContentBlock.class::cast)
-                .map(ToolCallContentBlock::content).filter(TextContent.class::isInstance).map(TextContent.class::cast)
-                .map(TextContent::text).collect(java.util.stream.Collectors.joining("\n"));
     }
     private record PendingPermission(List<PermissionOption> options, Map<String, Object> event,
                                      CompletableFuture<RequestPermissionResponse> answer) {}
