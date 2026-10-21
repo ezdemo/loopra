@@ -73,7 +73,7 @@ export const useCollapseAll = () => {};`),
   '../file-stats': await sourceUrl('file-stats.ts'),
   '../lib': dataUrl('export const getSessionMessages = session => session.messages;'),
   './ui': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const IconButton = ({ label, children }) => createElement('button', { type: 'button', 'aria-label': label }, children);`),
+export const IconButton = ({ label, children, onClick }) => createElement('button', { type: 'button', 'aria-label': label, onClick }, children);`),
   './BlockRenderer': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});
 export default ({ blocks }) => createElement('div', { className: 'blocks-stub' }, blocks.map((block, index) => createElement('p', { key: index }, block.content || block.type)));`),
   './ImagePreview': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});
@@ -180,6 +180,47 @@ const renderMessages = async (messages, extra = {}) => {
   return { container, async close() { await act(async () => root.unmount()); container.remove(); } };
 };
 const longSession = () => Array.from({ length: 80 }, (_, index) => ({ id: `m${index}`, role: index % 2 ? 'assistant' : 'user', text: `消息 ${index}` }));
+
+test('external agents expose only copy actions even when history includes rollback metadata', async () => {
+  const messages = [
+    { id: 'u1', role: 'user', text: '问', rollbackId: 'rollback', rollbackTimestamp: 123, snapshotId: 'snapshot' },
+    { id: 'a1', role: 'assistant', text: '答', historyCount: 2 },
+  ];
+  for (const agentId of ['codex', 'claude-code', 'custom-acp']) {
+    const view = await renderMessages(messages, {
+      session: { id: 's', title: 't', workspace: 'w', kind: 'mock', agentId, messages },
+    });
+    try {
+      assert.deepEqual([...view.container.querySelectorAll('.msg-actions button')].map(button => button.getAttribute('aria-label')), ['复制消息', '复制回复'], agentId);
+    } finally { await view.close(); }
+  }
+});
+
+test('native and legacy sessions retain working edit, rollback and branch actions', async () => {
+  const messages = [
+    { id: 'u1', role: 'user', text: '问', rollbackId: 'rollback' },
+    { id: 'a1', role: 'assistant', text: '答', historyCount: 2 },
+  ];
+  for (const agentId of ['native', undefined]) {
+    const calls = [];
+    const view = await renderMessages(messages, {
+      session: { id: 's', title: 't', workspace: 'w', kind: 'mock', agentId, messages },
+      onEdit: text => calls.push(['edit', text]),
+      onRollback: message => calls.push(['rollback', message.id]),
+      onBranch: id => calls.push(['branch', id]),
+    });
+    try {
+      for (const label of ['重新编辑消息', '撤回到此消息', '继续到新会话']) {
+        const button = view.container.querySelector(`[aria-label="${label}"]`);
+        assert.ok(button, label);
+        await act(async () => button.click());
+      }
+      assert.deepEqual(calls, [['edit', '问'], ['rollback', 'u1'], ['branch', 'a1']]);
+      assert.ok(view.container.querySelector('[aria-label="复制消息"]'));
+      assert.ok(view.container.querySelector('[aria-label="复制回复"]'));
+    } finally { await view.close(); }
+  }
+});
 
 test('long sessions mount only the leading slice and reserve a bottom spacer', async () => {
   const view = await renderMessages(longSession());
