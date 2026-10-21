@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Notification, session, net: electronNet } = require('electron')
+const { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Notification, session, net: electronNet } = require('electron')
 const http = require('http')
 const path = require('path')
 const { spawn, execFile, execSync } = require('child_process')
@@ -13,6 +13,8 @@ const { registerTerminalIpc, killAllTerminals } = require('./terminal.cjs')
 const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
 const { registerOnboardingIpc } = require('./onboarding.cjs')
 const { DesktopNativeOverlayManager } = require('./desktop-overlay.cjs')
+const { registerDesktopContextMenus } = require('./desktop-context-menu.cjs')
+const { createDesktopTheme, registerDesktopThemeIpc } = require('./desktop-theme.cjs')
 const fs = require('fs')
 const net = require('net')
 
@@ -63,8 +65,11 @@ const DESKTOP_CHAT_DEV_RENDERER_ORIGINS = ['http://127.0.0.1:3000', 'http://loca
 const DESKTOP_CHAT_LOAD_ATTEMPTS = DESKTOP_CHAT_DEV_RENDERER_ORIGINS.length
 const DESKTOP_CHAT_LOAD_RETRY_DELAY_MS = 200
 const DESKTOP_CHAT_LOAD_TIMEOUT_MS = 10000
-// Keep developer context menus suppressed across the full resizable sidebar.
-const DESKTOP_SIDEBAR_CONTEXT_WIDTH = 440
+const desktopTheme = createDesktopTheme(nativeTheme)
+registerDesktopContextMenus({
+  app, BrowserWindow, Menu, clipboard,
+  beforePopup: () => desktopTheme.applyMenuTheme(nativeTitleBarTheme)
+})
 
 let mainWindow = null
 let splashWindow = null
@@ -73,6 +78,7 @@ let onboardingWindow = null
 let loopraWebProcess = null
 let currentPort = 0
 let currentElectronProxyAddress = ''
+registerDesktopThemeIpc({ ipcMain, getMainWindow: () => mainWindow, theme: desktopTheme })
 const desktopUpdateOptions = readDesktopUpdateOptions(app)
 const desktopUpdateSourceFile = path.join(app.getPath('userData'), 'desktop-update.json')
 const desktopReleaseNotes = createDesktopReleaseNotes({
@@ -1035,22 +1041,6 @@ function createWindow() {
   mainWindow.on('unmaximize', syncNativeOverlays)
   mainWindow.on('restore', syncNativeOverlays)
 
-  mainWindow.webContents.on('context-menu', (event, params) => {
-    // 侧栏项目/会话由渲染进程分别请求自己的菜单；不要再让旧的开发菜单覆盖它。
-    if (Number(params?.x) < DESKTOP_SIDEBAR_CONTEXT_WIDTH) {
-      event.preventDefault()
-      return
-    }
-    const menu = Menu.buildFromTemplate([
-      { label: '检查元素', click: () => mainWindow.webContents.inspectElement(params.x, params.y) },
-      { type: 'separator' },
-      { role: 'reload', label: '刷新' },
-      { role: 'forceReload', label: '强制刷新' },
-      { role: 'toggleDevTools', label: '开发者工具' }
-    ])
-    menu.popup()
-  })
-
   mainWindow.on('closed', () => {
     if (elementInspectorWindow && !elementInspectorWindow.isDestroyed()) elementInspectorWindow.close()
     if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.close()
@@ -1852,8 +1842,7 @@ ipcMain.handle('window-close', (event) => {
 ipcMain.handle('window-is-maximized', () => mainWindow ? mainWindow.isMaximized() : false)
 // A native menu remains above WebContentsView-backed desktop chat tabs.
 function applyNativeMenuTheme(rawTheme) {
-  const themeSource = rawTheme === 'dark' ? 'dark' : 'light'
-  if (nativeTheme.themeSource !== themeSource) nativeTheme.themeSource = themeSource
+  desktopTheme.applyMenuTheme(rawTheme)
 }
 
 ipcMain.handle('desktop-home-context-menu', (event, rawTheme) => {

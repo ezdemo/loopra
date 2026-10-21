@@ -19,7 +19,10 @@ export type DesktopProxyApi = {
   set?: (address: string) => Promise<{ success?: boolean; proxy?: string; error?: string }>;
 };
 
+export type DesktopThemeSource = 'dark' | 'light' | 'system';
+
 type ElectronApi = {
+  desktopTheme?: { set?: (source: DesktopThemeSource) => Promise<unknown> | unknown };
   desktopUpdate?: import('./desktop-update').DesktopUpdateApi;
   isElectron?: boolean;
   platform?: string;
@@ -33,6 +36,14 @@ function currentWindow(): (Window & { electronAPI?: ElectronApi | null }) | null
 
 export function electronApi(): ElectronApi | null {
   return currentWindow()?.electronAPI || null;
+}
+
+export function desktopThemeSource(preference: string): DesktopThemeSource {
+  return preference === '深色' ? 'dark' : preference === '浅色' ? 'light' : 'system';
+}
+
+export async function syncDesktopTheme(preference: string): Promise<void> {
+  await electronApi()?.desktopTheme?.set?.(desktopThemeSource(preference));
 }
 
 // Only treat the window as desktop-managed when the preload bridge actually
