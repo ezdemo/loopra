@@ -17,6 +17,15 @@ export const projectSkillsOf = (data?: ProjectCapabilitiesData | null) => (data?
 export const mcpServersOf = (data?: ProjectCapabilitiesData | null) => data?.mcpServers || [];
 export const mcpToolCount = (servers: ProjectMcpServer[]) => servers.reduce((total, server) => total + (server.toolCount || 0), 0);
 
+export function filterProjectCapabilities(data: ProjectCapabilitiesData | undefined, search: string) {
+  const query = search.trim().toLocaleLowerCase();
+  const matches = (values: (string | undefined)[]) => !query || values.some(value => value?.toLocaleLowerCase().includes(query));
+  return {
+    skills: projectSkillsOf(data).filter(skill => matches([skill.name, skill.description, skill.path])),
+    servers: mcpServersOf(data).filter(server => matches([server.name, mcpTypeLabel(server.type), ...(server.toolNames || [])])),
+  };
+}
+
 export function mcpTypeLabel(type?: string) {
   const labels: Record<string, string> = { stdio: 'stdio', sse: 'SSE', streamable: 'Streamable HTTP', http: 'HTTP' };
   return (type && labels[type]) || type || 'MCP';

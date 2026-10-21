@@ -1,7 +1,7 @@
 import { Collapse, Disclosure, useCollapseAll } from './Motion';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { Brain, Check, ChevronDown, Circle, FileCode2, FileDiff, LoaderCircle, PanelRight, Undo2, X } from 'lucide-react';
+import { Brain, Check, ChevronDown, Circle, FileCode2, FileDiff, ListTree, LoaderCircle, PanelRight, Undo2, X } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
 import { chainBlocks } from '../chat';
 import { toolParam } from '../tool-params';
@@ -106,11 +106,6 @@ function ReasoningPreview({ content, streaming }: { content: string; streaming: 
   return <span ref={ref} className="reasoning-preview" data-streaming={streaming} title={preview}>{preview || '思考'}</span>;
 }
 
-function chainStatus(steps: ChatBlock[]): ToolStatus {
-  const states = steps.map(step => step.type === 'tool_call' || step.type === 'sub_agent' ? step.status : '成功');
-  return states.includes('执行中') ? '执行中' : states.includes('失败') ? '失败' : '成功';
-}
-
 function Step({ block, streaming = false, ...actions }: StepProps) {
   if (block.type === 'reasoning' || block.type === 'reasoning_started') {
     // Thinking is shown as plain text: Markdown parsing/highlighting of streamed reasoning only burns CPU.
@@ -126,13 +121,13 @@ function Step({ block, streaming = false, ...actions }: StepProps) {
 }
 
 function Chain({ steps, streaming = false, ...actions }: { steps: ChatBlock[]; streaming?: boolean } & BlockActions) {
-  const status = chainStatus(steps);
+  const running = steps.some(step => (step.type === 'tool_call' || step.type === 'sub_agent') && step.status === '执行中');
   const tools = steps.filter((step): step is Extract<ChatBlock, { type: 'tool_call' }> => step.type === 'tool_call');
   const thoughts = steps.filter(step => step.type === 'reasoning' || step.type === 'reasoning_started').length;
   const names = [...new Set(tools.map(tool => tool.name))];
   const summary = [thoughts ? `${thoughts} 次思考` : '', tools.length ? `${tools.length} 次工具` : ''].filter(Boolean).join(' · ');
   return <Disclosure className="block-chain" headingClass="chain-head" heading={<>
-    <StatusIcon status={status} /><span className="chain-summary">{summary}</span>
+    {running ? <StatusIcon status="执行中" /> : <ListTree size="0.9375rem" />}<span className="chain-summary">{summary}</span>
     {names.length > 0 && <span className="chain-tools">{names.join(' → ')}</span>}<ChevronDown size="0.875rem" />
   </>}><div className="chain-steps">{steps.map((step, index) => <Step key={step.id} block={step} streaming={streaming && index === steps.length - 1} {...actions} />)}</div></Disclosure>;
 }

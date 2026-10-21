@@ -2,7 +2,9 @@
 
 桌面正式版使用 `electron-updater`，支持 Windows NSIS、Linux DEB/AppImage 和使用 Developer ID Application 正式签名的 macOS ZIP。启动 10 秒后检查更新，每 4 小时再检查一次；发现正式新版后后台下载。顶部显示下载进度，完成后提供“重启并安装”。正常退出时也会自动安装，运行中的会话不会因下载完成而被强制关闭。显式重启按钮在当前任务或核心服务更新期间禁用。
 
-桌面版本读取 Electron `app.getVersion()`；核心服务版本仍单独显示。更新包来自 `ezdemo/loopra-release` 的 GitHub Releases，不接受渲染进程指定的更新地址。更新请求和下载使用设置中的 Electron 代理。开发模式、临时签名的 macOS 版本及未知 Linux 打包方式保留发布页下载，并显示原因。
+桌面版本读取 Electron `app.getVersion()`；核心服务版本仍单独显示。桌面更新弹窗提供与核心更新相同的 GitHub 直连和 ghproxy 镜像列表，选择保存在 Electron 用户数据目录的 `desktop-update.json`，重启后自动恢复。更新清单与安装包均使用所选下载源；切换时先取消并等待旧下载结束，再重新检查并下载。验证、下载完成及安装期间禁止切换，避免替换已准备好的更新。
+
+更新包来自 `ezdemo/loopra-release` 的 GitHub Releases。主进程只接受内置列表中的源，固定官方仓库地址；直连使用 GitHub provider，镜像使用固定 Releases 下载目录的 generic provider。镜像下载关闭差分与多段 Range 请求，保留安装包完整性校验及平台签名验证。更新请求和下载仍使用设置中的 Electron 网络代理。开发模式、临时签名的 macOS 版本及未知 Linux 打包方式保留发布页下载，并显示原因。
 
 桌面更新弹窗展示当前版本、目标版本、下载大小和速度，以及当前版本之后至目标版本的正式发布日志；已是最新版时展示当前版本的说明。日志通过受主窗口校验的 IPC 在主进程中读取固定的官方 GitHub Releases API，遵循 Electron 会话代理，排除草稿和预发布，按版本从新到旧排列。请求合并并缓存 5 分钟，发现缓存之外的新目标会立即刷新；20 秒超时，可独立重试，不影响后台更新。最多分页读取最近 1000 条发布记录，历史超出范围时显示提示。Markdown 保留分类和折叠提交记录，过滤不安全 HTML，隐藏重复的下载链接和构建元数据。
 

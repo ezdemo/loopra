@@ -42,6 +42,7 @@ function harness() {
     backend: { status: 'connected', ready: true }, workspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
     preferences: { sound: false, notifications: false }, composerContext: context, emptyContext: context, composerConfigBusy: false,
     LARGE_PASTE_THRESHOLD_CHARS: 10000, preparedNewSession: { current: null },
+    seededConfigAt: { current: {} }, setAgentConfigs: () => {},
     userScrolledAway: { current: false }, scrollArea: { current: null }, agentConfigKey: 'a::external',
     notify: text => notices.push(text), composeOutgoing: text => text,
     sessionQuery: target => `workspaceHash=${target.workspaceHash}&sessionName=${target.name}`,
@@ -60,7 +61,7 @@ function harness() {
         if (path === '/chat/abort') { await abortGate?.promise; return; }
         if (path.startsWith('/agent/session-status')) return { running };
         if (path.startsWith('/agent/history')) return [];
-        if (path.startsWith('/sessions/new')) return { sessionName: 'first' };
+        if (path === '/agent-engines/prepare') return { sessionName: 'first', agentId: 'external', configOptions: [] };
       },
       stream(body, onEvent, signal) {
         const done = deferred();
@@ -99,7 +100,7 @@ test('interrupting the first reply waits for abort and backend idle, then keeps 
   assert.equal(h.streams.length, 1, 'abort acknowledgement is not backend completion');
   h.setRunning(false);
   await until(() => h.streams.length === 2);
-  assert.equal(h.requests.filter(item => item.path.startsWith('/sessions/new')).length, 1);
+  assert.equal(h.requests.filter(item => item.path === '/agent-engines/prepare').length, 1);
   assert.deepEqual([h.streams[1].body.workspaceHash, h.streams[1].body.sessionName, h.streams[1].body.agentId], ['a', 'first', 'external']);
   assert.equal(h.streams[1].body.message, 'change direction');
   assert.equal(h.drafts.length, 1, 'a queued send preserves the newly edited draft');
@@ -123,7 +124,7 @@ test('the initial Home callback drains multiple queued turns in the original ses
   await until(() => !h.shared.activeRequest.current);
   assert.deepEqual(h.streams.map(item => item.body.message), ['first message', 'second message', 'third message']);
   assert.ok(h.streams.every(item => item.body.sessionName === 'first' && item.body.workspaceHash === 'a'));
-  assert.equal(h.requests.filter(item => item.path.startsWith('/sessions/new')).length, 1);
+  assert.equal(h.requests.filter(item => item.path === '/agent-engines/prepare').length, 1);
   assert.deepEqual(h.shared.queuedRef.current[original.id], []);
 });
 

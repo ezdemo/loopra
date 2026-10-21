@@ -163,11 +163,12 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     if (existing?.type === 'tool_call') {
       if (event.name) existing.name = event.name;
       if (event.args != null) existing.args = argsObject(event.args);
+      if (event.result != null) existing.result = stringify(event.result);
     }
   }
   else if (event.type === 'tool_result') {
     const target = [...blocks].reverse().find(block => block.type === 'tool_call' && (event.toolCallId ? block.toolCallId === event.toolCallId : block.status === '执行中' && (!event.name || block.name === event.name)));
-    if (target?.type === 'tool_call') { target.result = stringify(event.result ?? content); target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception)/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
+    if (target?.type === 'tool_call') { target.result = stringify(event.result ?? content); target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception|\[failed\])/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
   } else if (event.type === 'file_changes' && event.changes?.length) {
     let summary = blocks.find(block => block.type === 'file_changes');
     if (!summary || summary.type !== 'file_changes') { summary = { id, type: 'file_changes', changes: [] }; blocks.push(summary); }

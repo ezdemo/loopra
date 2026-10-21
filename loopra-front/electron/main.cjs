@@ -7,6 +7,7 @@ const { randomUUID } = require('crypto')
 const { compareVersions } = require('./version.cjs')
 const { createDesktopUpdater, registerDesktopUpdateIpc, readDesktopUpdateOptions, loadDesktopUpdater } = require('./desktop-updater.cjs')
 const { createDesktopReleaseNotes } = require('./desktop-release-notes.cjs')
+const { readDesktopUpdateSource, saveDesktopUpdateSource } = require('./desktop-update-source.cjs')
 const { normalizeProxyAddress, electronProxyRules } = require('./proxy.cjs')
 const { registerTerminalIpc, killAllTerminals } = require('./terminal.cjs')
 const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
@@ -73,6 +74,7 @@ let loopraWebProcess = null
 let currentPort = 0
 let currentElectronProxyAddress = ''
 const desktopUpdateOptions = readDesktopUpdateOptions(app)
+const desktopUpdateSourceFile = path.join(app.getPath('userData'), 'desktop-update.json')
 const desktopReleaseNotes = createDesktopReleaseNotes({
   request: (...args) => electronNet.fetch(...args),
   currentVersion: app.getVersion(),
@@ -81,6 +83,8 @@ const desktopReleaseNotes = createDesktopReleaseNotes({
 const desktopUpdater = createDesktopUpdater({
   app,
   getReleaseNotes: desktopReleaseNotes.getReleaseNotes,
+  source: readDesktopUpdateSource(desktopUpdateSourceFile),
+  saveSource: source => saveDesktopUpdateSource(desktopUpdateSourceFile, source),
   ...desktopUpdateOptions,
   updater: loadDesktopUpdater({ ...desktopUpdateOptions, isPackaged: !isDev }),
   nativeUpdater: desktopUpdateOptions.platform === 'darwin' && desktopUpdateOptions.macSigned ? require('electron').autoUpdater : null,

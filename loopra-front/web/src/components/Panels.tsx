@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { Button } from '@nextui-org/react';
-import { Bot, CalendarClock, Check, ChevronDown, FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, X, type LucideIcon } from 'lucide-react';
+import { CalendarClock, Check, ChevronDown, FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, X, type LucideIcon } from 'lucide-react';
 import { IconButton } from './ui';
 import { Popup } from './Motion';
 import type { LoopraClient } from '../backend';
@@ -11,7 +11,6 @@ import FilesPanel from './FilesPanel';
 import GitTools from './GitTools';
 import type { WorkspaceFile } from '../workspace-tabs';
 import SchedulePanel from './SchedulePanel';
-import SubAgentsPanel from './SubAgentsPanel';
 import ProjectCapabilities from './ProjectCapabilities';
 import EnvironmentPanel, { EnvironmentBar, useEnvironmentController } from './EnvironmentPanel';
 import { bashSessionState, bashSessionSummary, formatBashUptime } from '../bash-sessions';
@@ -20,13 +19,13 @@ import { watchWorkspaceChanges } from '../workspace-events';
 
 type TabDef = [id: string, label: string, icon: LucideIcon];
 const PRIMARY_TABS: TabDef[] = [['files', '文件', FolderTree], ['git', 'Git', GitBranch]];
-const MORE_TABS: TabDef[] = [['schedules', '定时', CalendarClock], ['subagents', '子代理', Bot], ['capabilities', '能力', Puzzle]];
+const MORE_TABS: TabDef[] = [['schedules', '定时', CalendarClock], ['capabilities', '能力', Puzzle]];
 
 type PanelProps = { api: LoopraClient; workspaceHash: string; onClose: () => void };
-type SubAgentItem = { subSessionId: string; name?: string; title?: string; task?: string };
-type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void; onOpenSubAgent?: (item: SubAgentItem) => void };
-export default function ChangesPanel({ open, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'git', sessionName, sessions, onAdd, onOpenSubAgent }: WorkbenchProps) {
-  const [tab, setTab] = useState(initialTab); const [revision, setRevision] = useState(0);
+type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
+export default function ChangesPanel({ open, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'git', sessionName, sessions, onAdd }: WorkbenchProps) {
+  const requestedTab = [...PRIMARY_TABS, ...MORE_TABS].some(([id]) => id === initialTab) ? initialTab : 'git';
+  const [tab, setTab] = useState(requestedTab); const [revision, setRevision] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreActive = MORE_TABS.find(([id]) => id === tab);
   useEffect(() => {
@@ -41,7 +40,7 @@ export default function ChangesPanel({ open, api, workspaceHash, onClose, notify
   const [dragging, setDragging] = useState(false);
   const [docked, setDocked] = useState(() => typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1101px)').matches : true);
   const wide = panelWidth > DEFAULT_PANEL_WIDTH + 1;
-  useEffect(() => { setTab(initialTab); }, [initialTab]);
+  useEffect(() => { setTab(requestedTab); }, [requestedTab]);
   useEffect(() => { const mq = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1101px)') : null; if (!mq) return; const onChange = () => setDocked(mq.matches); onChange(); mq.addEventListener('change', onChange); return () => mq.removeEventListener('change', onChange); }, []);
   // Drag the panel's left edge to resize, mirroring legacy RightPanel.vue.
   function startResize(event: ReactMouseEvent<HTMLDivElement>) { event.preventDefault(); const startX = event.clientX; const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width || panelWidth; setDragging(true); const onMove = (move: MouseEvent) => setPanelWidth(resizePanelWidth(startWidth, move.clientX - startX, window.innerWidth)); const onUp = () => { setDragging(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); }; window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp); }
@@ -61,7 +60,7 @@ export default function ChangesPanel({ open, api, workspaceHash, onClose, notify
       </div>
       <div className="panel-actions"><IconButton label="刷新工作区面板" onClick={refresh}><RefreshCw size={15} /></IconButton><IconButton label="展开工作区面板" onClick={() => setPanelWidth(wide ? DEFAULT_PANEL_WIDTH : WIDE_PANEL_WIDTH)}><Maximize size={15} /></IconButton><IconButton label="收起工作区面板" onClick={onClose}><X size={16} /></IconButton></div>
     </header>
-    <div className="workbench-body" data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitWorkspace key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} onOpenFile={onOpenFile} /> : tab === 'schedules' ? <SchedulePanel key={workspaceHash} {...{ api, workspaceHash, sessionName, sessions, revision }} onRefresh={refresh} /> : tab === 'subagents' ? <SubAgentsPanel key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, notify }} onOpenFile={path => onOpenFile({ path, mode: 'content' })} onDiff={path => onOpenFile({ path, mode: 'diff' })} onOpenTab={onOpenSubAgent} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <p className="panel-empty">未知的工作区工具。</p>}</div></aside>;
+    <div className="workbench-body" data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitWorkspace key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} onOpenFile={onOpenFile} /> : tab === 'schedules' ? <SchedulePanel key={workspaceHash} {...{ api, workspaceHash, sessionName, sessions, revision }} onRefresh={refresh} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, revision, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <p className="panel-empty">未知的工作区工具。</p>}</div></aside>;
 }
 // Git and the session environment share one tab: the environment strip states
 // which checkout is active, and isolation mode swaps the main-project Git tools

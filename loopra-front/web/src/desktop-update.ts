@@ -15,6 +15,8 @@ export type DesktopUpdateState = {
   error: string;
   checkedAt: string;
   revision: number;
+  source: string;
+  changingSource: boolean;
 };
 
 export type DesktopReleaseNotes = ReleaseNotes;
@@ -22,6 +24,7 @@ export type DesktopReleaseNotes = ReleaseNotes;
 export type DesktopUpdateApi = {
   getState: () => Promise<DesktopUpdateState>;
   getReleaseNotes: () => Promise<DesktopReleaseNotes>;
+  setSource: (source: string) => Promise<DesktopUpdateState>;
   check: () => Promise<DesktopUpdateState>;
   download: () => Promise<DesktopUpdateState>;
   install: () => Promise<DesktopUpdateState>;

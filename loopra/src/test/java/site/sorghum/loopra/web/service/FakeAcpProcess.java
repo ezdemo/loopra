@@ -12,6 +12,7 @@ public final class FakeAcpProcess {
     private static boolean nativeChildren;
     private static String permissionChild;
     private static boolean forms;
+    private static boolean terminalOutputDelta;
     private static boolean answeringInput;
     public static void main(String[] args) {
         Scanner input = new Scanner(System.in, java.nio.charset.StandardCharsets.UTF_8);
@@ -46,6 +47,7 @@ public final class FakeAcpProcess {
             switch (method) {
                 case "initialize" -> {
                     forms = message.get("params").get("clientCapabilities").get("elicitation").get("form").isObject();
+                    terminalOutputDelta = message.get("params").get("clientCapabilities").get("_meta").get("terminal_output_delta").getBoolean();
                     nativeChildren = message.get("params").get("clientCapabilities").get("subagents").isObject()
                             && !Boolean.getBoolean("loopra.fake.noSubagents");
                     response(id, Map.of("protocolVersion", 1,
@@ -121,6 +123,40 @@ public final class FakeAcpProcess {
                         response(id, Map.of("stopReason", "end_turn")); continue;
                     }
                     if (text.startsWith("stop:")) { response(id, Map.of("stopReason", text.substring(5))); continue; }
+                    if ("tool-output".equals(text)) {
+                        if (!terminalOutputDelta) throw new IllegalStateException("Output capability not negotiated");
+                        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "read-1", "title", "Read file",
+                                "status", "in_progress", "rawInput", Map.of()));
+                        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "shell-1", "title", "Run command",
+                                "status", "in_progress", "rawInput", Map.of("command", "test command")));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "read-1",
+                                "_meta", Map.of("terminal_output_delta", Map.of("terminal_id", "read-1", "data", "first\n"))));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "shell-1",
+                                "_meta", Map.of("terminal_output", Map.of("terminal_id", "shell-1", "data", "command error\n"))));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "read-1",
+                                "_meta", Map.of("terminal_output_delta", Map.of("terminal_id", "read-1", "data", "second\n"))));
+                        if (nativeChildren) {
+                            spawnChild("fake-session", "output-child", "Explorer", "Read another file");
+                            childUpdate("output-child", Map.of("sessionUpdate", "tool_call", "toolCallId", "read-1",
+                                    "title", "Child read", "status", "in_progress"));
+                            childUpdate("output-child", Map.of("sessionUpdate", "tool_call_update", "toolCallId", "read-1",
+                                    "_meta", Map.of("terminal_output_delta", Map.of("data", "child output"))));
+                            childUpdate("output-child", Map.of("sessionUpdate", "tool_call_update", "toolCallId", "read-1",
+                                    "status", "completed", "rawOutput", Map.of("exit_code", 0)));
+                            endChild("fake-session", "output-child", "completed");
+                        }
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "shell-1", "status", "completed",
+                                "_meta", Map.of("terminal_exit", Map.of("terminal_id", "shell-1", "exit_code", 7))));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "read-1",
+                                "status", "completed", "rawOutput", Map.of("exit_code", 0)));
+                        update(Map.of("sessionUpdate", "tool_call", "toolCallId", "content-1", "title", "Content read", "status", "in_progress"));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "content-1",
+                                "content", List.of(Map.of("type", "content", "content", Map.of("type", "text", "text", "content output")))));
+                        update(Map.of("sessionUpdate", "tool_call_update", "toolCallId", "content-1", "status", "completed",
+                                "rawOutput", Map.of("exit_code", 0)));
+                        response(id, Map.of("stopReason", "end_turn"));
+                        continue;
+                    }
                     if (text.startsWith("legacy-codex")) {
                         legacyCodexTranscript(text);
                         if (text.equals("legacy-codex-wait")) { promptId = id; continue; }

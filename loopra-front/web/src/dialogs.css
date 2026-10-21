@@ -11,6 +11,23 @@
 .confirm-dialog-body { color: var(--secondary); }
 .confirm-dialog-body .settings-error { color: var(--danger, var(--danger)); }
 
+.rollback-dialog .rollback-dialog-header { gap: .75rem; padding-bottom: .875rem; }
+.rollback-dialog-icon { display: flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--danger) 9%, transparent); color: var(--danger); flex-shrink: 0; }
+.rollback-dialog-body { gap: 1rem; }
+.rollback-dialog-description { color: var(--secondary); }
+.rollback-dialog .rollback-code-option { display: flex; align-items: flex-start; width: 100%; max-width: none; margin: 0; padding: .875rem 1rem; gap: .75rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--sidebar); transition: border-color .15s, background .15s; }
+.rollback-dialog .rollback-code-option[data-selected="true"] { border-color: var(--blue); background: var(--accent-soft); }
+.rollback-dialog .rollback-code-option[data-focus-visible="true"] { outline: 2px solid var(--blue); outline-offset: 2px; }
+.rollback-dialog .rollback-code-checkbox { margin: .125rem 0 0; flex-shrink: 0; }
+.rollback-dialog .rollback-code-label { min-width: 0; font-size: .8125rem; line-height: 1.5; }
+.rollback-code-title { display: block; color: var(--text); font-weight: 500; }
+.rollback-code-description { display: block; margin-top: .25rem; color: var(--secondary); font-size: .75rem; }
+.rollback-dialog-note { color: var(--muted); font-size: .75rem; }
+.rollback-dialog-error { display: flex; align-items: flex-start; gap: .5rem; padding: .75rem; border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); border-radius: var(--radius-md); color: var(--danger); background: color-mix(in srgb, var(--danger) 5%, transparent); font-size: .75rem; }
+.rollback-dialog-error > svg { margin-top: .125rem; }
+.rollback-dialog-footer { border-top: 0; padding-top: .25rem; gap: .625rem; }
+.rollback-dialog-footer > button { min-height: 2.25rem; }
+
 .agent-install-dialog { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; }
 .agent-install-reason { color: var(--muted); font-size: .75rem; }
 .agent-install-prompt { margin: 0; padding: .75rem .875rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--sidebar); color: var(--text); font: .75rem/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

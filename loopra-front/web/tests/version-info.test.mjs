@@ -132,8 +132,65 @@ async function click(element) { await act(async () => { element.click(); await P
 const desktopState = {
   supported: true, currentVersion: '26.10.2001', latestVersion: '26.10.2002',
   status: 'downloading', percent: 48.9, transferred: 48, total: 100, bytesPerSecond: 10,
-  error: '', checkedAt: '', revision: 2,
+  error: '', checkedAt: '', revision: 2, source: 'normal', changingSource: false,
 };
+
+test('desktop source selection offers core mirrors, restores the saved choice and uses only desktop IPC', async () => {
+  let listener;
+  const sources = [];
+  dom.window.electronAPI = { desktopUpdate: {
+    getState: async () => ({ ...desktopState, source: 'https://ghproxy.net/' }),
+    onState: callback => { listener = callback; return () => {}; },
+    setSource: async source => {
+      sources.push(source);
+      listener({ ...desktopState, source, revision: 3 + sources.length });
+    },
+  } };
+  function Host() {
+    const controller = useDesktopUpdate();
+    return createElement('div', null, createElement('button', { onClick: controller.show }, '更新'), createElement(DesktopUpdateDialog, { controller }));
+  }
+  const view = await mount(undefined, Host);
+  try {
+    await click(buttonIn(view.container, '更新'));
+    const select = view.container.querySelector('select[aria-label="桌面端更新源"]');
+    assert.equal(select.value, 'https://ghproxy.net/');
+    assert.equal(select.disabled, false);
+    assert.equal(select.options.length, 11);
+    for (const source of ['https://gh-proxy.org/', 'normal']) {
+      await act(async () => { select.value = source; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
+      assert.equal(select.value, source);
+    }
+    assert.deepEqual(sources, ['https://gh-proxy.org/', 'normal']);
+    assert.deepEqual(globalThis.__calls, []);
+    await act(async () => listener({ ...desktopState, changingSource: true, revision: 8 }));
+    assert.equal(select.disabled, true);
+    assert.match(view.container.textContent, /正在切换更新源/);
+    await act(async () => listener({ ...desktopState, status: 'downloaded', revision: 9 }));
+    assert.equal(select.disabled, true);
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
+
+test('desktop source failures keep the selected source and show a retryable error', async () => {
+  dom.window.electronAPI = { desktopUpdate: {
+    getState: async () => desktopState,
+    onState: () => () => {},
+    setSource: async () => { throw new Error('更新源保存失败'); },
+  } };
+  function Host() {
+    const controller = useDesktopUpdate();
+    return createElement('div', null, createElement('button', { onClick: controller.show }, '更新'), createElement(DesktopUpdateDialog, { controller }));
+  }
+  const view = await mount(undefined, Host);
+  try {
+    await click(buttonIn(view.container, '更新'));
+    const select = view.container.querySelector('select[aria-label="桌面端更新源"]');
+    await act(async () => { select.value = 'https://ghproxy.net/'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /更新源保存失败/);
+    assert.equal(select.value, 'normal');
+    assert.equal(select.disabled, false);
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
 
 test('platform update dialog explains manual macOS updates, waits for verification, and shows Linux authorization', async () => {
   for (const state of [

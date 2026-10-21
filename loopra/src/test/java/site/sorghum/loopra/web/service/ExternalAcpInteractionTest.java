@@ -1,6 +1,7 @@
 package site.sorghum.loopra.web.service;
 
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -34,6 +35,48 @@ class ExternalAcpInteractionTest {
     }
     private void prompt(ExternalAcpSessions runtime, SessionStore store, String text, AgentOutput output) throws Exception {
         runtime.prompt("key", home, "chat", store, UserMessage.of(text), output, false, null, List.of(), ignored -> {}, ignored -> {});
+    }
+
+    @Test void streamedToolOutputIsIsolatedAndSavedWithTheFinalExitStatus() throws Exception {
+        var store = store("codex");
+        List<ONode> updates = new CopyOnWriteArrayList<>();
+        Map<String, String> results = new ConcurrentHashMap<>();
+        Set<String> failed = ConcurrentHashMap.newKeySet();
+        AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
+            @Override public void sendEvent(String type, String data) {
+                if (type.equals("tool_update") || type.equals("sub_tool_update")) updates.add(ONode.ofJson(data));
+            }
+            @Override public void onToolResult(String id, String name, String result, boolean isFailed) {
+                results.put(id, result);
+                if (isFailed) failed.add(id);
+            }
+        };
+        try {
+            try (var runtime = runtime()) { prompt(runtime, store, "tool-output", output); }
+            assertTrue(updates.stream().anyMatch(event -> "first\n".equals(event.get("result").getString())),
+                    "The first chunk must reach the UI before completion");
+            assertTrue(updates.stream().anyMatch(event -> "first\nsecond\n".equals(event.get("result").getString())));
+            assertTrue(updates.stream().anyMatch(event -> "child output".equals(event.get("result").getString())
+                    && event.get("subId").isString()), "Child chunks keep their route");
+            assertEquals("first\nsecond\n\nExit code: 0", results.get("read-1"));
+            assertEquals("command error\n\nExit code: 7", results.get("shell-1"));
+            assertEquals("content output\n\nExit code: 0", results.get("content-1"));
+            assertEquals(Set.of("shell-1"), failed);
+            var reopened = new JsonlSessionStore(home.resolve("sessions"));
+            try {
+                var saved = reopened.load("chat").stream().filter(message -> "tool".equals(message.getRole())).toList();
+                assertEquals(3, saved.size(), "Partial updates must not create duplicate persisted results");
+                for (var message : saved) {
+                    String expected = results.get(message.getToolCallId());
+                    assertEquals(failed.contains(message.getToolCallId()) ? "[failed] " + expected : expected, message.getContent());
+                    assertFalse(message.getContent().contains("child output"));
+                }
+            } finally { reopened.shutdown(); }
+            var subStore = new site.sorghum.loopra.bin.session.SubAgentSessionStore(home.resolve("sessions"));
+            assertTrue(subStore.events("chat", "output-child").stream().anyMatch(event ->
+                    "sub_tool_result".equals(event.get("type"))
+                            && "child output\n\nExit code: 0".equals(event.get("result"))));
+        } finally { store.shutdown(); }
     }
 
     @ParameterizedTest @ValueSource(strings = {"claude-code", "codex", "codex-child", "timeout"})
