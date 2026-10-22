@@ -259,7 +259,7 @@ async function refreshCore() {
       desktopVersion.value = status.desktop_version || ''
     }
 
-    // 运行状态：进程在管 + 端口健康检查兜底（CLI 启动的 4567 服务也视为运行中）
+    // The main process decides whether an external development service can be reused.
     let p = 0
     try { p = await loopraWebService.getCurrentPort() } catch {}
     let isRunning = !!(status && status.running)
@@ -269,15 +269,7 @@ async function refreshCore() {
       isRunning = isRunning || ok
       livePort = ok ? p : 0
     }
-    if (!isRunning || !livePort) {
-      // 兜底探测默认端口 4567
-      const ok = await healthCheck(4567)
-      if (ok) {
-        isRunning = true
-        livePort = 4567
-      }
-    }
-    // 同步端口到 localStorage：复用已运行服务时（如 CLI 启动的 4567）refreshCore 会先于
+    // 同步端口到 localStorage：复用已运行服务时（如开发模式下的 CLI 服务）refreshCore 会先于
     // startService 完成，若不在此同步，用户快速进入主窗口会读到上次会话遗留的旧地址（随机端口已失效）→ Network Error
     if (livePort > 0) {
       localStorage.setItem('loopra-port', String(livePort))

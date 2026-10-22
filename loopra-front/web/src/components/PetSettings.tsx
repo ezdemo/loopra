@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@nextui-org/react';
 import type { PetStore } from '../usePets';
 import { petScale } from '../pets';
@@ -10,7 +10,6 @@ export default function PetSettings({ pets, enabled, onEnabled, notify, onInitPe
   pets: PetStore; enabled: boolean; onEnabled: (enabled: boolean) => void | Promise<void>; notify: (message: string) => void; onInitPet?: () => void;
 }) {
   const [removing, setRemoving] = useState<string>();
-  useEffect(() => { void pets.refresh(); }, [pets.refresh]);
   const available = pets.pets.filter(pet => pet.hasSpritesheet);
   const active = pets.active;
   async function toggle(value: boolean) {
@@ -23,14 +22,14 @@ export default function PetSettings({ pets, enabled, onEnabled, notify, onInitPe
   return <><h3 className="settings-section-title">宠物</h3><div className="settings-card">
     <SettingRow title="宠物" description="在欢迎页和聊天输入框旁显示宠物"><SettingSwitch label="宠物" value={enabled} onChange={value => void toggle(value)} /></SettingRow>
     <div className="settings-pet-body" aria-busy={pets.loading}>
-      {active && <div className="settings-pet-current"><PetSprite src={pets.imageUrl} name={active.displayName || active.name} scale={0.65} /><div><strong>{active.displayName || active.name}</strong><p>{enabled ? '已开启 · 陪你一起工作' : '已关闭 · 开启后显示'}</p></div></div>}
+      {active && <div className="settings-pet-current"><PetSprite lazy src={pets.imageUrl} name={active.displayName || active.name} scale={0.65} /><div><strong>{active.displayName || active.name}</strong><p>{enabled ? '已开启 · 陪你一起工作' : '已关闭 · 开启后显示'}</p></div></div>}
       {available.length > 0 && <SelectField compact label="选择宠物" value={active?.name || ''} options={available.map(pet => ({ value: pet.name, label: pet.displayName || pet.name }))} onChange={name => save(pets.select(name))} />}
       {active && <SelectField compact label="宠物大小" value={String(petScale(active))} options={[{ value: '0.4', label: '小' }, { value: '0.55', label: '中' }, { value: '0.75', label: '大' }, ...(![0.4, 0.55, 0.75].includes(petScale(active)) ? [{ value: String(petScale(active)), label: '自定义' }] : [])]} onChange={scale => save(pets.resize(Number(scale)))} />}
       {active && <Button size="sm" variant="light" onPress={() => save(pets.move({ x: 0, y: 0 }))}>重置宠物位置</Button>}
       <div className="pet-gallery" aria-label="宠物画廊">
         {pets.pets.map(pet => <div key={pet.name} className={`pet-card ${active?.name === pet.name ? 'is-active' : ''} ${pet.hasSpritesheet ? '' : 'is-empty'}`}>
           <button type="button" className="pet-card-main" title={`选择 ${pet.displayName || pet.name}`} aria-pressed={active?.name === pet.name} onClick={() => save(pets.select(pet.name))}>
-            {pet.hasSpritesheet ? <PetSprite src={pets.imageUrlFor(pet.name)} name={pet.displayName || pet.name} scale={0.3} /> : <span className="pet-card-empty">无精灵图</span>}
+            {pet.hasSpritesheet ? <PetSprite lazy src={pets.imageUrlFor(pet.name)} name={pet.displayName || pet.name} scale={0.3} /> : <span className="pet-card-empty">无精灵图</span>}
             <strong>{pet.displayName || pet.name}</strong>
             {pet.description && <small>{pet.description}</small>}
           </button>

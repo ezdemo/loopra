@@ -1205,12 +1205,13 @@ async function openDesktopWorkspace() {
     createSplashWindow()
     return
   }
-  if (await healthCheck(currentPort || 4567)) {
+  const port = currentPort || (isDev ? 4567 : 0)
+  if (port > 0 && await healthCheck(port)) {
     if (!(await detectJavaStatus()).usable) {
       createSplashWindow()
       return
     }
-    currentPort = currentPort || 4567
+    currentPort = port
     createWindow()
   } else {
     createSplashWindow()
@@ -1449,7 +1450,7 @@ ipcMain.handle('system-fonts-list', async (event) => {
 })
 
 ipcMain.handle('get_loopra_web_port', async () => {
-  if (!currentPort && await healthCheck(4567)) currentPort = 4567
+  if (isDev && !currentPort && await healthCheck(4567)) currentPort = 4567
   return currentPort
 })
 
@@ -1565,12 +1566,12 @@ ipcMain.handle('install_loopra_web', async () => ({
 }))
 
 ipcMain.handle('start_loopra_web', async () => {
-  // 无论服务由 CLI、旧版 GUI 或当前 GUI 启动，优先复用稳定的默认端口。
+  // Only development builds reuse an external service on the default port.
   const preferredPort = 4567
 
   // 桌面端重启后，核心服务也应随之重新启动：
   // 终止上次遗留的 GUI 运行时进程（~/.loopra-gui），避免直接复用旧进程/旧版本服务；
-  // CLI（~/.loopra）启动的服务不在清理范围，仍按上面的约定优先复用 4567。
+  // CLI（~/.loopra）启动的服务不在清理范围。
   try {
     const existingProcesses = await listLoopraJavaProcesses()
     for (const item of existingProcesses.filter((p) => isLoopraGuiRuntime(p.commandLine) && p.port > 0)) {
@@ -1585,7 +1586,7 @@ ipcMain.handle('start_loopra_web', async () => {
     console.warn('Failed to list loopra java processes:', error.message)
   }
 
-  if (await healthCheck(preferredPort)) {
+  if (isDev && await healthCheck(preferredPort)) {
     // 复用前校验版本：运行中的服务若与本地安装的运行时版本不一致（如刚更新过核心服务），
     // 终止旧进程并继续走启动逻辑，避免更新后的 jar 不生效。
     if (await isServiceVersionCurrent(preferredPort)) {

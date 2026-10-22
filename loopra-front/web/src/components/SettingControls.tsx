@@ -8,10 +8,12 @@ import { useAppMotion } from './Motion';
 function useSelectPopover() {
   const ref = useRef<HTMLSelectElement>(null);
   const [width, setWidth] = useState<number>();
+  const [open, setOpen] = useState(false);
   const { enabled } = useAppMotion();
   useLayoutEffect(() => {
+    if (!open) return;
     // NextUI forwards this ref to the hidden native select, not its base.
-    // Measure the visible trigger before the portal mounts.
+    // Measure only when opening the menu, not while mounting the whole settings page.
     const trigger = ref.current?.closest('[data-slot="base"]')?.querySelector<HTMLButtonElement>('[data-slot="trigger"]');
     if (!trigger) return;
     const measure = () => setWidth(trigger.offsetWidth || undefined);
@@ -19,7 +21,7 @@ function useSelectPopover() {
     const observer = new ResizeObserver(measure);
     observer.observe(trigger);
     return () => observer.disconnect();
-  }, []);
+  }, [open]);
   const popoverProps: SelectProps['popoverProps'] = {
     disableAnimation: !enabled,
     // Focusing the hidden select can scroll the form as the menu opens.
@@ -39,7 +41,7 @@ function useSelectPopover() {
       },
     } : undefined,
   };
-  return { ref, popoverProps };
+  return { ref, popoverProps, onOpenChange: setOpen };
 }
 
 export function SettingRow({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
