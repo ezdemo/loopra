@@ -234,3 +234,24 @@ it.each([false, true])('waits for the startup health check and respects cancella
     } else expect(wrapper.emitted('ready')).toHaveLength(1)
   } finally { wrapper.unmount() }
 })
+
+it('starts its own service when the main process has not selected the default service', async () => {
+  let running = false
+  service.getStatus.mockImplementation(async () => ({
+    installed: true, running, runtime_version: '26.9.91', desktop_version: '26.9.91',
+  }))
+  service.getCurrentPort.mockImplementation(async () => running ? 51234 : 0)
+  service.detectJavaStatus.mockResolvedValue({ usable: true })
+  service.start.mockImplementation(async () => { running = true; return 51234 })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })))
+  localStorage.setItem('loopra-api-base', 'http://127.0.0.1:4567')
+  const wrapper = shallowMount(SplashScreen, { global: { plugins: [createPinia()] } })
+  try {
+    await flushPromises()
+    expect(service.start).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalled()
+    expect(fetch.mock.calls.every(([url]) => !String(url).includes(':4567/'))).toBe(true)
+    expect(localStorage.getItem('loopra-api-base')).toBe('http://127.0.0.1:51234')
+    expect(wrapper.emitted('ready')).toHaveLength(1)
+  } finally { wrapper.unmount() }
+})
