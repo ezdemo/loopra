@@ -45,6 +45,22 @@ class NativeAcpConfigurationTest {
                 .stream(request -> TestLoopraProvider.contentStream("done")).build());
     }
 
+    @Test void modelDisplayNamesDoNotChangeProtocolValuesOrRuntimeModelIds() {
+        ConfigService.updateConfig(Map.of("modelChannels", List.of(Map.of(
+                "id", "one", "name", "Provider", "baseUrl", "https://example.invalid/v1", "apiKey", "isolated-test",
+                "models", List.of(Map.of("name", "alpha", "displayName", "Fast / 中文名"), Map.of("name", "beta"))))));
+        var config = ConfigService.getConfig();
+        var settings = new site.sorghum.loopra.bin.session.SessionStore.SessionModelSettings("alpha", "one", "high");
+        var models = (com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect)
+                NativeAcpConfig.options(config, settings, Map.of(), false).get(0);
+        assertEquals("one:alpha", models.currentValue());
+        assertEquals("Provider / Fast / 中文名", models.options().get(0).name());
+        assertEquals("alpha", models.options().get(0).description());
+        assertEquals("Provider / beta", models.options().get(1).name());
+        assertEquals("alpha", NativeAcpConfig.modelSettings(config, "one:alpha", "high").model());
+        assertThrows(IllegalArgumentException.class, () -> NativeAcpConfig.modelSettings(config, "one:Fast / 中文名", "high"));
+    }
+
     @Test void standardProtocolChangesNativeModelChannelAndPermissionWithoutAffectingOtherSessions() throws Exception {
         AcpSessionManager manager = manager();
         try (Connection first = new Connection(manager, home.resolve("project")); Connection other = new Connection(manager, home.resolve("project"))) {

@@ -270,7 +270,13 @@ svg { flex-shrink: 0; }
 
 .app-icon .loopra-mark-small { width: 1.5rem; height: 1.5rem; }
 
-.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 1rem; scroll-behavior: auto; }
+.chat-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 1rem; scroll-behavior: auto; }
+.session-history-state { display: flex; align-items: center; justify-content: center; gap: .75rem; padding: 2rem 1rem; color: var(--secondary); font-size: .8125rem; }
+.session-history-state[role="alert"] { flex-wrap: wrap; color: var(--danger); }
+.session-history-empty { position: absolute; inset: 0; flex-direction: column; text-align: center; }
+.session-history-empty > span:last-of-type { max-width: 32rem; overflow-wrap: anywhere; }
+.session-history-loader { display: flex; align-items: center; justify-content: center; gap: .375rem; width: 3rem; height: 2rem; }
+.session-history-loader i { width: .4375rem; height: .4375rem; border-radius: 50%; background: var(--blue); opacity: .4; }
 
 .chat-content { max-width: 46rem; margin: 0 auto; width: calc(100% - 3rem); }
 

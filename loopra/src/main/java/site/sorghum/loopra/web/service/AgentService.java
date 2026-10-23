@@ -657,22 +657,21 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
         if (sessionName == null) {
             return new ArrayList<>();
         }
-        if (!"native".equals(sessionAgentId(workspacePath, sessionName))) {
-            SessionStore externalStore = sessionStoreFor(workspacePath);
-            if (externalStore == null) return List.of();
-            try { return externalStore.load(sessionName); }
-            catch (IOException e) { throw new ServiceException("读取 Agent 历史失败"); }
-            finally { externalStore.shutdown(); }
-        }
-        String sessionKey = generateSessionKey(workspacePath, sessionName);
-        LoopraAgent agent = getOrCreateAgent(sessionKey);
-        SessionStore store = agent.getCtx().getSessionStore();
+        // Browsing history must not initialize an Agent (tools, MCP or worktrees).
+        // Reuse an existing store so any pending writes are visible, otherwise read disk.
+        LoopraAgent agent = sessionCache.peek(generateSessionKey(workspacePath, sessionName));
+        SessionStore store = agent == null ? null : agent.getCtx().getSessionStore();
+        boolean standalone = store == null;
+        if (standalone) store = sessionStoreFor(workspacePath);
         if (store != null) {
             try {
                 store.flush();
-                return store.load();
+                return standalone ? store.load(sessionName) : store.load();
             } catch (IOException e) {
                 log.warn("[web] 加载会话历史失败: {}", e.getMessage());
+                throw new ServiceException("读取会话历史失败");
+            } finally {
+                if (standalone) store.shutdown();
             }
         }
         return new ArrayList<>();

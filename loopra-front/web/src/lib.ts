@@ -59,7 +59,7 @@ export const workspaces = [
   { name: 'comfyui', path: '~\\Documents\\ChatGPT\\comfyui' },
 ];
 export const models = ['DeepSeek V4.1 Flash', 'Mimo V2.6 Flash', 'Mimo V2.6 pro'];
-export type ProviderModel = { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; priceEnabled: boolean; inputPrice: number; cachePrice: number; outputPrice: number };
+export type ProviderModel = { name: string; displayName?: string; contextTokens: number; maxTokens: number; imageInput: boolean; priceEnabled: boolean; inputPrice: number; cachePrice: number; outputPrice: number };
 export type Provider = { id: string; name: string; type: string; count: number; color?: string; baseUrl?: string; apiKey?: string; compatibility?: string; enabled?: boolean; models?: ProviderModel[] };
 export const initialProviders: Provider[] = [
   { id: 'loopra', name: 'Loopra 订阅', type: 'OAuth', count: 4, color: '#2083ff' },

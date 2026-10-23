@@ -122,6 +122,71 @@ async function mount(overrides = {}, requestCommands = () => Promise.resolve(adv
   };
 }
 
+test('initial configuration loading reserves toolbar controls with skeletons and swaps in real options', async () => {
+  const agentConfig = { busy: true, options: undefined, onChange: idle, onPrepare: idle };
+  const view = await mount({ draft: '', agentConfig });
+  try {
+    assert.equal(view.host.querySelector('.composer-bottom').getAttribute('aria-busy'), 'true');
+    assert.equal(view.host.querySelectorAll('.composer-skeleton').length, 8);
+    assert.match(view.host.querySelector('[role="status"]').textContent, /正在加载输入栏配置/);
+    assert.equal(view.host.querySelector('.composer-bottom button'), null, 'initial placeholders cannot trigger unready controls');
+    const options = [
+      { id: 'mode', category: 'mode', type: 'select', currentValue: 'safe', options: [{ value: 'safe', name: '按需审批' }] },
+      { id: 'model', category: 'model', type: 'select', currentValue: 'raw/model-id', options: [{ value: 'raw/model-id', name: 'DeepSeek Flash' }] },
+    ];
+    await view.update({ agentConfig: { ...agentConfig, busy: false, options } });
+    assert.equal(view.host.querySelector('.composer-skeleton'), null);
+    assert.equal(view.host.querySelector('.composer-bottom').getAttribute('aria-busy'), null);
+    assert.equal(view.host.querySelector('.composer-model > span').textContent, 'DeepSeek Flash');
+    await view.update({ agentConfig: { ...agentConfig, options } });
+    assert.equal(view.host.querySelector('.composer-skeleton'), null, 'reconnecting with cached options preserves the known controls');
+    assert.equal(view.host.querySelector('.composer-model').disabled, true);
+  } finally { await view.close(); }
+});
+
+test('configuration failures and running sessions keep retry and stop controls instead of skeletons', async () => {
+  const view = await mount({ draft: '', agentConfig: { busy: true, error: 'offline', onPrepare: idle } });
+  try {
+    assert.ok(view.host.querySelector('[aria-label="重试加载 Agent 配置"]'));
+    assert.equal(view.host.querySelector('.composer-skeleton'), null);
+    await view.update({ agentConfig: { busy: true }, generating: true });
+    assert.ok(view.host.querySelector('[aria-label="停止生成"]'));
+    assert.equal(view.host.querySelector('.composer-skeleton'), null);
+  } finally { await view.close(); }
+});
+
+test('configured display names render in the composer and choosing them retains the raw model identity', async () => {
+  const name = 'remote-magpie/opendesign-plugin/deepseek-v4.1-flash';
+  const modelId = `custom:${name}`;
+  const changes = [];
+  const view = await mount({ agentId: 'native', draft: '', providers: [{ id: 'custom', name: 'Custom', models: [{ name, displayName: 'DeepSeek Flash' }] }], options: { modelId, mode: '完全自动', effort: 'high', plan: false, fast: false }, onOptions: value => changes.push(value.modelId) });
+  try {
+    assert.equal(view.host.querySelector('.composer-model > span').textContent, 'DeepSeek Flash');
+    await act(async () => view.host.querySelector('.composer-model').click());
+    const choice = view.host.querySelector('[role="radio"][aria-label="Custom / DeepSeek Flash"]');
+    assert.ok(choice); assert.equal(choice.title, name);
+    assert.equal(choice.querySelector('small').textContent, name);
+    await act(async () => choice.click());
+    assert.deepEqual(changes, [modelId]);
+  } finally { await view.close(); }
+});
+
+test('Native ACP display names preserve the raw selection and default-model value', async () => {
+  const changes = [], defaults = [];
+  const value = 'main:namespace/raw-model';
+  const view = await mount({ agentId: 'native', draft: '', defaultModel: value, onDefaultModel: id => defaults.push(id), agentConfig: { busy: false, onPrepare() {}, onChange: (...args) => changes.push(args), options: [{ id: 'model', name: '模型', type: 'select', category: 'model', currentValue: value, options: [{ value, name: 'Main / Flash / 中文名', description: 'namespace/raw-model' }] }] } });
+  try {
+    assert.equal(view.host.querySelector('.composer-model > span').textContent, 'Flash / 中文名');
+    await act(async () => view.host.querySelector('.composer-model').click());
+    const choice = view.host.querySelector('[role="radio"][aria-label="Main / Flash / 中文名"]');
+    assert.equal(choice.querySelector('small').textContent, 'namespace/raw-model');
+    await act(async () => view.host.querySelector('.model-star').click());
+    assert.deepEqual(defaults, [value]);
+    await act(async () => choice.click());
+    assert.deepEqual(changes, [['model', value]]);
+  } finally { await view.close(); }
+});
+
 test('ACP slash suggestions use advertised commands and insert without executing local namesakes', async () => {
   const view = await mount();
   try {

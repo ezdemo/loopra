@@ -72,7 +72,7 @@ export function ModelSelect({ label, value, onChange, models, optional = false }
   return <Select {...popover} label={label} labelPlacement="outside" placeholder="请选择模型" size="md" variant="bordered" radius="lg" disallowEmptySelection selectedKeys={hasValue ? [`model:${value}`] : optional ? ['none'] : []} onSelectionChange={keys => { const key = Array.from(keys)[0]; if (key !== undefined) onChange(key === 'none' ? '' : String(key).slice(6)); }} className="settings-next-select">
     {[
       ...(optional ? [<SelectItem key="none" textValue="不启用 / 继承主模型">不启用 / 继承主模型</SelectItem>] : []),
-      ...groups.map(id => <SelectSection key={id} title={models.find(model => model.providerId === id)?.provider}>{models.filter(model => model.providerId === id).map(model => <SelectItem key={`model:${model.id}`} textValue={model.name}>{model.name}</SelectItem>)}</SelectSection>),
+      ...groups.map(id => <SelectSection key={id} title={models.find(model => model.providerId === id)?.provider}>{models.filter(model => model.providerId === id).map(model => <SelectItem key={`model:${model.id}`} textValue={model.displayName?.trim() || model.name} title={model.name}><span className="model-select-label">{model.displayName?.trim() || model.name}</span></SelectItem>)}</SelectSection>),
     ]}
   </Select>;
 }

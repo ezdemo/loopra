@@ -110,7 +110,7 @@ public class ConfigController {
                         channel.id(), channel.name(), channel.baseUrl(), maskApiKey(channel.apiKey()),
                         channel.apiProtocol(), channel.specialCompatibility(),
                         channel.modelEntries().stream().map(entry -> new ConfigDTO.ModelConfig(
-                                entry.name(), entry.contextTokens(), entry.maxTokens(), entry.imageInput(), entry.price()
+                                entry.name(), entry.displayName(), entry.contextTokens(), entry.maxTokens(), entry.imageInput(), entry.price()
                         )).collect(Collectors.toList())
                 )).collect(Collectors.toList()),
                 cfg.modelChannels().stream().anyMatch(channel -> !channel.apiKey().isBlank()),
@@ -178,9 +178,10 @@ public class ConfigController {
             LinkedHashSet<String> names = new LinkedHashSet<>(channel.models());
             if (channel.id().equals(currentChannelId)) names.add(currentModel);
             for (String name : names) {
+                LoopraConfig.ModelEntry entry = channel.modelEntry(name);
                 models.add(new ModelInfoDTO(name,
                         name.equals(currentModel) && channel.id().equals(currentChannelId),
-                        channel.id(), channel.name()));
+                        channel.id(), channel.name(), entry == null ? "" : entry.displayName()));
             }
         }
         return ApiResponse.ok(new ModelListDTO(currentModel, currentChannelId, models));

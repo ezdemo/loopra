@@ -26,6 +26,16 @@ const { default: Controls } = await import(await moduleUrl('components/AgentConf
   'lucide-react': import.meta.resolve('lucide-react'),
 }));
 const { agentEffortLevels, agentModelGroups, findAgentOption, isDangerousAgentMode, agentOptionLabel } = await import(agentConfigUrl);
+
+test('explicit ACP provider groups preserve display names containing slashes', () => {
+  const groups = agentModelGroups({ options: [{ value: 'main:raw/model', name: 'Fast / 中文名', description: 'raw/model', group: 'Main' }] }, 'Native');
+  assert.equal(groups[0].name, 'Main');
+  assert.equal(groups[0].models[0].name, 'Fast / 中文名');
+  assert.equal(groups[0].models[0].value, 'main:raw/model');
+  const native = agentModelGroups({ options: [{ value: 'main:raw/model', name: 'Main / Fast / 中文名' }] }, 'Native');
+  assert.equal(native[0].name, 'Main');
+  assert.equal(native[0].models[0].name, 'Fast / 中文名');
+});
 function render(state, options = state.options) {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);

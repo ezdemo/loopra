@@ -12,8 +12,10 @@ public final class NativeAcpConfig {
                                                    Map<String, String> values, boolean plan) {
         if (config == null) return List.of();
         List<SessionConfigSelectOption> models = new ArrayList<>();
-        for (var channel : config.modelChannels()) for (String model : channel.models()) {
-            models.add(new SessionConfigSelectOption(modelValue(channel.id(), model), channel.name() + " / " + model));
+        for (var channel : config.modelChannels()) for (var model : channel.modelEntries()) {
+            String label = model.displayName().isBlank() ? model.name() : model.displayName();
+            models.add(new SessionConfigSelectOption(modelValue(channel.id(), model.name()), channel.name() + " / " + label,
+                    label.equals(model.name()) ? null : model.name(), null));
         }
         List<SessionConfigOption> options = new ArrayList<>();
         if (!models.isEmpty()) options.add(select("model", "模型", "model",

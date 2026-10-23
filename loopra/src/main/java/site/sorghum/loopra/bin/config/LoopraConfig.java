@@ -592,14 +592,18 @@ public class LoopraConfig implements AgentConfig {
 
     /** 配置文件中的单个模型条目。价格单位为每百万 token 的人民币金额。 */
     public record ModelEntry(String name, int contextTokens, int maxTokens,
-                             boolean imageInput, Map<String, Double> price)
+                             boolean imageInput, Map<String, Double> price, String displayName)
             implements AgentConfig.Entry {
+        public ModelEntry(String name, int contextTokens, int maxTokens, boolean imageInput, Map<String, Double> price) {
+            this(name, contextTokens, maxTokens, imageInput, price, "");
+        }
         public ModelEntry(String name, int contextTokens, boolean imageInput, Map<String, Double> price) {
             this(name, contextTokens, -1, imageInput, price);
         }
 
         public ModelEntry {
             name = trim(name);
+            displayName = trim(displayName);
             contextTokens = contextTokens > 0 ? contextTokens : -1;
             maxTokens = maxTokens > 0 ? maxTokens : -1;
             price = price == null ? Map.of() : Map.copyOf(price);
@@ -615,7 +619,8 @@ public class LoopraConfig implements AgentConfig {
                 if (!name.isEmpty()) {
                     entries.add(new ModelEntry(name, modelNode.get("contextTokens").getInt(),
                             modelNode.get("maxTokens").getInt(),
-                            modelNode.get("imageInput").getBoolean(), priceMap(modelNode.get("price"))));
+                            modelNode.get("imageInput").getBoolean(), priceMap(modelNode.get("price")),
+                            modelNode.get("displayName").getString()));
                 }
             } else {
                 String name = trim(modelNode.getString());
@@ -1253,6 +1258,7 @@ public class LoopraConfig implements AgentConfig {
             if (entry.name().isEmpty()) continue;
             ONode node = ONode.ofJson("{}");
             node.set("name", entry.name());
+            if (!entry.displayName().isEmpty()) node.set("displayName", entry.displayName());
             node.set("contextTokens", entry.contextTokens());
             if (entry.maxTokens() > 0) node.set("maxTokens", entry.maxTokens());
             node.set("imageInput", entry.imageInput());
@@ -1276,7 +1282,8 @@ public class LoopraConfig implements AgentConfig {
                 if (!name.isEmpty()) {
                     entries.add(new ModelEntry(name, integerValue(value.get("contextTokens")),
                             integerValue(value.get("maxTokens")),
-                            booleanValue(value.get("imageInput")), priceMap(value.get("price"))));
+                            booleanValue(value.get("imageInput")), priceMap(value.get("price")),
+                            Objects.toString(value.get("displayName"), "")));
                 }
             } else {
                 String name = trim(Objects.toString(raw, ""));

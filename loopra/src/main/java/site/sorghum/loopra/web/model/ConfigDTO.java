@@ -46,6 +46,7 @@ public record ConfigDTO(
     /** 渠道内单个模型的运行时能力和可选价格配置。 */
     public record ModelConfig(
             String name,
+            String displayName,
             int contextTokens,
             int maxTokens,
             boolean imageInput,

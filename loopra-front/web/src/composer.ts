@@ -1,6 +1,9 @@
 import type { Provider, ProviderModel } from './lib';
 
-export type ModelOption = { id: string; name: string; providerId: string; provider: string; color?: string; contextTokens?: number; maxTokens?: number; imageInput?: boolean };
+export type ModelOption = { id: string; name: string; displayName?: string; providerId: string; provider: string; color?: string; contextTokens?: number; maxTokens?: number; imageInput?: boolean };
+export function modelLabel(model: { name: string; displayName?: string }): string {
+  return model.displayName?.trim() || model.name;
+}
 export type ComposerOptions = { modelId: string; effort: string; mode: string; plan: boolean; fast: boolean };
 export type ComposerAttachment = { name: string; text?: string; image?: string; size?: number };
 export type ComposerContext = { files: string[]; projects: string[]; skills: string[]; attachments?: ComposerAttachment[] };
@@ -39,7 +42,7 @@ export function groupModels(models: ModelOption[], query: string) {
   const search = query.trim().toLocaleLowerCase();
   const groups = new Map<string, { id: string; name: string; color?: string; models: ModelOption[] }>();
   for (const model of models) {
-    if (search && !`${model.name} ${model.provider}`.toLocaleLowerCase().includes(search)) continue;
+    if (search && !`${model.name} ${model.displayName || ''} ${model.provider}`.toLocaleLowerCase().includes(search)) continue;
     if (!groups.has(model.providerId)) groups.set(model.providerId, { id: model.providerId, name: model.provider, color: model.color, models: [] });
     groups.get(model.providerId)!.models.push(model);
   }

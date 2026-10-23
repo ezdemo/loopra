@@ -10,6 +10,17 @@ let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
 const { acpStopMessage, SseParser, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
+test('model display names round-trip independently of API names and can be cleared', () => {
+  const channels = [{ id: 'main', name: 'Main', baseUrl: '', apiKey: '', apiProtocol: 'responses', specialCompatibility: '', models: [{ name: 'namespace/long-api-model-id', displayName: 'Flash', contextTokens: 128000, maxTokens: 32768, imageInput: true }] }];
+  const providers = configProviders({ modelChannels: channels });
+  assert.deepEqual(providerChannels(providers), channels);
+  providers[0].models[0].displayName = '  新名称  ';
+  assert.equal(providerChannels(providers)[0].models[0].displayName, '新名称');
+  assert.equal(providerChannels(providers)[0].models[0].name, 'namespace/long-api-model-id');
+  providers[0].models[0].displayName = '  ';
+  assert.equal('displayName' in providerChannels(providers)[0].models[0], false);
+});
+
 test('HTTP and SSE preserve occupation reasons while ordinary conflicts stay distinct', async () => {
   const original = globalThis.fetch;
   const client = new LoopraClient();
