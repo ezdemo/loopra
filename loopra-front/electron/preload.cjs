@@ -122,11 +122,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
-  aiBrowserWindow: {
-    open: () => ipcRenderer.invoke('open-ai-browser-window'),
-    getBridgeAddress: () => ipcRenderer.invoke('get-ai-browser-bridge-address')
-  },
-
   desktopHomeMenu: {
     open: (theme) => ipcRenderer.invoke('desktop-home-context-menu', theme)
   },
@@ -203,18 +198,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('desktop-pet-reply', listener)
       return () => ipcRenderer.removeListener('desktop-pet-reply', listener)
     }
-  },
-
-  aiBrowser: {
-    newTab: (url) => ipcRenderer.invoke('ai-browser-new-tab', url),
-    navigate: (tabId, url) => ipcRenderer.invoke('ai-browser-navigate', tabId, url),
-    history: (tabId, action) => ipcRenderer.invoke('ai-browser-history', tabId, action),
-    activateTab: (tabId) => ipcRenderer.invoke('ai-browser-activate-tab', tabId),
-    closeTab: (tabId) => ipcRenderer.invoke('ai-browser-close-tab', tabId),
-    getState: () => ipcRenderer.invoke('ai-browser-get-state'),
-    showView: (tabId, bounds) => ipcRenderer.invoke('ai-browser-view-show', tabId, bounds),
-    hideView: () => ipcRenderer.invoke('ai-browser-view-hide'),
-    sendElement: (payload) => ipcRenderer.send('element-inspector-send', payload)
   },
 
   desktopChatTabs: {

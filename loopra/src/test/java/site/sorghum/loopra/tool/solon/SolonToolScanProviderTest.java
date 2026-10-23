@@ -29,7 +29,7 @@ class SolonToolScanProviderTest {
         System.setProperty("user.home", home.toString());
         AppContext context = new AppContext();
         try {
-            context.wrapAndPut("browser", new FunctionToolDesc("browser_new_tab"));
+            context.wrapAndPut("gateway", new FunctionToolDesc("project_gateway_tool"));
             context.wrapAndPut("shell", new FunctionToolDesc("bash"));
             context.wrapAndPut("file", new FunctionToolDesc("read"));
             context.wrapAndPut("external", new McpFunctionTool(new FunctionToolDesc("webfetch")));

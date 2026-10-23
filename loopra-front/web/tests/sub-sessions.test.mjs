@@ -125,5 +125,5 @@ test('the replayed sub-agent turn never shows an elapsed-time header', async () 
     readFile(new URL('../src/components/Conversation.tsx', import.meta.url), 'utf8'),
   ]);
   assert.match(view, /showDuration=\{false\}/);
-  assert.match(conversation, /showDuration && message\.startedAt/);
+  assert.match(conversation, /showDuration && startedAt/);
 });

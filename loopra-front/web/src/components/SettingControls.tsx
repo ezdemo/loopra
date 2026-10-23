@@ -1,7 +1,7 @@
 import { Accordion, AccordionItem, Button, Input, Select, SelectItem, SelectSection, Switch, Tab, Tabs, Textarea } from '@nextui-org/react';
 import type { InputProps, SelectProps, TextAreaProps } from '@nextui-org/react';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, Blocks, Braces, Globe, Package, Plug, Sparkles, Wrench } from 'lucide-react';
+import { ArrowLeft, Blocks, Braces, Package, Plug, Sparkles, Wrench } from 'lucide-react';
 import type { ModelOption } from '../composer';
 import { useAppMotion } from './Motion';
 
@@ -83,8 +83,8 @@ export function SettingDisclosure({ heading, children, className = '', defaultEx
   const { enabled } = useAppMotion();
   return <Accordion isCompact defaultExpandedKeys={defaultExpanded ? ['details'] : []} disableAnimation={!enabled} className={`settings-next-accordion ${className}`} itemClasses={{ trigger: 'settings-accordion-trigger', title: 'settings-accordion-title', content: 'settings-accordion-content' }}><AccordionItem key="details" aria-label={heading} title={heading}>{children}</AccordionItem></Accordion>;
 }
-type ResourceKind = 'tool' | 'skill' | 'plugin' | 'extension' | 'mcp' | 'openapi' | 'browser';
-const resourceIcons = { tool: Wrench, skill: Sparkles, plugin: Blocks, extension: Package, mcp: Plug, openapi: Braces, browser: Globe };
+type ResourceKind = 'tool' | 'skill' | 'plugin' | 'extension' | 'mcp' | 'openapi';
+const resourceIcons = { tool: Wrench, skill: Sparkles, plugin: Blocks, extension: Package, mcp: Plug, openapi: Braces };
 export function ResourceIcon({ kind }: { kind: ResourceKind }) {
   const Icon = resourceIcons[kind];
   return <span className="resource-icon" aria-hidden="true"><Icon size="1.125rem" strokeWidth={1.7} /></span>;

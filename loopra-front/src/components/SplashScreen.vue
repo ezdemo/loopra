@@ -5,7 +5,6 @@
 <script setup>
 import {computed, nextTick, onMounted, onUnmounted, ref, watch} from 'vue'
 import {platform} from '@/services/platform'
-import {systemAPI} from '@/services/api'
 import {
   MIRROR_SOURCES,
   applyLatencies,
@@ -530,7 +529,6 @@ async function startService(options = {}) {
         running.value = true
         port.value = targetPort
         enterPulse.value = true
-        await registerBrowserBridge()
       } else {
         errorMessage.value = `服务启动超时，端口 ${targetPort} 未响应健康检查`
       }
@@ -567,15 +565,6 @@ async function restartService() {
   if (!errorMessage.value) await startService()
 }
 
-async function registerBrowserBridge() {
-  if (!window.electronAPI?.aiBrowserWindow?.getBridgeAddress) return
-  try {
-    const address = await window.electronAPI.aiBrowserWindow.getBridgeAddress()
-    await systemAPI.setBrowserBridge(address, {silent: true})
-  } catch (error) {
-    console.warn('[Splash] Failed to register AI browser bridge:', error)
-  }
-}
 
 async function enterLoopra() {
   enterPulse.value = false

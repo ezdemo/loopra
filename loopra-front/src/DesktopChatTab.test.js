@@ -39,7 +39,6 @@ beforeEach(() => {
     desktopChatTabs: {ready: vi.fn(), reportTitle: vi.fn(), reportSessionUpdated: vi.fn(), reportSessionStatus: vi.fn(), reportWorkspace: vi.fn()},
     desktopChatHeaderMenu: {open: vi.fn().mockResolvedValue(null)},
     elementInspectorWindow: {open: vi.fn().mockResolvedValue({success: true})},
-    aiBrowserWindow: {open: vi.fn().mockResolvedValue({success: true})},
     onboarding: {open: vi.fn().mockResolvedValue({success: true})}
   }
 })
@@ -164,8 +163,8 @@ describe('DesktopChatTab 子代理回放标签', () => {
     expect(wrapper.vm.rightPanelOpen).toBe(true)
     expect(wrapper.vm.rightPanelTab).toBe('launcher')
 
-    wrapper.vm.openToolPanel('browser')
-    expect(wrapper.vm.rightPanelTab).toBe('browser')
+    wrapper.vm.openToolPanel('terminal')
+    expect(wrapper.vm.rightPanelTab).toBe('terminal')
   })
 
   it('opens the native session menu and handles its selected action', async () => {

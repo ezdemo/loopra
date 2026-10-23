@@ -1,9 +1,7 @@
-const { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Notification, session, net: electronNet } = require('electron')
-const http = require('http')
+const { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, Notification, session, net: electronNet } = require('electron')
 const path = require('path')
 const { spawn, execFile, execSync } = require('child_process')
 const { promisify } = require('util')
-const { randomUUID } = require('crypto')
 const { compareVersions } = require('./version.cjs')
 const { createDesktopUpdater, registerDesktopUpdateIpc, readDesktopUpdateOptions, loadDesktopUpdater } = require('./desktop-updater.cjs')
 const { createDesktopReleaseNotes } = require('./desktop-release-notes.cjs')
@@ -104,34 +102,12 @@ let elementInspectorWindow = null
 let elementInspectorReady = false
 let elementInspectorPendingUrl = ''
 let requirementBoardWindow = null
-let aiBrowserWindow = null
-let aiBrowserActiveTabId = null
-let aiBrowserActiveSessionId = 'desktop'
-let aiBrowserNextTabId = 1
-let aiBrowserBridge = null
-let aiBrowserBridgeReady = null
-let aiBrowserBridgeAddress = ''
-let aiBrowserActivity = { state: 'idle', message: '等待 AI 操作', timestamp: Date.now() }
 let desktopPetWindow = null
 let pendingDesktopPetReply = null
-const aiBrowserTabs = new Map()
-const aiBrowserSessions = new Map()
-const AI_BROWSER_SCREENSHOT_MAX_BYTES = 5 * 1024 * 1024
-const AI_BROWSER_SCREENSHOT_MAX_WIDTH = 1600
-const AI_BROWSER_RENDERED_HTML_MAX_CHARS = 320 * 1024
-const AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS = 768 * 1024
-const AI_BROWSER_RENDERED_HTML_TIMEOUT_MS = 3_000
-const AI_BROWSER_RENDERED_HTML_TOTAL_TIMEOUT_MS = 5_000
 const desktopChatTabs = new Map()
 const fileExplorerWatchers = new Map()
 let desktopChatActiveTabId = null
 let desktopChatLoadingRequestId = 0
-const AI_BROWSER_BRIDGE_PREFERRED_PORT = Number(process.env.LOOPRA_BROWSER_BRIDGE_PORT || 0)
-const AI_BROWSER_TAB_CLEANUP_THRESHOLD = 16
-const AI_BROWSER_MAX_TABS = 20
-const AI_BROWSER_DEFAULT_SESSION_ID = 'desktop'
-const AI_BROWSER_SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000
-const AI_BROWSER_SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const execFileAsync = promisify(execFile)
 const appIconPath = path.join(__dirname, 'favicon.png')
 const desktopOverlayManager = new DesktopNativeOverlayManager({
@@ -1043,7 +1019,6 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     if (elementInspectorWindow && !elementInspectorWindow.isDestroyed()) elementInspectorWindow.close()
-    if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.close()
     if (desktopPetWindow && !desktopPetWindow.isDestroyed()) desktopPetWindow.close()
     if (onboardingWindow && !onboardingWindow.isDestroyed()) onboardingWindow.close()
     if (elementWebView && !elementWebView.webContents.isDestroyed()) elementWebView.webContents.close()
@@ -1229,7 +1204,6 @@ app.whenReady().then(async () => {
   // The renderer provides its own toolbar; do not expose Electron's default menu bar.
   Menu.setApplicationMenu(null)
   desktopUpdater.start()
-  startAiBrowserBridge().catch((error) => console.error('[ai-browser] failed to start bridge:', error.message))
   await openDesktopWorkspace()
   if (isDesktopPetEnabled()) openDesktopPetWindow()
   app.on('activate', () => {
@@ -1247,7 +1221,6 @@ app.on('before-quit', () => {
   desktopUpdater.dispose()
   cleanupLoopraWeb()
   closeAllFileExplorerWatchers()
-  stopAiBrowserBridge()
   killAllTerminals()
 })
 
@@ -1910,9 +1883,7 @@ ipcMain.handle('desktop-tool-menu', (event, rawTheme) => {
       resolve(action)
     }
     const menu = Menu.buildFromTemplate([
-      {label: '审查', accelerator: 'CommandOrControl+Shift+G', click: () => finish('review')},
       {label: '终端', click: () => finish('terminal')},
-      {label: '浏览器', accelerator: 'CommandOrControl+T', click: () => finish('browser')},
       {label: '文件', accelerator: 'CommandOrControl+P', click: () => finish('files')},
       {label: '环境信息', click: () => finish('environment')},
       {label: '子代理', click: () => finish('sub-agents')},
@@ -2740,6 +2711,274 @@ ipcMain.on('desktop-popup-close-event', (event) => {
 
 // ==================== Desktop Chat Tabs ====================
 
+function waitForDesktopChatReady(tab, timeoutMs = 15_000) {
+  if (!tab || tab.view.webContents.isDestroyed()) return Promise.resolve(false)
+  if (tab.rendererReady) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (ready) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      tab.readyWaiters = tab.readyWaiters.filter((waiter) => waiter !== finish)
+      resolve(ready)
+    }
+    const timeout = setTimeout(() => finish(false), timeoutMs)
+    tab.readyWaiters.push(finish)
+  })
+}
+
+function sendDesktopChatTabEvent(tab, channel, payload) {
+  if (!tab) return false
+  const wc = tab.view.webContents
+  if (!wc || wc.isDestroyed()) return false
+  if (!tab.rendererReady) {
+    tab.pendingEvents.push([channel, payload])
+    return true
+  }
+  tab.view.webContents.send(channel, payload)
+  return true
+}
+
+function detachDesktopChatTab(tab) {
+  if (!tab) return
+  if (tab.attached && mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.contentView.removeChildView(tab.view) } catch { /* window may already be closing */ }
+  }
+  tab.attached = false
+}
+
+function waitForDesktopChatLoadingPaint(tab, requestId, timeoutMs = 2_000) {
+  if (!tab || tab.view.webContents.isDestroyed()) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (painted) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      tab.loadingWaiters.delete(requestId)
+      resolve(painted)
+    }
+    const timeout = setTimeout(() => finish(false), timeoutMs)
+    tab.loadingWaiters.set(requestId, finish)
+  })
+}
+
+function destroyDesktopChatTab(tab) {
+  if (!tab) return
+  for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
+  for (const resolve of tab.loadingWaiters.values()) resolve(false)
+  tab.loadingWaiters.clear()
+  tab.pendingEvents.length = 0
+  const wc = tab.view.webContents
+  if (wc && !wc.isDestroyed()) tab.view.setVisible(false)
+  tab.visible = false
+  detachDesktopChatTab(tab)
+  if (desktopChatTabs.get(tab.id)?.view === tab.view) desktopChatTabs.delete(tab.id)
+  if (desktopChatActiveTabId === tab.id) desktopChatActiveTabId = null
+  if (wc && !wc.isDestroyed()) wc.close()
+}
+
+function hideDesktopChatViews(exceptTabId = null) {
+  const targets = [...desktopChatTabs.values()].filter((tab) => tab.id !== exceptTabId && tab.visible)
+  for (const tab of targets) {
+    sendDesktopChatTabEvent(tab, 'desktop-chat-tab-visibility', false)
+    tab.view.setVisible(false)
+    tab.visible = false
+  }
+}
+
+function destroyDesktopChatTabs() {
+  for (const tab of [...desktopChatTabs.values()]) destroyDesktopChatTab(tab)
+  desktopChatTabs.clear()
+  desktopChatActiveTabId = null
+}
+
+function normalizeDesktopChatBounds(rawBounds) {
+  if (!mainWindow || !rawBounds || typeof rawBounds !== 'object') throw new Error('Invalid desktop chat view bounds')
+  const contentBounds = mainWindow.getContentBounds()
+  const values = ['x', 'y', 'width', 'height'].map((key) => Math.round(Number(rawBounds[key])))
+  if (!values.every(Number.isFinite)) throw new Error('Invalid desktop chat view bounds')
+  const x = Math.max(0, Math.min(values[0], contentBounds.width - 1))
+  const y = Math.max(0, Math.min(values[1], contentBounds.height - 1))
+  return { x, y, width: Math.max(1, Math.min(values[2], contentBounds.width - x)), height: Math.max(1, Math.min(values[3], contentBounds.height - y)) }
+}
+
+function waitForDesktopChatLoad(view, load, target) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let failure = null
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      const wc = view.webContents
+      if (wc && !wc.isDestroyed()) {
+        wc.removeListener('destroyed', onDestroyed)
+        wc.removeListener('did-fail-load', onFailedLoad)
+      }
+      callback(value)
+    }
+    const onDestroyed = () => finish(reject, new Error('Desktop chat tab was destroyed while loading'))
+    const onFailedLoad = (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (isMainFrame) failure = { errorCode, errorDescription, url: validatedURL }
+    }
+    const timeout = setTimeout(() => finish(reject, new Error(`Timed out loading desktop chat tab: ${target}`)), DESKTOP_CHAT_LOAD_TIMEOUT_MS)
+    view.webContents.once('destroyed', onDestroyed)
+    view.webContents.on('did-fail-load', onFailedLoad)
+    Promise.resolve()
+      .then(load)
+      .then(() => finish(resolve))
+      .catch((error) => {
+        const detail = failure ? ` (${failure.errorCode} ${failure.errorDescription}: ${failure.url})` : ''
+        finish(reject, new Error(`${error.message || 'Failed to load desktop chat tab'}${detail}`))
+      })
+  })
+}
+
+async function loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession, sessionTitle = '') {
+  const queryParams = {
+    desktopChatTab: '1',
+    sessionName,
+    sessionTitle,
+    workspaceHash: workspaceHash || '',
+    theme,
+    newSession: newSession ? '1' : '0'
+  }
+  const query = new URLSearchParams(queryParams).toString()
+  const rendererPath = path.join(__dirname, '../renderer/index.html')
+  const targets = isDev
+    ? DESKTOP_CHAT_DEV_RENDERER_ORIGINS.map((origin) => `${origin}/?${query}`)
+    : [rendererPath]
+  let lastError = null
+
+  for (let attempt = 0; attempt < DESKTOP_CHAT_LOAD_ATTEMPTS; attempt++) {
+    const target = targets[Math.min(attempt, targets.length - 1)]
+    try {
+      if (isDev) {
+        await waitForDesktopChatLoad(view, () => view.webContents.loadURL(target), target)
+      } else {
+        await waitForDesktopChatLoad(view, () => view.webContents.loadFile(target, {
+          query: queryParams
+        }), target)
+      }
+      return
+    } catch (error) {
+      lastError = error
+      const wc = view.webContents
+      if (!wc || wc.isDestroyed() || attempt === DESKTOP_CHAT_LOAD_ATTEMPTS - 1) break
+      const nextTarget = targets[Math.min(attempt + 1, targets.length - 1)]
+      console.warn(`[desktop-chat-tab] load failed from ${target}, retrying with ${nextTarget}: ${error.message}`)
+      await new Promise((resolve) => setTimeout(resolve, DESKTOP_CHAT_LOAD_RETRY_DELAY_MS))
+    }
+  }
+
+  throw lastError || new Error('Failed to load desktop chat tab')
+}
+
+async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, theme = 'gray', newSession = false, sessionTitle = '') {
+  let existing = desktopChatTabs.get(tabId)
+  if (existing) {
+    const wc = existing.view.webContents
+    if (!wc || wc.isDestroyed()) {
+      desktopChatTabs.delete(tabId)
+      existing = null
+    }
+  }
+  if (existing) {
+    if (existing.ready) await existing.ready
+    if (sessionTitle && sessionTitle !== existing.sessionTitle) {
+      existing.sessionTitle = sessionTitle
+      sendDesktopChatTabEvent(existing, 'desktop-chat-tab-session-title', sessionTitle)
+    }
+    sendDesktopChatTabEvent(existing, 'desktop-chat-tab-theme', theme)
+    return existing
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Main window is not available')
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false
+    }
+  })
+  view.setBackgroundColor(theme === 'dark' ? '#141518' : '#ffffff')
+  const tab = {
+    id: tabId,
+    sessionName,
+    sessionTitle,
+    workspaceHash,
+    newSession,
+    view,
+    attached: false,
+    visible: false,
+    rendererReady: false,
+    readyWaiters: [],
+    loadingWaiters: new Map(),
+    pendingEvents: [],
+    ready: null
+  }
+  desktopChatTabs.set(tabId, tab)
+  view.setVisible(false)
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  view.webContents.on('did-start-loading', () => {
+    tab.rendererReady = false
+  })
+  view.webContents.on('destroyed', () => {
+    for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
+    for (const resolve of [...tab.loadingWaiters.values()]) resolve(false)
+    tab.loadingWaiters.clear()
+    tab.pendingEvents.length = 0
+    tab.attached = false
+    tab.visible = false
+    if (desktopChatTabs.get(tabId)?.view !== view) return
+    desktopChatTabs.delete(tabId)
+    if (desktopChatActiveTabId === tabId) desktopChatActiveTabId = null
+  })
+
+  try {
+    // Keep the view attached while it loads so a concurrent show call cannot interrupt navigation.
+    mainWindow.contentView.addChildView(view)
+    tab.attached = true
+    tab.ready = loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession, sessionTitle)
+    await tab.ready
+    return tab
+  } catch (error) {
+    destroyDesktopChatTab(tab)
+    throw error
+  }
+}
+
+async function stopLoopraJavaProcess(pid) {
+  if (isWin) {
+    await execFileAsync('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true })
+  } else {
+    process.kill(pid, 'SIGTERM')
+  }
+}
+
+async function closeOtherLoopraJavaProcesses(keepPort) {
+  if (!Number.isSafeInteger(keepPort) || keepPort <= 0) return
+  try {
+    const processes = await listLoopraJavaProcesses()
+    for (const processInfo of processes.filter((item) => isLoopraGuiRuntime(item.commandLine) && item.port !== keepPort)) {
+      try {
+        await stopLoopraJavaProcess(processInfo.pid)
+        console.log(`Closed stale loopra-web process ${processInfo.pid} on port ${processInfo.port || 'unknown'}`)
+      } catch (error) {
+        console.warn(`Failed to close stale loopra-web process ${processInfo.pid}: ${error.message}`)
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to clean up stale loopra-web processes:', error.message)
+  }
+}
+
 ipcMain.handle('desktop-chat-tab-create', async (event, rawTab) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized desktop chat tab request')
   const tabId = String(rawTab?.id || '').trim()
@@ -2960,1946 +3199,6 @@ ipcMain.on('desktop-chat-tab-open-model-channels', (event) => {
   mainWindow.webContents.send('desktop-shell-open-model-channels')
 })
 
-// ==================== AI Browser ====================
-
-function normalizeAiBrowserUrl(rawUrl, allowBlank = false) {
-  const value = String(rawUrl || '').trim()
-  if (!value) {
-    if (allowBlank) return 'about:blank'
-    throw new Error('Only HTTP(S) URLs are supported')
-  }
-  if (allowBlank && /^about:blank$/i.test(value)) return 'about:blank'
-  const isLocalHost = /^(localhost|127\.0\.0\.1)(:\d+)?(\/.*)?$/i.test(value)
-  const hasExplicitScheme = /^[a-z][a-z0-9+.-]*:/i.test(value)
-  const withScheme = (hasExplicitScheme && !isLocalHost)
-    ? value
-    : (isLocalHost ? `http://${value}` : `https://${value}`)
-  const url = new URL(withScheme)
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP(S) URLs are supported')
-  return url.href
-}
-
-function waitForDesktopChatReady(tab, timeoutMs = 15_000) {
-  if (!tab || tab.view.webContents.isDestroyed()) return Promise.resolve(false)
-  if (tab.rendererReady) return Promise.resolve(true)
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (ready) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      tab.readyWaiters = tab.readyWaiters.filter((waiter) => waiter !== finish)
-      resolve(ready)
-    }
-    const timeout = setTimeout(() => finish(false), timeoutMs)
-    tab.readyWaiters.push(finish)
-  })
-}
-
-function sendDesktopChatTabEvent(tab, channel, payload) {
-  if (!tab) return false
-  const wc = tab.view.webContents
-  if (!wc || wc.isDestroyed()) return false
-  if (!tab.rendererReady) {
-    tab.pendingEvents.push([channel, payload])
-    return true
-  }
-  tab.view.webContents.send(channel, payload)
-  return true
-}
-
-function detachDesktopChatTab(tab) {
-  if (!tab) return
-  if (tab.attached && mainWindow && !mainWindow.isDestroyed()) {
-    try { mainWindow.contentView.removeChildView(tab.view) } catch { /* window may already be closing */ }
-  }
-  tab.attached = false
-}
-
-function waitForDesktopChatLoadingPaint(tab, requestId, timeoutMs = 2_000) {
-  if (!tab || tab.view.webContents.isDestroyed()) return Promise.resolve(false)
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (painted) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      tab.loadingWaiters.delete(requestId)
-      resolve(painted)
-    }
-    const timeout = setTimeout(() => finish(false), timeoutMs)
-    tab.loadingWaiters.set(requestId, finish)
-  })
-}
-
-function destroyDesktopChatTab(tab) {
-  if (!tab) return
-  hideAiBrowserViews(tab.view?.webContents)
-  for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
-  for (const resolve of tab.loadingWaiters.values()) resolve(false)
-  tab.loadingWaiters.clear()
-  tab.pendingEvents.length = 0
-  const wc = tab.view.webContents
-  if (wc && !wc.isDestroyed()) tab.view.setVisible(false)
-  tab.visible = false
-  detachDesktopChatTab(tab)
-  if (desktopChatTabs.get(tab.id)?.view === tab.view) desktopChatTabs.delete(tab.id)
-  if (desktopChatActiveTabId === tab.id) desktopChatActiveTabId = null
-  if (wc && !wc.isDestroyed()) wc.close()
-}
-
-function hideDesktopChatViews(exceptTabId = null) {
-  const targets = [...desktopChatTabs.values()].filter((tab) => tab.id !== exceptTabId && tab.visible)
-  for (const tab of targets) {
-    sendDesktopChatTabEvent(tab, 'desktop-chat-tab-visibility', false)
-    hideAiBrowserViews(tab.view.webContents)
-    tab.view.setVisible(false)
-    tab.visible = false
-  }
-}
-
-function destroyDesktopChatTabs() {
-  for (const tab of [...desktopChatTabs.values()]) destroyDesktopChatTab(tab)
-  desktopChatTabs.clear()
-  desktopChatActiveTabId = null
-}
-
-function normalizeDesktopChatBounds(rawBounds) {
-  if (!mainWindow || !rawBounds || typeof rawBounds !== 'object') throw new Error('Invalid desktop chat view bounds')
-  const contentBounds = mainWindow.getContentBounds()
-  const values = ['x', 'y', 'width', 'height'].map((key) => Math.round(Number(rawBounds[key])))
-  if (!values.every(Number.isFinite)) throw new Error('Invalid desktop chat view bounds')
-  const x = Math.max(0, Math.min(values[0], contentBounds.width - 1))
-  const y = Math.max(0, Math.min(values[1], contentBounds.height - 1))
-  return { x, y, width: Math.max(1, Math.min(values[2], contentBounds.width - x)), height: Math.max(1, Math.min(values[3], contentBounds.height - y)) }
-}
-
-function waitForDesktopChatLoad(view, load, target) {
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let failure = null
-    const finish = (callback, value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      const wc = view.webContents
-      if (wc && !wc.isDestroyed()) {
-        wc.removeListener('destroyed', onDestroyed)
-        wc.removeListener('did-fail-load', onFailedLoad)
-      }
-      callback(value)
-    }
-    const onDestroyed = () => finish(reject, new Error('Desktop chat tab was destroyed while loading'))
-    const onFailedLoad = (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      if (isMainFrame) failure = { errorCode, errorDescription, url: validatedURL }
-    }
-    const timeout = setTimeout(() => finish(reject, new Error(`Timed out loading desktop chat tab: ${target}`)), DESKTOP_CHAT_LOAD_TIMEOUT_MS)
-    view.webContents.once('destroyed', onDestroyed)
-    view.webContents.on('did-fail-load', onFailedLoad)
-    Promise.resolve()
-      .then(load)
-      .then(() => finish(resolve))
-      .catch((error) => {
-        const detail = failure ? ` (${failure.errorCode} ${failure.errorDescription}: ${failure.url})` : ''
-        finish(reject, new Error(`${error.message || 'Failed to load desktop chat tab'}${detail}`))
-      })
-  })
-}
-
-async function loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession, sessionTitle = '') {
-  const queryParams = {
-    desktopChatTab: '1',
-    sessionName,
-    sessionTitle,
-    workspaceHash: workspaceHash || '',
-    theme,
-    newSession: newSession ? '1' : '0'
-  }
-  const query = new URLSearchParams(queryParams).toString()
-  const rendererPath = path.join(__dirname, '../renderer/index.html')
-  const targets = isDev
-    ? DESKTOP_CHAT_DEV_RENDERER_ORIGINS.map((origin) => `${origin}/?${query}`)
-    : [rendererPath]
-  let lastError = null
-
-  for (let attempt = 0; attempt < DESKTOP_CHAT_LOAD_ATTEMPTS; attempt++) {
-    const target = targets[Math.min(attempt, targets.length - 1)]
-    try {
-      if (isDev) {
-        await waitForDesktopChatLoad(view, () => view.webContents.loadURL(target), target)
-      } else {
-        await waitForDesktopChatLoad(view, () => view.webContents.loadFile(target, {
-          query: queryParams
-        }), target)
-      }
-      return
-    } catch (error) {
-      lastError = error
-      const wc = view.webContents
-      if (!wc || wc.isDestroyed() || attempt === DESKTOP_CHAT_LOAD_ATTEMPTS - 1) break
-      const nextTarget = targets[Math.min(attempt + 1, targets.length - 1)]
-      console.warn(`[desktop-chat-tab] load failed from ${target}, retrying with ${nextTarget}: ${error.message}`)
-      await new Promise((resolve) => setTimeout(resolve, DESKTOP_CHAT_LOAD_RETRY_DELAY_MS))
-    }
-  }
-
-  throw lastError || new Error('Failed to load desktop chat tab')
-}
-
-async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, theme = 'gray', newSession = false, sessionTitle = '') {
-  let existing = desktopChatTabs.get(tabId)
-  if (existing) {
-    const wc = existing.view.webContents
-    if (!wc || wc.isDestroyed()) {
-      desktopChatTabs.delete(tabId)
-      existing = null
-    }
-  }
-  if (existing) {
-    if (existing.ready) await existing.ready
-    if (sessionTitle && sessionTitle !== existing.sessionTitle) {
-      existing.sessionTitle = sessionTitle
-      sendDesktopChatTabEvent(existing, 'desktop-chat-tab-session-title', sessionTitle)
-    }
-    sendDesktopChatTabEvent(existing, 'desktop-chat-tab-theme', theme)
-    return existing
-  }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Main window is not available')
-  const view = new WebContentsView({
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      backgroundThrottling: false
-    }
-  })
-  view.setBackgroundColor(theme === 'dark' ? '#141518' : '#ffffff')
-  const tab = {
-    id: tabId,
-    sessionName,
-    sessionTitle,
-    workspaceHash,
-    newSession,
-    view,
-    attached: false,
-    visible: false,
-    rendererReady: false,
-    readyWaiters: [],
-    loadingWaiters: new Map(),
-    pendingEvents: [],
-    ready: null
-  }
-  desktopChatTabs.set(tabId, tab)
-  view.setVisible(false)
-  view.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
-  view.webContents.on('did-start-loading', () => {
-    tab.rendererReady = false
-  })
-  view.webContents.on('destroyed', () => {
-    for (const resolve of tab.readyWaiters.splice(0)) resolve(false)
-    for (const resolve of [...tab.loadingWaiters.values()]) resolve(false)
-    tab.loadingWaiters.clear()
-    tab.pendingEvents.length = 0
-    tab.attached = false
-    tab.visible = false
-    if (desktopChatTabs.get(tabId)?.view !== view) return
-    desktopChatTabs.delete(tabId)
-    if (desktopChatActiveTabId === tabId) desktopChatActiveTabId = null
-  })
-
-  try {
-    // Keep the view attached while it loads so a concurrent show call cannot interrupt navigation.
-    mainWindow.contentView.addChildView(view)
-    tab.attached = true
-    tab.ready = loadDesktopChatTab(view, sessionName, workspaceHash, theme, newSession, sessionTitle)
-    await tab.ready
-    return tab
-  } catch (error) {
-    destroyDesktopChatTab(tab)
-    throw error
-  }
-}
-
-async function stopLoopraJavaProcess(pid) {
-  if (isWin) {
-    await execFileAsync('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true })
-  } else {
-    process.kill(pid, 'SIGTERM')
-  }
-}
-
-async function closeOtherLoopraJavaProcesses(keepPort) {
-  if (!Number.isSafeInteger(keepPort) || keepPort <= 0) return
-  try {
-    const processes = await listLoopraJavaProcesses()
-    for (const processInfo of processes.filter((item) => isLoopraGuiRuntime(item.commandLine) && item.port !== keepPort)) {
-      try {
-        await stopLoopraJavaProcess(processInfo.pid)
-        console.log(`Closed stale loopra-web process ${processInfo.pid} on port ${processInfo.port || 'unknown'}`)
-      } catch (error) {
-        console.warn(`Failed to close stale loopra-web process ${processInfo.pid}: ${error.message}`)
-      }
-    }
-  } catch (error) {
-    console.warn('Failed to clean up stale loopra-web processes:', error.message)
-  }
-}
-
-function normalizeAiBrowserSessionId(rawSessionId, fallback = AI_BROWSER_DEFAULT_SESSION_ID) {
-  const value = String(rawSessionId || '').trim() || fallback
-  if (!AI_BROWSER_SESSION_ID_PATTERN.test(value)) {
-    throw new Error(`INVALID_BROWSER_SESSION: ${value || '(empty)'}`)
-  }
-  return value
-}
-
-function getAiBrowserSession(rawSessionId, create = true) {
-  const sessionId = normalizeAiBrowserSessionId(rawSessionId)
-  let session = aiBrowserSessions.get(sessionId)
-  if (!session && create) {
-    session = {
-      id: sessionId,
-      tabs: new Set(),
-      activeTabId: null,
-      managed: sessionId !== AI_BROWSER_DEFAULT_SESSION_ID,
-      createdAt: Date.now(),
-      lastAccessed: Date.now()
-    }
-    aiBrowserSessions.set(sessionId, session)
-  }
-  if (session) session.lastAccessed = Date.now()
-  return session || null
-}
-
-function touchAiBrowserTab(tab) {
-  if (!tab) return
-  tab.lastAccessed = Date.now()
-  const session = aiBrowserSessions.get(tab.sessionId)
-  if (session) session.lastAccessed = tab.lastAccessed
-}
-
-function invalidateAiBrowserSnapshot(tab) {
-  if (tab) tab.snapshotId = null
-}
-
-function enqueueAiBrowserTabOperation(tab, operation) {
-  const previous = tab.operationQueue || Promise.resolve()
-  const current = previous.catch(() => {}).then(async () => {
-    touchAiBrowserTab(tab)
-    return operation()
-  })
-  // Keep the queue alive after a failed operation, while returning the original
-  // rejection to the caller that owns this operation.
-  tab.operationQueue = current.catch(() => {})
-  return current
-}
-
-function sessionTabIds(session) {
-  if (!session) return []
-  const ids = []
-  for (const id of session.tabs) {
-    if (aiBrowserTabs.has(id)) ids.push(id)
-    else session.tabs.delete(id)
-  }
-  return ids
-}
-
-function setAiBrowserActiveTab(tab) {
-  if (!tab) {
-    aiBrowserActiveTabId = null
-    aiBrowserActiveSessionId = AI_BROWSER_DEFAULT_SESSION_ID
-    return
-  }
-  const session = getAiBrowserSession(tab.sessionId)
-  session.activeTabId = tab.id
-  aiBrowserActiveTabId = tab.id
-  aiBrowserActiveSessionId = session.id
-  touchAiBrowserTab(tab)
-}
-
-function resolveAiBrowserTab(tabId, rawSessionId) {
-  const session = getAiBrowserSession(rawSessionId, false)
-  if (!session) throw new Error(`BROWSER_SESSION_NOT_FOUND: ${normalizeAiBrowserSessionId(rawSessionId)}`)
-  const requestedId = String(tabId || '').trim()
-  const resolvedId = requestedId || session.activeTabId
-  if (!resolvedId) throw new Error(`BROWSER_NO_ACTIVE_TAB: session ${session.id} has no active tab`)
-  const tab = aiBrowserTabs.get(resolvedId)
-  if (!tab) throw new Error(`BROWSER_TAB_NOT_FOUND: ${resolvedId}`)
-  if (tab.sessionId !== session.id) {
-    throw new Error(`BROWSER_TAB_NOT_IN_SESSION: ${resolvedId} belongs to ${tab.sessionId}`)
-  }
-  touchAiBrowserTab(tab)
-  return tab
-}
-
-function aiBrowserTabSummary(tab) {
-  const contents = tab.view.webContents
-  return {
-    id: tab.id,
-    sessionId: tab.sessionId,
-    url: contents.isDestroyed() ? tab.url : (contents.getURL() || tab.url),
-    title: tab.title || '新标签页',
-    favicon: tab.favicon || null,
-    loading: tab.loading,
-    canGoBack: !contents.isDestroyed() && contents.canGoBack(),
-    canGoForward: !contents.isDestroyed() && contents.canGoForward()
-  }
-}
-
-function sendAiBrowserState() {
-  const payload = {
-    activeSessionId: aiBrowserActiveSessionId,
-    activeTabId: aiBrowserActiveTabId,
-    tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary),
-    sessions: [...aiBrowserSessions.values()].map((session) => ({
-      id: session.id,
-      activeTabId: session.activeTabId,
-      tabCount: sessionTabIds(session).length,
-      managed: session.managed
-    }))
-  }
-  if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('ai-browser-state', payload)
-  for (const desktopTab of desktopChatTabs.values()) {
-    if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
-      desktopTab.view.webContents.send('ai-browser-state', payload)
-    }
-  }
-}
-
-function sendAiBrowserActivity(state, message, details = {}) {
-  aiBrowserActivity = { state, message, timestamp: Date.now(), ...details }
-  if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('ai-browser-activity', aiBrowserActivity)
-  for (const desktopTab of desktopChatTabs.values()) {
-    if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
-      desktopTab.view.webContents.send('ai-browser-activity', aiBrowserActivity)
-    }
-  }
-}
-
-function hideAiBrowserViews(controller = null) {
-  for (const tab of aiBrowserTabs.values()) {
-    if (!controller || tab.controller === controller) tab.view.setVisible(false)
-  }
-}
-
-function detachAiBrowserView(tab) {
-  if (!tab?.hostWindow || tab.hostWindow.isDestroyed()) {
-    if (tab) tab.hostWindow = null
-    return
-  }
-  try { tab.hostWindow.contentView.removeChildView(tab.view) } catch { /* window may be closing */ }
-  tab.hostWindow = null
-}
-
-function resolveAiBrowserHost(sender) {
-  if (sender === aiBrowserWindow?.webContents && aiBrowserWindow && !aiBrowserWindow.isDestroyed()) {
-    return {window: aiBrowserWindow, offset: {x: 0, y: 0}, desktopTab: null}
-  }
-  const desktopTab = [...desktopChatTabs.values()].find((item) => item.view.webContents === sender)
-  if (!desktopTab || !mainWindow || mainWindow.isDestroyed()) return null
-  const bounds = desktopTab.view.getBounds()
-  return {window: mainWindow, offset: {x: bounds.x, y: bounds.y}, desktopTab}
-}
-
-function isAiBrowserUiSender(sender) {
-  return Boolean(resolveAiBrowserHost(sender))
-}
-
-function closeAiBrowserTab(tabId) {
-  const id = String(tabId || '')
-  const tab = aiBrowserTabs.get(id)
-  if (!tab) return false
-  const session = aiBrowserSessions.get(tab.sessionId)
-  tab.view.setVisible(false)
-  detachAiBrowserView(tab)
-  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
-  aiBrowserTabs.delete(id)
-  session?.tabs.delete(id)
-  if (session?.activeTabId === id) session.activeTabId = sessionTabIds(session)[0] || null
-  if (aiBrowserActiveTabId === id) {
-    const activeSession = getAiBrowserSession(aiBrowserActiveSessionId, false)
-    const activeId = activeSession?.activeTabId
-    if (activeId && aiBrowserTabs.has(activeId)) {
-      aiBrowserActiveTabId = activeId
-    } else {
-      const fallbackSession = getAiBrowserSession(AI_BROWSER_DEFAULT_SESSION_ID, false)
-      const fallbackId = fallbackSession?.activeTabId || sessionTabIds(fallbackSession)[0] || null
-      const fallbackTab = fallbackId ? aiBrowserTabs.get(fallbackId) : null
-      setAiBrowserActiveTab(fallbackTab)
-    }
-  }
-  if (session && session.managed && session.tabs.size === 0) aiBrowserSessions.delete(session.id)
-  sendAiBrowserState()
-  return true
-}
-
-function destroyAiBrowserTabs() {
-  for (const id of [...aiBrowserTabs.keys()]) closeAiBrowserTab(id)
-  aiBrowserSessions.clear()
-  aiBrowserActiveTabId = null
-  aiBrowserActiveSessionId = AI_BROWSER_DEFAULT_SESSION_ID
-}
-
-function getAiBrowserTab(tabId, rawSessionId = null) {
-  const tab = aiBrowserTabs.get(String(tabId || ''))
-  if (!tab) throw new Error(`BROWSER_TAB_NOT_FOUND: ${tabId}`)
-  if (rawSessionId != null && String(rawSessionId).trim() !== ''
-    && tab.sessionId !== normalizeAiBrowserSessionId(rawSessionId)) {
-    throw new Error(`BROWSER_TAB_NOT_IN_SESSION: ${tab.id} belongs to ${tab.sessionId}`)
-  }
-  touchAiBrowserTab(tab)
-  return tab
-}
-
-async function createAiBrowserTab(rawUrl = 'about:blank', rawSessionId = AI_BROWSER_DEFAULT_SESSION_ID) {
-  if (aiBrowserTabs.size >= AI_BROWSER_MAX_TABS) {
-    throw new Error(`BROWSER_TAB_LIMIT: 已达到 ${AI_BROWSER_MAX_TABS} 个标签页硬上限。请先调用 browser_tabs，关闭不再需要的非活动标签页，再创建新标签页。`)
-  }
-  const session = getAiBrowserSession(rawSessionId)
-  const url = normalizeAiBrowserUrl(rawUrl, true)
-  const id = `tab-${aiBrowserNextTabId++}`
-  const view = new WebContentsView({
-    webPreferences: {
-      preload: path.join(__dirname, 'element-preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  })
-  const tab = {
-    id,
-    sessionId: session.id,
-    url,
-    title: '新标签页',
-    favicon: null,
-    loading: false,
-    lastLoadError: null,
-    snapshotVersion: 0,
-    snapshotId: null,
-    operationQueue: Promise.resolve(),
-    lastAccessed: Date.now(),
-    view,
-    attached: false,
-    hostWindow: null,
-    controller: null
-  }
-  aiBrowserTabs.set(id, tab)
-  session.tabs.add(id)
-  view.setVisible(false)
-  view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
-    createAiBrowserTab(targetUrl, tab.sessionId)
-      .then((newTab) => activateAiBrowserTab(newTab.id))
-      .catch((error) => sendAiBrowserActivity('failed', `无法打开新标签页：${error.message}`))
-    return { action: 'deny' }
-  })
-  view.webContents.on('page-title-updated', (event, title) => {
-    event.preventDefault()
-    tab.title = String(title || '').trim().slice(0, 160) || '新标签页'
-    sendAiBrowserState()
-  })
-  view.webContents.on('page-favicon-updated', (event, favicons) => {
-    const favicon = (Array.isArray(favicons) ? favicons : []).find((item) => /^https?:\/\//i.test(item || ''))
-    if (favicon && favicon !== tab.favicon) {
-      tab.favicon = favicon
-      sendAiBrowserState()
-    }
-  })
-  view.webContents.on('did-start-loading', () => {
-    tab.loading = true
-    invalidateAiBrowserSnapshot(tab)
-    sendAiBrowserState()
-  })
-  view.webContents.on('did-start-navigation', (event, targetUrl, isInPlace, isMainFrame) => {
-    if (!isMainFrame || isInPlace) return
-    tab.loading = true
-    tab.lastLoadError = null
-    tab.favicon = null
-    tab.url = targetUrl || tab.url
-    invalidateAiBrowserSnapshot(tab)
-    sendAiBrowserState()
-  })
-  view.webContents.on('did-finish-load', () => {
-    tab.loading = false
-    tab.lastLoadError = null
-    tab.url = view.webContents.getURL() || tab.url
-    sendAiBrowserState()
-  })
-  view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    if (!isMainFrame || errorCode === -3) return
-    tab.loading = false
-    tab.lastLoadError = { errorCode, errorDescription, url: validatedURL || tab.url }
-    sendAiBrowserState()
-  })
-  view.webContents.on('did-stop-loading', () => {
-    tab.loading = false
-    tab.url = view.webContents.getURL() || tab.url
-    sendAiBrowserState()
-  })
-  view.webContents.on('did-navigate', (event, targetUrl) => {
-    tab.url = targetUrl
-    invalidateAiBrowserSnapshot(tab)
-    sendAiBrowserState()
-  })
-  view.webContents.on('did-navigate-in-page', (event, targetUrl) => {
-    tab.url = targetUrl
-    invalidateAiBrowserSnapshot(tab)
-    sendAiBrowserState()
-  })
-  view.webContents.on('destroyed', () => {
-    aiBrowserTabs.delete(id)
-    session.tabs.delete(id)
-    if (session.activeTabId === id) session.activeTabId = sessionTabIds(session)[0] || null
-    if (aiBrowserActiveTabId === id) setAiBrowserActiveTab(aiBrowserTabs.get(session.activeTabId))
-    if (session.managed && session.tabs.size === 0) aiBrowserSessions.delete(session.id)
-    sendAiBrowserState()
-  })
-  setAiBrowserActiveTab(tab)
-  sendAiBrowserState()
-  try {
-    // 先完成 about:blank，再导航到目标 URL，避免把初始空文档当成目标页面。
-    await view.webContents.loadURL('about:blank')
-    if (url !== 'about:blank') await view.webContents.loadURL(url)
-  } catch (error) {
-    tab.loading = false
-    tab.title = '页面加载失败'
-    closeAiBrowserTab(id)
-    throw error
-  }
-  return aiBrowserTabSummary(tab)
-}
-
-function activateAiBrowserTab(tabId) {
-  getAiBrowserTab(tabId)
-  setAiBrowserActiveTab(getAiBrowserTab(tabId))
-  hideAiBrowserViews()
-  sendAiBrowserState()
-  return { activeSessionId: aiBrowserActiveSessionId, activeTabId: aiBrowserActiveTabId }
-}
-
-function openAiBrowserWindow() {
-  if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) {
-    aiBrowserWindow.show()
-    aiBrowserWindow.focus()
-    return aiBrowserWindow
-  }
-  aiBrowserWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 860,
-    minHeight: 560,
-    title: 'Loopra AI 浏览器',
-    icon: appIconPath,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false
-    }
-  })
-  aiBrowserWindow.on('closed', () => {
-    // 关闭独立浏览器窗口只应解除视图挂载，不能销毁 Agent/MCP 会话中的 tab。
-    for (const tab of aiBrowserTabs.values()) {
-      if (tab.hostWindow === aiBrowserWindow) {
-        tab.view.setVisible(false)
-        detachAiBrowserView(tab)
-      }
-    }
-    aiBrowserWindow = null
-    sendAiBrowserState()
-  })
-  aiBrowserWindow.webContents.on('did-finish-load', async () => {
-    if (!aiBrowserTabs.size) {
-      try {
-        await createAiBrowserTab('about:blank')
-      } catch (error) {
-        sendAiBrowserActivity('failed', `创建浏览器标签失败：${error.message}`)
-      }
-    }
-    sendAiBrowserState()
-    aiBrowserWindow?.webContents.send('ai-browser-activity', aiBrowserActivity)
-  })
-  if (isDev) {
-    aiBrowserWindow.loadURL('http://127.0.0.1:3000/?aiBrowser=1')
-  } else {
-    aiBrowserWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { aiBrowser: '1' } })
-  }
-  return aiBrowserWindow
-}
-
-async function aiBrowserNewTab(rawUrl, rawSessionId = AI_BROWSER_DEFAULT_SESSION_ID) {
-  const session = getAiBrowserSession(rawSessionId)
-  const tab = await createAiBrowserTab(rawUrl || 'about:blank', session.id)
-  const tabCount = sessionTabIds(session).length
-  const cleanupRecommended = tabCount > AI_BROWSER_TAB_CLEANUP_THRESHOLD
-  return {
-    sessionId: session.id,
-    tab,
-    activeTabId: aiBrowserActiveTabId,
-    tabCount,
-    cleanupRecommended,
-    warning: cleanupRecommended
-      ? `当前已有 ${tabCount} 个标签页。请在完成当前步骤后调用 browser_tabs，并关闭不再需要的非活动标签页；达到 ${AI_BROWSER_MAX_TABS} 个后将无法新建。`
-      : undefined
-  }
-}
-
-async function aiBrowserNavigate(tabId, rawUrl, rawSessionId = null) {
-  const tab = rawSessionId == null
-    ? getAiBrowserTab(tabId)
-    : resolveAiBrowserTab(tabId, rawSessionId)
-  const url = normalizeAiBrowserUrl(rawUrl)
-  return enqueueAiBrowserTabOperation(tab, async () => {
-    invalidateAiBrowserSnapshot(tab)
-    tab.loading = true
-    sendAiBrowserState()
-    await tab.view.webContents.loadURL(url)
-    tab.url = tab.view.webContents.getURL() || url
-    setAiBrowserActiveTab(tab)
-    return aiBrowserTabSummary(tab)
-  })
-}
-
-function aiBrowserHistory(tabId, action, rawSessionId = null) {
-  const tab = rawSessionId == null
-    ? getAiBrowserTab(tabId)
-    : resolveAiBrowserTab(tabId, rawSessionId)
-  const contents = tab.view.webContents
-  invalidateAiBrowserSnapshot(tab)
-  if (action === 'back' && contents.canGoBack()) contents.goBack()
-  else if (action === 'forward' && contents.canGoForward()) contents.goForward()
-  else if (action === 'reload') contents.reload()
-  setAiBrowserActiveTab(tab)
-  return aiBrowserTabSummary(tab)
-}
-
-function normalizeAiBrowserBounds(rawBounds, host) {
-  if (!host?.window || !rawBounds || typeof rawBounds !== 'object') throw new Error('Invalid native view bounds')
-  const contentBounds = host.window.getContentBounds()
-  const values = ['x', 'y', 'width', 'height'].map((key) => Math.round(Number(rawBounds[key])))
-  if (!values.every(Number.isFinite) || values[2] < 1 || values[3] < 1) throw new Error('Invalid native view bounds')
-  const x = Math.max(0, Math.min(values[0] + host.offset.x, contentBounds.width - 1))
-  const y = Math.max(0, Math.min(values[1] + host.offset.y, contentBounds.height - 1))
-  return { x, y, width: Math.max(1, Math.min(values[2], contentBounds.width - x)), height: Math.max(1, Math.min(values[3], contentBounds.height - y)) }
-}
-
-async function waitForAiBrowserPageLoad(tab, timeoutMs = 8_000) {
-  const contents = tab.view.webContents
-  if (contents.isDestroyed()) throw new Error('Browser tab was closed while loading')
-  if (tab.lastLoadError) throw new Error(`Page load failed: ${tab.lastLoadError.errorDescription} (${tab.lastLoadError.errorCode})`)
-  if (!tab.loading && !contents.isLoadingMainFrame()) return true
-
-  // SAP/UI5 以及很多文档站会在主文档已经可交互后继续保持 loading 状态。
-  // 先看 DOM readyState，避免把“已经能读的页面”卡在 did-finish-load 事件上。
-  try {
-    const readyState = await contents.executeJavaScript('document.readyState', true)
-    if (readyState === 'interactive' || readyState === 'complete') return true
-  } catch {
-    // 页面正在切换，继续等待下面的导航事件。
-  }
-
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      clearTimeout(timeout)
-      contents.removeListener('did-finish-load', handleFinish)
-      contents.removeListener('did-fail-load', handleFailure)
-      contents.removeListener('destroyed', handleDestroyed)
-    }
-    const handleFinish = () => {
-      cleanup()
-      resolve(true)
-    }
-    const handleFailure = (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      if (!isMainFrame || errorCode === -3) return
-      cleanup()
-      reject(new Error(`Page load failed: ${errorDescription} (${errorCode})`))
-    }
-    const handleDestroyed = () => {
-      cleanup()
-      reject(new Error('Browser tab was closed while loading'))
-    }
-    const timeout = setTimeout(() => {
-      cleanup()
-      // 页面已有可见内容时，超时不应让 browser_screenshot 永久卡住；
-      // 调用方会继续读取当前 DOM，并在结果中标记仍可能处于加载中。
-      resolve(false)
-    }, timeoutMs)
-    contents.once('did-finish-load', handleFinish)
-    contents.on('did-fail-load', handleFailure)
-    contents.once('destroyed', handleDestroyed)
-  })
-}
-
-async function captureAiBrowserScreenshot(tab) {
-  let image
-  try {
-    // CDP 的 Page.captureScreenshot 不依赖 WebContentsView 当前是否可见/挂载，
-    // 对 SAP/UI5 这类原生嵌入页比 capturePage 更稳定。
-    const captured = await withAiBrowserDebugger(tab, (sendCommand) => sendCommand('Page.captureScreenshot', {
-      format: 'png',
-      fromSurface: true,
-      captureBeyondViewport: false
-    }))
-    if (!captured?.data) throw new Error('CDP returned an empty screenshot')
-    image = nativeImage.createFromBuffer(Buffer.from(captured.data, 'base64'))
-  } catch {
-    // 某些 Electron/DevTools 状态下 debugger 可能已被占用，保留原生后备路径。
-    image = await tab.view.webContents.capturePage()
-  }
-  if (image.getSize().width > AI_BROWSER_SCREENSHOT_MAX_WIDTH) {
-    image = image.resize({ width: AI_BROWSER_SCREENSHOT_MAX_WIDTH })
-  }
-  let png = image.toPNG()
-  for (let attempt = 0; png.length > AI_BROWSER_SCREENSHOT_MAX_BYTES && attempt < 4; attempt++) {
-    const size = image.getSize()
-    if (size.width <= 320 || size.height <= 180) break
-    image = image.resize({ width: Math.max(320, Math.floor(size.width * 0.7)) })
-    png = image.toPNG()
-  }
-  if (png.length > AI_BROWSER_SCREENSHOT_MAX_BYTES) {
-    throw new Error('Browser screenshot exceeds the 5 MiB visual-context limit')
-  }
-  return `data:image/png;base64,${png.toString('base64')}`
-}
-
-const AI_BROWSER_RENDERED_HTML_SCRIPT = `
-  (() => {
-    const maxHtmlChars = ${AI_BROWSER_RENDERED_HTML_MAX_CHARS};
-    const root = document.documentElement?.cloneNode(true);
-    if (!root) return { title: document.title || '', url: location.href, html: '', htmlTruncated: false, visibleText: '' };
-    root.querySelectorAll('[id^="__loopra_ai_"],[data-loopra-ai-active]').forEach((element) => element.remove());
-    const isInput = (element) => element.tagName === 'INPUT' || element.tagName === 'TEXTAREA';
-    const isSensitive = (element) => {
-      if (!isInput(element)) return false;
-      const hint = [element.tagName === 'INPUT' ? element.type : '', element.name, element.id, element.autocomplete, element.getAttribute('aria-label') || '', element.getAttribute('placeholder') || ''].join(' ').toLowerCase();
-      return (element.tagName === 'INPUT' && element.type === 'password') || /(captcha|verification|verify|otp|one-time|passcode|password|token|secret)/.test(hint);
-    };
-    root.querySelectorAll('input,textarea').forEach((element) => {
-      if (!isSensitive(element)) return;
-      element.removeAttribute('value');
-      if (element.tagName === 'TEXTAREA') element.textContent = '';
-    });
-    const html = root.outerHTML || '';
-    return {
-      title: String(document.title || '').slice(0, 160),
-      url: location.href,
-      readyState: document.readyState,
-      html: html.slice(0, maxHtmlChars),
-      htmlTruncated: html.length > maxHtmlChars,
-      visibleText: String(document.body?.innerText || '').slice(0, 12000)
-    };
-  })()
-`
-
-async function executeAiBrowserFrameJavaScript(frame, code, timeoutMs = AI_BROWSER_RENDERED_HTML_TIMEOUT_MS) {
-  if (!frame || frame.isDestroyed?.() || frame.detached) throw new Error('Browser frame is no longer available')
-  let timer
-  try {
-    return await Promise.race([
-      frame.executeJavaScript(code, false),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Browser frame HTML extraction timed out')), timeoutMs)
-      })
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}
-
-async function captureAiBrowserRenderedHtml(tab) {
-  const mainFrame = tab.view.webContents.mainFrame
-  const allFrames = mainFrame && !mainFrame.isDestroyed?.()
-    ? Array.from(mainFrame.framesInSubtree || [mainFrame])
-    : []
-  const frames = allFrames.slice(0, 16)
-  const documents = []
-  const textParts = []
-  let totalChars = 0
-  let truncated = allFrames.length > frames.length
-  const deadline = Date.now() + AI_BROWSER_RENDERED_HTML_TOTAL_TIMEOUT_MS
-
-  for (let index = 0; index < frames.length; index++) {
-    const frame = frames[index]
-    const remainingMs = deadline - Date.now()
-    if (remainingMs <= 0) {
-      truncated = true
-      break
-    }
-    let result
-    try {
-      result = await executeAiBrowserFrameJavaScript(frame, AI_BROWSER_RENDERED_HTML_SCRIPT, Math.min(AI_BROWSER_RENDERED_HTML_TIMEOUT_MS, remainingMs))
-    } catch (error) {
-      documents.push({
-        kind: index === 0 ? 'main' : 'iframe',
-        frameId: String(frame.frameTreeNodeId ?? index),
-        parentFrameId: frame.parent ? String(frame.parent.frameTreeNodeId ?? '') : null,
-        url: String(frame.url || ''),
-        accessible: false,
-        error: String(error?.message || 'FRAME_HTML_UNAVAILABLE').slice(0, 240)
-      })
-      continue
-    }
-
-    const rawHtml = String(result?.html || '')
-    const remaining = Math.max(0, AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS - totalChars)
-    const html = rawHtml.slice(0, Math.min(AI_BROWSER_RENDERED_HTML_MAX_CHARS, remaining))
-    totalChars += html.length
-    if (html.length < rawHtml.length || totalChars >= AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS) truncated = true
-    const visibleText = String(result?.visibleText || '').trim()
-    if (visibleText) textParts.push(visibleText)
-    documents.push({
-      kind: index === 0 ? 'main' : 'iframe',
-      frameId: String(frame.frameTreeNodeId ?? index),
-      parentFrameId: frame.parent ? String(frame.parent.frameTreeNodeId ?? '') : null,
-      url: String(result?.url || frame.url || ''),
-      title: String(result?.title || '').slice(0, 160),
-      origin: String(frame.origin || ''),
-      readyState: String(result?.readyState || ''),
-      accessible: true,
-      html,
-      htmlTruncated: html.length < rawHtml.length
-    })
-    if (totalChars >= AI_BROWSER_RENDERED_HTML_TOTAL_MAX_CHARS) break
-  }
-
-  return {
-    truncated,
-    totalChars,
-    documents,
-    visibleText: textParts.join('\n').slice(0, 7000)
-  }
-}
-
-async function resolveAiBrowserTarget(tab, targetId) {
-  const normalizedTargetId = String(targetId || '').trim().toLowerCase()
-  const result = await tab.view.webContents.executeJavaScript(`
-    (() => {
-      const id = ${JSON.stringify(normalizedTargetId)};
-      const el = window.__loopraAiSnapshotTargets?.get(id);
-      if (!el || !el.isConnected) return { error: 'Target no longer exists. Call browser_screenshot again.' };
-      el.scrollIntoView({ block: 'center', inline: 'nearest' });
-      const rect = window.__loopraAiSnapshotRect?.(el) || el.getBoundingClientRect();
-      if (!Number.isFinite(rect.left) || !Number.isFinite(rect.top) || rect.width < 1 || rect.height < 1) {
-        return { error: 'Target is not visible. Call browser_screenshot again.' };
-      }
-      return {
-        tag: el.tagName.toLowerCase(),
-        text: String(el.innerText || el.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().slice(0, 120),
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-        width: rect.width,
-        height: rect.height
-      };
-    })()
-  `, true)
-  if (!result || result.error) throw new Error(result?.error || 'Target no longer exists. Call browser_screenshot again.')
-  return result
-}
-
-async function withAiBrowserDebugger(tab, operation) {
-  const debuggerApi = tab.view.webContents.debugger
-  let attachedByUs = false
-  if (!debuggerApi.isAttached()) {
-    debuggerApi.attach('1.3')
-    attachedByUs = true
-  }
-  try {
-    return await operation((method, params = {}) => debuggerApi.sendCommand(method, params))
-  } finally {
-    if (attachedByUs && debuggerApi.isAttached()) {
-      try { debuggerApi.detach() } catch { /* the tab may be closing */ }
-    }
-  }
-}
-
-async function aiBrowserClickAt(tab, targetId) {
-  const coordinate = await resolveAiBrowserTarget(tab, targetId)
-  await withAiBrowserDebugger(tab, async (sendCommand) => {
-    await sendCommand('Input.dispatchMouseEvent', {
-      type: 'mousePressed',
-      x: coordinate.x,
-      y: coordinate.y,
-      button: 'left',
-      clickCount: 1
-    })
-    await sendCommand('Input.dispatchMouseEvent', {
-      type: 'mouseReleased',
-      x: coordinate.x,
-      y: coordinate.y,
-      button: 'left',
-      clickCount: 1
-    })
-  })
-  return { action: 'click_at', targetId, tag: coordinate.tag, text: coordinate.text }
-}
-
-async function aiBrowserScrollPage(tab, direction, amount) {
-  const normalizedDirection = String(direction || 'down').trim().toLowerCase()
-  if (!['up', 'down', 'top', 'bottom'].includes(normalizedDirection)) {
-    throw new Error(`INVALID_SCROLL_DIRECTION: ${direction || '(empty)'}`)
-  }
-  const normalizedAmount = Math.max(50, Math.min(5000, Math.round(Number(amount) || 800)))
-  const viewport = await tab.view.webContents.executeJavaScript(`
-    (() => {
-      const direction = ${JSON.stringify(normalizedDirection)};
-      const amount = ${normalizedAmount};
-      const scrollableRange = (scroller, view) => Math.max(0, scroller.scrollHeight - view.innerHeight);
-      const candidates = [];
-      const topScroller = document.scrollingElement || document.documentElement;
-      candidates.push({
-        scroller: topScroller,
-        view: window,
-        frame: null,
-        range: scrollableRange(topScroller, window),
-        visible: true
-      });
-      // 文档站和 SAP 容器常把真正页面放在同源 iframe 里。优先选择当前
-      // 可见且滚动范围最大的内容文档，否则 browser_scroll 只会滚动外壳。
-      for (const frame of Array.from(document.querySelectorAll('iframe'))) {
-        try {
-          const frameDocument = frame.contentDocument;
-          const frameView = frameDocument?.defaultView;
-          const scroller = frameDocument?.scrollingElement;
-          const rect = frame.getBoundingClientRect();
-          if (!frameDocument || !frameView || !scroller || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
-          candidates.push({
-            scroller,
-            view: frameView,
-            frame,
-            range: scrollableRange(scroller, frameView),
-            visible: true
-          });
-        } catch (_) {
-          // 跨源 iframe 无法由父文档控制，交给 frames.sameOrigin 提示调用方。
-        }
-      }
-      const target = candidates.sort((a, b) => Number(b.visible) - Number(a.visible) || b.range - a.range)[0];
-      if (target.range > 0) {
-        const current = target.view.scrollY || target.scroller.scrollTop || 0;
-        const top = direction === 'top'
-          ? 0
-          : direction === 'bottom'
-            ? target.range
-            : Math.max(0, Math.min(target.range, current + (direction === 'up' ? -amount : amount)));
-        target.view.scrollTo({ top, behavior: 'auto' });
-      } else if (direction === 'top') {
-        window.scrollTo({ top: 0, behavior: 'auto' });
-      }
-      return {
-        width: window.innerWidth,
-        height: window.innerHeight,
-        scrollX: Math.round(window.scrollX),
-        scrollY: Math.round(window.scrollY),
-        documentWidth: Math.round(document.documentElement.scrollWidth),
-        documentHeight: Math.round(document.documentElement.scrollHeight),
-        scrollTarget: target.frame ? 'same-origin-iframe' : 'document',
-        nestedScrollY: Math.round(target.view.scrollY || target.scroller.scrollTop || 0),
-        nestedScrollHeight: Math.round(target.scroller.scrollHeight)
-      };
-    })()
-  `, true)
-  await new Promise((resolve) => setTimeout(resolve, 800))
-  invalidateAiBrowserSnapshot(tab)
-  return { sessionId: tab.sessionId, tabId: tab.id, direction: normalizedDirection, amount: normalizedAmount, viewport }
-}
-
-function cleanupIdleAiBrowserTabs() {
-  const now = Date.now()
-  for (const session of [...aiBrowserSessions.values()]) {
-    if (!session.managed || now - session.lastAccessed < AI_BROWSER_SESSION_IDLE_TIMEOUT_MS) continue
-    for (const id of sessionTabIds(session)) {
-      const tab = aiBrowserTabs.get(id)
-      if (tab && now - tab.lastAccessed >= AI_BROWSER_SESSION_IDLE_TIMEOUT_MS) closeAiBrowserTab(id)
-    }
-    if (session.tabs.size === 0) aiBrowserSessions.delete(session.id)
-  }
-}
-
-async function aiBrowserSnapshot(tabId, rawSessionId = null) {
-  const tab = rawSessionId == null
-    ? getAiBrowserTab(tabId)
-    : resolveAiBrowserTab(tabId, rawSessionId)
-  return enqueueAiBrowserTabOperation(tab, () => aiBrowserSnapshotNow(tab))
-}
-
-async function aiBrowserSnapshotNow(tab) {
-  if (tab.loading || tab.view.webContents.isLoadingMainFrame()) {
-    sendAiBrowserActivity('running', 'AI 正在等待页面加载完成', { method: 'screenshot', tabId: tab.id })
-  }
-  const pageReady = await waitForAiBrowserPageLoad(tab)
-  if (!pageReady) {
-    sendAiBrowserActivity('running', '页面仍在加载，先读取当前已渲染内容', { method: 'screenshot', tabId: tab.id })
-  }
-  // 不在页面里安装全量 MutationObserver：SAP/UI5 等应用会持续更新 DOM，
-  // 这会让快照调用长期占用 renderer。短暂的主进程等待足够覆盖首屏绘制。
-  await new Promise((resolve) => setTimeout(resolve, 280))
-  const snapshot = await tab.view.webContents.executeJavaScript(`
-    (async () => {
-      const MAX_NODES = 260;
-      // DOM 原始深度只负责防止恶意/异常页面无限嵌套；透明布局节点不消耗
-      // 语义深度，因此 SAP/UI5 的深层 wrapper 不会把真正正文提前截掉。
-      const MAX_RAW_DEPTH = 32;
-      const MAX_LOGICAL_DEPTH = 12;
-      const MAX_ELEMENTS = 120;
-      const MAX_SCAN_ELEMENTS = 3500;
-      const scanDeadline = performance.now() + 1200;
-      let scanTruncated = false;
-      const hasScanTime = () => performance.now() < scanDeadline;
-      const yieldToPage = () => new Promise((resolve) => setTimeout(resolve, 0));
-      let count = 0;
-      let targetIndex = 0;
-      const targetIds = new WeakMap();
-      // ID 映射只保存在页面内存中，不向 SAP/UI5 DOM 写入自定义属性，避免触发
-      // 框架重渲染或 MutationObserver 副作用。
-      try { window.__loopraAiSnapshotCleanup?.() } catch (_) { /* 页面可能覆盖了旧清理函数 */ }
-      const targetMap = new Map();
-      const frameHostByDocument = new WeakMap();
-      const frameDocuments = new Set([document]);
-      window.__loopraAiSnapshotTargets = targetMap;
-      const invalidateTargetMap = () => { window.__loopraAiSnapshotTargets = null; };
-      const guardedEvents = ['click', 'input', 'change', 'submit', 'popstate', 'hashchange'];
-      const guardedEventTargets = new Set([window]);
-      guardedEvents.forEach((type) => window.addEventListener(type, invalidateTargetMap, true));
-      window.__loopraAiSnapshotCleanup = () => {
-        for (const eventTarget of guardedEventTargets) {
-          guardedEvents.forEach((type) => eventTarget.removeEventListener(type, invalidateTargetMap, true));
-        }
-      };
-      const clean = (value, max = 240) => String(value || '').replace(/\\s+/g, ' ').trim().slice(0, max);
-      const cleanLines = (value, max = 7000) => {
-        const lines = String(value || '').slice(0, max * 4).split(/\\r?\\n/)
-          .map((line) => clean(line, 360))
-          .filter(Boolean);
-        const kept = [];
-        let length = 0;
-        for (const line of lines) {
-          if (line === kept[kept.length - 1]) continue;
-          if (length + line.length + 1 > max) break;
-          kept.push(line);
-          length += line.length + 1;
-        }
-        return kept.join('\\n');
-      };
-      const styleCache = new WeakMap();
-      const hiddenCache = new WeakMap();
-      const styleOf = (el) => {
-        let style = styleCache.get(el);
-        if (!style) {
-          const view = el.ownerDocument?.defaultView || window;
-          style = view.getComputedStyle(el);
-          styleCache.set(el, style);
-        }
-        return style;
-      };
-      const parentOf = (el) => el?.parentElement || frameHostByDocument.get(el?.ownerDocument) || el?.getRootNode?.().host || null;
-      const registerFrameDocument = (frame) => {
-        if (!frame || frame.tagName !== 'IFRAME') return null;
-        try {
-          const frameDocument = frame.contentDocument;
-          if (!frameDocument?.body) return null;
-          frameHostByDocument.set(frameDocument, frame);
-          frameDocuments.add(frameDocument);
-          const frameWindow = frameDocument.defaultView;
-          if (frameWindow && !guardedEventTargets.has(frameWindow)) {
-            guardedEventTargets.add(frameWindow);
-            guardedEvents.forEach((type) => frameWindow.addEventListener(type, invalidateTargetMap, true));
-          }
-          return frameDocument;
-        } catch (_) {
-          // 跨源 iframe 受浏览器同源策略保护，不能从父文档读取其 DOM。
-          return null;
-        }
-      };
-      const childrenOf = (el) => {
-        const children = Array.from(el?.children || []);
-        if (el?.shadowRoot) children.push(...Array.from(el.shadowRoot.children || []));
-        const frameDocument = el?.tagName === 'IFRAME' ? registerFrameDocument(el) : null;
-        if (frameDocument?.body) children.push(...Array.from(frameDocument.body.children || []));
-        return children;
-      };
-      const topRectOf = (el) => {
-        const local = el.getBoundingClientRect();
-        let left = local.left;
-        let top = local.top;
-        let ownerDocument = el.ownerDocument;
-        while (ownerDocument && ownerDocument !== document) {
-          const frameHost = frameHostByDocument.get(ownerDocument);
-          if (!frameHost) break;
-          const frameRect = frameHost.getBoundingClientRect();
-          left += frameRect.left + frameHost.clientLeft;
-          top += frameRect.top + frameHost.clientTop;
-          ownerDocument = frameHost.ownerDocument;
-        }
-        return {
-          left,
-          top,
-          right: left + local.width,
-          bottom: top + local.height,
-          width: local.width,
-          height: local.height
-        };
-      };
-      // browser_act/click_at 在快照之后执行，需要和快照使用同一套 iframe
-      // 坐标换算；函数只暴露给本次快照的内部操作，不暴露页面数据。
-      window.__loopraAiSnapshotRect = topRectOf;
-      const hidden = (el) => {
-        if (hiddenCache.has(el)) return hiddenCache.get(el);
-        let result = false;
-        for (let node = el; node; node = parentOf(node)) {
-          const style = styleOf(node);
-          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' || node.getAttribute('aria-hidden') === 'true') {
-            result = true;
-            break;
-          }
-        }
-        hiddenCache.set(el, result);
-        return result;
-      };
-      const ignored = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'META', 'LINK', 'HEAD', 'SVG', 'PATH']);
-      // 不使用父窗口的 instanceof 判断：同源 iframe 中的元素属于 iframe
-      // 自己的 JS realm，tagName 判断才能同时覆盖父文档和嵌套文档。
-      const isInput = (el) => el?.tagName === 'INPUT';
-      const isTextArea = (el) => el?.tagName === 'TEXTAREA';
-      const isSelect = (el) => el?.tagName === 'SELECT';
-      const textEditable = (el) => {
-        if (isTextArea(el) || el.isContentEditable) return true;
-        if (!isInput(el)) return false;
-        return !['checkbox', 'radio', 'file', 'hidden', 'button', 'submit', 'reset', 'image', 'range', 'color'].includes(el.type);
-      };
-      const sensitiveInput = (el) => {
-        if (!(isInput(el) || isTextArea(el))) return false;
-        const hint = [isInput(el) ? el.type : '', el.name, el.id, el.autocomplete, el.getAttribute('aria-label') || '', el.getAttribute('placeholder') || ''].join(' ').toLowerCase();
-        return (isInput(el) && el.type === 'password') || /(captcha|verification|verify|otp|one-time|passcode|password|token|secret)/.test(hint);
-      };
-      const structuralInteractive = (el) => textEditable(el) || el.matches('a[href],button,select,input[type="checkbox"],input[type="radio"],input[type="file"],input[type="button"],input[type="submit"],input[type="reset"],summary,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="option"],[role="combobox"],[role="textbox"],[role="slider"],[role="treeitem"],[onclick],[aria-expanded],[aria-haspopup],[tabindex]:not([tabindex="-1"])');
-      const interactive = (el) => structuralInteractive(el) || styleOf(el).cursor === 'pointer';
-      // 不能对 SAP/UI5 这类大型应用直接执行多次 querySelectorAll('*')。
-      // 使用有预算的迭代遍历，超出预算时返回截断快照而不是阻塞 renderer。
-      const collectElements = async (root, result = []) => {
-        const stack = [];
-        const children = root?.children || [];
-        for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
-        let visited = 0;
-        while (stack.length) {
-          if (result.length >= MAX_SCAN_ELEMENTS || !hasScanTime()) {
-            scanTruncated = true;
-            break;
-          }
-          const el = stack.pop();
-          result.push(el);
-          if (++visited % 80 === 0) await yieldToPage();
-          if (ignored.has(el.tagName)) continue;
-          const elementChildren = childrenOf(el);
-          for (let i = elementChildren.length - 1; i >= 0; i--) stack.push(elementChildren[i]);
-        }
-        return result;
-      };
-      const allElements = await collectElements(document);
-      // 元素遍历和候选控件筛选使用独立预算。之前共用 scanDeadline，
-      // SAP 页面一旦遍历稍慢，后续候选和 DOM 树就会被直接截断。
-      const candidateDeadline = performance.now() + 900;
-      const hasCandidateTime = () => performance.now() < candidateDeadline;
-      const labelledBy = (el) => clean(String(el.getAttribute('aria-labelledby') || '').split(/\\s+/)
-        .map((id) => el.ownerDocument?.getElementById(id)?.innerText || '')
-        .join(' '), 180);
-      const labelText = (el) => clean([
-        el.getAttribute('aria-label'),
-        labelledBy(el),
-        ...(el.labels ? Array.from(el.labels).map((label) => label.innerText) : []),
-        el.closest('label')?.innerText,
-        el.getAttribute('placeholder'),
-        el.getAttribute('title'),
-        el.getAttribute('alt')
-      ].find(Boolean), 180);
-      const attrs = (el) => {
-        const out = {};
-        for (const name of ['aria-label', 'aria-expanded', 'aria-haspopup', 'aria-invalid', 'placeholder', 'title', 'alt', 'role', 'type', 'href']) {
-          const value = clean(el.getAttribute(name), 180);
-          if (value) out[name] = value;
-        }
-        if (isInput(el) && !sensitiveInput(el) && el.value) out.value = clean(el.value, 120);
-        return out;
-      };
-      const textOf = (el, max = 180) => clean(labelText(el) || el.innerText || el.getAttribute('alt') || el.getAttribute('title'), max);
-      const directText = (el) => clean(Array.from(el.childNodes)
-        .filter((node) => node.nodeType === Node.TEXT_NODE)
-        .map((node) => node.textContent)
-        .join(' '), 180);
-      const actionsFor = (el) => sensitiveInput(el) ? ['scroll'] : (textEditable(el)
-        ? ['fill', 'press', 'scroll']
-        : (el.matches('select') ? ['select', 'scroll'] : ['click', 'click_at', 'scroll']));
-      const stateFor = (el) => {
-        const state = {};
-        const name = labelText(el);
-        if (name) state.name = name;
-        for (const name of ['aria-expanded', 'aria-checked', 'aria-selected', 'aria-disabled', 'aria-invalid', 'aria-required']) {
-          const value = el.getAttribute(name);
-          if (value != null) state[name.slice(5)] = value;
-        }
-        if (textEditable(el)) state.editable = true;
-        if (el.isContentEditable) state.contentEditable = true;
-        if ('disabled' in el) state.disabled = Boolean(el.disabled);
-        if ('required' in el && el.required) state.required = true;
-        if (isInput(el)) {
-          state.inputType = el.type;
-          if (el.type === 'checkbox' || el.type === 'radio') state.checked = el.checked;
-          if (sensitiveInput(el)) state.sensitive = true;
-          else if (el.value) state.value = clean(el.value, 120);
-        } else if (isTextArea(el) && !sensitiveInput(el) && el.value) {
-          state.value = clean(el.value, 120);
-        } else if (isSelect(el)) {
-          state.value = clean(el.value, 120);
-          state.selectedText = clean(el.selectedOptions[0]?.text, 120);
-          state.options = Array.from(el.options).slice(0, 30).map((option) => ({ value: clean(option.value, 120), text: clean(option.text, 120), selected: option.selected }));
-        }
-        return state;
-      };
-      const closestActionTarget = (el) => {
-        for (let node = el; node && node !== document.body; node = parentOf(node)) {
-          if (!ignored.has(node.tagName) && !hidden(node) && interactive(node)) return node;
-        }
-        return null;
-      };
-      const overlayRole = (el) => /^(dialog|alertdialog|listbox|menu|tree|grid)$/.test(el.getAttribute('role') || '') || el.matches('dialog[open],[aria-modal="true"],[popover]:not([popover="manual"])');
-      const overlayOf = (el) => {
-        for (let node = el; node && node !== document.body; node = parentOf(node)) if (overlayRole(node)) return node;
-        return null;
-      };
-      const visibleInViewport = (rect) => {
-        if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= window.innerHeight || rect.left >= window.innerWidth) return false;
-        const visibleWidth = Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
-        const visibleHeight = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
-        // 仅与视口擦过 1px 的响应式菜单项不算“可见”；大 iframe/大容器
-        // 只要有足够可操作面积仍然算可见。
-        return visibleWidth >= Math.min(8, rect.width) && visibleHeight >= Math.min(8, rect.height);
-      };
-      const occluded = (el, rect) => {
-        if (!visibleInViewport(rect)) return false;
-        const localRect = el.getBoundingClientRect();
-        const view = el.ownerDocument?.defaultView || window;
-        const x = Math.max(0, Math.min(view.innerWidth - 1, localRect.left + Math.min(localRect.width / 2, 12)));
-        const y = Math.max(0, Math.min(view.innerHeight - 1, localRect.top + Math.min(localRect.height / 2, 12)));
-        const hit = el.ownerDocument?.elementFromPoint(x, y);
-        return Boolean(hit && hit !== el && !el.contains(hit) && !hit.contains(el));
-      };
-      const targetIdFor = (el) => {
-        let id = targetIds.get(el);
-        if (!id) {
-          id = 'e' + (++targetIndex);
-          targetIds.set(el, id);
-          targetMap.set(id, el);
-        }
-        return id;
-      };
-      const depthOf = (el) => {
-        let depth = 0;
-        for (let node = parentOf(el); node; node = parentOf(node)) depth++;
-        return depth;
-      };
-      const candidateByTarget = new Map();
-      for (let sourceIndex = 0; sourceIndex < allElements.length; sourceIndex++) {
-        if (sourceIndex > 0 && sourceIndex % 80 === 0) await yieldToPage();
-        const source = allElements[sourceIndex];
-        if (!hasCandidateTime()) {
-          scanTruncated = true;
-          break;
-        }
-        if (ignored.has(source.tagName) || hidden(source) || (!interactive(source) && source.children.length > 0)) continue;
-        const target = closestActionTarget(source);
-        if (!target) continue;
-        const rect = topRectOf(target);
-        const text = textOf(source) || textOf(target) || (textEditable(target) ? '可编辑区域' : '');
-        if (rect.width < 2 || rect.height < 2 || (!text && !textEditable(target) && !target.matches('select'))) continue;
-        const candidate = { el: target, rect, text, overlay: overlayOf(target) };
-        const existing = candidateByTarget.get(target);
-        if (!existing || (text.length && text.length < existing.text.length)) candidateByTarget.set(target, candidate);
-      }
-      const candidateElements = [...candidateByTarget.values()]
-        .sort((a, b) => {
-          const aOverlay = Boolean(a.overlay);
-          const bOverlay = Boolean(b.overlay);
-          if (aOverlay !== bOverlay) return aOverlay ? -1 : 1;
-          const aVisible = visibleInViewport(a.rect);
-          const bVisible = visibleInViewport(b.rect);
-          if (aVisible !== bVisible) return aVisible ? -1 : 1;
-          const aDepth = depthOf(a.el);
-          const bDepth = depthOf(b.el);
-          if (aDepth !== bDepth) return bDepth - aDepth;
-          return a.rect.top - b.rect.top || a.rect.left - b.rect.left;
-        });
-      const selectedTargets = [];
-      for (let itemIndex = 0; itemIndex < candidateElements.length; itemIndex++) {
-        if (itemIndex > 0 && itemIndex % 40 === 0) await yieldToPage();
-        const item = candidateElements[itemIndex];
-        if (!hasCandidateTime()) {
-          scanTruncated = true;
-          break;
-        }
-        if (selectedTargets.length >= MAX_ELEMENTS) break;
-        // The list is leaf-first. Keep the specific child control and skip its broader wrapper.
-        if (selectedTargets.some((existing) => existing.text === item.text && item.el.contains(existing.el))) continue;
-        selectedTargets.push(item);
-      }
-      const elements = selectedTargets.map(({ el, rect, text, overlay }) => ({
-        id: targetIdFor(el),
-        tag: el.tagName.toLowerCase(),
-        text,
-        attrs: attrs(el),
-        state: stateFor(el),
-        actions: actionsFor(el),
-        context: overlay ? 'overlay' : (el.closest('main,[role="main"]') ? 'main' : 'page'),
-        inViewport: visibleInViewport(rect),
-        occluded: occluded(el, rect),
-        rect: {
-          x: Math.round(rect.left), y: Math.round(rect.top),
-          width: Math.round(rect.width), height: Math.round(rect.height)
-        }
-      }));
-      const MAX_TREE_VISITS = 1800;
-      const treeDeadline = performance.now() + 1400;
-      const hasTreeTime = () => performance.now() < treeDeadline;
-      let buildVisited = 0;
-      let buildYieldCounter = 0;
-      let treeTruncated = false;
-      const semanticTag = (el) => /^(H[1-6]|P|LI|MAIN|ARTICLE|SECTION|NAV|HEADER|FOOTER|FORM|BUTTON|A|SUMMARY|IMG|LABEL|TABLE|TR|TD|TH|DL|DT|DD)$/.test(el.tagName);
-      const hasSemanticAttrs = (el) => Boolean(
-        targetIds.get(el) ||
-        el.getAttribute('role') ||
-        el.getAttribute('aria-label') ||
-        el.getAttribute('aria-labelledby') ||
-        el.getAttribute('title') ||
-        el.getAttribute('alt')
-      );
-      const hardInvalid = (el) => {
-        if (!el || ignored.has(el.tagName) || hidden(el)) return true;
-        if (el.matches('input[type="hidden"]')) return true;
-        const rect = el.getBoundingClientRect();
-        // 垂直离开视口可能只是页面下方的正常内容；横向 -9999px 这类
-        // visually-hidden 控件则通常是无效副本，不应污染快照。
-        if (rect.right < -1024 || rect.left > window.innerWidth + 1024) return true;
-        // 没有 alt/label/交互语义的图片只是装饰，不进入结构树。
-        if (el.tagName === 'IMG' && !labelText(el) && !targetIds.get(el) && !el.getAttribute('role')) return true;
-        return false;
-      };
-      const makeTreeNode = (el, children) => {
-        const id = targetIds.get(el);
-        const ownText = directText(el);
-        const text = children.length ? ownText : textOf(el, 240);
-        const semantic = semanticTag(el);
-        const meaningful = Boolean(id || semantic || hasSemanticAttrs(el) || text || children.length);
-        if (!meaningful) return null;
-
-        const node = { tag: el.tagName.toLowerCase() };
-        if (text) node.text = text;
-        const nodeAttrs = attrs(el);
-        if (Object.keys(nodeAttrs).length) node.attrs = nodeAttrs;
-        if (id) {
-          node.id = id;
-          node.actions = actionsFor(el);
-        }
-        if (children.length) node.children = children;
-        return node;
-      };
-      // 返回 Node[] 而非单个 Node：无意义 wrapper 可以被安全地折叠/展开，
-      // 这样输出的是“语义深度”而不是原始 div 套 div 的深度。
-      const build = async (el, rawDepth, logicalDepth) => {
-        if (!el) return [];
-        if (count >= MAX_NODES || buildVisited >= MAX_TREE_VISITS || !hasTreeTime()) {
-          treeTruncated = true;
-          return [];
-        }
-        if (rawDepth > MAX_RAW_DEPTH) {
-          treeTruncated = true;
-          return [];
-        }
-        if (hardInvalid(el)) return [];
-        buildVisited++;
-
-        const ownText = directText(el);
-        const ownMeaningful = Boolean(targetIds.get(el) || semanticTag(el) || hasSemanticAttrs(el) || ownText);
-        const children = [];
-        const childNodes = childrenOf(el);
-
-        // 达到逻辑深度后，仍允许继续穿过透明 wrapper；只有遇到新的语义节点
-        // 才停止向下展开，避免深层布局壳把标题/表格内容截断。
-        const canDescend = (rawDepth < MAX_RAW_DEPTH && logicalDepth < MAX_LOGICAL_DEPTH) || !ownMeaningful;
-        if (canDescend) {
-          for (const child of childNodes) {
-            if (++buildYieldCounter % 40 === 0) await yieldToPage();
-            if (!hasTreeTime()) {
-              treeTruncated = true;
-              break;
-            }
-            const items = await build(child, rawDepth + 1, logicalDepth + (ownMeaningful ? 1 : 0));
-            if (items.length) children.push(...items);
-            if (count >= MAX_NODES) {
-              treeTruncated = true;
-              break;
-            }
-          }
-        } else if (childNodes.length) {
-          treeTruncated = true;
-        }
-
-        // 空布局节点直接丢弃；一个有效子节点的包装层返回该子节点；
-        // 多个有效子节点的包装层展开，避免无意义的 div 污染模型上下文。
-        const node = makeTreeNode(el, children);
-        if (!node) return children;
-        if (!ownMeaningful && !semanticTag(el) && !hasSemanticAttrs(el)) return children;
-        if (count >= MAX_NODES) {
-          treeTruncated = true;
-          return children;
-        }
-        count++;
-        return [node];
-      };
-      const bodyItems = await build(document.body, 0, 0);
-      const body = { tag: 'body' };
-      if (bodyItems.length) body.children = bodyItems;
-      else body.text = clean(document.body && document.body.innerText, 240);
-      const overlays = allElements.filter((el) => !hidden(el) && overlayRole(el)).slice(0, 8).map((el) => {
-        const rect = topRectOf(el);
-        return { role: el.getAttribute('role') || el.tagName.toLowerCase(), text: textOf(el, 220), inViewport: visibleInViewport(rect) };
-      });
-      const notices = allElements.filter((el) => !hidden(el) && (el.getAttribute('role') === 'alert' || el.hasAttribute('aria-live')))
-        .slice(0, 8).map((el) => ({ text: textOf(el, 220), level: el.getAttribute('aria-live') || 'alert' })).filter((notice) => notice.text);
-      const sensitiveInputs = allElements.filter(sensitiveInput);
-      const visibleText = cleanLines(Array.from(frameDocuments)
-        .map((frameDocument) => {
-          const frameHost = frameHostByDocument.get(frameDocument);
-          if (frameHost && hidden(frameHost)) return '';
-          return frameDocument.body && frameDocument.body.innerText;
-        })
-        .filter(Boolean)
-        .join('\\n'), 7000);
-      const frames = allElements.filter((el) => el.tagName === 'IFRAME').slice(0, 12).map((frame) => {
-        const frameDocument = registerFrameDocument(frame);
-        const rect = topRectOf(frame);
-        return {
-          title: clean(frameDocument?.title, 160),
-          sameOrigin: Boolean(frameDocument),
-          inViewport: visibleInViewport(rect),
-          rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
-        };
-      });
-      return {
-        title: clean(document.title, 160),
-        url: location.href,
-        truncated: count >= MAX_NODES || scanTruncated || treeTruncated,
-        nodeCount: count,
-        viewport: { width: window.innerWidth, height: window.innerHeight, scrollX: Math.round(window.scrollX), scrollY: Math.round(window.scrollY), documentWidth: Math.round(document.documentElement.scrollWidth), documentHeight: Math.round(document.documentElement.scrollHeight) },
-        // elements/html 用于定位和操作；visibleText 用于补齐 SPA、SAP/UI5 等
-        // “正文已渲染但语义树很深”的页面内容。
-        visibleText,
-        frames,
-        overlays,
-        notices,
-        userActionRequired: sensitiveInputs.length ? { recommended: true, reason: '检测到登录或验证相关输入框，请让用户手动完成。' } : undefined,
-        elements,
-        html: body || { tag: 'body', text: clean(document.body && document.body.innerText, 240) }
-      };
-    })()
-  `, true)
-  let renderedHtml
-  try {
-    renderedHtml = await captureAiBrowserRenderedHtml(tab)
-    if (renderedHtml.visibleText) snapshot.visibleText = renderedHtml.visibleText
-  } catch (error) {
-    renderedHtml = {
-      truncated: false,
-      totalChars: 0,
-      documents: [],
-      visibleText: '',
-      error: String(error?.message || 'RENDERED_HTML_UNAVAILABLE').slice(0, 240)
-    }
-  }
-  snapshot.renderedHtml = renderedHtml
-  const imageUrl = await captureAiBrowserScreenshot(tab)
-  tab.snapshotId = `${tab.id}-s${++tab.snapshotVersion}`
-  return { tabId: tab.id, snapshotId: tab.snapshotId, imageUrl, imageDetail: 'auto', pageReady, ...snapshot }
-}
-
-async function aiBrowserAct(tabId, targetId, action, value, snapshotId, rawSessionId = null) {
-  const tab = rawSessionId == null
-    ? getAiBrowserTab(tabId)
-    : resolveAiBrowserTab(tabId, rawSessionId)
-  const normalizedTargetId = String(targetId || '').trim().toLowerCase()
-  const normalizedAction = String(action || '').trim().toLowerCase()
-  if (!/^e\d+$/.test(normalizedTargetId)) throw new Error(`INVALID_BROWSER_TARGET: ${targetId || '(empty)'}`)
-  if (!snapshotId) throw new Error('SNAPSHOT_REQUIRED: Call browser_screenshot before browser_act.')
-  if (snapshotId !== tab.snapshotId) throw new Error('STALE_SNAPSHOT: Call browser_screenshot again.')
-  if (!['click', 'click_at', 'fill', 'select', 'press', 'scroll'].includes(normalizedAction)) throw new Error('UNSUPPORTED_BROWSER_ACTION: ' + normalizedAction)
-
-  return enqueueAiBrowserTabOperation(tab, async () => {
-    try {
-      // 并发请求可能在入队前都读到同一个 snapshotId；必须在串行队列中再次校验，
-      // 防止前一个导航/操作已经让这次操作变成过期快照。
-      if (!snapshotId) throw new Error('SNAPSHOT_REQUIRED: Call browser_screenshot before browser_act.')
-      if (snapshotId !== tab.snapshotId) throw new Error('STALE_SNAPSHOT: Call browser_screenshot again.')
-      if (normalizedAction === 'click_at') return await aiBrowserClickAt(tab, normalizedTargetId)
-      return await tab.view.webContents.executeJavaScript(`
-        (() => {
-          const id = ${JSON.stringify(normalizedTargetId)};
-          const action = ${JSON.stringify(normalizedAction)};
-          const value = ${JSON.stringify(value == null ? '' : String(value))};
-          const el = window.__loopraAiSnapshotTargets?.get(id);
-          if (!el || !el.isConnected) throw new Error('TARGET_NOT_FOUND: Target no longer exists. Call browser_screenshot again.');
-          const isInput = el.tagName === 'INPUT';
-          const isTextArea = el.tagName === 'TEXTAREA';
-          const isSelect = el.tagName === 'SELECT';
-          const ownerDocument = el.ownerDocument || document;
-          const ownerWindow = ownerDocument.defaultView || window;
-          const hint = [el.type, el.name, el.id, el.autocomplete, el.getAttribute('aria-label') || '', el.getAttribute('placeholder') || ''].join(' ').toLowerCase();
-          const sensitive = (isInput || isTextArea)
-            && ((isInput && el.type === 'password') || /(captcha|verification|verify|otp|one-time|passcode|password|token|secret)/.test(hint));
-          if (action === 'fill' && sensitive) throw new Error('SENSITIVE_INPUT_REQUIRES_USER_ACTION: Password, verification, OTP, token, and captcha fields must be completed by the user.');
-          let style = ownerDocument.getElementById('__loopra_ai_action_style');
-          if (!style) {
-            style = ownerDocument.createElement('style');
-            style.id = '__loopra_ai_action_style';
-            style.textContent = '[data-loopra-ai-active="true"]{outline:3px solid #0d9488!important;outline-offset:3px!important;box-shadow:0 0 0 6px rgba(13,148,136,.18)!important}#__loopra_ai_action_badge{position:fixed;z-index:2147483647;padding:5px 9px;border-radius:5px;background:#0f766e;color:#fff;font:600 12px system-ui;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}';
-            ownerDocument.documentElement.appendChild(style);
-          }
-          ownerDocument.querySelectorAll('[data-loopra-ai-active="true"]').forEach((node) => node.removeAttribute('data-loopra-ai-active'));
-          document.getElementById('__loopra_ai_action_badge')?.remove();
-          el.setAttribute('data-loopra-ai-active', 'true');
-          el.scrollIntoView({ block: 'center', inline: 'nearest' });
-          const rect = window.__loopraAiSnapshotRect?.(el) || el.getBoundingClientRect();
-          const badge = document.createElement('div');
-          badge.id = '__loopra_ai_action_badge';
-          badge.textContent = ({ click: 'AI 点击', fill: 'AI 输入', select: 'AI 选择', press: 'AI 按键', scroll: 'AI 定位' })[action] || 'AI 操作';
-          badge.style.left = Math.max(8, Math.min(window.innerWidth - 90, rect.left)) + 'px';
-          badge.style.top = Math.max(8, rect.top - 32) + 'px';
-          document.documentElement.appendChild(badge);
-          setTimeout(() => {
-            el.removeAttribute('data-loopra-ai-active');
-            badge.remove();
-          }, 1600);
-          if (action === 'scroll') return { action, targetId: id };
-          if (action === 'click') { el.click(); return { action, targetId: id }; }
-          if (action === 'fill') {
-            if (!((isInput || isTextArea) || el.isContentEditable)) throw new Error('TARGET_NOT_EDITABLE: Target cannot accept text');
-            el.focus();
-            if (el.isContentEditable) el.textContent = value;
-            else {
-              const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
-              if (!setter) throw new Error('TARGET_NOT_EDITABLE: Target value cannot be set');
-              setter.call(el, value);
-            }
-            const InputEventCtor = ownerWindow.InputEvent || window.InputEvent;
-            const EventCtor = ownerWindow.Event || window.Event;
-            el.dispatchEvent(new InputEventCtor('input', { bubbles: true, inputType: 'insertText', data: value }));
-            el.dispatchEvent(new EventCtor('change', { bubbles: true }));
-            return { action, targetId: id };
-          }
-          if (action === 'select') {
-            if (!isSelect) throw new Error('TARGET_NOT_SELECT: Target is not a select element');
-            el.value = value;
-            if (el.value !== value) throw new Error('OPTION_NOT_FOUND: Option not found');
-            const EventCtor = ownerWindow.Event || window.Event;
-            el.dispatchEvent(new EventCtor('input', { bubbles: true }));
-            el.dispatchEvent(new EventCtor('change', { bubbles: true }));
-            return { action, targetId: id };
-          }
-          el.focus();
-          const KeyboardEventCtor = ownerWindow.KeyboardEvent || window.KeyboardEvent;
-          el.dispatchEvent(new KeyboardEventCtor('keydown', { key: value || 'Enter', bubbles: true }));
-          el.dispatchEvent(new KeyboardEventCtor('keyup', { key: value || 'Enter', bubbles: true }));
-          return { action, targetId: id };
-        })()
-      `, true)
-    } finally {
-      // 任何操作都会改变焦点、页面或表单状态，旧快照不能再次使用。
-      invalidateAiBrowserSnapshot(tab)
-    }
-  })
-}
-
-function readBridgeBody(request) {
-  return new Promise((resolve, reject) => {
-    let body = ''
-    let rejected = false
-    request.setEncoding('utf8')
-    request.on('data', (chunk) => {
-      if (rejected) return
-      body += chunk
-      if (body.length > 128 * 1024) {
-        rejected = true
-        reject(new Error('REQUEST_BODY_TOO_LARGE: Request body exceeds 128 KiB'))
-      }
-    })
-    request.on('end', () => {
-      if (rejected) return
-      try { resolve(body ? JSON.parse(body) : {}) } catch { reject(new Error('Invalid JSON body')) }
-    })
-    request.on('error', reject)
-  })
-}
-
-function writeBridgeResponse(response, status, payload) {
-  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
-  response.end(JSON.stringify(payload))
-}
-
-function browserBridgeError(error) {
-  const rawMessage = String(error?.message || error || 'Browser request failed')
-  const match = rawMessage.match(/^([A-Z][A-Z0-9_]*):\s*(.*)$/)
-  const code = String(error?.code || (match ? match[1] : 'BROWSER_OPERATION_FAILED'))
-  const message = match ? match[2] : rawMessage
-  return {
-    code,
-    message,
-    retryable: ['STALE_SNAPSHOT', 'TARGET_NOT_FOUND', 'BROWSER_TAB_NOT_FOUND', 'BROWSER_TAB_NOT_IN_SESSION', 'BROWSER_SESSION_NOT_FOUND'].includes(code)
-  }
-}
-
-function startAiBrowserBridge() {
-  if (aiBrowserBridgeReady) return aiBrowserBridgeReady
-  aiBrowserBridgeReady = new Promise((resolve, reject) => {
-    aiBrowserBridge = http.createServer(async (request, response) => {
-      if (request.socket.remoteAddress && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress)) {
-        writeBridgeResponse(response, 403, { success: false, error: browserBridgeError(new Error('LOCAL_REQUESTS_ONLY: Local requests only')) })
-        return
-      }
-      if (request.method === 'GET' && request.url === '/health') {
-        writeBridgeResponse(response, 200, {
-          success: true,
-          data: {
-            service: 'loopra-ai-browser',
-            sessions: aiBrowserSessions.size,
-            tabs: aiBrowserTabs.size
-          }
-        })
-        return
-      }
-      if (request.method !== 'POST' || !request.url?.startsWith('/browser/')) {
-        writeBridgeResponse(response, 404, { success: false, error: browserBridgeError(new Error('NOT_FOUND: Not found')) })
-        return
-      }
-      try {
-        cleanupIdleAiBrowserTabs()
-        const parsedPayload = await readBridgeBody(request)
-        // 兼容空请求体或历史客户端发送的 JSON null，避免后续读取 payload.tabId 崩溃。
-        const payload = parsedPayload && typeof parsedPayload === 'object' && !Array.isArray(parsedPayload)
-          ? parsedPayload
-          : {}
-        const parsedUrl = new URL(request.url, 'http://127.0.0.1')
-        const method = parsedUrl.pathname.slice('/browser/'.length)
-        const requestId = String(payload.requestId || randomUUID()).slice(0, 128)
-        const sessionId = normalizeAiBrowserSessionId(payload.sessionId)
-        // 只有创建新标签时才隐式创建显式会话；避免任意本地请求通过 browser_tabs
-        // 制造无限空会话。未携带 sessionId 的旧客户端仍使用桌面默认会话。
-        const session = getAiBrowserSession(sessionId, method === 'new-tab' || !payload.sessionId)
-        if (!session) throw new Error(`BROWSER_SESSION_NOT_FOUND: ${sessionId}`)
-        const targetTabId = String(payload.tabId || session.activeTabId || '')
-        const actionLabels = { click: '点击元素', click_at: '真实点击元素', fill: '输入内容', select: '选择选项', press: '发送按键', scroll: '定位元素' }
-        const runningMessages = {
-          'new-tab': 'AI 正在打开新标签页',
-          tabs: 'AI 正在查看标签页',
-          navigate: 'AI 正在跳转页面',
-          screenshot: 'AI 正在捕获页面快照',
-          scroll: 'AI 正在滚动页面',
-          act: `AI 正在${actionLabels[payload.action] || '操作页面'}`,
-          'request-user-action': 'AI 正在请求你手动完成浏览器操作',
-          'close-tab': 'AI 正在关闭标签页'
-        }
-        if (targetTabId && ['navigate', 'screenshot', 'act', 'scroll', 'request-user-action', 'close-tab'].includes(method)) {
-          const target = resolveAiBrowserTab(targetTabId, session.id)
-          setAiBrowserActiveTab(target)
-          hideAiBrowserViews()
-          // hideAiBrowserViews 会暂时隐藏原生 WebContentsView；必须立即广播状态，
-          // 让 AIBrowser 的 scheduleNativeView 把当前标签重新挂载并显示。
-          sendAiBrowserState()
-        }
-        if (method === 'request-user-action') {
-          const target = resolveAiBrowserTab(targetTabId, session.id)
-          setAiBrowserActiveTab(target)
-          const browserWindow = openAiBrowserWindow()
-          if (browserWindow.isMinimized()) browserWindow.restore()
-          browserWindow.show()
-          browserWindow.focus()
-        }
-        sendAiBrowserActivity('running', runningMessages[method] || 'AI 正在操作浏览器', {
-          method,
-          sessionId: session.id,
-          requestId,
-          tabId: targetTabId || null,
-          targetId: payload.targetId || null,
-          action: payload.action || null
-        })
-        let data
-        if (method === 'new-tab') data = await aiBrowserNewTab(payload.url, session.id)
-        else if (method === 'tabs') data = {
-          sessionId: session.id,
-          activeTabId: session.activeTabId,
-          tabs: sessionTabIds(session).map((id) => aiBrowserTabSummary(aiBrowserTabs.get(id)))
-        }
-        else if (method === 'navigate') data = await aiBrowserNavigate(payload.tabId, payload.url, session.id)
-        else if (method === 'screenshot') data = await aiBrowserSnapshot(payload.tabId, session.id)
-        else if (method === 'scroll') {
-          const target = resolveAiBrowserTab(payload.tabId, session.id)
-          data = await enqueueAiBrowserTabOperation(target, () => aiBrowserScrollPage(target, payload.direction, payload.amount))
-        }
-        else if (method === 'act') data = await aiBrowserAct(payload.tabId, payload.targetId, payload.action, payload.value, payload.snapshotId, session.id)
-        else if (method === 'request-user-action') {
-          data = {
-            sessionId: session.id,
-            tabId: targetTabId,
-            activeTabId: session.activeTabId,
-            actionRequired: true,
-            message: String(payload.message || '请在 Electron 浏览器中完成操作').slice(0, 500)
-          }
-        }
-        else if (method === 'close-tab') {
-          const target = resolveAiBrowserTab(payload.tabId, session.id)
-          const closed = closeAiBrowserTab(target.id)
-          data = { sessionId: session.id, closed, activeTabId: session.activeTabId }
-        } else throw new Error(`UNKNOWN_BROWSER_METHOD: ${method}`)
-        const completedMessages = {
-          'new-tab': 'AI 已打开新标签页',
-          tabs: 'AI 已读取标签页列表',
-          navigate: 'AI 已完成页面跳转',
-          screenshot: 'AI 已捕获页面快照',
-          scroll: 'AI 已完成页面滚动',
-          act: `AI 已完成${actionLabels[payload.action] || '页面操作'}`,
-          'close-tab': 'AI 已关闭标签页'
-        }
-        const isUserTakeover = method === 'request-user-action'
-        sendAiBrowserActivity(isUserTakeover ? 'waiting' : 'completed', isUserTakeover
-          ? `等待你手动完成：${String(payload.message || '请在浏览器中完成操作').slice(0, 180)}`
-          : (completedMessages[method] || 'AI 操作已完成'), {
-          method,
-          sessionId: session.id,
-          requestId,
-          tabId: data?.tabId || targetTabId || session.activeTabId,
-          targetId: payload.targetId || null,
-          action: payload.action || null
-        })
-        writeBridgeResponse(response, 200, { success: true, requestId, data })
-      } catch (error) {
-        const details = browserBridgeError(error)
-        sendAiBrowserActivity('failed', `AI 操作失败：${details.message}`, { errorCode: details.code })
-        writeBridgeResponse(response, 400, { success: false, error: details })
-      }
-    })
-
-    const listen = (port) => {
-      const handleStartError = (error) => {
-        if (error.code === 'EADDRINUSE' && port !== 0) {
-          console.warn(`[ai-browser] port ${port} is busy; falling back to a dynamic port`)
-          listen(0)
-          return
-        }
-        aiBrowserBridge = null
-        aiBrowserBridgeReady = null
-        aiBrowserBridgeAddress = ''
-        reject(error)
-      }
-      aiBrowserBridge.once('error', handleStartError)
-      aiBrowserBridge.listen(port, '127.0.0.1', () => {
-        aiBrowserBridge.removeListener('error', handleStartError)
-        const address = aiBrowserBridge.address()
-        aiBrowserBridgeAddress = `http://127.0.0.1:${address.port}`
-        aiBrowserBridge.on('error', (error) => console.error('[ai-browser] local bridge failed:', error.message))
-        console.log(`[ai-browser] local bridge listening on ${aiBrowserBridgeAddress}`)
-        resolve(aiBrowserBridgeAddress)
-      })
-    }
-
-    listen(Number.isInteger(AI_BROWSER_BRIDGE_PREFERRED_PORT) && AI_BROWSER_BRIDGE_PREFERRED_PORT > 0
-      ? AI_BROWSER_BRIDGE_PREFERRED_PORT
-      : 0)
-  })
-  return aiBrowserBridgeReady
-}
-
-function stopAiBrowserBridge() {
-  if (aiBrowserBridge) aiBrowserBridge.close()
-  aiBrowserBridge = null
-  aiBrowserBridgeReady = null
-  aiBrowserBridgeAddress = ''
-}
-
-ipcMain.handle('open-ai-browser-window', (event) => {
-  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized browser request')
-  openAiBrowserWindow()
-  return { success: true }
-})
-
-ipcMain.handle('get-ai-browser-bridge-address', async (event) => {
-  if (!isDesktopChatSender(event.sender)) throw new Error('Unauthorized browser request')
-  await startAiBrowserBridge()
-  if (!aiBrowserBridgeAddress) throw new Error('AI browser bridge is not listening')
-  return aiBrowserBridgeAddress
-})
-
-ipcMain.handle('ai-browser-new-tab', async (event, rawUrl) => {
-  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
-  return aiBrowserNewTab(rawUrl)
-})
-
-ipcMain.handle('ai-browser-navigate', async (event, tabId, rawUrl) => {
-  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
-  return aiBrowserNavigate(tabId, rawUrl)
-})
-
-ipcMain.handle('ai-browser-history', (event, tabId, action) => {
-  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
-  return aiBrowserHistory(tabId, action)
-})
-
-ipcMain.handle('ai-browser-activate-tab', (event, tabId) => {
-  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
-  return activateAiBrowserTab(tabId)
-})
-
-ipcMain.handle('ai-browser-close-tab', (event, tabId) => {
-  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
-  const closed = closeAiBrowserTab(tabId)
-  sendAiBrowserState()
-  return { closed, activeSessionId: aiBrowserActiveSessionId, activeTabId: aiBrowserActiveTabId }
-})
-
-ipcMain.handle('ai-browser-get-state', (event) => {
-  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
-  return {
-    activeSessionId: aiBrowserActiveSessionId,
-    activeTabId: aiBrowserActiveTabId,
-    tabs: [...aiBrowserTabs.values()].map(aiBrowserTabSummary),
-    sessions: [...aiBrowserSessions.values()].map((session) => ({
-      id: session.id,
-      activeTabId: session.activeTabId,
-      tabCount: sessionTabIds(session).length,
-      managed: session.managed
-    }))
-  }
-})
-
-ipcMain.handle('ai-browser-view-show', (event, tabId, rawBounds) => {
-  const host = resolveAiBrowserHost(event.sender)
-  if (!host) throw new Error('Unauthorized browser request')
-  const tab = getAiBrowserTab(tabId)
-  if (tab.hostWindow !== host.window) {
-    detachAiBrowserView(tab)
-    host.window.contentView.addChildView(tab.view)
-    tab.hostWindow = host.window
-  }
-  hideAiBrowserViews()
-  tab.controller = event.sender
-  tab.view.setBounds(normalizeAiBrowserBounds(rawBounds, host))
-  tab.view.setVisible(true)
-  return { success: true }
-})
-
-ipcMain.handle('ai-browser-view-hide', (event) => {
-  if (!isAiBrowserUiSender(event.sender)) throw new Error('Unauthorized browser request')
-  hideAiBrowserViews(event.sender)
-  return { success: true }
-})
-
 // ==================== Element Inspector ====================
 
 function openElementInspectorWindow(initialUrl = '') {
@@ -5005,8 +3304,7 @@ ipcMain.on('element-inspector-ready', (event) => {
 
 ipcMain.on('element-inspector-send', (event, payload) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
-  if ((!isElementWindow && !isAiBrowserSender) || !payload || typeof payload !== 'object') return
+  if (!isElementWindow || !payload || typeof payload !== 'object') return
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (mainWindow?.isMinimized()) mainWindow.restore()
   mainWindow.show()
@@ -5093,16 +3391,6 @@ ipcMain.on('element-inspected', (event, payload) => {
   if (!payload || typeof payload !== 'object') return
   if (event.sender === elementWebView?.webContents) {
     elementInspectorWindow?.webContents.send('element-inspected', payload)
-    return
-  }
-  const isAiBrowserTab = [...aiBrowserTabs.values()].some((tab) => tab.view.webContents === event.sender)
-  if (isAiBrowserTab) {
-    if (aiBrowserWindow && !aiBrowserWindow.isDestroyed()) aiBrowserWindow.webContents.send('element-inspected', payload)
-    for (const desktopTab of desktopChatTabs.values()) {
-      if (desktopTab.rendererReady && !desktopTab.view.webContents.isDestroyed()) {
-        desktopTab.view.webContents.send('element-inspected', payload)
-      }
-    }
   }
 })
 
@@ -5129,18 +3417,9 @@ function findIframeFrame(frame) {
  */
 ipcMain.handle('inspector-inject', async (event) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
-  if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
-  let inspectorTarget = null
-  if (isAiBrowserSender) {
-    const activeTab = aiBrowserTabs.get(String(aiBrowserActiveTabId || ''))
-    inspectorTarget = activeTab?.view?.webContents
-    if (!inspectorTarget || inspectorTarget.isDestroyed()) return { success: false, reason: 'no_active_tab' }
-    if (!activeTab.url || activeTab.url === 'about:blank') return { success: false, reason: 'no_page' }
-  } else {
-    if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
-    inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
-  }
+  if (!isElementWindow) throw new Error('Unauthorized inspector request')
+  if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
+  const inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
   if (!inspectorTarget) return { success: false, reason: 'no_preview' }
 
   const code = `
@@ -5342,17 +3621,9 @@ ipcMain.handle('inspector-inject', async (event) => {
 /** 移除 iframe 中的检测脚本 */
 ipcMain.handle('inspector-remove', async (event) => {
   const isElementWindow = event.sender === elementInspectorWindow?.webContents
-  const isAiBrowserSender = isAiBrowserUiSender(event.sender)
-  if (!isElementWindow && !isAiBrowserSender) throw new Error('Unauthorized inspector request')
-  let inspectorTarget = null
-  if (isAiBrowserSender) {
-    const activeTab = aiBrowserTabs.get(String(aiBrowserActiveTabId || ''))
-    inspectorTarget = activeTab?.view?.webContents
-    if (!inspectorTarget || inspectorTarget.isDestroyed()) return { success: false, reason: 'no_active_tab' }
-  } else {
-    if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
-    inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
-  }
+  if (!isElementWindow) throw new Error('Unauthorized inspector request')
+  if (!elementInspectorWindow) return { success: false, reason: 'no_window' }
+  const inspectorTarget = elementWebView?.webContents || findIframeFrame(elementInspectorWindow.webContents.mainFrame)
   if (!inspectorTarget) return { success: false, reason: 'no_preview' }
 
   try {

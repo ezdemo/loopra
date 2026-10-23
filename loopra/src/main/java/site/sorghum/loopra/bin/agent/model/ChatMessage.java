@@ -48,7 +48,7 @@ public class ChatMessage {
     private String toolCallId;
 
     /**
-     * 工具返回的视觉输入，仅由 read_image 或 browser_screenshot 产生。
+     * 工具返回的视觉输入，仅由 read_image 产生。
      * 在不同模型 API 协议中会转换为对应的图片型工具结果。
      */
     @ONodeAttr(name = "tool_image_url")

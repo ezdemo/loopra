@@ -63,7 +63,7 @@ const { default: IntegrationManager, McpPublishingSettings } = await import(mana
 const exportConfig = {
   enabled: true, name: 'loopra', version: '1.0.0', channel: 'streamable', endpoint: '/mcp',
   allowedTools: null, endpointUrl: 'http://127.0.0.1:4567/mcp',
-  tools: [{ name: 'read', description: '读取', enabled: true }, { name: 'write', description: '写入', enabled: true }, { name: 'browser_act', description: '浏览器', enabled: false }],
+  tools: [{ name: 'read', description: '读取', enabled: true }, { name: 'write', description: '写入', enabled: true }, { name: 'bash', description: '终端', enabled: false }],
 };
 const tunnelStatus = {
   state: 'running', running: true, installed: true, quickTunnel: true, mcpReady: true, platform: 'windows',

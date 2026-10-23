@@ -8,7 +8,7 @@ Loopra 的 Web 与 Electron 桌面前端。默认主工作台使用 React、Type
 |---|---|
 | `/` / `index.html` | React 主工作台，供 Web 与 Electron 主窗口使用。 |
 | `/legacy.html` | Vue 兼容控制台。 |
-| 桌面辅助窗口 | 安装、更新、宠物、AI 浏览器、需求池等独立页面，按入口加载 Vue 实现。 |
+| 桌面辅助窗口 | 安装、更新、宠物、需求池等独立页面，按入口加载 Vue 实现。 |
 
 主工作台提供项目与会话、流式聊天、推理与工具记录、审批与计划、模型渠道、工具与集成、文件预览和 Git 面板。Electron 通过桌面桥接增加原生终端、文件编辑、进程管理、窗口控制等能力；具体入口与限制见 [Web 工作台说明](web/README.md) 和 [功能对照](web/LEGACY_PARITY.md)。
 
@@ -88,7 +88,7 @@ loopra-front/
 │   ├── entry-routing.js     # Electron 辅助窗口入口判断
 │   ├── main.js              # Vue 入口
 │   └── ...                  # Vue 兼容控制台、辅助页面与组件测试
-├── electron/                # 主进程、预加载、文件/Git/终端/浏览器桥接
+├── electron/                # 主进程、预加载、文件/Git/终端桥接
 ├── scripts/                 # 开发启动等脚本
 ├── public/                  # 静态资源与默认连接配置
 ├── index.html               # 默认入口

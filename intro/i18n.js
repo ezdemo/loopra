@@ -46,7 +46,7 @@ window.LOOPRA_I18N_EN = {
   'overview.c3t': 'Collaborate safely',
   'overview.c3d': 'Tool permission categories, HITL approval, path boundaries and an optional validation model.',
   'overview.c4t': 'Pick the right interface',
-  'overview.c4d': 'A web console, plus a Desktop workbench with local processes, files, Git and a browser.',
+  'overview.c4d': 'A web console, plus a Desktop workbench with local processes, files, Git and element inspection.',
 
   /* 快速开始 */
   'qs.tag': 'Quick Start',
@@ -86,7 +86,7 @@ window.LOOPRA_I18N_EN = {
   'features.f9t': 'Approval & boundaries',
   'features.f9d': 'Three-state HITL (free / approval / auto), tool allowlists, path boundary protection and an optional validation model.',
   'features.f10t': 'Desktop workbench',
-  'features.f10d': 'Electron Desktop with multi-chat tabs, Git/file panels, element inspector, service process management and an AI browser.',
+  'features.f10d': 'Electron Desktop with multi-chat tabs, Git/file panels, element inspector and service process management.',
 
   /* 工具系统 */
   'tools.tag': 'Tool system',
@@ -100,9 +100,9 @@ window.LOOPRA_I18N_EN = {
   'tools.r3': 'Task collaboration',
   'tools.r4': 'Project state',
   'tools.r4d': '<code>memory</code> persists cross-session facts to <code>.loopra/loopra-memory.md</code>; the shared workspace lives in <code>.loopra/workspace/</code>',
-  'tools.r5': 'Multimodal & browser',
-  'tools.r5d': '<code>read_image</code>, plus <code>browser_*</code> tools driving the visible Desktop AI browser',
-  'tools.note': 'MCP, OpenAPI and skills can inject extra tools into the agent. <code>read_image</code> accepts workspace paths, absolute paths, Base64/data URIs and HTTP(S) URLs, up to 5 MiB per image. Browser tools only operate the visible Desktop browser; when hitting login, CAPTCHA or security checks, the agent asks the user to take over instead of filling in or reading sensitive credentials.',
+  'tools.r5': 'Multimodal',
+  'tools.r5d': '<code>read_image</code> with native image input and configurable image-understanding models',
+  'tools.note': 'MCP, OpenAPI and skills can inject extra tools into the agent. <code>read_image</code> accepts workspace paths, absolute paths, Base64/data URIs and HTTP(S) URLs, up to 5 MiB per image.',
 
   /* 架构 */
   'arch.tag': 'Architecture',

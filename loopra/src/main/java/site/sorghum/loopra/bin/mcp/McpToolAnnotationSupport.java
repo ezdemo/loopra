@@ -169,8 +169,7 @@ final class McpToolAnnotationSupport {
         }
 
         String name = functionTool.name();
-        return name != null && (name.startsWith("browser_")
-                || name.startsWith("web")
+        return name != null && (name.startsWith("web")
                 || name.contains("api")
                 || name.contains("http"));
     }

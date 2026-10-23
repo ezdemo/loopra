@@ -10,14 +10,7 @@ const initialElectronAPI = window.electronAPI
 beforeEach(() => {
   localStorage.clear()
   window.electronAPI = {
-    events: {listen: vi.fn(() => () => {})},
-    aiBrowser: {
-      getState: vi.fn().mockResolvedValue({activeTabId: null, tabs: []}),
-      newTab: vi.fn().mockResolvedValue(null),
-      activateTab: vi.fn().mockResolvedValue(null),
-      closeTab: vi.fn().mockResolvedValue(null),
-      hideView: vi.fn().mockResolvedValue(null)
-    }
+    events: {listen: vi.fn(() => () => {})}
   }
 })
 
@@ -37,8 +30,7 @@ function mountPanel(props = {}) {
         ProjectCapabilitiesPanel: true,
         SchedulePanel: true,
         BashSessionManager: true,
-        TerminalView: true,
-        AIBrowser: true
+        TerminalView: true
       }
     }
   })
@@ -67,11 +59,10 @@ describe('DesktopToolPanel', () => {
 
     await wrapper.find('.desktop-tool-add-button').trigger('click')
     expect(wrapper.find('.desktop-tool-add-menu').exists()).toBe(true)
-    expect(wrapper.findAll('.desktop-tool-add-item')).toHaveLength(10)
-    expect(wrapper.find('.desktop-tool-add-menu').text()).toContain('审查')
+    expect(wrapper.findAll('.desktop-tool-add-item')).toHaveLength(8)
     expect(wrapper.find('.desktop-tool-add-menu').text()).toContain('终端')
-    expect(wrapper.find('.desktop-tool-add-menu').text()).toContain('浏览器')
     expect(wrapper.find('.desktop-tool-add-menu').text()).toContain('文件')
+    expect(wrapper.find('.desktop-tool-add-menu').text()).not.toContain('浏览器')
   })
 
   it('uses the native tool menu when Electron provides it', async () => {
@@ -117,44 +108,4 @@ describe('DesktopToolPanel', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([['files'], ['files']])
   })
 
-  it('promotes browser tabs into the shared right-panel tab strip', async () => {
-    const wrapper = mountPanel()
-
-    wrapper.vm.syncBrowserState({
-      activeTabId: 'tab-2',
-      tabs: [
-        {id: 'tab-1', title: '新标签页', url: 'about:blank'},
-        {id: 'tab-2', title: 'GitHub', url: 'https://github.com'}
-      ]
-    })
-    await nextTick()
-
-    expect(wrapper.vm.openTabs.map((tab) => tab.id)).toEqual(['browser:tab-1', 'browser:tab-2'])
-    expect(wrapper.vm.activeTabId).toBe('browser:tab-2')
-    expect(wrapper.find('.desktop-tool-tabs').text()).toContain('新标签页')
-    expect(wrapper.find('.desktop-tool-tabs').text()).toContain('GitHub')
-    expect(wrapper.emitted('update:modelValue')).toContainEqual(['browser:tab-2'])
-  })
-
-  it('selects a neighboring tool when the last active browser tab closes', async () => {
-    const wrapper = mountPanel()
-    wrapper.vm.openTool('files')
-    wrapper.vm.syncBrowserState({
-      activeTabId: 'tab-2',
-      tabs: [
-        {id: 'tab-1', title: '文档', url: 'https://example.com/docs'},
-        {id: 'tab-2', title: '示例', url: 'https://example.com'}
-      ]
-    })
-    wrapper.vm.activateTab('browser:tab-2')
-    await nextTick()
-
-    await wrapper.vm.closeTab('browser:tab-2')
-    expect(wrapper.vm.activeTabId).toBe('browser:tab-1')
-
-    wrapper.vm.syncBrowserState({activeTabId: null, tabs: []})
-    await nextTick()
-    expect(wrapper.vm.activeTabId).toBe('files')
-    expect(wrapper.vm.openTabs.map((tab) => tab.id)).toEqual(['files'])
-  })
 })
