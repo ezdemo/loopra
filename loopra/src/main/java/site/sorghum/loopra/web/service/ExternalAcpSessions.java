@@ -109,6 +109,8 @@ final class ExternalAcpSessions implements AutoCloseable {
                         default -> "limited";
                     })));
             success = true;
+        } catch (Exception failure) {
+            throw translateFailure(failure);
         } finally {
             boolean interrupted = Thread.interrupted();
             try {
@@ -155,6 +157,8 @@ final class ExternalAcpSessions implements AutoCloseable {
             }
             success = true;
             return options;
+        } catch (Exception failure) {
+            throw translateFailure(failure);
         } finally {
             boolean interrupted = Thread.interrupted();
             try {
@@ -166,6 +170,20 @@ final class ExternalAcpSessions implements AutoCloseable {
                 if (interrupted) Thread.currentThread().interrupt();
             }
         }
+    }
+
+    private static Exception translateFailure(Exception failure) {
+        Throwable cause = failure;
+        while ((cause instanceof ExecutionException || cause instanceof CompletionException) && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        if (cause instanceof AcpClientSession.AcpError error && error.getData() instanceof Map<?, ?> data
+                && "thread_active_writer".equals(data.get("reason"))) {
+            return new ServiceException(409,
+                    "Codex 会话已被其他客户端占用。请在 Codex 桌面端、CLI 或 IDE 中关闭该会话后重试，"
+                            + "或在 Loopra 新建会话。原会话历史已保留。", "thread_active_writer");
+        }
+        return failure;
     }
 
     private void refreshMcp(Connection connection, String key, Path cwd) {

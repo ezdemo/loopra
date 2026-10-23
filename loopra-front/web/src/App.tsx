@@ -19,13 +19,14 @@ import Search from './components/Search';
 import type { FileChange, Message } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
+import SessionOccupiedNotice from './components/SessionOccupiedNotice';
 import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
 import type { AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, withoutWorkspaceContext, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
-import { acpStopMessage, applyEvent, CHAT_WORKSPACE, DEFAULT_SERVER, historyMessages, isChatWorkspace, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
+import { acpStopMessage, applyEvent, CHAT_WORKSPACE, DEFAULT_SERVER, historyMessages, isChatWorkspace, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
 import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
@@ -133,6 +134,11 @@ export default function App() {
   const seededConfigAt = useRef<Record<string, number>>({});
   const [agentConfigBusy, setAgentConfigBusy] = useState<string>();
   const [agentConfigError, setAgentConfigError] = useState('');
+  const [agentConfigRevision, setAgentConfigRevision] = useState(0);
+  const [occupiedSessions, setOccupiedSessions] = useState<Set<string>>(() => new Set());
+  const occupiedSessionsRef = useRef(occupiedSessions);
+  const composerViewRef = useRef({ server, activeId, draft });
+  composerViewRef.current = { server, activeId, draft };
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>();
   const [toast, setToast] = useState('');
@@ -207,15 +213,26 @@ export default function App() {
     // Just converted from a preconfigured draft: the Agent already holds these
     // choices, so a read here only competes with the first prompt for the process.
     const seededAt = seededConfigAt.current[session.id];
-    if (seededAt && Date.now() - seededAt < 5000) return;
+    if (seededAt && Date.now() - seededAt < 5000 && !isSessionOccupied(session.id)) return;
     const controller = new AbortController();
-    const id = session.id; setAgentConfigBusy(id);
+    const id = session.id;
+    const busyKey = `${id}:${++agentConfigRequest.current}`;
+    setAgentConfigBusy(busyKey);
     void api.request<{ configOptions: AgentConfigOption[] }>(`/agent-engines/config?${sessionQuery(session)}`, 'GET', undefined, controller.signal)
-      .then(result => { if (!controller.signal.aborted) setAgentConfigs(current => ({ ...current, [id]: result.configOptions })); })
-      .catch(error => { if (!controller.signal.aborted) setAgentConfigError(error instanceof Error ? error.message : String(error)); })
-      .finally(() => setAgentConfigBusy(current => current === id ? undefined : current));
+      .then(result => {
+        if (controller.signal.aborted) return;
+        setAgentConfigs(current => ({ ...current, [id]: result.configOptions }));
+        recordSessionOccupancy(id, false);
+        if (queuedRef.current[id]?.length) void sendQueuedMessage(id);
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        if (isSessionOccupiedError(error)) recordSessionOccupancy(id, true);
+        else setAgentConfigError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setAgentConfigBusy(current => current === busyKey ? undefined : current));
     return () => controller.abort();
-  }, [api, session?.id, backend.status]);
+  }, [api, session?.id, backend.status, agentConfigRevision]);
   useEffect(() => {
     const controller = new AbortController();
     void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal).then(setEngines).catch(() => setEngines([]));
@@ -282,6 +299,14 @@ export default function App() {
     return result;
   }
   function newConfigKey(agent: string) { return `${server}::${agent}`; }
+  function isSessionOccupied(id: string) { return occupiedSessionsRef.current.has(`${server}::${id}`); }
+  function recordSessionOccupancy(id: string, occupied: boolean) {
+    const key = `${server}::${id}`;
+    const next = new Set(occupiedSessionsRef.current);
+    if (occupied) next.add(key); else next.delete(key);
+    occupiedSessionsRef.current = next;
+    setOccupiedSessions(next);
+  }
   function cacheAgentConfig(agent: string, options: AgentConfigOption[]) {
     setAgentConfigCache(current => ({ ...current, [newConfigKey(agent)]: options }));
   }
@@ -359,7 +384,7 @@ export default function App() {
   }
   function retryAgentConfig() {
     if (!session && !agentPreferencesReady) { setAgentPreferencesRevision(value => value + 1); return; }
-    if (session) { void prepareAgentConfig(); return; }
+    if (session) { setAgentConfigRevision(value => value + 1); return; }
     if (currentWorkspace) void loadNewAgentConfig(currentWorkspace.hash, agentId);
   }
   async function changeAgentConfig(configId: string, value: string | boolean) {
@@ -396,7 +421,10 @@ export default function App() {
         const plan = result.configOptions.find(option => option.id === 'plan');
         if (plan && plan.currentValue !== 'on') setPendingPlan(undefined);
       }
-    } catch (error) { notify(`保存失败：${error instanceof Error ? error.message : String(error)}`); }
+    } catch (error) {
+      if (isSessionOccupiedError(error)) recordSessionOccupancy(target.id, true);
+      else notify(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    }
     finally { setAgentConfigBusy(undefined); }
   }
   function saveDefaultModel(id: string) {
@@ -464,6 +492,13 @@ export default function App() {
     setComposerContext(emptyContext); setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null);
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
+  }
+  function newChatFromOccupied() {
+    const previousDraft = draft;
+    const previousContext = composerContext;
+    newSession();
+    setDraft(previousDraft);
+    setComposerContext(previousContext);
   }
   function selectWorkspace(hash: string) {
     if (hash !== workspace) setComposerContext(withoutWorkspaceContext);
@@ -751,7 +786,7 @@ export default function App() {
   }
   function removeQueuedMessage(id: string) { if (session) replaceQueue(removeQueued(queuedRef.current, session.id, id)); }
   async function sendQueuedMessage(key: string) {
-    if (sendingQueued.current.has(key) || activeRequest.current || remoteRunRef.current === key) return;
+    if (isSessionOccupied(key) || sendingQueued.current.has(key) || activeRequest.current || remoteRunRef.current === key) return;
     const target = sessionsRef.current.find(item => item.id === key);
     if (!target || !nextQueued(queuedRef.current, key)) return;
     sendingQueued.current.add(key);
@@ -790,6 +825,7 @@ export default function App() {
   async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false, queuedSession?: Session, queuedMessageId?: string): Promise<boolean> {
     if (!queuedSession && composerConfigBusy) return false;
     const sendSession = queuedSession || session;
+    if (sendSession && isSessionOccupied(sendSession.id)) return false;
     const sendWorkspace = queuedSession ? workspaces.find(item => item.hash === queuedSession.workspaceHash) : currentWorkspace;
     const sendAgentId = isChatWorkspace(sendWorkspace) ? 'native' : queuedSession ? queuedSession.agentId || 'native' : agentId;
     if (activeRequest.current || remoteRunRef.current === (sendSession?.id ?? '')) { if (override === undefined && !action) queueMessage(); return false; }
@@ -820,6 +856,7 @@ export default function App() {
     const controller = new AbortController(); const requestId = crypto.randomUUID();
     activeRequest.current = { controller, requestId, session: sendSession };
     const request = activeRequest.current;
+    const queuedItem = queuedSession && queuedMessageId ? queuedRef.current[queuedSession.id]?.find(item => item.id === queuedMessageId) : undefined;
     if (queuedSession && queuedMessageId) replaceQueue(removeQueued(queuedRef.current, queuedSession.id, queuedMessageId));
     setGeneratingId(sendSession?.id || 'creating');
     setLiveSpeed(undefined);
@@ -840,6 +877,7 @@ export default function App() {
     // user bubble — an answer is a control reply, not something the user typed.
     const silent = !!action || autoAnswer;
     let completed = false;
+    let occupiedFailure = false;
     let agentStopReason: string | undefined;
     const assistant: Message = { id: answerId, role: 'assistant', text: '', time, startedAt: now, blocks: [] };
     let petAnswer = assistant;
@@ -924,10 +962,24 @@ export default function App() {
       if (stopped || preferences.notifications) notify(stopped || '回复已完成');
       if (!stopped && preferences.sound) playCompletionSound();
     } catch (error) {
-      const content = controller.signal.aborted || activeRequest.current?.stopping ? '> 本次回复已停止。' : `> 请求失败：${error instanceof Error ? error.message : error}`;
-      setPetReply({ id: answerId, text: content.replace(/^> /, ''), activity: controller.signal.aborted || activeRequest.current?.stopping ? 'idle' : 'failed' });
-      setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, { type: 'content', content: `\n\n${content}` }) : entry) } : item));
-      notify(content.replace(/^> /, ''));
+      occupiedFailure = !!target && !controller.signal.aborted && !request.stopping && isSessionOccupiedError(error);
+      if (occupiedFailure && target) {
+        const id = target.id;
+        recordSessionOccupancy(id, true);
+        if (!resumed) setSessions(current => current.map(item => item.id === id
+          ? { ...item, messages: item.messages.filter(entry => entry.id !== answerId && entry.id !== message.id) } : item));
+        if (queuedItem) replaceQueue({ ...queuedRef.current, [target.id]: [queuedItem, ...(queuedRef.current[target.id] || [])] });
+        const view = composerViewRef.current;
+        if (!silent && !queuedSession && view.server === server && view.activeId === target.id && !view.draft) {
+          setDraft(draft);
+          setComposerContext(sourceContext);
+        }
+      } else {
+        const content = controller.signal.aborted || request.stopping ? '> 本次回复已停止。' : `> 请求失败：${error instanceof Error ? error.message : error}`;
+        setPetReply({ id: answerId, text: content.replace(/^> /, ''), activity: controller.signal.aborted || request.stopping ? 'idle' : 'failed' });
+        setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, { type: 'content', content: `\n\n${content}` }) : entry) } : item));
+        notify(content.replace(/^> /, ''));
+      }
     } finally {
       // Do not let a late abort handler cancel the queued replacement turn.
       await request.stopPromise;
@@ -942,7 +994,7 @@ export default function App() {
           // (prompt → approve ×N) into one assistant turn and never stores the
           // "/agree" command, so this drops the extra bubbles and merges the AI
           // replies for free. A suspended choice is client-only, so reattach it.
-          if (completed && !controller.signal.aborted && history.length) {
+          if (occupiedFailure || (completed && !controller.signal.aborted && history.length)) {
             const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks).filter(choice => !choice.permissionRequestId));
             setSessions(current => current.map(item => item.id === id ? { ...item, messages } : item));
           }
@@ -953,7 +1005,7 @@ export default function App() {
       setLiveSpeed(current => current && !current.done ? { ...current, done: true, avgTokensPerSecond: current.avgTokensPerSecond ?? current.tokensPerSecond } : current);
       if (target && queuedRef.current[target.id]?.length) void sendQueuedMessage(target.id);
     }
-    return true;
+    return !occupiedFailure;
   }
 
   useEffect(() => {
@@ -1047,7 +1099,9 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
-  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
+    ? <SessionOccupiedNotice busy={composerConfigBusy} disabled={backend.status !== 'connected' || !backend.ready} error={agentConfigError} onRetry={retryAgentConfig} onNew={newChatFromOccupied} />
+    : <Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && agentPreferencesError) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
@@ -1064,7 +1118,7 @@ export default function App() {
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
     remoteRunning={!!session && remoteRun?.id === session.id} onStopRemote={stopRemoteRun}
     liveSpeed={liveSpeed}
-    onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} /></BackgroundTasks>;
+    onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} />}</BackgroundTasks>;
 
   // The window controls float over the first row (sidebar brand and conversation
   // header), so the shell has no empty title-bar strip of its own.

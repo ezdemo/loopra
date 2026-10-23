@@ -238,8 +238,13 @@ public class SseEmitter {
     }
 
     public void sendError(String message) {
+        sendError(message, null);
+    }
+
+    public void sendError(String message, String reason) {
         ONode node = ONode.ofJson("{}").asObject();
         node.set("error", message != null ? message : "unknown error");
+        if (reason != null) node.set("reason", reason);
         send("error", node.toJson());
         complete();
     }

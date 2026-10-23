@@ -12,14 +12,20 @@ package site.sorghum.loopra.web.common;
 public class ServiceException extends RuntimeException {
 
     private final int code;
+    private final String reason;
 
     public ServiceException(String message) {
         this(400, message);
     }
 
     public ServiceException(int code, String message) {
+        this(code, message, null);
+    }
+
+    public ServiceException(int code, String message, String reason) {
         super(message);
         this.code = code;
+        this.reason = reason;
     }
 
     /**
@@ -27,5 +33,9 @@ public class ServiceException extends RuntimeException {
      */
     public int getCode() {
         return code;
+    }
+
+    public String getReason() {
+        return reason;
     }
 }

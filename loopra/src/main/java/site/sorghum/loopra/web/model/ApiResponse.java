@@ -13,6 +13,7 @@ public class ApiResponse<T> {
 
     private boolean success;
     private String error;
+    private String reason;
     private T data;
 
     public static <T> ApiResponse<T> ok(T data) {
@@ -23,9 +24,14 @@ public class ApiResponse<T> {
     }
 
     public static <T> ApiResponse<T> fail(String error) {
+        return fail(error, null);
+    }
+
+    public static <T> ApiResponse<T> fail(String error, String reason) {
         ApiResponse<T> r = new ApiResponse<>();
         r.success = false;
         r.error = error;
+        r.reason = reason;
         return r;
     }
 

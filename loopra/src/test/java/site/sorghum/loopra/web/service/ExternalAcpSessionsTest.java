@@ -379,6 +379,59 @@ class ExternalAcpSessionsTest {
         prompt(runtime, store, text, output, null, List.of());
     }
 
+    @ParameterizedTest @ValueSource(strings = {"configuration", "prompt"})
+    void busyRemoteWriterReturnsConflictWithoutReplacingHistoryAndCanRecover(String operation) throws Exception {
+        Path conflict = java.nio.file.Files.writeString(home.resolve("writer-conflict"), "busy");
+        Path newSession = home.resolve("new-session");
+        var store = store("codex");
+        store.bindTo("chat");
+        store.append(site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("existing history"));
+        var binding = new SessionStore.AcpBinding("codex", "fake-session", home.toString());
+        store.setAcpBinding("chat", binding);
+        try (var runtime = runtime("-Dloopra.fake.writerConflictMarker=" + conflict,
+                "-Dloopra.fake.sessionNewMarker=" + newSession)) {
+            ServiceException error = assertThrows(ServiceException.class, () -> {
+                if (operation.equals("configuration")) runtime.configuration("key", home, "chat", store, null, null);
+                else prompt(runtime, store, "must not be appended", AgentOutput.NOOP);
+            });
+            assertEquals(409, error.getCode());
+            assertEquals("thread_active_writer", error.getReason());
+            assertTrue(error.getMessage().contains("Codex"));
+            assertTrue(error.getMessage().contains("占用"));
+            assertEquals(binding, store.getAcpBinding("chat"));
+            assertEquals(List.of("existing history"), store.load("chat").stream().map(message -> message.getContent()).toList());
+            assertFalse(java.nio.file.Files.exists(newSession), "A writer conflict must not silently create another remote session");
+
+            java.nio.file.Files.delete(conflict);
+            prompt(runtime, store, "recovered", AgentOutput.NOOP);
+            assertEquals(binding, store.getAcpBinding("chat"));
+            assertEquals(List.of("existing history", "recovered", "reply:recovered"),
+                    store.load("chat").stream().map(message -> message.getContent()).toList());
+        } finally { store.shutdown(); }
+    }
+
+    @Test
+    void futureNotificationsDoNotProduceSdkErrorsOrInterruptFollowingReplies() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                com.agentclientprotocol.sdk.spec.AcpClientSession.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        var store = store("codex");
+        try (var runtime = runtime("-Dloopra.fake.futureUpdates=true")) {
+            prompt(runtime, store, "after metadata", AgentOutput.NOOP);
+            assertEquals(List.of("after metadata", "reply:after metadata"),
+                    store.load("chat").stream().map(message -> message.getContent()).toList());
+            assertTrue(appender.list.stream().noneMatch(event ->
+                    event.getLevel().isGreaterOrEqual(ch.qos.logback.classic.Level.WARN)),
+                    () -> appender.list.stream().map(event -> event.getFormattedMessage()).toList().toString());
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+            store.shutdown();
+        }
+    }
+
     private void prompt(ExternalAcpSessions runtime, SessionStore store, String text, AgentOutput output,
                         String linkedProjectContext, List<String> directories) throws Exception {
         runtime.prompt("key", home, "chat", store, UserMessage.of(text), output, false,

@@ -1008,12 +1008,14 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
                 // 用户主动停止/预期重试流程，不是故障，按 info 记录
                 log.info("[chat] 聊天已停止（用户中断）: session={}, 原因: {}",
                         effectiveSessionName, e.getMessage());
+            } else if (e instanceof ServiceException business && "thread_active_writer".equals(business.getReason())) {
+                log.info("[chat] 外部会话已被占用: session={}", effectiveSessionName);
             } else {
                 log.error("[chat] 流式聊天执行异常: session={}, workspace={}, 原因: {}",
                         effectiveSessionName, workspacePath, e.getMessage(), e);
             }
             try {
-                emitter.sendError(e.getMessage());
+                emitter.sendError(e.getMessage(), e instanceof ServiceException business ? business.getReason() : null);
             } catch (Exception ex) {
                 // SSE连接可能已断开，忽略异常
                 log.warn("[web] 发送错误信息失败（可能SSE连接已断开）: {}", ex.getMessage());

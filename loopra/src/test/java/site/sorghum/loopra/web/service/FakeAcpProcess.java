@@ -56,6 +56,12 @@ public final class FakeAcpProcess {
                                 "mcpCapabilities", Map.of("http", true, "sse", true))));
                 }
                 case "session/new" -> {
+                    if (Boolean.getBoolean("loopra.fake.futureUpdates")) {
+                        send(Map.of("jsonrpc", "2.0", "method", "_auth/status_update",
+                                "params", Map.of("authStatus", Map.of("kind", "gateway", "label", "Test gateway"))));
+                        update(Map.of("sessionUpdate", "session_info_update", "title", "Updated title"));
+                        update(Map.of("sessionUpdate", "future_metadata_update", "value", "future"));
+                    }
                     // Tests use this to keep a configuration request inside session setup,
                     // which is where a real Agent spawns its process and restores a session.
                     long openDelay = Long.getLong("loopra.fake.sessionNewDelay", 0L);
@@ -74,6 +80,14 @@ public final class FakeAcpProcess {
                     response(id, Map.of("sessionId", "fake-session", "configOptions", config()));
                 }
                 case "session/load" -> {
+                    String conflict = System.getProperty("loopra.fake.writerConflictMarker");
+                    if (conflict != null && java.nio.file.Files.exists(java.nio.file.Path.of(conflict))) {
+                        send(Map.of("jsonrpc", "2.0", "id", id, "error", Map.of(
+                                "code", -32600, "message", "This Codex session is in use by another Codex client",
+                                "data", Map.of("reason", "thread_active_writer", "threadId", "fake-session",
+                                        "details", "thread fake-session already has an active writer"))));
+                        continue;
+                    }
                     mcp = message.get("params").get("mcpServers").toJson();
                     setup = "load";
                     directories = readDirectories(message);

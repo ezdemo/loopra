@@ -20,6 +20,19 @@ import static org.junit.jupiter.api.Assertions.*;
 class SseEmitterTest {
 
     @Test
+    void occupiedSessionReasonSurvivesTheErrorStream() throws Exception {
+        ContextEmpty context = new ContextEmpty();
+        SseEmitter emitter = new SseEmitter(context);
+        emitter.sendError("会话已被占用", "thread_active_writer");
+
+        String stream = body(context);
+        assertTrue(stream.contains("\"reason\":\"thread_active_writer\""));
+        assertTrue(stream.contains("\"error\":\"会话已被占用\""));
+        assertTrue(stream.endsWith("event: done\ndata: {}\n\n"));
+        assertTrue(emitter.isCompleted());
+    }
+
+    @Test
     void completionWritesOneDoneEventAndRejectsLateMessages() throws Exception {
         ContextEmpty context = new ContextEmpty();
         SseEmitter emitter = new SseEmitter(context);

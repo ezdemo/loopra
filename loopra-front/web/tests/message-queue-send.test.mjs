@@ -8,7 +8,7 @@ import ts from 'typescript';
 const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const app = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
-const names = ['replaceQueue', 'sendQueuedMessage', 'guideQueuedMessage', 'sendMessage', 'stopGeneration', 'stopRemoteRun'];
+const names = ['isSessionOccupied', 'recordSessionOccupancy', 'replaceQueue', 'sendQueuedMessage', 'guideQueuedMessage', 'sendMessage', 'stopGeneration', 'stopRemoteRun'];
 const functions = app.body.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast)).join('\n');
 const compiled = ts.transpileModule(functions, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const renderFunctions = new Function('env', `with (env) { ${compiled}; return { ${names.join(', ')} }; }`);
@@ -40,6 +40,8 @@ function harness() {
   let running = false;
   let abortGate;
   const shared = {
+    server: 'http://localhost:4567', occupiedSessionsRef: { current: new Set() },
+    setOccupiedSessions: () => {}, isSessionOccupiedError: () => false,
     ...queue, activeRequest: { current: undefined }, sendingQueued: { current: new Set() },
     sendMessageRef: { current: undefined }, sessionsRef: { current: [] }, queuedRef: { current: {} }, remoteRunRef: { current: null },
     backend: { status: 'connected', ready: true }, workspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
