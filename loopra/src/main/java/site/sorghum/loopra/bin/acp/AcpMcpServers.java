@@ -2,6 +2,7 @@ package site.sorghum.loopra.bin.acp;
 
 import com.agentclientprotocol.sdk.spec.AcpSchema.*;
 import org.noear.solon.ai.mcp.client.McpServerParameters;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.mcp.McpProjectConfig;
 
 import java.io.IOException;
@@ -17,6 +18,7 @@ public final class AcpMcpServers {
     }
 
     public static List<McpServer> managed(Path globalConfig, Path workspace) {
+        if (ChatMode.isChatRoot(workspace)) return List.of();
         try {
             Map<String, McpServerParameters> definitions = new LinkedHashMap<>(McpProjectConfig.read(globalConfig));
             // A disabled project definition also masks a global server with the same name.

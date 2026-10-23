@@ -27,6 +27,7 @@ type Props = {
   context: ComposerContext; onContext: (value: ComposerContext) => void; providers: Provider[];
   workspaces: Workspace[]; connected: boolean;
   api: LoopraClient; workspaceHash: string;
+  chatMode?: boolean;
   sessionName?: string;
   defaultModel: string; onDefaultModel: (id: string) => void; history: string[];
   busy: boolean; generating: boolean; onSend: () => void; onStop: () => void; onContinue: () => void;
@@ -46,6 +47,7 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 export default function Composer(props: Props) {
   const external = !!props.agentId && props.agentId !== 'native';
   const { home, draft, onDraft, inputRef, options, onOptions, context, onContext, providers, notify, workspaces } = props;
+  const chatMode = !!props.chatMode;
   const slash = draft.startsWith('/') && !draft.includes('\n') && !draft.includes(' ');
   const commandScope = JSON.stringify([props.agentId, props.workspaceHash, props.sessionName]);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -179,7 +181,7 @@ export default function Composer(props: Props) {
     }
     if (files.length) { event.preventDefault(); await addFiles(files); return; }
     const text = event.clipboardData?.getData('text/plain') || '';
-    if (!props.workspaceHash || text.length <= LARGE_PASTE_THRESHOLD_CHARS) return;
+    if (chatMode || !props.workspaceHash || text.length <= LARGE_PASTE_THRESHOLD_CHARS) return;
     event.preventDefault();
     try {
       const saved = await props.api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: props.workspaceHash, content: text });
@@ -202,10 +204,13 @@ export default function Composer(props: Props) {
     if (external) return () => controller.abort();
     void props.api.request<ServerCommand[]>('/agent/commands', 'GET', undefined, controller.signal)
       .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteCommands(list); }).catch(() => {});
-    void props.api.request<ServerSkill[]>('/agent/skills', 'GET', undefined, controller.signal)
-      .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteSkills(list); }).catch(() => {});
+    if (!chatMode) {
+      void props.api.request<ServerSkill[]>('/agent/skills', 'GET', undefined, controller.signal)
+        .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteSkills(list); }).catch(() => {});
+    }
     return () => controller.abort();
-  }, [props.api, external]);
+  }, [props.api, external, chatMode]);
+  useEffect(() => { close(); setFileSuggestions([]); }, [props.workspaceHash, chatMode]);
   useEffect(() => {
     const controller = new AbortController();
     if (!external || !props.workspaceHash || !props.sessionName) { setCommandDiscovery(undefined); return () => controller.abort(); }
@@ -259,30 +264,34 @@ export default function Composer(props: Props) {
     onNew: props.onNew,
     onContinue: props.onContinue,
     onSkills: () => open('skills'),
-    onHelp: () => notify('/ 调用指令，@ 引用工作区文件，Shift + Enter 换行'),
+    onHelp: () => notify(chatMode ? '/ 调用指令，Shift + Enter 换行' : '/ 调用指令，@ 引用工作区文件，Shift + Enter 换行'),
     onExport: props.onExport,
     onSessions: props.onSessions,
     onTerminal: props.onTerminal,
     onClear: props.onClear,
     hasHistory: !!props.history.length, busy: props.busy, notify,
-  }).filter(command => !external || command.id !== '/skills')
-    .map(command => ({ ...command, action: () => { onDraft(''); command.action?.(); } }));
+  }).filter(command => (!external || command.id !== '/skills') && (!chatMode || !['/skills', '/terminal'].includes(command.id)))
+    .map(command => ({ ...command,
+      ...(chatMode && command.id === '/help' ? { description: '/ 调用指令 · Shift + Enter 换行' } : {}),
+      action: () => { onDraft(''); command.action?.(); } }));
   // Server commands/skills insert their text so the agent handles them.
   const discovered = commandDiscovery?.scope === commandScope && commandDiscovery.api === props.api ? commandDiscovery : undefined;
   const agentCommands = (props.generating ? props.acpCommands : undefined) ?? discovered?.commands ?? [];
-  const remoteSlash = (external ? acpSlashCommands(agentCommands) : serverSlashCommands(remoteCommands, remoteSkills))
+  const chatCommands = new Set(['/help', '/compact', '/continue', '/agree', '/deny']);
+  const remoteSlash = (external ? acpSlashCommands(agentCommands) : serverSlashCommands(
+    chatMode ? remoteCommands.filter(command => chatCommands.has(command.cmd)) : remoteCommands, chatMode ? [] : remoteSkills))
     .map(command => ({ ...command, title: external ? agentEngineName : command.title, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
   const commands = external ? remoteSlash : mergeSlashCommands(localCommands, remoteSlash);
-  const mention = draft.match(/(?:^|\s)@([^\s]*)$/);
+  const mention = chatMode ? null : draft.match(/(?:^|\s)@([^\s]*)$/);
   const mentionQuery = mention?.[1];
   useEffect(() => {
-    if (mentionQuery === undefined || !props.workspaceHash) { setFileSuggestions([]); return; }
+    if (chatMode || mentionQuery === undefined || !props.workspaceHash) { setFileSuggestions([]); return; }
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void props.api.request<{ path: string }[]>(`/files/search?workspaceHash=${encodeURIComponent(props.workspaceHash)}&query=${encodeURIComponent(mentionQuery)}`, 'GET', undefined, controller.signal).then(files => { if (!controller.signal.aborted) setFileSuggestions(files.map(file => file.path)); }).catch(() => { if (!controller.signal.aborted) setFileSuggestions([]); });
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [mentionQuery, props.api, props.workspaceHash]);
+  }, [chatMode, mentionQuery, props.api, props.workspaceHash]);
   const suggestions = menu || dismissedDraft === draft ? [] : slash
     ? commands.filter(command => command.id.includes(draft.toLowerCase())).map(command => ({ ...command, label: command.id }))
     : mention ? fileSuggestions.map(name => ({
@@ -324,7 +333,7 @@ export default function Composer(props: Props) {
         <img className="composer-image-preview" src={image.src} alt={image.name} />
         <button type="button" className="composer-image-remove" aria-label={`移除图片：${image.name}`} title="移除图片" onClick={() => removeAttachment(image.name)}><X size="0.75rem" /></button>
       </div>)}
-      {(['projects', 'skills'] as const).flatMap(key => context[key].map(name => <Chip size="sm" variant="flat" key={`${key}:${name}`} classNames={{ base: `context-chip chip-${key}` }}
+      {!chatMode && (['projects', 'skills'] as const).flatMap(key => context[key].map(name => <Chip size="sm" variant="flat" key={`${key}:${name}`} classNames={{ base: `context-chip chip-${key}` }}
         startContent={key === 'projects' ? <FolderClosed size="0.8125rem" /> : <Sparkles size="0.8125rem" />}
         endContent={<button className="context-chip-remove" aria-label={`移除${key === 'projects' ? '项目' : '技能'}：${name}`} onClick={() => onContext({ ...context, [key]: context[key].filter(item => item !== name) })}><X size="0.75rem" /></button>}>{name}</Chip>))}
       {contextFiles.map(file => <Chip size="sm" variant="flat" key={`files:${file.name}`} classNames={{ base: 'context-chip chip-files' }}
@@ -340,7 +349,7 @@ export default function Composer(props: Props) {
       <div className="composer-queue-summary"><ListChecks size="0.875rem" /><span>排队 {props.queue.length} 条 · 当前回复结束后自动发送</span></div>
       <ul className="composer-queue-list">{props.queue.map(item => <li key={item.id}><span className="composer-queue-text" title={item.text}>{item.text || '（仅附件）'}</span><button type="button" className="composer-queue-guide" title="停止当前生成，优先发送这条消息" onClick={() => props.onGuideQueued(item.id)}>引导</button><button type="button" className="composer-queue-remove" title="移出队列" aria-label="移出队列" onClick={() => props.onRemoveQueued(item.id)}><X size="0.75rem" /></button></li>)}</ul>
     </section>}
-    <textarea ref={inputRef} aria-label="输入消息" placeholder={props.language === 'English' ? 'Message… / commands, @ context' : '输入消息，/ 调用指令，@ 引用文件…'} value={draft}
+    <textarea ref={inputRef} aria-label="输入消息" placeholder={chatMode ? (props.language === 'English' ? 'Message… / commands' : '输入消息，/ 调用指令…') : props.language === 'English' ? 'Message… / commands, @ context' : '输入消息，/ 调用指令，@ 引用文件…'} value={draft}
       onChange={event => { onDraft(event.target.value); setSuggestionIndex(0); setDismissedDraft(null); }}
       onPaste={event => { void handlePaste(event); }}
       onKeyDown={event => {
@@ -444,14 +453,14 @@ export default function Composer(props: Props) {
 
         {menu === 'tools' && <div className="composer-tool-list">
           <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>上传文件</strong><small>图片、文本、PDF、Word、Excel · 读取内容发送</small></span><Plus size="0.9375rem" /></button>
-          {agentPlan ? <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>
-            : !external && !props.agentConfig && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={options.plan} onChange={value => update('plan', value)} /></div>}
-          <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>
-          {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
+          {!chatMode && (agentPlan ? <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>
+            : !external && !props.agentConfig && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={options.plan} onChange={value => update('plan', value)} /></div>)}
+          {!chatMode && <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>}
+          {!chatMode && !external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
             : !external && !props.agentConfig && <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{options.mode}</small></span><ChevronRight size="0.9375rem" /></button>}
           <div className="composer-menu-divider" />
-          <button onClick={() => { close(); props.onTerminal(); }}><SquareTerminal size="1.0625rem" /><span>打开终端</span><ChevronRight size="0.9375rem" /></button>
+          {!chatMode && <button onClick={() => { close(); props.onTerminal(); }}><SquareTerminal size="1.0625rem" /><span>打开终端</span><ChevronRight size="0.9375rem" /></button>}
           <button onClick={() => { onDraft('/'); close(); setDismissedDraft(null); focusInput(); }}><CircleHelp size="1.0625rem" /><span>查看输入指令</span><span className="keycap">/</span></button>
         </div>}
 

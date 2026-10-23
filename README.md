@@ -194,6 +194,7 @@ loopra web 0
 | 持久协作状态 | Checklist、会话级 Goal、项目记忆和共享上下文支持长任务及父子代理协作。 |
 | 审批与边界 | 三态 HITL、只读工具与项目内操作审核；`auto` 模式可追加独立校验模型，无法自动批准时转人工。详见下方模式说明。 |
 | 桌面工作台 | React 主工作台通过 Electron 桥接提供文件编辑、原生终端、环境与 Git 操作、进程管理和窗口控制；AI 浏览器、需求池、宠物等使用独立窗口。Web 与 Desktop 的可用功能取决于运行环境。 |
+| 纯聊天模式 | 工作区选择中的「纯聊天」不暴露项目、文件、终端或 Git 能力，只启用 `webfetch`、`websearch`、`codesearch` 等联网查询工具；会话仍独立持久化。 |
 
 ### 工具与扩展
 
@@ -202,10 +203,10 @@ loopra web 0
 | 分类 | 覆盖场景 |
 |---|---|
 | 文件与代码检索 | `read`、`write`、`edit`、`glob`、`grep`、`ls`、`java_source`、`codesearch` |
-| 命令与网络 | `bash`、交互式命令会话、`webfetch`、`call_api` |
+| 命令与网络 | `bash`、交互式命令会话、`webfetch`、`websearch`、`call_api` |
 | 任务协作 | `sub_agent`、`checklist_*`、`goal_*`、`workspace_*` |
 | 项目状态 | `memory` 将跨会话事实保存到 `.loopra/loopra-memory.md`；共享上下文保存到 `.loopra/workspace/` |
-| 多模态与浏览器 | `read_image`，以及桌面端可见 AI 浏览器的 `browser_*` 工具 |
+| 多模态 | `read_image` 支持模型原生图片输入及图片理解模型 |
 
 MCP、OpenAPI 和技能可为 Agent 注入额外工具。除用户级 `~/.loopra/mcp-servers.json` 外，项目根目录下的 `.loopra/mcp-servers.json` 也会被自动读取；项目级配置只对当前项目的 Agent 生效，不会写入或污染用户级 MCP 配置。项目技能可放在 `.loopra/skills/<skill-name>/SKILL.md`，与用户级 `~/.loopra/skills` 分开挂载。桌面端会话左侧的“项目能力”入口只展示当前项目 Skill、项目 MCP 连接状态及工具列表。修改项目 MCP 文件后，可点击该面板的刷新按钮，或让 Agent 调用 `mcprefresh`；后者会在当前回复结束后重建连接，并从下一条消息起使用新工具。项目文件支持标准的 `mcpServers` 对象格式，也兼容 Loopra 管理页使用的 `servers` 数组格式，例如：
 
@@ -222,9 +223,9 @@ MCP、OpenAPI 和技能可为 Agent 注入额外工具。除用户级 `~/.loopra
 }
 ```
 
-`read_image` 支持项目路径、绝对路径、Base64/data URI 和 HTTP(S) URL，单张图片最大 5 MiB，并支持可选的 `detail`（`auto`、`low`、`high`）和 `prompt`（本次图片识别任务描述）；当前模型支持 `imageInput` 时原图会作为视觉上下文传入，否则使用已配置的图片理解模型并带上 `prompt` 生成文字结果。`browser_screenshot` 会返回可见视口截图和结构化页面快照，交互操作必须使用对应的 `snapshotId`。浏览器工具只操作可见的 Desktop 浏览器；遇到登录、验证码或安全验证时，Agent 会请求用户接管，不会代填或读取敏感凭据。
+`read_image` 支持项目路径、绝对路径、Base64/data URI 和 HTTP(S) URL，单张图片最大 5 MiB，并支持可选的 `detail`（`auto`、`low`、`high`）和 `prompt`（本次图片识别任务描述）；当前模型支持 `imageInput` 时原图会作为视觉上下文传入，否则使用已配置的图片理解模型并带上 `prompt` 生成文字结果。
 
-用户主动上传图片时，如果当前模型不支持 `imageInput`，系统会先将图片保存到当前项目的 `.loopra/read_img/`，再把项目相对路径和 `read_image` 调用提示交给模型；模型需要理解图片时，应使用该路径调用 `read_image`，而不是猜测图片内容。支持图片输入的模型仍直接接收原图。
+在项目会话中，用户主动上传图片时，如果当前模型不支持 `imageInput`，系统会先将图片保存到当前项目的 `.loopra/read_img/`，再把项目相对路径和 `read_image` 调用提示交给模型；模型需要理解图片时，应使用该路径调用 `read_image`，而不是猜测图片内容。支持图片输入的模型仍直接接收原图。纯聊天不提供本地图片读取工具，上传图片需选择支持 `imageInput` 的模型，否则会提示切换模型。
 
 Loopra 也可以在设置页的「MCP 服务器 → 发布 Loopra 工具」中作为 MCP Server 对外提供工具。发布默认关闭，启用后使用 Streamable HTTP（默认 `/mcp`，也可切换 SSE）；工具选择与子代理 `allowedTools` 语义一致：选择「全部已启用」发布当前启用工具，选择「手动选择」时只发布白名单中的工具。配置保存于 `~/.loopra/mcp-server.json`，全局禁用的工具始终不会被发布。连接地址为当前 Web 服务地址加上配置的 endpoint，例如 `http://127.0.0.1:8080/mcp`。
 

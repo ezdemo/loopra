@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ChevronRight, FolderClosed, FolderOpen, FoldVertical, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Trash2, UnfoldVertical } from 'lucide-react';
+import { ChevronRight, FolderClosed, FolderOpen, FoldVertical, MessageCircle, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Trash2, UnfoldVertical } from 'lucide-react';
 import { IconButton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
@@ -96,16 +96,16 @@ export default function Sidebar(props: SidebarProps) {
     setExpandedGroups(current => current.includes(hash) ? current : [...current, hash]);
   }, [activeId, sessions, setExpandedGroups]);
 
-  function groupProps(hash: string) {
+  function groupProps(hash: string, locked = false) {
     return {
-      draggable: true,
-      onDragStart: (event: React.DragEvent) => { setDragging(hash); event.dataTransfer.effectAllowed = 'move'; },
+      draggable: !locked,
+      onDragStart: (event: React.DragEvent) => { if (locked) { event.preventDefault(); return; } setDragging(hash); event.dataTransfer.effectAllowed = 'move'; },
       onDragOver: (event: React.DragEvent) => {
-        if (!dragging || dragging === hash) return;
+        if (locked || !dragging || dragging === hash) return;
         event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOver(hash);
       },
       onDragLeave: () => setDragOver(current => current === hash ? '' : current),
-      onDrop: (event: React.DragEvent) => { event.preventDefault(); props.onReorder(dragging, hash); },
+      onDrop: (event: React.DragEvent) => { if (locked || !dragging || dragging === hash) return; event.preventDefault(); props.onReorder(dragging, hash); },
       onDragEnd: () => { setDragging(''); setDragOver(''); },
     };
   }
@@ -135,15 +135,16 @@ export default function Sidebar(props: SidebarProps) {
         const expanded = expandedGroups.includes(item.hash);
         const shown = expanded ? own : own.slice(0, SESSION_GROUP_LIMIT);
         const foldable = own.length > SESSION_GROUP_LIMIT;
-        return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash)}>
+        const chat = item.kind === 'chat';
+        return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash, chat)}>
           <div className="workspace-heading-row">
-            <button type="button" title={item.path || item.name} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
-              <ChevronRight className="workspace-chevron" />{open ? <FolderOpen /> : <FolderClosed />}<span>{item.name}</span>
+            <button type="button" title={item.path || (chat ? '不绑定工作区' : item.name)} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
+              <ChevronRight className="workspace-chevron" />{chat ? <MessageCircle /> : open ? <FolderOpen /> : <FolderClosed />}<span>{item.name}</span>
             </button>
             <span className="workspace-tools">
               <IconButton label={`在 ${item.name} 新建会话`} onClick={() => props.onNewSession(item.hash)}><Plus size="0.8125rem" /></IconButton>
               <IconButton label={`刷新 ${item.name} 的会话`} onClick={() => props.onRefreshProject(item.hash)}><RefreshCw size="0.8125rem" /></IconButton>
-              <IconButton label={`管理 ${item.name} 的会话`} onClick={() => props.onManageProject(item)}><MoreHorizontal size="0.9375rem" /></IconButton>
+              {!chat && <IconButton label={`管理 ${item.name} 的会话`} onClick={() => props.onManageProject(item)}><MoreHorizontal size="0.9375rem" /></IconButton>}
             </span>
           </div>
           <Collapse open={open} className="workspace-sessions">

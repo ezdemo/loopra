@@ -10,6 +10,7 @@ import org.noear.solon.annotation.Init;
 import org.noear.solon.annotation.Inject;
 import site.sorghum.loopra.bin.agent.context.ConversationContext;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
@@ -562,6 +563,7 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
     public boolean isNativeReady() { return ConfigService.getConfig() != null && sharedToolRegistry != null; }
 
     public String sessionAgentId(String workspacePath, String name) {
+        if (ChatMode.isChatRoot(workspacePath)) return "native";
         if (name == null || name.isBlank()) return "native";
         SessionStore store = sessionStoreFor(workspacePath);
         if (store == null) return "native";
@@ -572,6 +574,9 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
     public void selectSessionAgent(String workspacePath, String name, String requested) throws IOException {
         if (name == null || name.isBlank()) throw new ServiceException("请选择会话");
         String id = requested == null || requested.isBlank() ? sessionAgentId(workspacePath, name) : requested;
+        if (ChatMode.isChatRoot(workspacePath) && !"native".equals(id)) {
+            throw new ServiceException("纯聊天模式仅支持 Loopra Native");
+        }
         if (!"native".equals(id)) ExternalAcpProviders.require(id);
         String key = generateSessionKey(workspacePath, name);
         ReentrantLock lock = sessionCache.getLock(key);
@@ -1003,12 +1008,14 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
                 // 用户主动停止/预期重试流程，不是故障，按 info 记录
                 log.info("[chat] 聊天已停止（用户中断）: session={}, 原因: {}",
                         effectiveSessionName, e.getMessage());
+            } else if (e instanceof ServiceException business && "thread_active_writer".equals(business.getReason())) {
+                log.info("[chat] 外部会话已被占用: session={}", effectiveSessionName);
             } else {
                 log.error("[chat] 流式聊天执行异常: session={}, workspace={}, 原因: {}",
                         effectiveSessionName, workspacePath, e.getMessage(), e);
             }
             try {
-                emitter.sendError(e.getMessage());
+                emitter.sendError(e.getMessage(), e instanceof ServiceException business ? business.getReason() : null);
             } catch (Exception ex) {
                 // SSE连接可能已断开，忽略异常
                 log.warn("[web] 发送错误信息失败（可能SSE连接已断开）: {}", ex.getMessage());
@@ -1074,7 +1081,11 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
             Map<String, String> values = new LinkedHashMap<>(store.getAgentConfig(name));
             LoopraAgent cached = sessionCache.peek(generateSessionKey(workspace, name));
             if (cached != null) values.put("mode", cached.getHitlMode());
-            return NativeAcpConfig.options(ConfigService.getConfig(), settings, values, store.isPlanMode(name));
+            var options = NativeAcpConfig.options(ConfigService.getConfig(), settings, values, store.isPlanMode(name));
+            return ChatMode.isChatRoot(workspace)
+                    ? options.stream().filter(option -> !(option instanceof com.agentclientprotocol.sdk.spec.AcpSchema.SessionConfigSelect select)
+                            || !"plan".equals(select.id())).toList()
+                    : options;
         } finally { store.shutdown(); }
     }
 
@@ -1486,6 +1497,7 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
      * 读取指定会话的隔离分支模式开关（默认 false）。
      */
     public boolean isSessionWorktreeMode(String workspacePath, String sessionName) {
+        if (ChatMode.isChatRoot(workspacePath)) return false;
         if (sessionName == null || sessionName.isBlank()) return false;
         SessionStore store = sessionStoreFor(workspacePath);
         return store != null && store.isWorktreeMode(sessionName);
@@ -1493,6 +1505,7 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
 
     /** 静态读取隔离分支开关（供静态内部类 LRU 淘汰检查使用）。 */
     private static boolean readWorktreeModeStatic(String workspacePath, String sessionName) {
+        if (ChatMode.isChatRoot(workspacePath)) return false;
         if (workspacePath == null || sessionName == null || sessionName.isBlank()) return false;
         try {
             Path sessionsDir = new ProjectRegistry().getSessionsDir(workspacePath);
@@ -1516,6 +1529,9 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
     public void setSessionWorktreeMode(String workspacePath, String sessionName, boolean enabled) {
         if (sessionName == null || sessionName.isBlank()) throw new ServiceException("会话名称不能为空");
         String resolvedPath = workspacePath != null ? workspacePath : getCurrentProject();
+        if (enabled && ChatMode.isChatRoot(resolvedPath)) {
+            throw new ServiceException("纯聊天模式不支持隔离分支");
+        }
         String sessionKey = generateSessionKey(resolvedPath, sessionName);
         if (acpTurns.containsKey(sessionKey)) throw new ServiceException("会话正在运行，无法切换隔离分支模式");
         LoopraAgent cached = sessionCache.peek(sessionKey);

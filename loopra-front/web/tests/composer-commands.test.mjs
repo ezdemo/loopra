@@ -84,7 +84,11 @@ async function mount(overrides = {}, requestCommands = () => Promise.resolve(adv
   const api = { request(path, method, body, signal) {
     calls.push({ path, signal });
     if (path.startsWith('/agent/acp-state?')) return requestCommands(path).then(commands => ({ plan: [], commands }));
-    if (path === '/agent/commands') return Promise.resolve([{ cmd: '/compact', desc: 'Compact Native history' }]);
+    if (path === '/agent/commands') return Promise.resolve([
+      { cmd: '/compact', desc: 'Compact Native history' },
+      { cmd: '/plugin', desc: 'Install plugins' }, { cmd: '/init', desc: 'Initialize project' },
+    ]);
+    if (path === '/agent/skills') return Promise.resolve([{ name: 'project-skill', description: 'Project skill' }]);
     return Promise.resolve([]);
   } };
   let props = {
@@ -219,5 +223,24 @@ test('Native retains local actions and its own server-provided slash commands', 
     await view.key('Enter');
     assert.deepEqual(view.localActions, ['clear']);
     assert.deepEqual(view.sends, []);
+  } finally { await view.close(); }
+});
+
+test('pure chat filters project commands and skips skills; switching back restores both', async () => {
+  const view = await mount({ agentId: 'native', chatMode: true, workspaceHash: '__loopra_chat__' });
+  try {
+    assert.ok(view.rows().includes('/compact'));
+    assert.equal(view.rows().includes('/plugin'), false);
+    assert.equal(view.rows().includes('/init'), false);
+    assert.equal(view.rows().some(row => row.startsWith('/skill:')), false);
+    assert.equal(view.calls.some(call => call.path === '/agent/skills'), false);
+    await view.update({ chatMode: false, workspaceHash: 'project' });
+    assert.ok(view.rows().includes('/plugin'));
+    assert.ok(view.rows().includes('/init'));
+    assert.ok(view.rows().includes('/skill:project-skill'));
+    assert.equal(view.calls.filter(call => call.path === '/agent/skills').length, 1);
+    await view.update({ chatMode: true, workspaceHash: '__loopra_chat__' });
+    assert.equal(view.rows().includes('/plugin'), false);
+    assert.equal(view.rows().some(row => row.startsWith('/skill:')), false);
   } finally { await view.close(); }
 });

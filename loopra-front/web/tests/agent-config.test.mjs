@@ -137,7 +137,7 @@ test('the agent switcher sits beside the project switcher and locks while runnin
   assert.match(home, /<AgentSwitcher engines=\{engines\}/);
   assert.match(switcher, /disabled=\{disabled\}/);
   assert.match(switcher, /任务运行中，结束后才能切换 Agent/);
-  assert.match(app, /agentDisabled=\{!!generatingId \|\| !!remoteRun \|\| !agentPreferencesReady \|\| agentSelectionBusy\}/);
+  assert.match(app, /agentDisabled=\{!!generatingId \|\| !!remoteRun \|\| !agentPreferencesReady \|\| agentSelectionBusy \|\| chatMode\}/);
   assert.match(app, /if \(generatingId \|\| remoteRun\) \{ notify\('任务运行中，结束后才能切换 Agent'\); return; \}/);
   // Agent switching lives beside the project switcher on the home screen only.
   // A conversation keeps the Agent it was created with, so the composer has no switcher.

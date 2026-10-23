@@ -2,6 +2,7 @@ package site.sorghum.loopra.bin.command.impl;
 
 import org.noear.solon.Solon;
 import org.noear.solon.annotation.Component;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.command.ChatCommand;
 import site.sorghum.loopra.bin.command.ChatCommandContext;
 import site.sorghum.loopra.bin.command.ChatCommandRegistry;
@@ -47,7 +48,8 @@ public class HelpCommand implements ChatCommand {
             );
             return CommandResult.CONTINUE;
         }
-        List<String> lines = registry.getHelpLines();
+        List<String> lines = registry.getHelpLines(
+                ChatMode.isChatRoot(context.getAgent().getEnvironment().projectRoot()) ? ChatMode.ALLOWED_COMMANDS : null);
         context.getAgent().getOutput().onReasoning("可用命令：");
         for (String line : lines) {
             context.getAgent().getOutput().onReasoning("\n  " + line);

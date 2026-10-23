@@ -7,6 +7,11 @@ export type ComposerContext = { files: string[]; projects: string[]; skills: str
 export type QueuedMessage = { id: string; text: string; context: ComposerContext };
 export type PromptPreset = { id: string; name: string; text: string };
 export const emptyContext: ComposerContext = { files: [], projects: [], skills: [] };
+/** Uploaded contents can cross workspaces; project paths and skills cannot. */
+export function withoutWorkspaceContext(context: ComposerContext): ComposerContext {
+  const attachments = context.attachments || [];
+  return { files: [...new Set(attachments.map(file => file.name))], projects: [], skills: [], attachments: [...attachments] };
+}
 export const defaultOptions: ComposerOptions = { modelId: 'deepseek:DeepSeek V4.1 Flash', effort: 'max', mode: '完全自动', plan: false, fast: false };
 
 export type SlashCommand = { id: string; title: string; description: string; insert?: string; action?: () => void };

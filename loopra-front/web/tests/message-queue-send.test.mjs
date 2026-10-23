@@ -8,13 +8,16 @@ import ts from 'typescript';
 const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const app = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
-const names = ['replaceQueue', 'sendQueuedMessage', 'guideQueuedMessage', 'sendMessage', 'stopGeneration', 'stopRemoteRun'];
+const names = ['isSessionOccupied', 'recordSessionOccupancy', 'replaceQueue', 'sendQueuedMessage', 'guideQueuedMessage', 'sendMessage', 'stopGeneration', 'stopRemoteRun'];
 const functions = app.body.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast)).join('\n');
 const compiled = ts.transpileModule(functions, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const renderFunctions = new Function('env', `with (env) { ${compiled}; return { ${names.join(', ')} }; }`);
 const queueSource = await readFile(new URL('../src/message-queue.ts', import.meta.url), 'utf8');
 const queueJs = ts.transpileModule(queueSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const queue = await import('data:text/javascript;base64,' + Buffer.from(queueJs).toString('base64'));
+const composerSource = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
+const composerJs = ts.transpileModule(composerSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const { composeOutgoing, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(composerJs).toString('base64'));
 
 function deferred() {
   let resolve, reject;
@@ -37,14 +40,18 @@ function harness() {
   let running = false;
   let abortGate;
   const shared = {
+    server: 'http://localhost:4567', occupiedSessionsRef: { current: new Set() },
+    setOccupiedSessions: () => {}, isSessionOccupiedError: () => false,
     ...queue, activeRequest: { current: undefined }, sendingQueued: { current: new Set() },
     sendMessageRef: { current: undefined }, sessionsRef: { current: [] }, queuedRef: { current: {} }, remoteRunRef: { current: null },
     backend: { status: 'connected', ready: true }, workspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
+    CHAT_WORKSPACE: { hash: '__loopra_chat__' }, isChatWorkspace: workspace => workspace?.hash === '__loopra_chat__',
+    projectWorkspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
     preferences: { sound: false, notifications: false }, composerContext: context, emptyContext: context, composerConfigBusy: false,
     LARGE_PASTE_THRESHOLD_CHARS: 10000, preparedNewSession: { current: null },
     seededConfigAt: { current: {} }, setAgentConfigs: () => {},
     userScrolledAway: { current: false }, scrollArea: { current: null }, agentConfigKey: 'a::external',
-    notify: text => notices.push(text), composeOutgoing: text => text,
+    notify: text => notices.push(text), composeOutgoing: text => text, withoutWorkspaceContext,
     sessionQuery: target => `workspaceHash=${target.workspaceHash}&sessionName=${target.name}`,
     sessionRoute: target => `/sessions/${target.name}`, remoteSession: () => ({ ...original, messages: [] }),
     setSessions: update => { shared.sessionsRef.current = update(shared.sessionsRef.current); },
@@ -192,4 +199,28 @@ test('loading Agent configuration blocks sending without clearing the draft, the
   assert.equal(h.streams[0].body.message, 'unrelated draft');
   h.streams[0].finish();
   await sending;
+});
+
+test('a queued pure-chat send strips old project context and preserves uploaded content', async () => {
+  const h = harness();
+  const chat = { ...original, id: '__loopra_chat__/first', workspaceHash: '__loopra_chat__', agentId: 'external' };
+  h.shared.workspaces.push({ hash: '__loopra_chat__', kind: 'chat', name: '纯聊天' });
+  h.shared.sessionsRef.current = [chat];
+  h.shared.composeOutgoing = composeOutgoing;
+  h.shared.queuedRef.current = queue.enqueue({}, chat.id, {
+    id: 'queued-chat', text: 'x'.repeat(10001),
+    context: { projects: ['A'], skills: ['old-skill'], files: ['src/private.ts', '.loopra/paste/old.txt', 'report.pdf'],
+      attachments: [{ name: 'report.pdf', text: 'uploaded document' }] },
+  });
+  const sending = h.render(other).sendQueuedMessage(chat.id);
+  await until(() => h.streams.length === 1);
+  const body = h.streams[0].body;
+  assert.equal(body.agentId, 'native');
+  assert.equal(body.workspaceHash, '__loopra_chat__');
+  assert.deepEqual(body.linkedProjectHashes, []);
+  assert.equal(body.message, 'x'.repeat(10001) + '\n\n附件：report.pdf\nuploaded document');
+  assert.equal(h.requests.some(item => item.path === '/files/paste'), false);
+  h.streams[0].finish();
+  await sending;
+  assert.deepEqual(h.shared.queuedRef.current[chat.id], []);
 });

@@ -8,7 +8,33 @@ const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileM
 const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
-const { acpStopMessage, SseParser, LoopraClient, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { acpStopMessage, SseParser, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+
+test('HTTP and SSE preserve occupation reasons while ordinary conflicts stay distinct', async () => {
+  const original = globalThis.fetch;
+  const client = new LoopraClient();
+  const signal = new AbortController().signal;
+  try {
+    globalThis.fetch = async () => Response.json({ success: false, error: 'Busy in another app', reason: 'thread_active_writer' }, { status: 409 });
+    await assert.rejects(client.request('/agent-engines/config'), error =>
+      isSessionOccupiedError(error) && error.status === 409 && error.message === 'Busy in another app');
+    await assert.rejects(client.stream({}, () => {}, signal), isSessionOccupiedError);
+    globalThis.fetch = async () => new Response('event: error\ndata: {"error":"Busy","reason":"thread_active_writer"}\n\n', { headers: { 'content-type': 'text/event-stream' } });
+    await assert.rejects(client.stream({}, () => {}, signal), isSessionOccupiedError);
+    globalThis.fetch = async () => Response.json({ success: false, error: '会话已被占用' }, { status: 409 });
+    await assert.rejects(client.request('/agent-engines/config'), error =>
+      error instanceof LoopraApiError && !isSessionOccupiedError(error));
+    assert.equal(isSessionOccupiedError(new Error('thread_active_writer')), false);
+  } finally { globalThis.fetch = original; }
+});
+
+test('pure chat is a first-class workspace that never appears in project lists twice', () => {
+  const projects = [{ hash: 'p1', name: 'Project', path: '/project' }, { ...CHAT_WORKSPACE }];
+  const visible = withChatWorkspace(projects);
+  assert.equal(visible[0].kind, 'chat');
+  assert.equal(visible.filter(isChatWorkspace).length, 1);
+  assert.equal(visible[1].kind, 'project');
+});
 
 test('ACP stop notices distinguish completion from cancellation and limits', () => {
   assert.equal(acpStopMessage('end_turn'), '');

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
 
 /**
  * 基于 Loopra 工具表的实时 cutin {@link ToolRegistry} 视图。
@@ -42,6 +43,8 @@ public final class CutinToolRegistryView implements ToolRegistry {
 
     /** 内容变更通知（用于失效 ToolRegistry 的 OpenAI tools 缓存）。 */
     private volatile Runnable onChange;
+    /** 上层工具策略的硬过滤，同时约束 Loopra 同步区与外部插件注册区。 */
+    private volatile Predicate<String> toolFilter = ignored -> true;
 
     /** 设置内容变更回调（register/unregister/setTools/clearAll 时触发）。 */
     public void setOnChange(Runnable onChange) {
@@ -53,6 +56,14 @@ public final class CutinToolRegistryView implements ToolRegistry {
         if (callback != null) {
             callback.run();
         }
+    }
+
+    /**
+     * 替换可见性与调用策略，保留注册实例以支持禁用后重新启用。
+     */
+    public void setToolFilter(Predicate<String> filter) {
+        toolFilter = filter != null ? filter : ignored -> true;
+        fireChange();
     }
 
     /** 以 Loopra 工具表整体替换同步区；外部注册区不受影响。 */
@@ -110,11 +121,19 @@ public final class CutinToolRegistryView implements ToolRegistry {
 
     /** 外部注册区工具（拓展包桥接、插件贡献），供模型可见性合并使用。 */
     public List<Tool> externalTools() {
+        return extOrdered.stream().filter(tool -> toolFilter.test(tool.id())).toList();
+    }
+
+    /** Includes hidden tools so session cleanup can revoke their registrations. */
+    public List<Tool> registeredExternalTools() {
         return List.copyOf(extOrdered);
     }
 
     @Override
     public Optional<Tool> find(String toolId) {
+        if (!toolFilter.test(toolId)) {
+            return Optional.empty();
+        }
         Tool tool = extTools.get(toolId);
         if (tool == null) {
             tool = loopraTools.get(toolId);
@@ -126,10 +145,10 @@ public final class CutinToolRegistryView implements ToolRegistry {
     public List<ToolDefinition> definitions() {
         List<ToolDefinition> definitions = new ArrayList<>(loopraOrdered.size() + extOrdered.size());
         for (Tool tool : loopraOrdered) {
-            definitions.add(tool.definition());
+            if (toolFilter.test(tool.id())) definitions.add(tool.definition());
         }
         for (Tool tool : extOrdered) {
-            definitions.add(tool.definition());
+            if (toolFilter.test(tool.id())) definitions.add(tool.definition());
         }
         return definitions;
     }

@@ -9,6 +9,7 @@ export type HeaderProps = {
   sidebarOpen: boolean;
   onOpenSidebar: () => void;
   isHome: boolean;
+  chatMode?: boolean;
   workspaceName: string;
   session?: Session;
   menu: string | null;
@@ -92,7 +93,7 @@ export default function Header(p: HeaderProps) {
           : <span className="app-version-number">{desktopVersion}</span>}
       </button>
       <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
-      {!p.isHome && <>
+      {!p.isHome && !p.chatMode && <>
         <div data-popover className="menu-anchor">
           <div className="folder-split">
             <button aria-label="在系统应用中打开项目" onClick={() => p.onOpenWorkspace()}><FolderClosed /></button>
@@ -109,7 +110,7 @@ export default function Header(p: HeaderProps) {
           <Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
         </div>}
       </>}
-      <IconButton label={p.changesOpen ? '关闭改动面板' : '打开改动面板'} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>
+      {!p.chatMode && <IconButton label={p.changesOpen ? '关闭改动面板' : '打开改动面板'} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>}
     </div>
   </header>;
 }

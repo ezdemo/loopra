@@ -39,7 +39,7 @@ final class ToolApprovalReviewer {
     }
 
     private static final Decision NEXT = new Decision(Verdict.NEXT, "", "");
-    private static final Set<String> CONTROL_TOOLS = Set.of("finish", "ask_choice", "browser_request_user_action");
+    private static final Set<String> CONTROL_TOOLS = Set.of("finish", "ask_choice");
     private static final Set<String> SHELL_TOOLS = Set.of("bash", "bash_start");
     private final AgentLoop loop;
     private final List<Stage> stages;

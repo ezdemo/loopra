@@ -1,6 +1,7 @@
 package site.sorghum.loopra.web.service;
 
 import lombok.extern.slf4j.Slf4j;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.config.ConfigService;
 import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.project.ProjectRegistry;
@@ -31,6 +32,10 @@ final class ProjectCatalog {
     String resolveProjectPath(String hash) {
         if (hash == null || hash.isEmpty()) {
             return null;
+        }
+        // 纯聊天使用内部目录承载会话元数据，但它不是用户项目。
+        if (ChatMode.isChatHash(hash)) {
+            return ChatMode.root().toString();
         }
         // 1. 优先使用 ProjectRegistry 的磁盘索引（可靠，不依赖 sessionCache）
         try {
@@ -120,6 +125,7 @@ final class ProjectCatalog {
             List<ProjectRegistry.ProjectInfo> projects = projectRegistry.listProjects();
 
             for (ProjectRegistry.ProjectInfo info : projects) {
+                if (ChatMode.isChatRoot(info.path())) continue;
                 result.add(new ProjectInfoDTO(
                         info.hash(), info.name(), info.path(),
                         info.createdAt(), info.lastAccessedAt(),
@@ -137,6 +143,7 @@ final class ProjectCatalog {
             }
 
             for (String path : projectPaths) {
+                if (ChatMode.isChatRoot(path)) continue;
                 result.add(new ProjectInfoDTO(
                         ProjectRegistry.computeProjectHash(path), null, path,
                         0, 0, 0

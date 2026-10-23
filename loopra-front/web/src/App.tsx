@@ -19,13 +19,14 @@ import Search from './components/Search';
 import type { FileChange, Message } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
+import SessionOccupiedNotice from './components/SessionOccupiedNotice';
 import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
 import type { AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
-import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
+import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, withoutWorkspaceContext, type ComposerContext, type ComposerOptions, type LiveSpeed, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, nextQueued, promoteQueued, removeQueued, type MessageQueue } from './message-queue';
-import { acpStopMessage, applyEvent, DEFAULT_SERVER, historyMessages, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
+import { acpStopMessage, applyEvent, CHAT_WORKSPACE, DEFAULT_SERVER, historyMessages, isChatWorkspace, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type StreamEvent, type Workspace } from './backend';
 import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
@@ -133,6 +134,11 @@ export default function App() {
   const seededConfigAt = useRef<Record<string, number>>({});
   const [agentConfigBusy, setAgentConfigBusy] = useState<string>();
   const [agentConfigError, setAgentConfigError] = useState('');
+  const [agentConfigRevision, setAgentConfigRevision] = useState(0);
+  const [occupiedSessions, setOccupiedSessions] = useState<Set<string>>(() => new Set());
+  const occupiedSessionsRef = useRef(occupiedSessions);
+  const composerViewRef = useRef({ server, activeId, draft });
+  composerViewRef.current = { server, activeId, draft };
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>();
   const [toast, setToast] = useState('');
@@ -170,7 +176,10 @@ export default function App() {
   const settingsQueue = useRef(Promise.resolve());
   const session = sessions.find(item => item.id === activeId && !hiddenSessions.includes(item.id));
   const isHome = !session;
-  const agentId = session?.agentId || (session ? 'native' : newAgentId);
+  const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
+  const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
+  // External ACP engines own their own toolset, so pure chat stays on Native.
+  const agentId = chatMode ? 'native' : requestedAgentId;
   const externalAgent = agentId !== 'native';
   const agentConfigKey = `${server}::${workspace}::${agentId}`;
   const agentPreferencesReady = agentPreferencesServer === server;
@@ -204,15 +213,26 @@ export default function App() {
     // Just converted from a preconfigured draft: the Agent already holds these
     // choices, so a read here only competes with the first prompt for the process.
     const seededAt = seededConfigAt.current[session.id];
-    if (seededAt && Date.now() - seededAt < 5000) return;
+    if (seededAt && Date.now() - seededAt < 5000 && !isSessionOccupied(session.id)) return;
     const controller = new AbortController();
-    const id = session.id; setAgentConfigBusy(id);
+    const id = session.id;
+    const busyKey = `${id}:${++agentConfigRequest.current}`;
+    setAgentConfigBusy(busyKey);
     void api.request<{ configOptions: AgentConfigOption[] }>(`/agent-engines/config?${sessionQuery(session)}`, 'GET', undefined, controller.signal)
-      .then(result => { if (!controller.signal.aborted) setAgentConfigs(current => ({ ...current, [id]: result.configOptions })); })
-      .catch(error => { if (!controller.signal.aborted) setAgentConfigError(error instanceof Error ? error.message : String(error)); })
-      .finally(() => setAgentConfigBusy(current => current === id ? undefined : current));
+      .then(result => {
+        if (controller.signal.aborted) return;
+        setAgentConfigs(current => ({ ...current, [id]: result.configOptions }));
+        recordSessionOccupancy(id, false);
+        if (queuedRef.current[id]?.length) void sendQueuedMessage(id);
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        if (isSessionOccupiedError(error)) recordSessionOccupancy(id, true);
+        else setAgentConfigError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setAgentConfigBusy(current => current === busyKey ? undefined : current));
     return () => controller.abort();
-  }, [api, session?.id, backend.status]);
+  }, [api, session?.id, backend.status, agentConfigRevision]);
   useEffect(() => {
     const controller = new AbortController();
     void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal).then(setEngines).catch(() => setEngines([]));
@@ -223,7 +243,13 @@ export default function App() {
   const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
   const visibleSessions = sessions.filter(item => !hiddenSessions.includes(item.id));
   const currentWorkspace = workspaces.find(item => item.hash === workspace);
+  const projectWorkspaces = useMemo(() => workspaces.filter(item => !isChatWorkspace(item)), [workspaces]);
   const workspaceName = currentWorkspace?.name || '选择工作区';
+  useEffect(() => {
+    if (!chatMode) return;
+    setChanges(false);
+    setTerminal(false);
+  }, [chatMode]);
   const isDark = preferences.theme === '深色' || (preferences.theme === '跟随系统' && systemDark);
   // A new chat has no session yet, but the Agent's choices are already known:
   // prepare them in the background so the composer never asks for a manual step.
@@ -262,7 +288,7 @@ export default function App() {
   function changeFilePath(from: string, to?: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: updateWorkspaceFilePath(current[editorKey] || emptyWorkspaceTabs, from, to) })); }
   function closeFile(path: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeWorkspaceFile(current[editorKey] || emptyWorkspaceTabs, path) })); }
   function closeSubAgent(subSessionId: string) { setWorkspaceEditors(current => ({ ...current, [editorKey]: closeSubAgentTab(current[editorKey] || emptyWorkspaceTabs, subSessionId) })); }
-  useSubAgentTabs(api, server, session, backend.status === 'connected', generatingId, setWorkspaceEditors);
+  useSubAgentTabs(api, server, session, backend.status === 'connected' && !chatMode, generatingId, setWorkspaceEditors);
   function mutation(task: () => Promise<void>) {
     const result = settingsQueue.current.then(async () => {
       if (activeRequest.current) throw new Error('请等待当前回复结束后再修改运行配置');
@@ -273,6 +299,14 @@ export default function App() {
     return result;
   }
   function newConfigKey(agent: string) { return `${server}::${agent}`; }
+  function isSessionOccupied(id: string) { return occupiedSessionsRef.current.has(`${server}::${id}`); }
+  function recordSessionOccupancy(id: string, occupied: boolean) {
+    const key = `${server}::${id}`;
+    const next = new Set(occupiedSessionsRef.current);
+    if (occupied) next.add(key); else next.delete(key);
+    occupiedSessionsRef.current = next;
+    setOccupiedSessions(next);
+  }
   function cacheAgentConfig(agent: string, options: AgentConfigOption[]) {
     setAgentConfigCache(current => ({ ...current, [newConfigKey(agent)]: options }));
   }
@@ -350,7 +384,7 @@ export default function App() {
   }
   function retryAgentConfig() {
     if (!session && !agentPreferencesReady) { setAgentPreferencesRevision(value => value + 1); return; }
-    if (session) { void prepareAgentConfig(); return; }
+    if (session) { setAgentConfigRevision(value => value + 1); return; }
     if (currentWorkspace) void loadNewAgentConfig(currentWorkspace.hash, agentId);
   }
   async function changeAgentConfig(configId: string, value: string | boolean) {
@@ -387,7 +421,10 @@ export default function App() {
         const plan = result.configOptions.find(option => option.id === 'plan');
         if (plan && plan.currentValue !== 'on') setPendingPlan(undefined);
       }
-    } catch (error) { notify(`保存失败：${error instanceof Error ? error.message : String(error)}`); }
+    } catch (error) {
+      if (isSessionOccupiedError(error)) recordSessionOccupancy(target.id, true);
+      else notify(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    }
     finally { setAgentConfigBusy(undefined); }
   }
   function saveDefaultModel(id: string) {
@@ -455,6 +492,18 @@ export default function App() {
     setComposerContext(emptyContext); setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null);
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
+  }
+  function newChatFromOccupied() {
+    const previousDraft = draft;
+    const previousContext = composerContext;
+    newSession();
+    setDraft(previousDraft);
+    setComposerContext(previousContext);
+  }
+  function selectWorkspace(hash: string) {
+    if (hash !== workspace) setComposerContext(withoutWorkspaceContext);
+    setWorkspace(hash);
+    setMenu(null);
   }
   // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
   function clearChat() { if (generatingId) { notify('生成中无法清空，请先停止生成'); return; } newSession(workspace || workspaces[0]?.hash || ''); notify('已新建空白会话'); }
@@ -598,7 +647,7 @@ export default function App() {
     setDraft('调用 npx petdex@latest install boba 初始化一个宠物');
     notify('已新建会话，确认后发送即可初始化宠物');
   }
-  function openTerminal() { setTerminal(true); setMenu(null); }
+  function openTerminal() { if (chatMode) { notify('纯聊天模式不提供终端'); return; } setTerminal(true); setMenu(null); }
   async function openWorkspace(application = preferences.openWith) {
     setMenu(null);
     try { await launchWorkspace(api, currentWorkspace?.hash || '', application); }
@@ -737,7 +786,7 @@ export default function App() {
   }
   function removeQueuedMessage(id: string) { if (session) replaceQueue(removeQueued(queuedRef.current, session.id, id)); }
   async function sendQueuedMessage(key: string) {
-    if (sendingQueued.current.has(key) || activeRequest.current || remoteRunRef.current === key) return;
+    if (isSessionOccupied(key) || sendingQueued.current.has(key) || activeRequest.current || remoteRunRef.current === key) return;
     const target = sessionsRef.current.find(item => item.id === key);
     if (!target || !nextQueued(queuedRef.current, key)) return;
     sendingQueued.current.add(key);
@@ -776,8 +825,9 @@ export default function App() {
   async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false, queuedSession?: Session, queuedMessageId?: string): Promise<boolean> {
     if (!queuedSession && composerConfigBusy) return false;
     const sendSession = queuedSession || session;
+    if (sendSession && isSessionOccupied(sendSession.id)) return false;
     const sendWorkspace = queuedSession ? workspaces.find(item => item.hash === queuedSession.workspaceHash) : currentWorkspace;
-    const sendAgentId = queuedSession ? queuedSession.agentId || 'native' : agentId;
+    const sendAgentId = isChatWorkspace(sendWorkspace) ? 'native' : queuedSession ? queuedSession.agentId || 'native' : agentId;
     if (activeRequest.current || remoteRunRef.current === (sendSession?.id ?? '')) { if (override === undefined && !action) queueMessage(); return false; }
     if (override === undefined && !action && !draft.trim() && !composerContext.files.length) return false;
     if (backend.status !== 'connected' || !backend.ready || !sendWorkspace) { notify('请先连接 Loopra 并选择工作区'); return false; }
@@ -787,7 +837,7 @@ export default function App() {
     // a reference block before sending, matching legacy ChatInput.vue. The paste
     // handler already externalizes clipboard text; this covers typed/edited text.
     let savedInput: string | undefined;
-    if (!action && sendWorkspace && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
+    if (!action && sendWorkspace && !isChatWorkspace(sendWorkspace) && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
       try {
         const saved = await api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: sendWorkspace.hash, content: prompt });
         if (!saved?.path) throw new Error('服务端未返回文件路径');
@@ -800,11 +850,13 @@ export default function App() {
     }
     if (activeRequest.current) return false;
     if (preferences.sound) prepareCompletionSound();
-    const context = { ...(overrideContext || composerContext) };
+    const sourceContext = overrideContext || composerContext;
+    const context = isChatWorkspace(sendWorkspace) ? withoutWorkspaceContext(sourceContext) : { ...sourceContext };
     const text = action ? prompt : composeOutgoing(prompt, context, savedInput);
     const controller = new AbortController(); const requestId = crypto.randomUUID();
     activeRequest.current = { controller, requestId, session: sendSession };
     const request = activeRequest.current;
+    const queuedItem = queuedSession && queuedMessageId ? queuedRef.current[queuedSession.id]?.find(item => item.id === queuedMessageId) : undefined;
     if (queuedSession && queuedMessageId) replaceQueue(removeQueued(queuedRef.current, queuedSession.id, queuedMessageId));
     setGeneratingId(sendSession?.id || 'creating');
     setLiveSpeed(undefined);
@@ -825,6 +877,7 @@ export default function App() {
     // user bubble — an answer is a control reply, not something the user typed.
     const silent = !!action || autoAnswer;
     let completed = false;
+    let occupiedFailure = false;
     let agentStopReason: string | undefined;
     const assistant: Message = { id: answerId, role: 'assistant', text: '', time, startedAt: now, blocks: [] };
     let petAnswer = assistant;
@@ -870,7 +923,7 @@ export default function App() {
       setShowScrollBtn(false);
       const attachments = context.attachments || [];
       const documentText = attachments.filter(file => file.text !== undefined).map(file => `附件：${file.name}\n${file.text}`).join('\n\n');
-      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: workspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: target.workspaceHash === CHAT_WORKSPACE.hash ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
         if (event.type === 'elicitation' && event.elicitationRequestId && event.schema) {
@@ -909,10 +962,24 @@ export default function App() {
       if (stopped || preferences.notifications) notify(stopped || '回复已完成');
       if (!stopped && preferences.sound) playCompletionSound();
     } catch (error) {
-      const content = controller.signal.aborted || activeRequest.current?.stopping ? '> 本次回复已停止。' : `> 请求失败：${error instanceof Error ? error.message : error}`;
-      setPetReply({ id: answerId, text: content.replace(/^> /, ''), activity: controller.signal.aborted || activeRequest.current?.stopping ? 'idle' : 'failed' });
-      setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, { type: 'content', content: `\n\n${content}` }) : entry) } : item));
-      notify(content.replace(/^> /, ''));
+      occupiedFailure = !!target && !controller.signal.aborted && !request.stopping && isSessionOccupiedError(error);
+      if (occupiedFailure && target) {
+        const id = target.id;
+        recordSessionOccupancy(id, true);
+        if (!resumed) setSessions(current => current.map(item => item.id === id
+          ? { ...item, messages: item.messages.filter(entry => entry.id !== answerId && entry.id !== message.id) } : item));
+        if (queuedItem) replaceQueue({ ...queuedRef.current, [target.id]: [queuedItem, ...(queuedRef.current[target.id] || [])] });
+        const view = composerViewRef.current;
+        if (!silent && !queuedSession && view.server === server && view.activeId === target.id && !view.draft) {
+          setDraft(draft);
+          setComposerContext(sourceContext);
+        }
+      } else {
+        const content = controller.signal.aborted || request.stopping ? '> 本次回复已停止。' : `> 请求失败：${error instanceof Error ? error.message : error}`;
+        setPetReply({ id: answerId, text: content.replace(/^> /, ''), activity: controller.signal.aborted || request.stopping ? 'idle' : 'failed' });
+        setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, { type: 'content', content: `\n\n${content}` }) : entry) } : item));
+        notify(content.replace(/^> /, ''));
+      }
     } finally {
       // Do not let a late abort handler cancel the queued replacement turn.
       await request.stopPromise;
@@ -927,7 +994,7 @@ export default function App() {
           // (prompt → approve ×N) into one assistant turn and never stores the
           // "/agree" command, so this drops the extra bubbles and merges the AI
           // replies for free. A suspended choice is client-only, so reattach it.
-          if (completed && !controller.signal.aborted && history.length) {
+          if (occupiedFailure || (completed && !controller.signal.aborted && history.length)) {
             const messages = attachPendingChoices(historyMessages(history), unresolvedChoices(petAnswer.blocks).filter(choice => !choice.permissionRequestId));
             setSessions(current => current.map(item => item.id === id ? { ...item, messages } : item));
           }
@@ -938,11 +1005,11 @@ export default function App() {
       setLiveSpeed(current => current && !current.done ? { ...current, done: true, avgTokensPerSecond: current.avgTokensPerSecond ?? current.tokensPerSecond } : current);
       if (target && queuedRef.current[target.id]?.length) void sendQueuedMessage(target.id);
     }
-    return true;
+    return !occupiedFailure;
   }
 
   useEffect(() => {
-    setGitBranch('工作区'); if (!workspace) return;
+    setGitBranch('工作区'); if (!workspace || workspace === CHAT_WORKSPACE.hash) return;
     const controller = new AbortController();
     void api.request<{ branch: string; initialized: boolean }>(`/git/status?workspaceHash=${encodeURIComponent(workspace)}`, 'GET', undefined, controller.signal).then(data => { if (!controller.signal.aborted) setGitBranch(data.initialized ? data.branch || 'HEAD' : '未初始化'); }).catch(() => {});
     return () => controller.abort();
@@ -1032,11 +1099,13 @@ export default function App() {
   useEffect(() => () => { activeRequest.current?.controller.abort(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, []);
 
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
-  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}><Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
+    ? <SessionOccupiedNotice busy={composerConfigBusy} disabled={backend.status !== 'connected' || !backend.ready} error={agentConfigError} onRetry={retryAgentConfig} onNew={newChatFromOccupied} />
+    : <Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && agentPreferencesError) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={workspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={session ? getSessionMessages(session).map(message => message.text) : []}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId && generatingId === activeId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -1049,13 +1118,13 @@ export default function App() {
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
     remoteRunning={!!session && remoteRun?.id === session.id} onStopRemote={stopRemoteRun}
     liveSpeed={liveSpeed}
-    onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} /></BackgroundTasks>;
+    onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} />}</BackgroundTasks>;
 
   // The window controls float over the first row (sidebar brand and conversation
   // header), so the shell has no empty title-bar strip of its own.
   const desktopShell = isDesktopWindow();
   const nativeWindowControls = desktopShell && usesNativeWindowControls(desktopPlatform());
-  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
+  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes && !chatMode ? 'open' : 'closed'}>
     {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
@@ -1063,8 +1132,9 @@ export default function App() {
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
-      <main className={`main-area ${changes ? 'has-changes' : ''}`}>
+      <main className={`main-area ${changes && !chatMode ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
+          chatMode={chatMode}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
@@ -1076,29 +1146,29 @@ export default function App() {
           onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
           onHide={archiveSession} onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
-        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
+        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
-          {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
-            onSelect={hash => { setWorkspace(hash); setMenu(null); }} onManage={() => { setMenu(null); setProjectsOpen(true); }}
-            engines={engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy} onAgent={switchAgent}
+          {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
+            onSelect={selectWorkspace} onManage={() => { setMenu(null); setProjectsOpen(true); }}
+            engines={chatMode ? engines.filter(engine => engine.id === 'native') : engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy || chatMode} onAgent={switchAgent}
             onTaskToolbarMount={setHomeTaskToolbar}
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
-            isolation={<IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
-              sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} />}>{composer}</HomeView> : <>
+            isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
+              sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
-            <div className="chat-composer-area">{!externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
+            <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
       </main>
-      {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {!chatMode && changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
+      {!chatMode && changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
     {projectDialog && <ProjectSessions api={api} workspace={projectDialog} count={sessions.filter(item => item.workspaceHash === projectDialog.hash).length} sessions={sessions.filter(item => item.workspaceHash === projectDialog.hash)} onClose={() => setProjectDialog(undefined)} onRefresh={async () => { await backend.refreshWorkspaces(); }} onCompleted={(kind, sessionNames) => projectMaintained(kind, projectDialog, sessionNames)} onRenamed={(previous, renamed) => { setProjectDialog(renamed); setComposerContext(current => ({ ...current, projects: current.projects.map(name => name === previous.name ? renamed.name : name) })); }} notify={notify} />}
-    {projectsOpen && <ProjectManager api={api} workspaces={workspaces} sessions={sessions} current={workspace} onClose={() => setProjectsOpen(false)} onRefresh={backend.refreshWorkspaces} onAdded={item => { setCollapsed(previous => previous.filter(hash => hash !== item.hash)); newSession(item.hash); }} onDeleted={item => projectMaintained('delete', item)} notify={notify} />}
+    {projectsOpen && <ProjectManager api={api} workspaces={projectWorkspaces} sessions={sessions} current={workspace} onClose={() => setProjectsOpen(false)} onRefresh={backend.refreshWorkspaces} onAdded={item => { setCollapsed(previous => previous.filter(hash => hash !== item.hash)); newSession(item.hash); }} onDeleted={item => projectMaintained('delete', item)} notify={notify} />}
     {sessionsOpen && <SessionsManager api={api} sessions={visibleSessions} workspaceHash={workspace} workspaceName={workspaceName} activeId={activeId} onClose={() => setSessionsOpen(false)} onOpen={id => { setSessionsOpen(false); void selectSession(id); }} onNew={() => { setSessionsOpen(false); newSession(); }} onChanged={() => backend.refresh()} notify={notify} />}
     <Help open={helpOpen} onClose={() => setHelpOpen(false)} server={server} />
     {requirementsOpen && <RequirementBoard api={api} onClose={() => setRequirementsOpen(false)} notify={notify} />}
@@ -1119,7 +1189,7 @@ export default function App() {
       coreUpdate={coreUpdate}
       desktopUpdate={desktopUpdate.available ? desktopUpdate : undefined}
       onRefresh={() => backend.refresh()}
-      workspaces={workspaces}
+      workspaces={projectWorkspaces}
       server={server}
       availableApplications={availableApplications}
       config={agentSettings}

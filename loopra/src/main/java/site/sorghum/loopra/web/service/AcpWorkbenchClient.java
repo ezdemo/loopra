@@ -1,5 +1,6 @@
 package site.sorghum.loopra.web.service;
 
+import lombok.extern.slf4j.Slf4j;
 import com.agentclientprotocol.sdk.client.AcpClient;
 import com.agentclientprotocol.sdk.client.AcpSyncClient;
 import com.agentclientprotocol.sdk.json.TypeRef;
@@ -22,17 +23,23 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Transport-independent ACP client; owns one active workbench turn and its permissions. */
+@Slf4j
 public final class AcpWorkbenchClient implements AutoCloseable {
     /** Claude Code's flattened subagent transcript: child traffic stays on the root session. */
     private static final String SUBAGENT_TRANSCRIPT = "subagent-transcript";
     private static final String CLAUDE_META = "claudeCode";
     private static final String PARENT_TOOL_USE_ID = "parentToolUseId";
+    /** Raw variants handled below never reach the older SDK's closed update union. */
+    private static final Set<String> TYPED_SESSION_UPDATES = Set.of(
+            "user_message_chunk", "agent_message_chunk", "agent_thought_chunk", "tool_call",
+            "tool_call_update", "current_mode_update", "usage_update");
 
     private final AcpSyncClient client;
     private volatile AgentOutput output;
@@ -124,8 +131,14 @@ public final class AcpWorkbenchClient implements AutoCloseable {
                         reportPlan(update.get("entries"), child);
                     } else if ("available_commands_update".equals(kind)) {
                         if (child == null) reportCommands(update.get("availableCommands"));
-                    } else accept(transport.unmarshalFrom(params, new TypeRef<SessionNotification>() {}), child);
+                    } else if (TYPED_SESSION_UPDATES.contains(kind)) {
+                        accept(transport.unmarshalFrom(params, new TypeRef<SessionNotification>() {}), child);
+                    } else {
+                        log.debug("[acp] 忽略当前客户端未使用的会话通知: {}", kind);
+                    }
                 }))
+                // Informational adapter extension; authentication failures still arrive as RPC errors.
+                .notificationHandler("_auth/status_update", params -> Mono.empty())
                 .requestPermissionHandler(this::requestPermission)
                 // Keep the raw schema: SDK 0.14 strips newer option metadata and secret flags.
                 .requestHandler(AcpSchema.METHOD_ELICITATION_CREATE, params -> elicitations.request(

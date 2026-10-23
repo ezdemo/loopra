@@ -87,10 +87,15 @@ public class ChatCommandRegistry {
      * 获取所有命令的帮助文本列表（按命令名字母序排列）。
      */
     public List<String> getHelpLines() {
+        return getHelpLines(null);
+    }
+
+    public List<String> getHelpLines(Set<String> allowedCommands) {
         List<String> lines = new ArrayList<>();
         List<ChatCommand> sorted = new ArrayList<>(sortedCommands);
         sorted.sort(Comparator.comparing(c -> c.getCommand().toLowerCase()));
         for (ChatCommand cmd : sorted) {
+            if (allowedCommands != null && !allowedCommands.contains(cmd.getCommand())) continue;
             lines.add(cmd.getDescription());
         }
         return lines;

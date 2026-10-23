@@ -8,7 +8,13 @@ export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
 export function acpStopMessage(reason?: string) {
   return ({ cancelled: '本次回复已停止', max_tokens: '已达到本轮输出上限，任务可能尚未完成', max_turn_requests: '已达到本轮请求次数上限，任务可能尚未完成', refusal: 'Agent 拒绝了本次请求' } as Record<string, string>)[reason || ''] || '';
 }
-export type Workspace = { hash: string; name: string; path: string; displayName?: string | null };
+export type Workspace = { hash: string; name: string; path: string; displayName?: string | null; kind?: 'project' | 'chat' };
+/** Must match site.sorghum.loopra.bin.agent.environment.ChatMode.WORKSPACE_HASH. */
+export const CHAT_WORKSPACE: Workspace = { hash: '__loopra_chat__', name: '纯聊天', path: '', kind: 'chat' };
+export const isChatWorkspace = (workspace?: Pick<Workspace, 'hash'> | null) => workspace?.hash === CHAT_WORKSPACE.hash;
+export function withChatWorkspace(workspaces: Workspace[]): Workspace[] {
+  return [CHAT_WORKSPACE, ...workspaces.filter(item => !isChatWorkspace(item)).map(item => ({ ...item, kind: item.kind || 'project' as const }))];
+}
 export type AgentEngine = { id: string; name: string; available: boolean; detail?: string };
 export type AcpPlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: string };
 export type AcpCommand = { name: string; description?: string; inputHint?: string };
@@ -16,13 +22,24 @@ export type AcpSessionState = { plan: AcpPlanEntry[]; commands: AcpCommand[] };
 export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string };
-export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema'] };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema'] };
 export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
 
 export function serverAddress(value: string) {
   const url = new URL(value.trim() || DEFAULT_SERVER);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('请输入有效的 HTTP / HTTPS 服务地址');
   return url.href.replace(/\/+$/, '');
+}
+
+export class LoopraApiError extends Error {
+  constructor(message: string, readonly status?: number, readonly reason?: string) {
+    super(message);
+    this.name = 'LoopraApiError';
+  }
+}
+
+export function isSessionOccupiedError(error: unknown): boolean {
+  return error instanceof LoopraApiError && error.reason === 'thread_active_writer';
 }
 
 export class LoopraClient {
@@ -38,7 +55,7 @@ export class LoopraClient {
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const response = await fetch(`${this.apiBase}${path}`, { method, signal: signal || AbortSignal.timeout(30000), headers: body === undefined ? {} : { 'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json' }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
     const result = await response.json().catch(() => { throw new Error(`Loopra 返回了无效响应（HTTP ${response.status}）`); });
-    if (!response.ok || result.success !== true) throw new Error(result.error || result.message || `HTTP ${response.status}`);
+    if (!response.ok || result.success !== true) throw new LoopraApiError(result.error || result.message || `HTTP ${response.status}`, response.status, result.reason);
     return result.data as T;
   }
   async remoteModels(provider: Provider, signal?: AbortSignal): Promise<string[]> {
@@ -59,7 +76,7 @@ export class LoopraClient {
     const response = await fetch(`${this.apiBase}/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Request-ID': body.requestId }, body: JSON.stringify(body), signal });
     if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || error.message || `无法建立聊天流（HTTP ${response.status}）`);
+      throw new LoopraApiError(error.error || error.message || `无法建立聊天流（HTTP ${response.status}）`, response.status, error.reason);
     }
     if (!response.body) throw new Error('浏览器未收到聊天流');
     const reader = response.body.getReader();
@@ -67,7 +84,7 @@ export class LoopraClient {
     let completed = false;
     let terminalReply = false;
     const parser = new SseParser(event => {
-      if (event.type === 'error') throw new Error(event.error || event.content || '模型请求失败');
+      if (event.type === 'error') throw new LoopraApiError(event.error || event.content || '模型请求失败', undefined, event.reason);
       if (event.type === 'done') completed = true;
       else {
         // Loopra 26.9 sends complete (or a pending HITL choice), but its

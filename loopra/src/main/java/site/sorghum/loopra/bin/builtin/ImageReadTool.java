@@ -133,7 +133,7 @@ public class ImageReadTool extends AbsToolProvider implements SolonToTools {
     }
 
     /**
-     * 判断当前模型是否支持图片输入（read_image / browser_screenshot 等视觉工具共用）。
+     * 判断当前模型是否支持图片输入。
      * 支持或无法判断（无控制器/无客户端/无提供者）时返回 {@code true}；仅明确不支持时返回 {@code false}。
      */
     static boolean supportsImageInput(ToolContext ctx) {

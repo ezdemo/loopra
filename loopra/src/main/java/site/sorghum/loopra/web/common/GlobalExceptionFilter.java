@@ -26,28 +26,50 @@ import site.sorghum.loopra.web.model.ApiResponse;
 public class GlobalExceptionFilter implements Filter {
 
     @Override
-    public void doFilter(Context ctx, FilterChain chain) {
+    public void doFilter(Context ctx, FilterChain chain) throws Throwable {
         // 异常响应也必须保留 MCP 浏览器客户端需要的 CORS 头。
         // 不能使用 "*" 配合 credentials；这里按请求 Origin 精确返回，且不启用凭证。
         applyCorsHeaders(ctx);
 
-        // OPTIONS 预检请求直接放行
-        if ("OPTIONS".equals(ctx.method())) {
-            ctx.output("");
-            return;
-        }
-
         try {
+            // OPTIONS 预检请求直接放行
+            if ("OPTIONS".equals(ctx.method())) {
+                ctx.output("");
+                return;
+            }
             chain.doFilter(ctx);
-        } catch (ServiceException e) {
-            ctx.status(e.getCode());
-            ctx.outputAsJson(ApiResponse.fail(e.getMessage()).toString());
         } catch (Throwable e) {
-            // 未预期的系统异常 → 500（避免泄露内部细节）
-            log.error("GlobalExceptionFilter error", e);
-            ctx.status(500);
-            ctx.outputAsJson(ApiResponse.fail(WebErrorMessages.INTERNAL_ERROR).toString());
+            if (isClientDisconnect(e)) {
+                log.debug("[web] 客户端已断开，跳过错误响应");
+                return;
+            }
+            String message;
+            String reason = null;
+            if (e instanceof ServiceException business) {
+                ctx.status(business.getCode());
+                message = business.getMessage();
+                reason = business.getReason();
+            } else {
+                log.error("GlobalExceptionFilter error", e);
+                ctx.status(500);
+                message = WebErrorMessages.INTERNAL_ERROR;
+            }
+            try {
+                ctx.outputAsJson(ApiResponse.fail(message, reason).toString());
+            } catch (Throwable outputFailure) {
+                if (!isClientDisconnect(outputFailure)) throw outputFailure;
+                log.debug("[web] 客户端在错误响应写入前已断开");
+            }
         }
+    }
+
+    private static boolean isClientDisconnect(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            String type = cause.getClass().getName();
+            if ("org.eclipse.jetty.io.EofException".equals(type)
+                    || "org.apache.catalina.connector.ClientAbortException".equals(type)) return true;
+        }
+        return false;
     }
 
     private static void applyCorsHeaders(Context ctx) {

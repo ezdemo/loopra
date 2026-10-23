@@ -1,7 +1,9 @@
 package site.sorghum.loopra.web.service;
 
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
+import site.sorghum.loopra.bin.agent.prompt.ChatModePrompt;
 import site.sorghum.loopra.bin.command.ChatCommandRegistry;
 import site.sorghum.loopra.bin.config.LoopraConfig;
 import site.sorghum.loopra.bin.model.LoopraModelProvider;
@@ -41,14 +43,20 @@ final class SessionAgentFactory {
         provider.setFastMode(config.fastMode());
 
         SessionEnvironment environment = environments.apply(workspacePath, sessionName);
+        ToolSystem toolSystem = toolSystems.apply(environment);
+        boolean chatMode = ChatMode.isChatRoot(workspacePath);
         LoopraAgent.Builder builder = LoopraAgent.builder()
                 .config(config)
                 .environment(environment)
                 .commandRegistry(commands.get())
                 .hitl(config.hitl())
-                .toolSystem(toolSystems.apply(environment))
+                .toolSystem(toolSystem)
                 .modelProvider(provider);
-        if (systemPrompt != null && !systemPrompt.isBlank()) builder.systemPrompt(systemPrompt);
+        if (chatMode) {
+            builder.systemPrompt(ChatModePrompt.PROMPT);
+        } else if (systemPrompt != null && !systemPrompt.isBlank()) {
+            builder.systemPrompt(systemPrompt);
+        }
 
         LoopraAgent agent = builder.buildLightweight();
         try {

@@ -40,7 +40,7 @@ public class ToolRegistry {
 
     public synchronized void setSessionTools(java.util.Collection<FunctionTool> tools) {
         sessionMcpManaged = true;
-        for (site.sorghum.cutin.core.tool.Tool external : cutinRegistry.externalTools()) {
+        for (site.sorghum.cutin.core.tool.Tool external : cutinRegistry.registeredExternalTools()) {
             if (external instanceof CutinFunctionToolBridge bridge && bridge.isMcpTool())
                 cutinRegistry.unregister(external.id(), external);
         }
@@ -113,6 +113,8 @@ public class ToolRegistry {
     public ToolRegistry setDisabledTools(Set<String> disabledTools) {
         this.disabledToolsSnapshot = disabledTools != null ? new HashSet<>(disabledTools) : Collections.emptySet();
         this.useSnapshot = true;
+        applyForceToolFilters();
+        applyCutinToolFilter();
         return this;
     }
 
@@ -144,6 +146,7 @@ public class ToolRegistry {
     public void setForceDenyTools(Set<String> denyTools) {
         this.forceDenyTools = denyTools != null ? new HashSet<>(denyTools) : Collections.emptySet();
         applyForceToolFilters();
+        applyCutinToolFilter();
     }
 
     /**
@@ -152,17 +155,34 @@ public class ToolRegistry {
     public void setForceAllowTools(Set<String> allowTools) {
         this.forceAllowTools = allowTools != null ? new HashSet<>(allowTools) : null;
         applyForceToolFilters();
+        applyCutinToolFilter();
     }
 
     private void applyForceToolFilters() {
-        functionToolMap.entrySet().removeIf(entry -> !isForceAllowed(entry.getKey())
-                || forceDenyTools.contains(entry.getKey()));
+        Set<String> disabled = getCurrentDisabledTools();
+        functionToolMap.clear();
+        allScannedTools.forEach((name, tool) -> {
+            if (!disabled.contains(name) && !forceDenyTools.contains(name) && isForceAllowed(name)) {
+                functionToolMap.put(name, tool);
+            }
+        });
         cachedOpenAiTools = null;
         syncCutinRegistry();
     }
 
     private boolean isForceAllowed(String toolName) {
         return forceAllowTools == null || forceAllowTools.contains(toolName);
+    }
+
+    private boolean isToolVisible(String toolName) {
+        return !getCurrentDisabledTools().contains(toolName)
+                && !forceDenyTools.contains(toolName)
+                && isForceAllowed(toolName);
+    }
+
+    /** Keep cutin's external tool area under the same hard policy as legacy tools. */
+    private void applyCutinToolFilter() {
+        cutinRegistry.setToolFilter(this::isToolVisible);
     }
 
     /** 设置工具扫描与执行使用的会话环境。 */
@@ -191,6 +211,7 @@ public class ToolRegistry {
       * 此处仅同步只读覆盖与禁用过滤，避免旧拼接重新渗入 prompt。
       */
     public synchronized void refresh() {
+        applyCutinToolFilter();
         Set<String> disabled = getCurrentDisabledTools();
         Map<String, Boolean> readOnlyOverrides = toolPolicyProvider != null
                 ? toolPolicyProvider.toolReadOnlyOverrides()
@@ -240,8 +261,7 @@ public class ToolRegistry {
                     tool.name(), existing.getClass().getName(), tool.getClass().getName());
             return;
         }
-        if (!disabled.contains(tool.name()) && !forceDenyTools.contains(tool.name())
-                && isForceAllowed(tool.name())) {
+        if (!disabled.contains(tool.name()) && !forceDenyTools.contains(tool.name()) && isForceAllowed(tool.name())) {
             functionToolMap.putIfAbsent(tool.name(), tool);
         }
         cachedOpenAiTools = null;
@@ -282,6 +302,7 @@ public class ToolRegistry {
         copy.environment = this.environment;
         copy.sessionTools = this.sessionTools;
         copy.sessionMcpManaged = this.sessionMcpManaged;
+        copy.applyCutinToolFilter();
         // 注册所有工具
         for (FunctionTool def : this.functionToolMap.values()) {
             copy.functionToolMap.put(def.name(), def);
@@ -314,9 +335,7 @@ public class ToolRegistry {
      * @return true 表示已启用，false 表示已禁用
      */
     public boolean isEnabled(String toolName) {
-        Set<String> disabled = getCurrentDisabledTools();
-        return !disabled.contains(toolName) && !forceDenyTools.contains(toolName)
-                && isForceAllowed(toolName);
+        return isToolVisible(toolName);
     }
 
     /**

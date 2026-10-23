@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class UserMessageSanitizerTest {
     private static final byte[] PNG_HEADER = {
@@ -74,6 +76,28 @@ class UserMessageSanitizerTest {
         try (var files = Files.list(imageDirectory)) {
             Path saved = files.findFirst().orElseThrow();
             assertArrayEquals(PNG_HEADER, Files.readAllBytes(saved));
+        }
+    }
+
+    @Test
+    void pureChatRejectsUnsupportedImagesWithoutSavingFilesOrSuggestingUnavailableTools() {
+        String previousHome = System.getProperty("user.home");
+        System.setProperty("user.home", workspace.toString());
+        UserMessageSanitizer.modalityProvider = modelName -> ModalitySupport.TEXT_ONLY;
+        UserMessage message = UserMessage.of("describe", List.of(
+                "data:image/png;base64," + Base64.getEncoder().encodeToString(PNG_HEADER)));
+        try {
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                    UserMessageSanitizer.sanitize(message, "text-model", "channel", ChatMode.root()));
+            assertTrue(error.getMessage().contains("切换到支持图片的模型"));
+            assertFalse(Files.exists(ChatMode.root()));
+            assertEquals(1, message.getImages().size());
+            UserMessageSanitizer.modalityProvider = modelName ->
+                    new ModalitySupport(true, false, false, false, false, false, false, true, true);
+            assertSame(message, UserMessageSanitizer.sanitize(message, "vision-model", "channel", ChatMode.root()));
+            assertFalse(Files.exists(ChatMode.root()));
+        } finally {
+            System.setProperty("user.home", previousHome);
         }
     }
 

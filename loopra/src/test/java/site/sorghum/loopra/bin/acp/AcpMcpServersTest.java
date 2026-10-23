@@ -3,6 +3,7 @@ package site.sorghum.loopra.bin.acp;
 import com.agentclientprotocol.sdk.spec.AcpSchema.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import java.nio.file.*;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,5 +46,24 @@ class AcpMcpServersTest {
         var error = assertThrows(IllegalStateException.class, () -> AcpMcpServers.managed(global, root));
         assertFalse(error.toString().contains("sensitive-value"));
         assertNull(error.getCause());
+    }
+
+    @Test void pureChatSkipsGlobalAndProjectConfigurationBeforeParsing() throws Exception {
+        String previousHome = System.getProperty("user.home");
+        System.setProperty("user.home", root.toString());
+        try {
+            Path global = root.resolve(".loopra/mcp-servers.json");
+            Files.createDirectories(global.getParent());
+            Files.writeString(global, "{broken global configuration");
+            assertFalse(Files.exists(ChatMode.root()));
+            assertTrue(AcpMcpServers.managed(ChatMode.root()).isEmpty());
+
+            Path project = ChatMode.root().resolve(".loopra/mcp-servers.json");
+            Files.createDirectories(project.getParent());
+            Files.writeString(project, "{broken project configuration");
+            assertTrue(AcpMcpServers.managed(global, ChatMode.root()).isEmpty());
+        } finally {
+            System.setProperty("user.home", previousHome);
+        }
     }
 }

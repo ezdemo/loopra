@@ -4,7 +4,7 @@ package site.sorghum.loopra.bin.agent.prompt;
  * Loopra 专属补充提示词 —— {@code loopra-supplement} 切片（order 150）。
  * <p>
  * 只写 {@link ClaudeCodePrompt} 里没有的能力：{@code workspace_*}（主/子代理共享通道）、
- * {@code browser_*}（人工接管）、{@code goal_*}（可恢复长期目标）、
+ * {@code goal_*}（可恢复长期目标）、
  * {@code submit_plan}、{@code bash_*}（会话式终端）、
  * {@code checklist_*}、{@code memory}。
  * </p>
@@ -29,11 +29,6 @@ public class DEFAULT_PROMPT {
             派发子任务前，先用 `workspace_write` 写入背景（任务意图、已知约束、相关文件清单）；
             子代理用 `workspace_read` 取用，并把结论写回约定的 key。
             `workspace_list` 用于查看当前有哪些 key。
-
-            ## browser_* —— 浏览器操作与人工接管
-            遇到登录、验证码、人机验证、二维码、短信确认等需要真实用户操作的环节时，
-            严禁尝试绕过，也不要向用户索取凭据；必须调用 `browser_request_user_action` 请用户接管。
-            标签页有软上限 16、硬上限 20，用完及时 `browser_close_tab`。
 
             ## goal_* —— 可恢复的长期目标
             同一会话只能有一个未关闭的 Goal。`goal_update_step` 标记步骤完成/阻塞/跳过时必须附带 evidence；

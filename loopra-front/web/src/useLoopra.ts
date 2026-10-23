@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Provider, Session } from './lib';
-import { LoopraClient, configProviders, remoteSession, type RemoteConfig, type RemoteSession, type Workspace } from './backend';
+import { LoopraClient, configProviders, remoteSession, withChatWorkspace, type RemoteConfig, type RemoteSession, type Workspace } from './backend';
 import type { SkillConfig, ToolConfig } from './settings-data';
 import type { VersionCheck } from './version';
 
@@ -27,9 +27,10 @@ export default function useLoopra(server: string) {
   }, [api]);
   const refreshWorkspaces = useCallback(async () => {
     const projects = await api.request<Workspace[]>('/workspaces');
-    setWorkspaces(projects);
-    await refreshSessions(projects);
-    return projects;
+    const visible = withChatWorkspace(projects);
+    setWorkspaces(visible);
+    await refreshSessions(visible);
+    return visible;
   }, [api, refreshSessions]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setStatus('connecting'); setError('');
@@ -41,9 +42,10 @@ export default function useLoopra(server: string) {
         api.request<Workspace[]>('/workspaces', 'GET', undefined, signal),
       ]);
       if (signal?.aborted) return;
-      setVersion(health.version); setReady(agent.ready); setConfig(nextConfig); setProviders(configProviders(nextConfig)); setWorkspaces(projects);
+      const visibleProjects = withChatWorkspace(projects);
+      setVersion(health.version); setReady(agent.ready); setConfig(nextConfig); setProviders(configProviders(nextConfig)); setWorkspaces(visibleProjects);
       if (agent.ready) {
-        await refreshSessions(projects, signal);
+        await refreshSessions(visibleProjects, signal);
         const resources = await Promise.allSettled([
           api.request<Omit<ToolConfig, 'category'>[]>('/tools', 'GET', undefined, signal),
           api.request<{ name: string; description: string }[]>('/agent/skills', 'GET', undefined, signal),
