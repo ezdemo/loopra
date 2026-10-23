@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { formatTokens, getModelCatalog, groupModels, composeMessage, estimateContext, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { formatTokens, getModelCatalog, groupModels, composeMessage, estimateContext, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 const providers = [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'magpie', name: 'magpie' }];
 const models = getModelCatalog(providers);
 
@@ -80,6 +80,20 @@ test('slash commands and empty context stay raw', () => {
   // Fences widen when the context itself contains backticks.
   const fenced = composeOutgoing('查看', { projects: [], skills: [], files: ['a`b```.ts'], attachments: [] });
   assert.match(fenced, /^````折叠块\n/);
+});
+
+test('switching workspaces drops local references and skills while retaining explicit uploads', () => {
+  const original = {
+    projects: ['old-project'], skills: ['old-skill'],
+    files: ['src/secret.ts', '.loopra/paste/old.txt', 'report.pdf'],
+    attachments: [{ name: 'report.pdf', text: 'uploaded content' }, { name: 'image.png', image: 'data:image/png;base64,abc' }],
+  };
+  const clean = withoutWorkspaceContext(original);
+  assert.deepEqual(clean, { projects: [], skills: [], files: ['report.pdf', 'image.png'], attachments: original.attachments });
+  assert.equal(composeOutgoing('hello', clean), 'hello');
+  assert.notEqual(clean.attachments, original.attachments);
+  assert.deepEqual(original.skills, ['old-skill']);
+  assert.ok(original.files.includes('src/secret.ts'));
 });
 
 test('context estimates account for history/draft/chips and cap percentage', () => {

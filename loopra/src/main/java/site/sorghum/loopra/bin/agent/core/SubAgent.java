@@ -61,7 +61,6 @@ public class SubAgent {
             "goal_block",
             "goal_resume",
             "ask_choice",          // 用户交互（主代理专用）
-            "browser_request_user_action", // 浏览器人工接管（主代理专用）
             "submit_plan"          // 计划提交（主代理专用，计划模式产物由主代理负责）
     )));
 

@@ -3,7 +3,7 @@ package site.sorghum.loopra.bin.agent.model;
 import java.util.Locale;
 
 /**
- * 图片工具结果协议 —— read_image / browser_screenshot 等视觉工具的结果编解码。
+ * 图片工具结果协议 —— read_image 等视觉工具的结果编解码。
  * <p>
  * 工具以 {@link #RESULT_PREFIX} 前缀的文本协议返回图片结果，
  * AgentLoop 据此把图片作为多模态消息回放给模型。

@@ -16,6 +16,7 @@ import org.noear.solon.annotation.Post;
 import org.noear.solon.core.handle.Context;
 import site.sorghum.loopra.bin.agent.hitl.SubAgentHITLBroker;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.common.WebErrorMessages;
 import site.sorghum.loopra.web.model.ApiResponse;
@@ -151,11 +152,12 @@ public class ChatController {
         agentService.selectSessionAgent(resolvedPath, sessionName, request.getAgentId());
         final String message = pasteContentService.externalizeIfNeeded(resolvedPath, rawMessage);
         final UserMessage userMsg = UserMessage.of(message, request.getImages());
-        final String linkedProjectContext = agentService.buildLinkedProjectContext(
+        final boolean chatMode = ChatMode.isChatRoot(resolvedPath);
+        final String linkedProjectContext = chatMode ? null : agentService.buildLinkedProjectContext(
                 request.getLinkedProjectHashes(), request.getWorkspaceHash());
         // External Agents bind additional working directories at session setup; the primary
         // project is the session cwd and must not be repeated as a linked directory.
-        final List<String> linkedProjectDirectories = request.getLinkedProjectHashes() == null ? List.of()
+        final List<String> linkedProjectDirectories = chatMode || request.getLinkedProjectHashes() == null ? List.of()
                 : request.getLinkedProjectHashes().stream()
                         .filter(hash -> hash != null && !hash.isBlank() && !hash.equals(request.getWorkspaceHash()))
                         .distinct()
@@ -169,7 +171,7 @@ public class ChatController {
             try {
                 // ★ 创建快照检查点：在 AI 执行修改前保存当前项目状态
                 String msgId = UUID.randomUUID().toString().substring(0, 8);
-                boolean snapshotCreated = createCheckpointIfNeeded(request.getWorkspaceHash(), msgId);
+                boolean snapshotCreated = !chatMode && createCheckpointIfNeeded(request.getWorkspaceHash(), msgId);
                 if (Thread.currentThread().isInterrupted()) return;
                 // 每条用户消息都有会话撤回点；代码快照是否可用由事件字段标识。
                 userMsg.setRollbackId(msgId);
@@ -180,7 +182,7 @@ public class ChatController {
                 }
 
                 // ★ 隔离分支开关透传：请求携带时先持久化到会话元数据，Agent 创建时读取
-                if (request.getWorktreeMode() != null || request.getMergeMode() != null) {
+                if (!chatMode && (request.getWorktreeMode() != null || request.getMergeMode() != null)) {
                     try {
                         if (request.getWorktreeMode() != null) {
                             agentService.setSessionWorktreeMode(resolvedPath, sessionName, request.getWorktreeMode());

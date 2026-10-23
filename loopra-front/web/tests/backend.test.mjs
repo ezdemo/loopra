@@ -8,7 +8,15 @@ const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileM
 const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
-const { acpStopMessage, SseParser, LoopraClient, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { acpStopMessage, SseParser, LoopraClient, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+
+test('pure chat is a first-class workspace that never appears in project lists twice', () => {
+  const projects = [{ hash: 'p1', name: 'Project', path: '/project' }, { ...CHAT_WORKSPACE }];
+  const visible = withChatWorkspace(projects);
+  assert.equal(visible[0].kind, 'chat');
+  assert.equal(visible.filter(isChatWorkspace).length, 1);
+  assert.equal(visible[1].kind, 'project');
+});
 
 test('ACP stop notices distinguish completion from cancellation and limits', () => {
   assert.equal(acpStopMessage('end_turn'), '');

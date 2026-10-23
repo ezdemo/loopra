@@ -7,6 +7,7 @@ import org.noear.dami2.Dami;
 import org.noear.dami2.bus.EventListener;
 import site.sorghum.loopra.bin.agent.context.ContextTokenEstimate;
 import site.sorghum.loopra.bin.agent.context.ConversationContext;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.listener.AgentLoopListener;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
@@ -100,7 +101,9 @@ public class LoopraAgent {
 
     /** Called while the session is idle; replaces and closes only this session's MCP clients. */
     public synchronized void setAcpMcpServers(List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> servers) {
-        List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> desired = servers == null ? List.of() : List.copyOf(servers);
+        // Pure chat must not start MCP clients, including definitions supplied over ACP.
+        List<com.agentclientprotocol.sdk.spec.AcpSchema.McpServer> desired =
+                ChatMode.isChatRoot(environment.projectRoot()) || servers == null ? List.of() : List.copyOf(servers);
         if (acpMcpTools != null && acpMcpTools.servers().equals(desired)) return;
         var replacement = new site.sorghum.loopra.bin.acp.AcpMcpToolSet(desired, environment.executionRoot());
         var previous = acpMcpTools;
@@ -120,6 +123,9 @@ public class LoopraAgent {
                 ? b.toolSystem
                 : ToolSystemInitializer.initialize(
                         this.environment, b.disabledTools, systemPrompt);
+        if (ChatMode.isChatRoot(this.environment.projectRoot())) {
+            initResult.toolRegistry().setForceAllowTools(ChatMode.ALLOWED_TOOLS);
+        }
         this.ctx = new ConversationContext(initResult.promptPrefix());
         LoopraConfig loopConfig = b.loopraConfig != null ? b.loopraConfig : LoopraConfig.getInstance();
         this.loop = initSessionAndLoop(b, b.modelProvider, initResult.toolRegistry(), loopConfig);
@@ -269,6 +275,9 @@ public class LoopraAgent {
         if (cmd == null) {
             return null; // "/" 开头但不是已知命令，降级为普通聊天消息
         }
+        if (ChatMode.isChatRoot(environment.projectRoot()) && !ChatMode.ALLOWED_COMMANDS.contains(cmd.getCommand())) {
+            throw new IllegalStateException("纯聊天模式不支持 /" + cmd.getCommand() + "，请切换到项目会话");
+        }
         if ("goal".equals(cmd.getCommand())) {
             sessionService.ensureSessionName();
             loop.setSessionId(sessionService.getStore().currentName());
@@ -332,6 +341,11 @@ public class LoopraAgent {
 
     private void restorePlanState(AgentLoop targetLoop, String name) {
         if (targetLoop == null || name == null) return;
+        if (ChatMode.isChatRoot(environment.projectRoot())) {
+            targetLoop.setPlanMode(false);
+            targetLoop.restorePendingPlan(null);
+            return;
+        }
         try {
             targetLoop.setPlanMode(ctx.getSessionStore().isPlanMode(name));
             targetLoop.restorePendingPlan(ctx.getSessionStore().getPendingPlan(name));
@@ -541,6 +555,9 @@ public class LoopraAgent {
      * @param enabled true 进入（仅只读），false 退出（恢复全部工具）
      */
     public void setPlanMode(boolean enabled) {
+        if (enabled && ChatMode.isChatRoot(environment.projectRoot())) {
+            throw new IllegalStateException("纯聊天模式不支持计划模式");
+        }
         if (loop == null || loop.isPlanMode() == enabled) {
             return;
         }

@@ -12,8 +12,10 @@ import site.sorghum.cutin.core.plugin.LoopPlugin;
 import site.sorghum.cutin.core.plugin.LoopRegistrar;
 import site.sorghum.cutin.core.plugin.PluginContext;
 import site.sorghum.loopra.bin.agent.prompt.ClaudeCodePrompt;
+import site.sorghum.loopra.bin.agent.prompt.ChatModePrompt;
 import site.sorghum.loopra.bin.agent.prompt.DEFAULT_PROMPT;
 import site.sorghum.loopra.bin.agent.prompt.EnvInfoUtil;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
 
 import java.nio.file.Files;
@@ -90,9 +92,19 @@ public final class LoopraPromptPlugin implements LoopPlugin {
     }
 
     private void registerBuiltIns() {
+        // 纯聊天没有工作区，不能继承编码代理身份、项目文档、技能与 Shell 约定。
+        if (ChatMode.isChatRoot(host == null ? null : host.workspace())) {
+            builtIns.add(ctx -> PromptSlice.of("chat-identity", ChatModePrompt.PROMPT, 100));
+            builtIns.add(ctx -> PromptSlice.of("language", """
+                    # Language
+                    Always respond in Chinese (Simplified). Use Chinese (Simplified) for all explanations and communications with the user. Technical terms and code identifiers should remain in their original form.""", 250));
+            for (PromptSliceProvider p : builtIns) registry.register(p);
+            return;
+        }
+
         // 核心身份：Claude Code 原文移植版（逐字，仅换工具名）
         PromptSliceProvider core = ctx -> PromptSlice.of("core-identity", ClaudeCodePrompt.join(), 100);
-        // Loopra 特有补充：Claude Code 原文里没有的能力（workspace_* / browser_* / goal_* 等）
+        // Loopra 特有补充：Claude Code 原文里没有的能力（workspace_* / goal_* 等）
         PromptSliceProvider supplement = ctx -> PromptSlice.of("loopra-supplement", DEFAULT_PROMPT.PROMPT, 150);
         // 语言约束：用 Claude Code 自己的 getLanguageSection 措辞，英文原文不必改动
         PromptSliceProvider language = ctx -> PromptSlice.of("language", """

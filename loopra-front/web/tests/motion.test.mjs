@@ -81,7 +81,7 @@ test('a closing panel stays mounted for the length of its exit slide', () => {
   assert.match(app, /const sidebarMounted = usePresence\(sidebar\);/);
   assert.match(app, /const changesMounted = usePresence\(changes\);/);
   assert.match(app, /\{sidebarMounted && <Sidebar open=\{sidebar\}/);
-  assert.match(app, /\{changesMounted && <ChangesPanel open=\{changes\}/);
+  assert.match(app, /\{!chatMode && changesMounted && <ChangesPanel open=\{changes\}/);
   // `data-open` is what every CSS state above keys off.
   assert.match(motionTsx, /<aside className="sidebar" data-open=\{open\}/);
   assert.match(panels, /data-open=\{open\}/);

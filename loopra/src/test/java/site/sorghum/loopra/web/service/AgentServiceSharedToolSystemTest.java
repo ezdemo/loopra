@@ -4,12 +4,22 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.noear.solon.ai.chat.tool.FunctionToolDesc;
 import site.sorghum.cutin.core.plugin.PluginBeanManager;
 import site.sorghum.loopra.bin.agent.core.AgentLoop;
 import site.sorghum.loopra.bin.agent.core.LoopraAgent;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.agent.environment.SessionEnvironment;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
+import site.sorghum.loopra.bin.agent.model.UserMessage;
+import site.sorghum.loopra.bin.command.ChatCommand;
+import site.sorghum.loopra.bin.command.ChatCommandContext;
+import site.sorghum.loopra.bin.command.ChatCommandRegistry;
+import site.sorghum.loopra.bin.command.MessageWrapper;
 import site.sorghum.loopra.bin.config.ConfigService;
+import site.sorghum.loopra.bin.project.ProjectRegistry;
+import site.sorghum.loopra.bin.session.JsonlSessionStore;
+import site.sorghum.loopra.bin.session.SessionStore;
 import site.sorghum.loopra.bin.session.SessionStore.SessionModelSettings;
 import site.sorghum.loopra.bin.tool.ToolSystemInitializer;
 import site.sorghum.loopra.tool.AgentOutput;
@@ -19,7 +29,9 @@ import site.sorghum.loopra.web.model.SessionSettingsDTO;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -248,6 +260,48 @@ class AgentServiceSharedToolSystemTest {
     }
 
     @Test
+    void pureChatKeepsOnlyNetworkFacingToolsAndUsesItsOwnPrompt() throws Exception {
+        configureModelChannels();
+        Path chatRoot = ChatMode.root();
+        assertFalse(Files.exists(chatRoot));
+        SessionEnvironment environment = SessionEnvironment.local(chatRoot);
+        ToolSystemInitializer.ToolSystem tools = ToolSystemInitializer.initializePluginized(environment, null);
+        SessionAgentFactory factory = new SessionAgentFactory(() -> null,
+                (workspace, session) -> environment,
+                resolved -> tools);
+
+        LoopraAgent agent = factory.create(chatRoot.toString(), "chat-session",
+                new SessionModelSettings("first-model", "main", "low"), null, ConfigService.getConfig());
+        try {
+            tools.toolRegistry().register(tool("read"));
+            tools.toolRegistry().register(tool("webfetch"));
+            tools.toolRegistry().register(tool("websearch"));
+            tools.toolRegistry().register(tool("bash"));
+
+            assertFalse(tools.toolRegistry().isEnabled("read"));
+            assertFalse(tools.toolRegistry().isEnabled("bash"));
+            assertTrue(tools.toolRegistry().isEnabled("webfetch"));
+            assertTrue(tools.toolRegistry().isEnabled("websearch"));
+            assertTrue(loopOf(agent).effectiveSystemPrompt().contains("纯聊天"));
+            assertEquals(chatRoot.toString(),
+                    new ProjectCatalog(java.util.Set::of).resolveProjectPath(ChatMode.WORKSPACE_HASH));
+
+            var external = new com.agentclientprotocol.sdk.spec.AcpSchema.McpServerStdio(
+                    "codegraph", "must-not-start-pure-chat-mcp", List.of("serve", "--mcp"), List.of());
+            agent.setAcpMcpServers(List.of(external));
+            assertTrue(agent.getAcpMcpServers().isEmpty());
+            assertTrue(loopOf(agent).getToolRegistry().sessionTools().isEmpty());
+            agent.refreshTools();
+            assertTrue(loopOf(agent).getToolRegistry().isEnabled("websearch"));
+            assertFalse(loopOf(agent).getToolRegistry().isEnabled("bash"));
+            assertThrows(IllegalStateException.class, () -> agent.setPlanMode(true));
+            assertFalse(loopOf(agent).isPlanMode());
+        } finally {
+            agent.dispose();
+        }
+    }
+
+    @Test
     void changingModelWithinAChannelKeepsTheAgentAndUpdatesItsLimits() throws Exception {
         configureModelChannels();
         AgentService service = new AgentService();
@@ -305,6 +359,75 @@ class AgentServiceSharedToolSystemTest {
         }
     }
 
+    @Test
+    void pureChatRejectsProjectCommandsBeforeExecutionAndKeepsChatCommands() throws Exception {
+        configureModelChannels();
+        var executed = new ArrayList<String>();
+        var commands = new ChatCommandRegistry();
+        var registered = new ArrayList<ChatCommand>();
+        for (String name : List.of("plugin", "init", "goal", "plan", "compact")) {
+            registered.add(new ChatCommand() {
+                public String getCommand() { return name; }
+                public String getDescription() { return "/" + name + " test"; }
+                public boolean matches(String input) { return input.startsWith("/" + name); }
+                public CommandResult execute(MessageWrapper input, ChatCommandContext context) {
+                    executed.add(name);
+                    return CommandResult.CONTINUE;
+                }
+            });
+        }
+        Field field = commands.getClass().getDeclaredField("commands");
+        field.setAccessible(true);
+        field.set(commands, registered);
+        commands.init();
+        var environment = SessionEnvironment.local(ChatMode.root());
+        var factory = new SessionAgentFactory(() -> commands, (workspace, session) -> environment,
+                resolved -> ToolSystemInitializer.initializePluginized(environment, null));
+        LoopraAgent agent = factory.create(ChatMode.root().toString(), "commands",
+                new SessionModelSettings("first-model", "main", "low"), null, ConfigService.getConfig());
+        try {
+            for (String command : List.of("/plugin add untrusted.jar", "/init", "/goal", "/plan")) {
+                IllegalStateException error = assertThrows(IllegalStateException.class, () ->
+                        agent.chat(UserMessage.of(command)));
+                assertTrue(error.getMessage().contains("纯聊天模式不支持"));
+            }
+            assertTrue(executed.isEmpty());
+            agent.chat(UserMessage.of("/compact"));
+            assertEquals(List.of("compact"), executed);
+            assertEquals(List.of("/compact test"), commands.getHelpLines(ChatMode.ALLOWED_COMMANDS));
+        } finally {
+            agent.dispose();
+        }
+    }
+
+    @Test
+    void pureChatConfigurationRejectsProjectModesAndLegacyExternalBindings() throws Exception {
+        configureModelChannels();
+        AgentService service = new AgentService();
+        Path chat = ChatMode.root();
+        var registry = new ProjectRegistry();
+        var store = new JsonlSessionStore(registry.getSessionsDir(chat.toString()));
+        try {
+            store.setAcpBinding("legacy", new SessionStore.AcpBinding("codex", null, null));
+            store.setWorktreeMode("legacy", true);
+            store.setPlanMode("legacy", true);
+        } finally { store.shutdown(); }
+        try {
+            assertEquals("native", service.sessionAgentId(chat.toString(), "legacy"));
+            assertFalse(service.isSessionWorktreeMode(chat.toString(), "legacy"));
+            assertThrows(ServiceException.class, () -> service.setSessionWorktreeMode(chat.toString(), "legacy", true));
+            assertThrows(ServiceException.class, () -> service.selectSessionAgent(chat.toString(), "legacy", "codex"));
+            LoopraAgent agent = getOrCreateAgent(service, chat, "legacy");
+            assertFalse(loopOf(agent).isPlanMode());
+            assertNull(loopOf(agent).getPendingPlan());
+            var options = service.agentConfiguration(chat.toString(), "legacy", null, null);
+            assertTrue(options.stream().noneMatch(option -> "plan".equals(option.id())));
+            Exception error = assertThrows(Exception.class, () ->
+                    service.agentConfiguration(chat.toString(), "legacy", "plan", "on"));
+            assertTrue(error.getMessage().contains("plan"), error.getMessage());
+        } finally { service.close(); }
+    }
+
     private static void configureModelChannels() {
         ConfigService.updateConfig(Map.of("model", "first-model", "modelChannelId", "main",
                 "modelChannels", List.of(
@@ -322,6 +445,14 @@ class AgentServiceSharedToolSystemTest {
         Method agentMethod = AgentService.class.getDeclaredMethod("getOrCreateAgent", String.class);
         agentMethod.setAccessible(true);
         return (LoopraAgent) agentMethod.invoke(service, key);
+    }
+
+    private static FunctionToolDesc tool(String name) {
+        return new FunctionToolDesc(name)
+                .description(name)
+                .inputSchema("{\"type\":\"object\"}")
+                .returnType(String.class)
+                .doHandle(args -> "ok");
     }
 
     private static AgentLoop loopOf(LoopraAgent agent) throws Exception {

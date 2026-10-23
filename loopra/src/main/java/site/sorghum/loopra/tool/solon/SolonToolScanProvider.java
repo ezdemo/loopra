@@ -5,10 +5,14 @@ import org.noear.solon.Solon;
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Init;
+import org.noear.solon.core.AppContext;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.tool.ToolScanProvider;
 import site.sorghum.loopra.bin.tool.ToolScanUtil;
 import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.solon.common.LoopraSkillProvider;
+import site.sorghum.loopra.tool.solon.mcp.McpFunctionTool;
+import site.sorghum.loopra.tool.solon.webfetch.LoopraWebSkill;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -48,11 +52,16 @@ public class SolonToolScanProvider implements ToolScanProvider {
      */
     @Override
     public List<FunctionTool> scanTools(Path workspace) {
+        return scanTools(workspace, Solon.context());
+    }
+
+    List<FunctionTool> scanTools(Path workspace, AppContext context) {
+        boolean chatMode = ChatMode.isChatRoot(workspace);
         // 1. 通过 Solon IoC 获取所有 AgentTool Bean
-        List<FunctionTool> agentTools = new ArrayList<>(Solon.context().getBeansOfType(FunctionTool.class));
+        List<FunctionTool> agentTools = new ArrayList<>(context.getBeansOfType(FunctionTool.class));
 
         // 2. 加载 Skill 工具（从文件系统读取）
-        if (workspace != null) {
+        if (workspace != null && !chatMode) {
             try {
                 SolonToTools solonToTools = LoopraSkillProvider.getOrCreate(
                         workspace.toAbsolutePath().normalize().toString());
@@ -63,8 +72,15 @@ public class SolonToolScanProvider implements ToolScanProvider {
         }
 
         // 3. 加载SolonToSKill
-        List<SolonToTools> solonToTools = Solon.context().getBeansOfType(SolonToTools.class);
-        agentTools.addAll(solonToTools.stream().map(SolonToTools::getSolonTools).flatMap(Collection::stream).toList());
+        if (chatMode) {
+            // Enumerating arbitrary gateways can connect MCP servers before tool filtering.
+            context.getBeansOfType(LoopraWebSkill.class)
+                    .forEach(provider -> agentTools.addAll(provider.getSolonTools()));
+            agentTools.removeIf(tool -> tool instanceof McpFunctionTool || !ChatMode.ALLOWED_TOOLS.contains(tool.name()));
+        } else {
+            List<SolonToTools> solonToTools = context.getBeansOfType(SolonToTools.class);
+            agentTools.addAll(solonToTools.stream().map(SolonToTools::getSolonTools).flatMap(Collection::stream).toList());
+        }
 
         // 4. 按类名排序，保证顺序稳定
         agentTools.sort(Comparator.comparing(it -> it.getClass().getName()));
@@ -73,6 +89,7 @@ public class SolonToolScanProvider implements ToolScanProvider {
 
     @Override
     public String getSkillToolDescription(Path workspace) {
+        if (ChatMode.isChatRoot(workspace)) return "";
         StringBuilder content = new StringBuilder();
         // 1. 加载 Skill 工具（从文件系统读取）
         if (workspace != null) {

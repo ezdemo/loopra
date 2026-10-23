@@ -10,8 +10,8 @@ import { useMenuPlacement } from './menu-placement';
  * Agent chooser shown beside the project switcher on the home screen. Switching
  * starts a new conversation, so it stays disabled while any run is active.
  */
-export default function AgentSwitcher({ engines, agentId, disabled, onSelect, onRefreshEngines }: {
-  engines: AgentEngine[]; agentId: string; disabled: boolean; onSelect: (id: string) => void;
+export default function AgentSwitcher({ engines, agentId, disabled, disabledReason, onSelect, onRefreshEngines }: {
+  engines: AgentEngine[]; agentId: string; disabled: boolean; disabledReason?: string; onSelect: (id: string) => void;
   /** Re-detect the runtime when the menu opens (the backend checks on every call). */
   onRefreshEngines?: () => void;
 }) {
@@ -69,7 +69,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, onSelect, on
   }
   return <div className="agent-selector menu-anchor" data-popover ref={root} data-placement={placement.side} style={placementStyle}>
     <button type="button" aria-label="选择 Agent" aria-expanded={open} disabled={disabled}
-      title={disabled ? '任务运行中，结束后才能切换 Agent' : '选择 Agent'} onClick={toggle}>
+      title={disabled ? disabledReason || '任务运行中，结束后才能切换 Agent' : '选择 Agent'} onClick={toggle}>
       <span className={`agent-dot ${agentId !== 'native' ? 'external' : ''}`} />
       {current?.name || (agentId === 'native' ? 'Loopra Native' : agentId)}
       <ChevronDown size="0.875rem" />

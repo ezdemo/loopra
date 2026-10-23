@@ -3,6 +3,7 @@ package site.sorghum.loopra.bin.model;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 
 import java.io.IOException;
@@ -97,6 +98,9 @@ public class UserMessageSanitizer {
         // 模型不支持图片输入时，移除图片。
         List<String> images = userMessage.getImages();
         if (!images.isEmpty() && !modalitySupport.imageInput()) {
+            if (ChatMode.isChatRoot(workspace)) {
+                throw new IllegalArgumentException("当前模型不支持图片输入。纯聊天模式请切换到支持图片的模型后重新发送。");
+            }
             log.info("[sanitizer] 模型 '{}' 不支持图片输入，将 {} 张图片保存到项目 .loopra/read_img 并移除原图",
                     modelName, images.size());
             return replaceImagesWithProjectPaths(userMessage, workspace);

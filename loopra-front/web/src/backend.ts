@@ -8,7 +8,13 @@ export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
 export function acpStopMessage(reason?: string) {
   return ({ cancelled: '本次回复已停止', max_tokens: '已达到本轮输出上限，任务可能尚未完成', max_turn_requests: '已达到本轮请求次数上限，任务可能尚未完成', refusal: 'Agent 拒绝了本次请求' } as Record<string, string>)[reason || ''] || '';
 }
-export type Workspace = { hash: string; name: string; path: string; displayName?: string | null };
+export type Workspace = { hash: string; name: string; path: string; displayName?: string | null; kind?: 'project' | 'chat' };
+/** Must match site.sorghum.loopra.bin.agent.environment.ChatMode.WORKSPACE_HASH. */
+export const CHAT_WORKSPACE: Workspace = { hash: '__loopra_chat__', name: '纯聊天', path: '', kind: 'chat' };
+export const isChatWorkspace = (workspace?: Pick<Workspace, 'hash'> | null) => workspace?.hash === CHAT_WORKSPACE.hash;
+export function withChatWorkspace(workspaces: Workspace[]): Workspace[] {
+  return [CHAT_WORKSPACE, ...workspaces.filter(item => !isChatWorkspace(item)).map(item => ({ ...item, kind: item.kind || 'project' as const }))];
+}
 export type AgentEngine = { id: string; name: string; available: boolean; detail?: string };
 export type AcpPlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: string };
 export type AcpCommand = { name: string; description?: string; inputHint?: string };

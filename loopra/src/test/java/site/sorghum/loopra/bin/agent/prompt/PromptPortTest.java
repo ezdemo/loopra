@@ -56,11 +56,14 @@ class PromptPortTest {
     @Test
     void supplementCoversLoopraSpecificTools() {
         String supplement = DEFAULT_PROMPT.PROMPT;
-        for (String name : List.of("workspace_write", "workspace_read", "browser_request_user_action",
+        for (String name : List.of("workspace_write", "workspace_read",
                 "goal_complete", "submit_plan", "bash_start", "checklist_step", "memory")) {
             assertTrue(supplement.contains(name),
                     "Loopra 补充缺少特有工具说明: " + name);
         }
+        assertFalse(supplement.contains("browser_"));
+        assertFalse(ChatModePrompt.PROMPT.contains("browser_"));
+        assertFalse(site.sorghum.loopra.integration.cutin.plugin.prompt.ToolContract.build("").contains("browser_"));
     }
 
     @Test

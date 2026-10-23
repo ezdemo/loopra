@@ -4497,7 +4497,7 @@ async function aiBrowserSnapshotNow(tab) {
         frames,
         overlays,
         notices,
-        userActionRequired: sensitiveInputs.length ? { recommended: true, reason: '检测到登录或验证相关输入框，请调用 browser_request_user_action 让用户手动完成。' } : undefined,
+        userActionRequired: sensitiveInputs.length ? { recommended: true, reason: '检测到登录或验证相关输入框，请让用户手动完成。' } : undefined,
         elements,
         html: body || { tag: 'body', text: clean(document.body && document.body.innerText, 240) }
       };

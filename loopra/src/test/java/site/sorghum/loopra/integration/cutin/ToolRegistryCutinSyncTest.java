@@ -270,6 +270,43 @@ class ToolRegistryCutinSyncTest {
         assertFalse(hasTool(registry.toOpenAiTools(), "demo-greeting"));
     }
 
+    @Test
+    void disablingExternalToolsHidesSchemasAndCallsWithoutLosingInstances() {
+        ToolRegistry registry = new ToolRegistry().setDisabledTools(Set.of());
+        Tool ext = simpleCutinTool("plugin-tool");
+        registry.cutinRegistry().register(ext);
+        assertTrue(hasTool(registry.toOpenAiTools(), ext.id()));
+
+        registry.setDisabledTools(Set.of(ext.id(), "registered-while-hidden"));
+        assertFalse(hasTool(registry.toOpenAiTools(), ext.id()));
+        assertTrue(registry.cutinRegistry().definitions().isEmpty());
+        assertThrows(site.sorghum.cutin.core.tool.ToolNotFoundException.class, () ->
+                registry.cutinRegistry().call(new ToolCall("blocked", ext.id(), Map.of(), null), null));
+        Tool hidden = simpleCutinTool("registered-while-hidden");
+        registry.cutinRegistry().register(hidden);
+        assertTrue(registry.cutinRegistry().find(hidden.id()).isEmpty());
+
+        registry.setDisabledTools(Set.of());
+        assertSame(ext, registry.cutinRegistry().find(ext.id()).orElseThrow());
+        assertSame(hidden, registry.cutinRegistry().find(hidden.id()).orElseThrow());
+        assertTrue(hasTool(registry.toOpenAiTools(), ext.id()));
+        assertEquals("ok", registry.cutinRegistry().call(
+                new ToolCall("enabled", ext.id(), Map.of(), null), null).content());
+    }
+
+    @Test
+    void revokingSessionMcpAlsoRemovesHiddenExternalRegistrations() {
+        ToolRegistry registry = new ToolRegistry().setDisabledTools(Set.of());
+        Tool externalMcp = new CutinFunctionToolBridge(new McpFunctionTool(simpleTool("mcp-search")));
+        registry.cutinRegistry().register(externalMcp);
+        registry.setForceAllowTools(Set.of("webfetch"));
+        registry.setSessionTools(List.of());
+        registry.setForceAllowTools(null);
+
+        assertTrue(registry.cutinRegistry().find("mcp-search").isEmpty());
+        assertFalse(hasTool(registry.toOpenAiTools(), "mcp-search"));
+    }
+
     private static boolean hasTool(ONode tools, String name) {
         if (tools == null || !tools.isArray()) {
             return false;

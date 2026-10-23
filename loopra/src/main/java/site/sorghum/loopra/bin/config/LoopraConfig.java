@@ -149,7 +149,7 @@ public class LoopraConfig implements AgentConfig {
                     "resolve-library-id", "query-docs", "skillrefresh", "mcprefresh", "skilllist",
                     "read", "glob", "write", "ls", "grep", "edit",
                     "java_source", "checklist_step", "workspace_read", "webfetch",
-                    "codesearch", "ask_choice", "browser_request_user_action", "workspace_list", "workspace_write",
+                    "codesearch", "ask_choice", "workspace_list", "workspace_write",
                     "call_api", "checklist_start", "sub_agent", "checklist_status",
                     "skillread", "codegraph_explore",
                     "goal_create", "goal_status", "goal_update_step", "goal_complete", "goal_block", "goal_resume"

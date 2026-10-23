@@ -37,6 +37,7 @@ export const Check = Icon;
 export const ChevronDown = Icon;
 export const FolderClosed = Icon;
 export const FolderPlus = Icon;
+export const MessageCircle = Icon;
 `);
 const motionStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
@@ -67,7 +68,7 @@ const workspaces = Array.from({ length: 20 }, (_, index) => ({ hash: `h${index}`
 
 const rectOf = ({ top, bottom }) => ({ top, bottom, left: 0, right: 1500, width: 1500, height: bottom - top, x: 0, y: top, toJSON() {} });
 
-async function mount(rect, viewportHeight, clip) {
+async function mount(rect, viewportHeight, clip, overrides = {}) {
   const original = dom.window.Element.prototype.getBoundingClientRect;
   Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: viewportHeight });
   dom.window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
@@ -86,6 +87,7 @@ async function mount(rect, viewportHeight, clip) {
     await act(async () => root.render(createElement(HomeView, {
       workspaces, workspace: 'h0', workspaceName: 'project-0', menuOpen: true,
       onToggleMenu() {}, onSelect() {}, onManage() {}, engines: [], agentId: 'native', agentDisabled: false, onAgent() {},
+      ...overrides,
     }, null)));
   } finally {
     dom.window.Element.prototype.getBoundingClientRect = original;
@@ -139,6 +141,23 @@ test('an overflow-hidden pane bounds the menu so its heading is never clipped', 
   try {
     assert.equal(view.anchor.dataset.placement, 'top');
     assert.equal(view.anchor.style.getPropertyValue('--menu-max-height'), '261px');
+  } finally { await view.close(); }
+});
+
+test('pure chat keeps project management reachable even without any projects', async () => {
+  let managed = false;
+  const view = await mount({ top: 324, bottom: 340 }, 753, undefined, {
+    chatMode: true, workspace: 'chat', workspaceName: '纯聊天',
+    workspaces: [{ hash: 'chat', name: '纯聊天', path: '', kind: 'chat' }],
+    onManage: () => { managed = true; },
+  });
+  try {
+    assert.equal(view.menu.querySelectorAll('.workspace-menu-list button').length, 1);
+    const manage = [...view.menu.querySelectorAll('button')].find(button => button.textContent.includes('管理项目'));
+    assert.ok(manage);
+    await act(async () => manage.click());
+    assert.equal(managed, true);
+    assert.ok(view.menu.querySelector('hr'));
   } finally { await view.close(); }
 });
 

@@ -3,6 +3,7 @@ package site.sorghum.loopra.web.service;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
 import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.model.PasteContentDTO;
 
@@ -67,6 +68,9 @@ public class PasteContentService {
     public PasteContentDTO saveAtWorkspace(String workspacePath, String content) {
         if (content == null || content.isEmpty()) {
             throw new ServiceException("粘贴内容不能为空");
+        }
+        if (ChatMode.isChatRoot(workspacePath)) {
+            throw new ServiceException("纯聊天模式不会把输入保存到工作区");
         }
 
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
@@ -151,7 +155,8 @@ public class PasteContentService {
      * 项目路径为空时保留原文，由上层按原有流程处理。
      */
     public String externalizeIfNeeded(String workspacePath, String content) {
-        if (!shouldExternalize(content) || workspacePath == null || workspacePath.isBlank()) {
+        if (!shouldExternalize(content) || workspacePath == null || workspacePath.isBlank()
+                || ChatMode.isChatRoot(workspacePath)) {
             return content;
         }
         PasteContentDTO saved = saveAtWorkspace(workspacePath, content);
