@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { SessionRuns, sessionRunKey, draftRunKey, isRunView } from './helpers/session-runs.mjs';
 
 const compile = source => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
@@ -30,6 +31,8 @@ function environment() {
   const state = { configs: {}, busy: undefined, error: '', occupied: new Set(), sends: [], revision: 0 };
   const env = {
     server: 'http://localhost:4567', session: target, backend: { status: 'connected', ready: true },
+    runs: new SessionRuns(), sessionRunKey, isRunView, homeRunKey: draftRunKey('http://localhost:4567', 'project', 'codex', 0),
+    composerViewRef: { current: { server: 'http://localhost:4567', activeId: target.id } },
     seededConfigAt: { current: {} }, agentConfigRequest: { current: 0 },
     occupiedSessionsRef: { current: state.occupied }, queuedRef: { current: {} },
     isSessionOccupiedError, sessionQuery, agentPreferencesReady: true,

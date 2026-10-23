@@ -26,10 +26,11 @@ const options = [
 ];
 
 function environment() {
-  const calls = [], state = { selected: 'native', ready: undefined, error: '', drafts: [], cached: [] };
+  const calls = [], state = { selected: 'native', ready: undefined, error: '', drafts: [], cached: [], composer: {}, busy: undefined };
   const env = {
     server: 'http://127.0.0.1:40001', newAgentId: 'native', backend: { status: 'connected' },
     preparedNewSession: { current: null }, newAgentConfigRef: { current: null },
+    composerViewRef: { current: { server: 'http://127.0.0.1:40001', activeId: null, draftKey: 'home' } }, homeRunKey: 'home',
     agentConfigRequest: { current: 0 },
     api: { async request(path, method, body) { calls.push({ path, method, body }); return { selectedAgent: 'codex' }; } },
     setAgentPreferencesServer: value => { state.ready = value; },
@@ -37,10 +38,10 @@ function environment() {
     setAgentConfigError: value => { state.error = value; },
     setAgentPreferencesError: value => { state.error = value; },
     storeNewAgentConfig: value => { env.newAgentConfigRef.current = value; state.drafts.push(value); },
-    setAgentConfigBusy: () => {}, setAgentConfigs: update => { state.configs = update(state.configs || {}); },
+    setAgentConfigBusy: update => { state.busy = typeof update === 'function' ? update(state.busy) : update; }, setAgentConfigs: update => { state.configs = update(state.configs || {}); },
     cacheAgentConfig: (agent, values) => state.cached.push({ agent, values }),
     notify: message => { state.notice = message; },
-    setComposerOptions: () => {}, setPendingPlan: () => {},
+    setComposerOptions: update => { state.composer = typeof update === 'function' ? update(state.composer) : update; }, setPendingPlan: value => { state.plan = value; },
   };
   return { env, calls, state };
 }
@@ -130,6 +131,24 @@ test('editing an existing conversation updates that Agent cache as well as its s
     body: { workspaceHash: 'project', sessionName: 'chat', configId: 'effort', value: 'max' } });
   assert.deepEqual(state.configs['project/chat'], options);
   assert.deepEqual(state.cached, [{ agent: 'codex', values: options }]);
+});
+
+test('a slow Native configuration save cannot overwrite another conversation or clear its busy state', async () => {
+  const { env, state } = environment();
+  env.session = { id: 'project/A', workspaceHash: 'project', name: 'A', agentId: 'native' };
+  env.agentId = 'native';
+  env.composerViewRef.current.activeId = env.session.id;
+  let finish;
+  env.api.request = () => new Promise(resolve => { finish = resolve; });
+  const saving = callback('changeAgentConfig', env)('effort', 'max');
+  env.composerViewRef.current.activeId = 'project/B';
+  state.composer = { modelId: 'B-model', plan: true }; state.plan = 'B-plan'; state.busy = 'B-config';
+  finish({ configOptions: [...options, { id: 'plan', currentValue: 'off' }] });
+  await saving;
+  assert.equal(state.configs['project/A'][0].currentValue, 'deepseek');
+  assert.deepEqual(state.composer, { modelId: 'B-model', plan: true });
+  assert.equal(state.plan, 'B-plan');
+  assert.equal(state.busy, 'B-config');
 });
 
 test('home takes the restored backend configuration without replaying browser defaults', async () => {

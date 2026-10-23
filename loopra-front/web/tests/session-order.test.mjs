@@ -28,7 +28,7 @@ test('sidebar timestamps use time, relative days, weekday, then the date', () =>
 // the next server refresh (the server itself returns newest first).
 test('new sessions are prepended, never appended', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /setSessions\(current => \[target!, \.\.\.current\]\)/);
+  assert.match(app, /setSessions\(current => \[target!, \.\.\.current\.filter\(item => item\.id !== target!\.id\)\]\)/);
   assert.match(app, /setSessions\(current => \[target, \.\.\.current\]\)/);
   assert.doesNotMatch(app, /setSessions\(current => \[\.\.\.current, target/);
 });

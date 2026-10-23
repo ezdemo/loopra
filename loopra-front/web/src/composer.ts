@@ -220,13 +220,27 @@ export function attachmentViews(context: ComposerContext, pasteChars: Record<str
   return { images, files };
 }
 
-export function estimateContext(history: string[], draft: string, context: ComposerContext, limit = 128000, systemPrompt = '') {
-  const estimate = (text: string) => Math.ceil(Array.from(text).reduce((sum, char) => sum + (/[^\x00-\x7F]/.test(char) ? 1 : 0.25), 0));
+const tokenUnits = (text: string) => { let units = 0; for (const char of text) units += char.charCodeAt(0) < 128 ? 1 : 4; return units; };
+const estimateTokens = (text: string) => Math.ceil(tokenUnits(text) / 4);
+
+/** Cache only the current history, so typing and live replies never rescan old turns. */
+export class HistoryTokenEstimator {
+  private weights = new Map<string, number>();
+  estimate(history: string[]) {
+    const next = new Map<string, number>();
+    let units = Math.max(0, history.length - 1); // history.join('\n') separators
+    for (const text of history) { const weight = this.weights.get(text) ?? next.get(text) ?? tokenUnits(text); next.set(text, weight); units += weight; }
+    this.weights = next;
+    return Math.ceil(units / 4);
+  }
+}
+
+export function estimateContext(history: string[], draft: string, context: ComposerContext, limit = 128000, systemPrompt = '', historyTokens?: number) {
   const parts = [
-    { name: '系统指令', tokens: 420 + estimate(systemPrompt), color: '#2083ff' },
-    { name: '会话历史', tokens: estimate(history.join('\n')), color: '#8b7bdf' },
-    { name: '当前输入', tokens: estimate(draft), color: '#42b7a0' },
-    { name: '附加上下文', tokens: estimate([...context.projects, ...context.skills, ...context.files].join('\n')), color: '#e4b467' },
+    { name: '系统指令', tokens: 420 + estimateTokens(systemPrompt), color: '#2083ff' },
+    { name: '会话历史', tokens: historyTokens ?? estimateTokens(history.join('\n')), color: '#8b7bdf' },
+    { name: '当前输入', tokens: estimateTokens(draft), color: '#42b7a0' },
+    { name: '附加上下文', tokens: estimateTokens([...context.projects, ...context.skills, ...context.files].join('\n')), color: '#e4b467' },
   ];
   const total = parts.reduce((sum, part) => sum + part.tokens, 0);
   const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 128000;

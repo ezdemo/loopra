@@ -16,6 +16,8 @@ export type SidebarProps = {
   english: boolean;
   workspaces: Workspace[];
   sessions: Session[];
+  runningIds?: ReadonlySet<string>;
+  unreadIds?: ReadonlySet<string>;
   activeId: string;
   workspace: string;
   isHome: boolean;
@@ -172,6 +174,7 @@ export default function Sidebar(props: SidebarProps) {
               <button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => props.onSelectSession(entry.id)} title={entry.title}>
                 {activeId === entry.id && <SelectionIndicator />}
                 <SessionTitle text={entry.title} />
+                {props.runningIds?.has(entry.id) ? <span className="session-run-indicator running" role="img" aria-label="正在运行" title="正在运行" /> : props.unreadIds?.has(entry.id) && <span className="session-run-indicator" role="img" aria-label="有新回复" title="有新回复" />}
                 {entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}
                 <time>{sessionDate(entry.mtime)}</time>
               </button>

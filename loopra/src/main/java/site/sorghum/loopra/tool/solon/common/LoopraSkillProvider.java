@@ -6,6 +6,7 @@ import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.ai.talents.mount.Mount;
 import org.noear.solon.ai.talents.mount.MountManager;
 import org.noear.solon.ai.talents.mount.MountType;
+import org.noear.solon.ai.talents.mount.source.ClasspathMountSource;
 import site.sorghum.loopra.tool.SolonToTools;
 import site.sorghum.loopra.tool.solon.mcp.ProjectMcpSkill;
 
@@ -20,6 +21,10 @@ import java.util.stream.Stream;
 
 /** 基于 Solon MountManager 的 Loopra 技能/终端能力提供者。 */
 public class LoopraSkillProvider implements SolonToTools {
+    public static final String BUILTIN_SKILLS_ALIAS = "@builtin-skills";
+    public static final String SELF_SKILL_ID = BUILTIN_SKILLS_ALIAS + "/self-skill";
+    static final String BUILTIN_SKILLS_RESOURCE = "loopra/skills";
+
     LoopraSkillTalent skillTalent;
     SessionTerminalTalent terminalTalent;
     @Getter
@@ -32,10 +37,22 @@ public class LoopraSkillProvider implements SolonToTools {
     public LoopraSkillProvider(String workDir) {
         Files.createDirectories(Paths.get(System.getProperty("user.home"), ".loopra", "skills"));
         poolManager = new MountManager(workDir);
+        // 随 JAR 发布的只读技能，与用户/项目技能保持独立命名空间。
+        poolManager.register(Mount.builder()
+                .type(MountType.SKILLS)
+                .alias(BUILTIN_SKILLS_ALIAS)
+                .source(ClasspathMountSource.of(LoopraSkillProvider.class.getClassLoader(), BUILTIN_SKILLS_RESOURCE))
+                .build());
         poolManager.register(Mount.builder()
                 .type(MountType.SKILLS)
                 .alias("@loopra-skills")
                 .source(new SkillFileMountSource(Paths.get(System.getProperty("user.home"), ".loopra", "skills")))
+                .build());
+        // 通用技能目录只挂载读取；不存在时后续 skillrefresh 仍可发现。
+        poolManager.register(Mount.builder()
+                .type(MountType.SKILLS)
+                .alias("@agents-skills")
+                .source(new SkillFileMountSource(Paths.get(System.getProperty("user.home"), ".agents", "skills")))
                 .build());
         // 项目 Skill 与用户 Skill 分开挂载；不存在时保留挂载，后续 refresh 可发现新目录。
         if (workDir != null && !workDir.isBlank() && !"~".equals(workDir)) {
@@ -95,13 +112,12 @@ public class LoopraSkillProvider implements SolonToTools {
     @Override
     public String getSystemPrompt() {
         return """
-                ## 技能库执行规约
-                ### 运行模式: 路径导航
-                优先使用合适的技能解决问题（不确定用什么技能时，可通过 skillsearch 搜索）。
-                注意：在执行任务中，请务必通过 skillread 读取或回顾规约。
-                当前技能较多，仅展示路径索引（没有描述）。请推断功能并调用 skillread。
-                如果不确定，请使用 skillsearch 检索
-                """;
+                ## Loopra 能力入口
+                首次处理任务前，调用 skillread(name="%s") 读取内置 SelfSkill，了解能力发现、技能加载与扩展方式。
+                当前上下文已包含该技能时无需重复读取；折叠后缺失相关规约或不确定能力如何使用时重新读取。
+                实际可用能力以本轮工具定义、技能目录和工具返回为准。
+
+                """.formatted(SELF_SKILL_ID) + skillTalent.getInstruction(null);
     }
 
 }
