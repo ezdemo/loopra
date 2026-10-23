@@ -3,7 +3,7 @@
 const ELECTRON_AUXILIARY = [
   'desktopSplash', 'desktopUpdate', 'desktopOnboarding', 'desktopChatTab',
   'desktopSearch', 'desktopMessage', 'desktopPopup', 'desktopPet',
-  'requirementBoard', 'aiBrowser', 'elementInspector'
+  'requirementBoard', 'elementInspector'
 ]
 
 // The main workspace uses React in both the browser and Electron. Auxiliary

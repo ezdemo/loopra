@@ -83,7 +83,7 @@ class ImageReadToolTest {
     }
 
     @Test
-    void createsVisualResultForBrowserSnapshot() {
+    void createsVisualResultForImageToolOutput() {
         String result = ImageReadTool.imageResult("{\"snapshotId\":\"tab-1-s1\"}",
                 "data:image/png;base64," + Base64.getEncoder().encodeToString(PNG_HEADER), "auto");
         ImageToolResult.ImageResult image = ImageReadTool.parseResult(result);

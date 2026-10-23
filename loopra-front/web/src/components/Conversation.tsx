@@ -1,5 +1,5 @@
 import { Collapse, Disclosure, Enter, useCollapseAll } from './Motion';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlignLeft, ChevronRight, Copy, GitBranch, Pencil, Undo2 } from 'lucide-react';
 import type { ChatBlock, Message } from '../chat';
 import { formatTurnDuration, splitAssistantBlocks, splitUserContext } from '../chat';
@@ -16,12 +16,36 @@ import { messageFileStats } from '../file-stats';
 type MessageActions = BlockActions & { onEdit: (text: string) => void; onBranch: (id: string) => void; onRollback: (message: Message) => void; busy: boolean; onRawEvents?: () => void };
 type MessageViewActions = MessageActions & { canManageHistory: boolean };
 
+// App callbacks capture the current workspace/session. Keep event identities
+// stable for memoized messages, while dispatching to the latest committed view.
+function useMessageActions(actions: MessageActions): MessageActions {
+  const latest = useRef(actions);
+  useLayoutEffect(() => { latest.current = actions; });
+  const handlers = useMemo(() => ({
+    notify: (text: string) => latest.current.notify(text),
+    onEdit: (text: string) => latest.current.onEdit(text),
+    onBranch: (id: string) => latest.current.onBranch(id),
+    onRollback: (message: Message) => latest.current.onRollback(message),
+    onOpenFile: (path: string) => latest.current.onOpenFile?.(path),
+    onDiff: (path: string, diff?: string) => latest.current.onDiff?.(path, diff),
+    onRevert: (changes: Parameters<NonNullable<BlockActions['onRevert']>>[0]) => latest.current.onRevert!(changes),
+    onRawEvents: () => latest.current.onRawEvents?.(),
+  }), []);
+  return {
+    ...handlers, busy: actions.busy,
+    onOpenFile: actions.onOpenFile ? handlers.onOpenFile : undefined,
+    onDiff: actions.onDiff ? handlers.onDiff : undefined,
+    onRevert: actions.onRevert ? handlers.onRevert : undefined,
+    onRawEvents: actions.onRawEvents ? handlers.onRawEvents : undefined,
+  };
+}
+
 function UserImages({ images }: { images: string[] }) {
   const preview = useImagePreview();
   return <div className="user-images">{images.map((src, index) => <button type="button" key={index} className="user-image-button" aria-label={`预览图片 ${index + 1}`} onClick={() => preview?.(src)}><img className="user-image" src={src} alt={`图片 ${index + 1}`} /></button>)}</div>;
 }
 
-function UserMessage({ message, onEdit, onRollback, busy, notify, onRawEvents, canManageHistory }: { message: Message } & MessageViewActions) {
+const UserMessage = memo(function UserMessage({ message, onEdit, onRollback, busy, notify, onRawEvents, canManageHistory }: { message: Message } & MessageViewActions) {
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
   const { context, text } = splitUserContext(message.text);
@@ -34,29 +58,30 @@ function UserMessage({ message, onEdit, onRollback, busy, notify, onRawEvents, c
     {!!message.images?.length && <UserImages images={message.images} />}
     <footer className="msg-footer"><time className="msg-time">{message.time}</time><span className="msg-actions">{canManageHistory && <>{(message.rollbackId || message.rollbackTimestamp) && <button aria-label="撤回到此消息" disabled={busy} onClick={() => onRollback(message)}><Undo2 size={13} /></button>}<IconButton label="重新编辑消息" onClick={() => onEdit(text)}><Pencil size="0.8125rem" /></IconButton></>}<IconButton label="复制消息" onClick={() => { void copyText(message.text, notify); }}><Copy size="0.8125rem" /></IconButton></span></footer>
   </div></Enter>;
+});
+
+function TurnDuration({ startedAt, finishedAt, streaming, showDuration }: { startedAt?: number; finishedAt?: number; streaming: boolean; showDuration: boolean }) {
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    if (!streaming || !showDuration || !startedAt || finishedAt) return;
+    setClock(Date.now());
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [streaming, showDuration, startedAt, finishedAt]);
+  const elapsed = showDuration && startedAt ? Math.max(0, (finishedAt || clock) - startedAt) : null;
+  return <span>{elapsed === null ? '思考过程' : '用时 ' + formatTurnDuration(elapsed)}</span>;
 }
 
-function AssistantMessage({ message, streaming, showDuration = true, canBranch, ...actions }: { message: Message; streaming: boolean; showDuration?: boolean; canBranch: boolean } & MessageActions) {
+const AssistantMessage = memo(function AssistantMessage({ message, streaming, showDuration = true, canBranch, ...actions }: { message: Message; streaming: boolean; showDuration?: boolean; canBranch: boolean } & MessageActions) {
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
-  const [clock, setClock] = useState(Date.now());
   // Choices are answered in the composer popup and render nothing themselves, so
   // they must not act as a folding boundary: until the final body arrives the
   // already-run 思考/工具 stay visible, exactly as they were before the question.
   const blocks: ChatBlock[] = useMemo(() => message.blocks?.length ? message.blocks : message.text ? [{ id: message.id + '-text', type: 'content', content: message.text }] : [], [message.blocks, message.text, message.id]);
   const { process, final } = useMemo(() => splitAssistantBlocks(blocks.filter(block => block.type !== 'choice')), [blocks]);
-  useEffect(() => {
-    if (!streaming) return;
-    setClock(Date.now());
-    const timer = setInterval(() => setClock(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [streaming]);
-  // A replayed run has no trustworthy end time while it streams, so its header
-  // reads "思考过程" instead of a duration that would keep counting after a stop.
-  const elapsed = showDuration && message.startedAt ? Math.max(0, (message.finishedAt || clock) - message.startedAt) : null;
-  const duration = elapsed === null ? '' : formatTurnDuration(elapsed);
-  const stats = messageFileStats(blocks);
-  const answerText = final.map(block => block.type === 'content' ? block.content : block.type === 'tool_call' ? block.result || '' : '').filter(Boolean).join('\n\n') || message.text;
+  const stats = useMemo(() => messageFileStats(blocks), [blocks]);
+  const answerText = useMemo(() => final.map(block => block.type === 'content' ? block.content : block.type === 'tool_call' ? block.result || '' : '').filter(Boolean).join('\n\n') || message.text, [final, message.text]);
   const processId = 'process-' + message.id;
   // A pending choice keeps the turn's "用时" summary on screen even when nothing
   // has folded into it yet; on approval the same bubble simply keeps streaming.
@@ -64,19 +89,20 @@ function AssistantMessage({ message, streaming, showDuration = true, canBranch, 
   if (!blocks.length && !streaming) return null;
   return <Enter as="article" className="msg assistant" aria-label="助手消息" data-message-id={message.id}><div className="msg-body assistant-body">
     {(process.length > 0 || streaming || pending) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
-      <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><span>{duration ? '用时 ' + duration : '思考过程'}</span><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
+      <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><TurnDuration startedAt={message.startedAt} finishedAt={message.finishedAt} streaming={streaming} showDuration={showDuration} /><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
       <Collapse open={expanded && process.length > 0} id={processId} className="assistant-process-detail"><BlockRenderer blocks={process} {...actions} /></Collapse>
     </section>}
     <BlockRenderer blocks={final} streaming={streaming} {...actions} />
     {streaming && !message.text && <div className="thinking" role="status"><i /><i /><i /><span>正在准备回复…</span></div>}
     {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>修改 {stats.edited.length} 文件</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>新增 {stats.created.length} 文件</button>}</span><span className="msg-actions"><IconButton label="复制回复" onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canBranch && <button type="button" className="msg-action-button" aria-label="继续到新会话" title="从此回复继续到新会话" disabled={actions.busy} onClick={() => actions.onBranch(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
   </div></Enter>;
-}
+});
 
 // Long sessions mount only the visible slice (legacy `Chat.vue` virtualWindow);
 // measured heights keep the spacer sizes honest and the scroll position stable.
-export function Messages({ session, loading, scrollRef, offsetsRef, showDuration = true, ...actions }: { session: Session; loading: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
-  const messages = getSessionMessages(session);
+export function Messages({ session, loading, scrollRef, offsetsRef, showDuration = true, ...callbacks }: { session: Session; loading: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
+  const actions = useMessageActions(callbacks);
+  const messages = useMemo(() => getSessionMessages(session), [session.kind, session.messages]);
   const canManageHistory = !session.agentId || session.agentId === 'native';
   const canBranch = canManageHistory || session.agentId === 'codex' || session.agentId === 'claude-code';
   const last = messages[messages.length - 1];

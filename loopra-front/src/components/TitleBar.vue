@@ -44,14 +44,6 @@
 
     <!-- 右侧：操作按钮 + 窗口控制 -->
     <div class="titlebar-right">
-      <button v-if="isDesktop" class="tb-btn" title="AI 浏览器" @click.stop="$emit('openBrowser')" @dblclick.stop>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="9"/>
-          <line x1="3" y1="12" x2="21" y2="12"/>
-          <path d="M12 3a14 14 0 0 1 0 18"/>
-          <path d="M12 3a14 14 0 0 0 0 18"/>
-        </svg>
-      </button>
       <button v-if="isDesktop" class="tb-btn" title="元素检查" @click.stop="$emit('toggleElement')" @dblclick.stop :class="{ active: elementOn }">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
@@ -117,7 +109,7 @@ defineProps({
   hasNewVersion: { type: Boolean, default: false }
 })
 
-defineEmits(['toggleSide', 'openSettings', 'clear', 'export', 'toggleGit', 'toggleElement', 'openBrowser', 'showUpdate'])
+defineEmits(['toggleSide', 'openSettings', 'clear', 'export', 'toggleGit', 'toggleElement', 'showUpdate'])
 
 const isMaximized = ref(false)
 const isDesktop = ref(false)

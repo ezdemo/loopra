@@ -1,4 +1,4 @@
-import { cloneElement, createContext, isValidElement, useContext, useMemo, useState } from 'react';
+import { cloneElement, createContext, isValidElement, memo, useContext, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -119,7 +119,7 @@ function AlertQuote({ children }: { children?: ReactNode }) {
   return <div className={`markdown-alert markdown-alert-${type}`}>{stripped}</div>;
 }
 
-export default function Markdown({ text, notify, onOpenFile }: { text: string; notify: (message: string) => void; onOpenFile?: (path: string) => void }) {
+export default memo(function Markdown({ text, notify, onOpenFile }: { text: string; notify: (message: string) => void; onOpenFile?: (path: string) => void }) {
   const source = useMemo(() => normalizeAlertMarkdown(normalizeMathMarkdown(text)), [text]);
   return <LinkPopoverProvider><NoticeContext.Provider value={notify}><OpenFileContext.Provider value={onOpenFile ?? null}><div className="block-content"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]} rehypePlugins={[rehypeRaw, rehypeLocalFileLinks, [rehypeSanitize, markdownSchema], rehypeKatex]} urlTransform={urlTransform} components={components}>{source}</ReactMarkdown></div></OpenFileContext.Provider></NoticeContext.Provider></LinkPopoverProvider>;
-}
+});

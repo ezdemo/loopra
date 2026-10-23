@@ -19,7 +19,7 @@ test('Web and Electron workspaces use React while auxiliary windows keep their r
   assert.equal(usesLegacyRenderer(''), false);
   assert.equal(usesLegacyRenderer('?theme=dark&desktopChatTab=0'), false);
   assert.equal(usesLegacyRenderer('?desktopShell=1&theme=dark', true), false);
-  for (const key of ['desktopSplash', 'desktopUpdate', 'desktopOnboarding', 'desktopChatTab', 'desktopSearch', 'desktopMessage', 'desktopPopup', 'desktopPet', 'requirementBoard', 'aiBrowser', 'elementInspector']) {
+  for (const key of ['desktopSplash', 'desktopUpdate', 'desktopOnboarding', 'desktopChatTab', 'desktopSearch', 'desktopMessage', 'desktopPopup', 'desktopPet', 'requirementBoard', 'elementInspector']) {
     assert.equal(usesLegacyRenderer(`?${key}=1&theme=dark`), true, key);
   }
   assert.equal(usesLegacyRenderer('', true), false);

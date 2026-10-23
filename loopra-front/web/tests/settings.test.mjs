@@ -25,15 +25,14 @@ test('custom provider models reach the picker; disabled channels stay out', () =
   assert.match(settings.validateProvider({ ...provider, baseUrl: 'file:///secret' }), /HTTP/);
 });
 
-test('available tools honor read-only mode, plugin switches and browser settings', () => {
+test('available tools honor read-only mode and plugin switches', () => {
   const config = defaults();
   assert.ok(settings.availableTools(config, '完全自动').some(tool => tool.name === 'write'));
   assert.ok(settings.availableTools(config, '只读模式').every(tool => tool.readOnly));
   config.plugins.find(plugin => plugin.id === 'workspace').enabled = false;
-  config.browserEnabled = false;
   config.tools.find(tool => tool.name === 'bash').enabled = false;
   const names = settings.availableTools(config, '完全自动').map(tool => tool.name);
-  for (const name of ['read', 'search', 'write', 'browser', 'bash']) assert.ok(!names.includes(name));
+  for (const name of ['read', 'search', 'write', 'bash']) assert.ok(!names.includes(name));
 });
 
 test('runtime snapshots include prompt and selected tools but never integration credentials', () => {

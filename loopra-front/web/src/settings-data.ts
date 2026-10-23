@@ -9,7 +9,7 @@ export type Integration = { id: string; kind: IntegrationKind; name: string; ena
 export type Extension = { id: string; name: string; description: string; enabled: boolean; source?: string };
 export type AgentSettings = {
   defaultWorkspace: string; projectPath: string; agentName: string; systemPrompt: string;
-  serverUrl: string; browserEnabled: boolean; browser: string; headless: boolean;
+  serverUrl: string;
   validatorModel: string; imageModel: string; tools: ToolConfig[]; skills: SkillConfig[]; agents: AgentProfile[];
   integrations: Integration[]; plugins: Extension[]; extensions: Extension[]; petEnabled: boolean;
 };
@@ -19,14 +19,13 @@ export const defaultTools: ToolConfig[] = [
   { name: 'search', description: '搜索代码与文本', category: '文件', readOnly: true, enabled: true },
   { name: 'write', description: '创建或修改文件', category: '文件', readOnly: false, enabled: true },
   { name: 'bash', description: '执行终端命令', category: '终端', readOnly: false, enabled: true },
-  { name: 'browser', description: '浏览页面与检查交互', category: '浏览器', readOnly: false, enabled: true },
   { name: 'ask_choice', description: '请求用户选择', category: '协作', readOnly: true, enabled: true },
   { name: 'sub_agent', description: '委派任务给子代理', category: '协作', readOnly: false, enabled: true },
   { name: 'finish', description: '返回最终结果', category: '协作', readOnly: true, enabled: true },
 ];
 export const defaultAgentSettings: AgentSettings = {
   defaultWorkspace: 'comfyui', projectPath: '~\\Documents\\ChatGPT\\comfyui', agentName: '编程助手', systemPrompt: defaultSystemPrompt,
-  serverUrl: 'http://127.0.0.1:8080', browserEnabled: true, browser: '内置浏览器', headless: false,
+  serverUrl: 'http://127.0.0.1:8080',
   validatorModel: '', imageModel: '', tools: defaultTools,
   skills: [
     { id: 'review', name: '代码审查', description: '检查逻辑、边界条件与潜在回归', enabled: true },
@@ -43,7 +42,6 @@ export const defaultAgentSettings: AgentSettings = {
   plugins: [
     { id: 'workspace', name: '工作区工具', description: '文件读取、搜索和修改', enabled: true },
     { id: 'terminal', name: '终端工具', description: '命令执行与输出解析', enabled: true },
-    { id: 'browser', name: '浏览器工具', description: '页面预览与交互检查', enabled: true },
   ],
   extensions: [{ id: 'core', name: 'Loopra Core', description: '基础 Agent 能力 · 内置演示', enabled: true }],
   petEnabled: false,
@@ -52,8 +50,7 @@ export const defaultAgentSettings: AgentSettings = {
 export function availableTools(settings: AgentSettings, mode: string) {
   return settings.tools.filter(tool => tool.enabled && (mode !== '只读模式' || tool.readOnly)
     && (tool.category !== '文件' || settings.plugins.find(plugin => plugin.id === 'workspace')?.enabled !== false)
-    && (tool.name !== 'bash' || settings.plugins.find(plugin => plugin.id === 'terminal')?.enabled !== false)
-    && (tool.name !== 'browser' || (settings.browserEnabled && settings.plugins.find(plugin => plugin.id === 'browser')?.enabled !== false)));
+    && (tool.name !== 'bash' || settings.plugins.find(plugin => plugin.id === 'terminal')?.enabled !== false));
 }
 export function runtimeSnapshot(settings: AgentSettings, workspace: string, options: ComposerOptions, autoContext: boolean) {
   const role = settings.agents.find(agent => agent.enabled && agent.name === settings.agentName);

@@ -1,5 +1,5 @@
 import { Collapse, Disclosure, useCollapseAll } from './Motion';
-import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
 import { Brain, Check, ChevronDown, Circle, FileCode2, FileDiff, ListTree, LoaderCircle, PanelRight, Undo2, X } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
@@ -46,7 +46,7 @@ function ChangeRow({ change, open, disabled, onToggle, onDiff }: { change: FileC
   </>;
 }
 
-function FileChanges({ changes, onDiff, onRevert, notify }: { changes: FileChange[] } & BlockActions) {
+const FileChanges = memo(function FileChanges({ changes, onDiff, onRevert, notify }: { changes: FileChange[] } & BlockActions) {
   // An undo only speaks for the patch it was pressed on: the undo reverts the
   // files, and if the turn then edits them again the card has to come back
   // instead of staying stamped 已撤销 over a patch nobody reverted.
@@ -73,7 +73,7 @@ function FileChanges({ changes, onDiff, onRevert, notify }: { changes: FileChang
     void onRevert?.(changes).then(() => { setUndonePatch(patch); notify('文件改动已撤销'); }).catch(error => notify(error instanceof Error ? error.message : '撤销失败'));
   };
   return <section className={`block-file-changes ${undone ? 'undone' : ''}`} aria-label="文件改动"><div className="file-changes-head"><button type="button" className="file-changes-main" aria-expanded={onlyFile?.diff ? headOpen : undefined} aria-controls={onlyFile?.diff ? headId : undefined} onClick={openHead} disabled={!onlyFile || undone || !onlyFile.diff}><span className="file-changes-icon"><FileDiff size="1.3125rem" /></span><span className="file-changes-summary"><strong>{undone ? '文件改动已撤销' : onlyFile ? onlyFile.path.split('/').pop() : `${changes.length} 个文件已修改`}</strong><span className="file-changes-total"><b className="file-change-add">+{total.additions}</b><b className="file-change-del">−{total.deletions}</b>{onlyFile && <span>{onlyFile.created ? '新增文件' : '文件已修改'}</span>}</span></span>{onlyFile?.diff && <ChevronDown size="0.875rem" className={headOpen ? 'rotated' : ''} />}</button>{onlyFile && onDiff && !undone && <IconButton label="在面板中打开" onClick={() => onDiff(onlyFile.path, onlyFile.diff)}><PanelRight size="0.9375rem" /></IconButton>}<Button size="sm" variant="light" className="file-changes-undo" endContent={<Undo2 size="0.875rem" />} isDisabled={undone || !onRevert || changes.some(change => !change.diff)} onPress={revert}>{undone ? '已撤销' : '撤销'}</Button></div>{onlyFile?.diff && <Collapse open={headOpen} id={headId}><div className="file-change-diff"><UnifiedDiff diff={onlyFile.diff} path={onlyFile.path} /></div></Collapse>}<Collapse open={!undone && !onlyFile}>{changes.slice(0, 3).map(change => <ChangeRow key={change.path} change={change} open={expanded === change.path} disabled={undone} onToggle={() => toggle(change.path)} onDiff={onDiff} />)}<Collapse open={showAll}>{changes.slice(3).map(change => <ChangeRow key={change.path} change={change} open={expanded === change.path} disabled={undone} onToggle={() => toggle(change.path)} onDiff={onDiff} />)}</Collapse></Collapse>{!undone && changes.length > 3 && <button type="button" className="file-changes-expand" onClick={() => setShowAll(!showAll)}>{showAll ? '收起文件' : `再显示 ${changes.length - 3} 个文件`}<ChevronDown size="0.875rem" className={showAll ? 'rotated' : ''} /></button>}</section>;
-}
+});
 
 type StepProps = { block: ChatBlock; streaming?: boolean } & BlockActions;
 

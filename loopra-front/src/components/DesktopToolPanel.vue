@@ -31,20 +31,7 @@
               @auxclick="onTabAuxClick($event, tab.id)"
             >
               <span class="desktop-tool-tab-icon" aria-hidden="true">
-                <span v-if="tab.kind === 'browser' && tab.loading" class="desktop-tool-tab-spinner"></span>
-                <img
-                  v-else-if="tab.kind === 'browser' && tab.favicon"
-                  class="desktop-tool-tab-favicon"
-                  :src="tab.favicon"
-                  alt=""
-                  @error="onBrowserFaviconError(tab.id)"
-                />
-                <span
-                  v-else-if="tab.kind === 'browser'"
-                  class="desktop-tool-tab-browser-avatar"
-                  :style="{ background: browserSiteColor(tab.url) }"
-                >{{ browserTabLetter(tab) }}</span>
-                <i v-else :class="['codicon', tab.icon]" />
+                <i :class="['codicon', tab.icon]" />
               </span>
               <span class="desktop-tool-tab-title">{{ tab.label }}</span>
               <span
@@ -235,14 +222,6 @@
           v-show="activeToolId === 'bash'"
           embedded
         />
-        <AIBrowser
-          ref="browserRef"
-          v-show="isBrowserSurfaceActive"
-          :active="open && isBrowserSurfaceActive"
-          :inspect-mode="activeToolId === 'review'"
-          hide-tab-strip
-          @state-change="syncBrowserState"
-        />
       </div>
     </section>
   </aside>
@@ -257,7 +236,6 @@ import ProjectCapabilitiesPanel from './ProjectCapabilitiesPanel.vue'
 const FileExplorer = defineAsyncComponent(() => import('./FileExplorer.vue'))
 const EnvironmentPanel = defineAsyncComponent(() => import('./EnvironmentPanel.vue'))
 const SubAgentPanel = defineAsyncComponent(() => import('./SubAgentPanel.vue'))
-const AIBrowser = defineAsyncComponent(() => import('./AIBrowser.vue'))
 const TerminalView = defineAsyncComponent(() => import('./TerminalView.vue'))
 
 const props = defineProps({
@@ -279,9 +257,7 @@ const emit = defineEmits([
 ])
 
 const toolOptions = [
-  {id: 'review', label: '审查', icon: 'codicon-inspect', shortcut: 'Ctrl+Shift+G'},
   {id: 'terminal', label: '终端', icon: 'codicon-terminal-bash', shortcut: 'Ctrl+`'},
-  {id: 'browser', label: '浏览器', icon: 'codicon-globe', shortcut: 'Ctrl+T'},
   {id: 'files', label: '文件', icon: 'codicon-files', shortcut: 'Ctrl+P'},
   {id: 'environment', label: '环境信息', icon: 'codicon-git-branch', shortcut: ''},
   {id: 'sub-agents', label: '子代理', icon: 'codicon-organization', shortcut: ''},
@@ -301,11 +277,6 @@ const nativeToolMenuAvailable = typeof window !== 'undefined'
 const openTabs = ref([])
 const visited = ref(new Set())
 const activeTabId = ref('')
-const browserState = ref({activeTabId: null, tabs: []})
-const browserStateReady = ref(false)
-const browserRequested = ref(false)
-const browserCreatePending = ref(false)
-const browserRef = ref(null)
 const fileExplorerRef = ref(null)
 const environmentPanelRef = ref(null)
 const subAgentPanelRef = ref(null)
@@ -313,15 +284,7 @@ const projectCapabilitiesPanelRef = ref(null)
 const scheduleRef = ref(null)
 
 const activeTab = computed(() => openTabs.value.find((tab) => tab.id === activeTabId.value) || null)
-const activeToolId = computed(() => {
-  if (activeTab.value?.kind === 'browser') return activeTab.value.id
-  return activeTab.value?.toolId || ''
-})
-const isBrowserSurfaceActive = computed(() => activeToolId.value === 'review' || activeTab.value?.kind === 'browser')
-
-const BROWSER_TAB_PREFIX = 'browser:'
-const browserPanelTabId = (id) => `${BROWSER_TAB_PREFIX}${id}`
-const failedBrowserFavicons = new Map()
+const activeToolId = computed(() => activeTab.value?.toolId || '')
 
 function findTool(toolId) {
   return toolOptions.find((tool) => tool.id === toolId) || null
@@ -346,42 +309,8 @@ function makeToolTab(toolId) {
   }
 }
 
-function browserSiteColor(url) {
-  const colors = ['#5b8def', '#e06c75', '#e5c07b', '#98c379', '#56b6c2', '#c678dd', '#d19a66', '#61afef']
-  const text = String(url || '')
-  let hash = 0
-  for (let index = 0; index < text.length; index += 1) hash = (hash * 31 + text.charCodeAt(index)) >>> 0
-  return colors[hash % colors.length]
-}
-
-function browserTabLetter(tab) {
-  const text = String(tab.title || tab.url || '新标签页').trim()
-  const first = text.replace(/^https?:\/\/(www\.)?/i, '').charAt(0)
-  return first ? first.toUpperCase() : '新'
-}
-
-function makeBrowserTab(tab) {
-  const failed = failedBrowserFavicons.get(tab.id)
-  const favicon = failed && failed.url === tab.url && failed.favicon === tab.favicon
-    ? null
-    : (tab.favicon || null)
-  if (failed && (failed.url !== tab.url || failed.favicon !== tab.favicon)) failedBrowserFavicons.delete(tab.id)
-  return {
-    id: browserPanelTabId(tab.id),
-    browserTabId: tab.id,
-    kind: 'browser',
-    toolId: 'browser',
-    label: tab.title || '新标签页',
-    title: tab.title || tab.url || '新标签页',
-    url: tab.url || '',
-    favicon,
-    loading: Boolean(tab.loading),
-    closable: true
-  }
-}
-
 function isToolOpen(toolId) {
-  return openTabs.value.some((tab) => tab.toolId === toolId || (toolId === 'browser' && tab.kind === 'browser'))
+  return openTabs.value.some((tab) => tab.toolId === toolId)
 }
 
 function emitActive(value) {
@@ -409,46 +338,9 @@ function insertToolTab(toolId) {
   return tab
 }
 
-async function ensureBrowserTab() {
-  if (!browserRef.value || browserCreatePending.value) return
-  if (!browserStateReady.value) {
-    await browserRef.value.refreshState?.()
-    if (!browserStateReady.value) return
-  }
-  if (browserState.value.tabs.length > 0) {
-    browserRequested.value = false
-    syncBrowserState(browserState.value)
-    return
-  }
-  browserCreatePending.value = true
-  try {
-    await browserRef.value.newTab?.()
-  } finally {
-    browserCreatePending.value = false
-  }
-}
-
 function openTool(toolId, {notify = true} = {}) {
   const normalized = normalizeToolId(toolId)
   if (!normalized) return
-  if (normalized === 'browser') {
-    browserRequested.value = true
-    const browserTabs = openTabs.value.filter((tab) => tab.kind === 'browser')
-    if (browserTabs.length > 0) {
-      browserRequested.value = false
-      const target = browserState.value.activeTabId
-        ? browserPanelTabId(browserState.value.activeTabId)
-        : browserTabs[0].id
-      setActiveTab(target, notify)
-      return
-    }
-    const placeholder = openTabs.value.find((tab) => tab.id === 'browser') || insertToolTab('browser')
-    if (placeholder) {
-      setActiveTab(placeholder.id, notify)
-      void nextTick(() => ensureBrowserTab())
-    }
-    return
-  }
   const tab = insertToolTab(normalized)
   if (tab) setActiveTab(tab.id, notify)
 }
@@ -467,16 +359,10 @@ function activateTab(id) {
   const tab = openTabs.value.find((item) => item.id === id)
   if (!tab) return
   setActiveTab(tab.id)
-  if (tab.kind === 'browser') void browserRef.value?.activate?.(tab.browserTabId)
 }
 
 function fallbackAfterClose(index) {
   const next = openTabs.value[index] || openTabs.value[index - 1]
-  setActiveTab(next?.id || '', true)
-}
-
-function fallbackBeforeClose(index) {
-  const next = openTabs.value[index + 1] || openTabs.value[index - 1]
   setActiveTab(next?.id || '', true)
 }
 
@@ -492,18 +378,6 @@ function removeTab(id) {
 async function closeTab(id) {
   const tab = openTabs.value.find((item) => item.id === id)
   if (!tab) return
-  if (tab.kind === 'browser') {
-    browserRequested.value = false
-    // 先选中相邻标签，关闭原生 WebContentsView 后状态事件会移除当前标签。
-    if (activeTabId.value === id) fallbackBeforeClose(openTabs.value.indexOf(tab))
-    try {
-      await browserRef.value?.closeTab?.(tab.browserTabId)
-    } catch (error) {
-      console.warn('[desktop-tool-panel] failed to close browser tab:', error)
-    }
-    return
-  }
-  if (tab.id === 'browser') browserRequested.value = false
   removeTab(id)
 }
 
@@ -511,55 +385,6 @@ function onTabAuxClick(event, id) {
   if (event.button === 1) {
     event.preventDefault()
     void closeTab(id)
-  }
-}
-
-function onBrowserFaviconError(id) {
-  const tab = openTabs.value.find((item) => item.id === id)
-  if (tab) {
-    failedBrowserFavicons.set(tab.browserTabId, {url: tab.url, favicon: tab.favicon})
-    tab.favicon = null
-  }
-}
-
-function syncBrowserState(nextState) {
-  browserStateReady.value = true
-  const nextBrowserTabs = (Array.isArray(nextState?.tabs) ? nextState.tabs : []).map(makeBrowserTab)
-  if (nextBrowserTabs.length > 0) browserRequested.value = false
-  browserState.value = {
-    activeTabId: nextState?.activeTabId || null,
-    // 保留原生浏览器标签的原始 id；右侧栏标签使用 browser:<id>，两者不能混用。
-    tabs: (Array.isArray(nextState?.tabs) ? nextState.tabs : []).map((tab) => ({...tab}))
-  }
-
-  const current = openTabs.value.find((tab) => tab.id === activeTabId.value)
-  const oldBrowserIndex = openTabs.value.findIndex((tab) => tab.kind === 'browser' || tab.id === 'browser')
-  const nonBrowserTabs = openTabs.value.filter((tab) => tab.kind !== 'browser' && tab.id !== 'browser')
-  const keepBrowserPlaceholder = nextBrowserTabs.length === 0 && browserRequested.value
-  if (nextBrowserTabs.length > 0) {
-    const insertionIndex = oldBrowserIndex >= 0 ? Math.min(oldBrowserIndex, nonBrowserTabs.length) : nonBrowserTabs.length
-    nonBrowserTabs.splice(insertionIndex, 0, ...nextBrowserTabs)
-  } else if (keepBrowserPlaceholder) {
-    const insertionIndex = oldBrowserIndex >= 0 ? Math.min(oldBrowserIndex, nonBrowserTabs.length) : nonBrowserTabs.length
-    nonBrowserTabs.splice(insertionIndex, 0, makeToolTab('browser'))
-  }
-  openTabs.value = nonBrowserTabs
-  if (!current || current.kind === 'browser' || current.id === 'browser') {
-    const target = nextState?.activeTabId || nextBrowserTabs[0]?.browserTabId
-    const fallback = target
-      ? browserPanelTabId(target)
-      : keepBrowserPlaceholder
-        ? 'browser'
-        : nonBrowserTabs[Math.min(Math.max(oldBrowserIndex, 0), nonBrowserTabs.length - 1)]?.id || ''
-    setActiveTab(fallback, false)
-    emitActive(fallback)
-  }
-  if (nextBrowserTabs.length === 0 && openTabs.value.length === 0) {
-    activeTabId.value = ''
-    emitActive('')
-  }
-  if (nextBrowserTabs.length === 0 && browserRequested.value && openTabs.value.some((tab) => tab.id === 'browser')) {
-    void nextTick(() => ensureBrowserTab())
   }
 }
 
@@ -596,10 +421,8 @@ function onDocumentKeydown(event) {
   const modifier = event.ctrlKey || event.metaKey
   const key = String(event.key || '').toLowerCase()
   let toolId = ''
-  if (modifier && event.shiftKey && key === 'g') toolId = 'review'
-  else if (modifier && key === 'p') toolId = 'files'
+  if (modifier && key === 'p') toolId = 'files'
   else if (modifier && (key === '`' || key === '~')) toolId = 'terminal'
-  else if (modifier && key === 't' && !isBrowserSurfaceActive.value) toolId = 'browser'
   if (!toolId) return
   event.preventDefault()
   openTool(toolId)
@@ -620,14 +443,6 @@ watch(() => props.modelValue, (value) => {
     if (value === 'launcher') activeTabId.value = ''
     return
   }
-  if (normalized.startsWith(BROWSER_TAB_PREFIX)) {
-    if (openTabs.value.some((tab) => tab.id === normalized)) activeTabId.value = normalized
-    return
-  }
-  if (normalized === 'browser') {
-    openTool('browser', {notify: false})
-    return
-  }
   if (!openTabs.value.some((tab) => tab.toolId === normalized)) insertToolTab(normalized)
   const tab = openTabs.value.find((item) => item.toolId === normalized)
   if (tab) activeTabId.value = tab.id
@@ -636,13 +451,6 @@ watch(() => props.modelValue, (value) => {
 watch(() => props.open, (open) => {
   if (open && openTabs.value.length === 0) openTool('files')
 }, {immediate: true})
-
-watch(() => activeTabId.value, (id) => {
-  const tab = openTabs.value.find((item) => item.id === id)
-  if (tab?.kind === 'browser' && browserState.value.activeTabId !== tab.browserTabId) {
-    void browserRef.value?.activate?.(tab.browserTabId)
-  }
-})
 
 const PANEL_SIZE_KEY = 'loopra-desktop-tool-panel-width'
 const DEFAULT_PANEL_WIDTH = 680
@@ -707,16 +515,13 @@ defineExpose({
   openTool,
   closeTab,
   openTabs,
-  activeTabId,
-  syncBrowserState
+  activeTabId
 })
 
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerDown)
   document.addEventListener('keydown', onDocumentKeydown)
   tabStripRef.value?.addEventListener('wheel', onTabStripWheel, {passive: false})
-  // 右侧栏打开时浏览器组件已经在后台同步状态；这里再兜底一次，覆盖懒加载时序。
-  void nextTick(() => browserRef.value?.refreshState?.())
 })
 
 onBeforeUnmount(() => {
@@ -833,37 +638,6 @@ onBeforeUnmount(() => {
 .desktop-tool-tab-icon i { font-size: 15px; }
 .desktop-tool-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.desktop-tool-tab-favicon {
-  width: 15px;
-  height: 15px;
-  border-radius: 3px;
-  object-fit: contain;
-}
-
-.desktop-tool-tab-browser-avatar {
-  width: 15px;
-  height: 15px;
-  display: grid;
-  place-items: center;
-  border-radius: 4px;
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.desktop-tool-tab-spinner {
-  width: 13px;
-  height: 13px;
-  box-sizing: border-box;
-  border: 1.5px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: desktop-tool-spin .8s linear infinite;
-}
-
-@keyframes desktop-tool-spin { to { transform: rotate(360deg); } }
-
 .desktop-tool-tab-close {
   width: 20px;
   height: 20px;
@@ -977,8 +751,6 @@ onBeforeUnmount(() => {
 }
 .desktop-tool-body :deep(.sch-head) { display: none; }
 .desktop-tool-body :deep(.terminal-panel.vertical) { width: 100%; min-width: 0; flex: 1 1 auto; }
-.desktop-tool-body :deep(.ai-browser-shell) { width: 100%; height: 100%; }
-
 .desktop-tool-empty {
   display: grid;
   place-content: center;

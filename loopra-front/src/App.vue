@@ -3,8 +3,6 @@
     <ElementPanel ref="elemPanelRef" :visible="true" @send="forwardElementInspection" />
   </div>
 
-  <AIBrowser v-else-if="isAiBrowserWindow" :data-theme="theme" />
-
   <div v-else class="app" :data-theme="theme">
     <!-- 启动画面 (仅桌面环境) -->
     <SplashScreen
@@ -36,7 +34,6 @@
       @openSettings="openSettings"
       @toggleGit="toggleRightPanel()"
       @toggleElement="toggleElementPanel()"
-      @openBrowser="openAiBrowser"
       @viewPrompt="viewSystemPrompt"
       @showUpdate="openUpdateWindow"
     />
@@ -280,14 +277,12 @@ import WorkspacePickerModal from './components/WorkspacePickerModal.vue'
 import ActionConfirmDialog from './components/ActionConfirmDialog.vue'
 import ChatView from './views/Chat.vue'
 import ModelChannels from './ModelChannels.vue'
-import AIBrowser from './components/AIBrowser.vue'
 import {platform} from '@/services/platform'
 import {hasConfiguredModelChannel} from '@/utils/modelChannels'
 import {RELEASE_LATEST_URL} from '@/utils/constants'
 import {switchThemeWithReveal} from './utils/themeTransition'
 
 const isElementInspectorWindow = new URLSearchParams(window.location.search).get('elementInspector') === '1'
-const isAiBrowserWindow = new URLSearchParams(window.location.search).get('aiBrowser') === '1'
 
 const store = useAppStore()
 const router = useRouter()
@@ -378,10 +373,6 @@ function toggleElementPanel() {
   if (platform.isElectron) window.electronAPI.elementInspectorWindow.open()
 }
 
-function openAiBrowser() {
-  if (platform.isElectron) window.electronAPI.aiBrowserWindow.open()
-}
-
 // 元素面板拖拽调整宽度
 const ELEMENT_MIN_WIDTH = 280
 const ELEMENT_MAX_WIDTH = 800
@@ -463,7 +454,7 @@ async function forwardElementInspection(payload) {
   }
 }
 
-if (!isElementInspectorWindow && !isAiBrowserWindow && window.electronAPI?.elementInspectorWindow) {
+if (!isElementInspectorWindow && window.electronAPI?.elementInspectorWindow) {
   unlistenInspectorDraft = window.electronAPI.elementInspectorWindow.onDraft(onElementInspectorDraft)
 }
 
@@ -1238,7 +1229,6 @@ onMounted(async () => {
     window.electronAPI.elementInspectorWindow.ready()
     return
   }
-  if (isAiBrowserWindow) return
   // 先检测环境，再决定显示哪个启动屏
   await detectEnvironment()
   // 清空过期的 localStorage 端口（桌面端每次启动端口都不同）

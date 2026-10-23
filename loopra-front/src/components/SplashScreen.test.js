@@ -22,7 +22,6 @@ const service = vi.hoisted(() => ({
   downloadJre25: vi.fn(),
 }))
 vi.mock('@/services/platform', () => ({ platform: { isElectron: true, implementation: { loopraWebService: service, events: { listen: async () => () => {} } } } }))
-vi.mock('@/services/api', () => ({ systemAPI: {} }))
 vi.mock('@/utils/mirrors', () => ({
   MIRROR_SOURCES: [], applyLatencies: () => [], loadCachedLatencies: () => ({}),
   loadSelectedMirrorSource: () => 'normal', measureMirrors: async () => [],

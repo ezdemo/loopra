@@ -8,9 +8,7 @@ import org.noear.solon.annotation.Get;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.annotation.Mapping;
 import org.noear.solon.annotation.Post;
-import site.sorghum.loopra.bin.browser.AiBrowserBridgeService;
 import site.sorghum.loopra.web.model.ApiResponse;
-import site.sorghum.loopra.web.model.BrowserBridgeRequest;
 import site.sorghum.loopra.web.model.SystemHealthDTO;
 import site.sorghum.loopra.web.model.SystemVersionDTO;
 import site.sorghum.loopra.web.service.DirectoryPickerService;
@@ -25,9 +23,6 @@ import site.sorghum.loopra.web.service.WorkspaceOpenService;
 @Controller
 @Mapping("/api/system")
 public class SystemController {
-
-    @Inject
-    private AiBrowserBridgeService browserBridgeService;
 
     @Inject
     private DirectoryPickerService directoryPickerService;
@@ -77,33 +72,6 @@ public class SystemController {
         String version = readVersion();
         String name = org.noear.solon.Solon.cfg().get("solon.app.name");
         return ApiResponse.ok(new SystemVersionDTO(version, "", name));
-    }
-
-    @ApiOperation(value = "登记本机 AI 浏览器桥接地址", notes = "仅 Electron 桌面端在启动服务后调用；地址仅保存在当前服务进程中")
-    @Post
-    @Mapping("/browser-bridge")
-    public ApiResponse<String> registerBrowserBridge(@Body BrowserBridgeRequest request) {
-        try {
-            String address = browserBridgeService.setAddress(request == null ? null : request.getAddress());
-            return ApiResponse.ok(address);
-        } catch (IllegalArgumentException e) {
-            return ApiResponse.fail(e.getMessage());
-        }
-    }
-
-    /**
-     * 读取本机 AI 浏览器桥接状态 —— 桌面端未登记时 {@code address} 为空。
-     */
-    @ApiOperation(value = "读取本机 AI 浏览器桥接状态", notes = "返回 Electron 桌面端登记的本机浏览器桥接地址；未登记时 address 为空字符串")
-    @Get
-    @Mapping("/browser-bridge")
-    public ApiResponse<java.util.Map<String, Object>> browserBridgeStatus() {
-        String address = browserBridgeService.getAddress();
-        boolean registered = address != null && !address.isBlank();
-        java.util.Map<String, Object> status = new java.util.LinkedHashMap<>();
-        status.put("registered", registered);
-        status.put("address", registered ? address : "");
-        return ApiResponse.ok(status);
     }
 
     /**

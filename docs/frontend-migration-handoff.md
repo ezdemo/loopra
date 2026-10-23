@@ -2,6 +2,8 @@
 
 > 2026-10-13 后续范围变更：用户要求彻底移除语言服务（LSP）。已删除服务端管理接口、执行桥接和依赖，以及新旧前端的菜单、表单与 API 包装。下文各轮记录中的 LSP 对齐项属于历史状态，不应恢复。
 
+> 2026-10-23 后续范围变更：用户要求彻底移除旧版 AI 浏览器网关。已删除 Agent 侧浏览器工具、后端桥接服务与接口、Electron 本地 HTTP bridge、AI 浏览器窗口、前端入口与设置页；独立元素检查器保留。下文涉及 AI 浏览器的历史记录均不应恢复。
+
 任务：对照 `loopra-front/legacy.html`（旧 Vue 源码 `loopra-front/src/**`），把新 React 前端（`loopra-front/web/`）缺失功能逐项补齐。用户要求持续推进，不要停下等确认。
 
 所有改动**尚未提交**。工作区里还有上一轮及更早的改动（含 Java 测试隔离、`loopra/pom.xml`、`ProjectRegistry`），**不要回退任何既有修改**。
@@ -60,7 +62,7 @@
 
 - 会话批量清理入口是否需要在侧栏再补（设置页已接 `DELETE /sessions`、`/sessions/cleanup`）。
 - 旧版其他 Markdown 能力：GitHub 风格告警框（`> [!NOTE]` / `:::note`）、图片放大预览。
-- Electron 桌面能力：交互终端、内置浏览器/元素检查器、独立桌面宠物、唤起主窗口（`src/Desktop*.vue`、`src/components/AIBrowser.vue`、`src/utils/ipcPayload.js`）。
+- Electron 桌面能力：交互终端、元素检查器、独立桌面宠物、唤起主窗口（`src/Desktop*.vue`、`src/utils/ipcPayload.js`）。
 - 对照 `src/views/Settings.vue` 与 `src/App.vue` 继续逐项核对剩余高级设置（不要仅因有 API 就认为已迁移）。
 - 长粘贴、文档上传只在浏览器确认了 chip 生成，未做真实发送后的后端内容断言。
 
@@ -94,7 +96,7 @@
 
 ### 仍未迁移 / 待办（更新）
 
-- Electron 桌面能力：交互终端（xterm + IPC）、内置浏览器 / 元素检查器、独立桌面宠物窗口、唤起主窗口、更新面板（`src/Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`utils/ipcPayload.js`）。
+- Electron 桌面能力：交互终端（xterm + IPC）、元素检查器、独立桌面宠物窗口、唤起主窗口、更新面板（`src/Desktop*.vue`、`TerminalView.vue`、`utils/ipcPayload.js`）。
 - 桌面聊天工具面板：`SubAgentPanel`（子代理回放标签）、`ProjectCapabilitiesPanel`（项目 Skill/MCP 状态）在旧版仅桌面窗口使用；Web 端未迁移，如需可在工作区面板加标签。
 - 首启设置屏（`SetupScreen.vue`）：新前端用「连接失败横幅 + 服务器设置」替代，未做同版视觉。
 - 后台命令会话（`BashSessionManager.vue`）的复制命令/工作目录按钮未迁移（列表/日志/终止已在新终端面板）。
@@ -149,7 +151,7 @@
 
 ### 仍未迁移 / 待办（第 5 轮更新）
 
-- Electron 桌面能力（交互终端 / 内置浏览器 / 元素检查器 / 桌面宠物窗口 / 消息窗口 / 需求板 / 更新面板）**按设计**仍走旧 Vue 渲染器：`loopra-front/src/entry.js` 用 `usesLegacyRenderer(search, !!window.electronAPI)` 判断，带 `desktopShell|desktopSplash|desktopUpdate|desktopOnboarding|desktopChatTab|desktopSearch|desktopMessage|desktopPopup|desktopPet|requirementBoard|aiBrowser|elementInspector` 或存在 `window.electronAPI` 时加载 `src/main.js`，否则加载 `web/src/main.tsx`。除非要去掉旧渲染器，否则不属于「缺失功能」，但新前端目前**没有**任何 IPC 桥接。
+- Electron 桌面能力（交互终端 / 元素检查器 / 桌面宠物窗口 / 消息窗口 / 需求板 / 更新面板）**按设计**仍走旧 Vue 渲染器：`loopra-front/src/entry.js` 用 `usesLegacyRenderer(search, !!window.electronAPI)` 判断，带 `desktopShell|desktopSplash|desktopUpdate|desktopOnboarding|desktopChatTab|desktopSearch|desktopMessage|desktopPopup|desktopPet|requirementBoard|elementInspector` 或存在 `window.electronAPI` 时加载 `src/main.js`，否则加载 `web/src/main.tsx`。除非要去掉旧渲染器，否则不属于「缺失功能」，但新前端目前**没有**任何 IPC 桥接。
 - 文件编辑（旧 `FileEditor.vue` + `EditorTabs.vue` + Monaco）依赖 `window.electronAPI.fileExplorer` 读写，Web 端后端也没有写文件的接口（`WorkspaceFileController` 只有 `tree/search/delete/paste`），因此浏览器的文件面板保持只读预览 + 删除。
 - 首启设置屏（`SetupScreen.vue`）：新前端用「连接失败横幅 + 设置 → 服务连接」替代，未做同版视觉。
 - 真实写操作仍未端到端验收（按 `docs/testing-isolation.md` 不在用户真实工作区里做写操作）：排队消息真实发送、长粘贴 `POST /files/paste`、文档上传送后端、`/sessions/cleanup` 与删除会话等破坏性入口都只在单测里断言端点与载荷。
@@ -546,13 +548,9 @@
   - 上下文弹层切到服务端统计：`33,470 / 512K`、`6.5%`，五段构成（系统指令/工具定义/用户消息/助手消息/工具结果），免责声明为「服务端统计：输入 396,279 · 输出 7,357 · 费用 ¥0.00（输入 ¥0.0000 · 缓存 ¥0.0000 · 输出 ¥0.0000） · 缓存命中 79.0%」。
 - 浏览器 console 无 error。
 
-### 11. 设置页「浏览器」集成取代 legacy.html 跳转（第 13 轮续）
+### 11. 设置页「浏览器」集成（已于 2026-10-23 删除）
 
-- 背景：设置 → 工具与集成原本只有一句「也可在 legacy.html 管理」，是 `web/src` 中最后一处指向旧前端的引用。
-- 后端新增 `GET /api/system/browser-bridge`（`SystemController.browserBridgeStatus()`）：返回 `{ registered, address }`，`address` 取自 `AiBrowserBridgeService.getAddress()`，桌面端未登记时为 `""`。用 `mvn -o -pl loopra -am compile -DskipTests` 重新编译并重启后实测返回 `200 {"success":true,"data":{"registered":false,"address":""}}`。
-- 前端新增 `web/src/components/BrowserSettings.tsx`：只读展示桥接状态（`useRemote` 拉 `/system/browser-bridge` + `/tools`）、过滤 `browser_*` 工具数并逐条列出只读/写入/停用标记，含「刷新」按钮与 `BRIDGE_UNAVAILABLE` 说明。`Settings.tsx` 用 `<BrowserSettings api={api} />` 替换原 legacy 提示，`web/src` 内已无 `legacy.html` 引用。
-- 新增 `web/tests/browser-settings.test.mjs` 3 项（未连接 + 工具计数过滤、已连接地址、只读/停用标记）。
-- 浏览器验收：设置 → 工具与集成 → 集成类型「浏览器」，显示「未连接（AI 浏览器仅在桌面端可用）」「8 个」及 8 个 `browser_*` 工具说明。
+- 该实现已在 2026-10-23 的 AI 浏览器网关清理中整体删除；设置页不再提供浏览器入口，后端也不再接收本机浏览器桥接地址。
 
 ### 12. 长会话消息虚拟滚动（第 13 轮续）
 
@@ -596,7 +594,7 @@
 - 前端接线保持不变（与旧 `App.vue` 一致）：SSE `tool_call`/`sub_tool_call` 且 `event.name === 'bash_start'` → `window.dispatchEvent(new CustomEvent('loopra:bash-start'))` → `useEffect` 监听并 `setTerminal(true)`。
 - 在隔离后端 `4568` 发送「请调用 bash_start 工具在后台启动命令 sleep 180…」，模型**确实返回了** `bash_start` 工具调用（原始日志 `response.output_item.done` 中 `name":"bash_start"`，参数 `{"command":"sleep 180","yield_time_ms":1000,"hard_timeout_ms":200000}`，`stop_reason":"tool_calls"`）。
 - 但**隔离后端在 `response.completed` 后没有继续执行工具**：日志在 `[raw] provider 原始响应体：` 处停止（`04:58:51`），`GET /api/agent/session-status` 立即返回 `running:false`，`GET /api/agent/bash-sessions` 为空，会话 `.jsonl` 只写入了一条 user 消息，前端因此也没有收到 `tool_call` 事件、终端未自动打开（前端行为正确，无 console error）。
-- 该隔离实例已包含本轮最新编译产物（`/api/system/browser-bridge` 可用），故不是「跑的是旧 class」；真实后端 `4567` 的历史会话里存在大量 `role=tool` 记录（含 `bash`/`npm test` 等），说明常规工具调用链路正常。**此隔离环境下的 `bash_start` 未继续执行的原因未定位，属后端/环境问题，本轮未再追**；`loopra:bash-start` 的浏览器端到端验收仍待补（建议在真实后端 + 无快照副作用的 `defaultWorkSpace` 里用真实模型复测）。
+- 该隔离实例已包含本轮最新编译产物，故不是「跑的是旧 class」；真实后端 `4567` 的历史会话里存在大量 `role=tool` 记录（含 `bash`/`npm test` 等），说明常规工具调用链路正常。**此隔离环境下的 `bash_start` 未继续执行的原因未定位，属后端/环境问题，本轮未再追**；`loopra:bash-start` 的浏览器端到端验收仍待补（建议在真实后端 + 无快照副作用的 `defaultWorkSpace` 里用真实模型复测）。
 
 ### 17. 第 14 轮（2026-10-13）：HITL `choice` 澄清 + 浏览器全量验收 + `bash-start` 端到端复测通过
 
@@ -619,7 +617,7 @@
 - `node --test web/tests/*.test.mjs` → **228 全过**。
 - `vite build` 通过（仅既有 chunk 体积警告；`monaco` 等大块属旧 Vue 高级控制台产物）。
 - 浏览器验收（dev `3000` → 真实后端 `4567`，IAB + Playwright 定位器）：逐页打开并断言渲染，全程 **0 条 console error / warning**：
-  - 设置分类：通用 / 模型服务 / 智能体 / 工具与集成（工具 46 项、技能、插件、拓展包、MCP、语言服务、OpenAPI、浏览器）/ 工作区与数据 / 连接与帮助。
+  - 设置分类：通用 / 模型服务 / 智能体 / 工具与集成（工具 46 项、技能、插件、拓展包、MCP、语言服务、OpenAPI）/ 工作区与数据 / 连接与帮助。
   - 侧栏浮层：需求池（对话框 `aria-label=需求池`，`0 条需求` + 待执行/执行中/已完成/已失败分栏）、帮助中心、会话管理、搜索。
   - 右侧工作区面板（改动面板）：文件树 / Git（`master · 1 个改动`、暂存、AI 生成说明、提交）/ 定时 / 子代理 / 能力（项目 Skill/MCP 计数）/ 环境。
   - 后台命令面板（打开终端）：`后台进程`。
@@ -641,8 +639,8 @@
 - 真实写操作端到端验收：`/sessions/cleanup`、删除会话已验收（见第 13 节）；删文件/目录、长粘贴保存、排队消息引导、文档上传仍未真实验收。
 - `.streaming-bar` / tokens/s 真实流出已验收（见第 15 节）；`loopra:bash-start` 自动开终端已在隔离后端 + 真实模型下端到端验证通过（见第 17.3 节）。
 - HITL `choice` 已实现，非缺口；与旧版仅「点击即发 vs 填入草稿」的交互差异，属既定设计（见第 17.1 节）。
-- Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`）、Monaco 编辑、`SetupScreen.vue`、`StatusBar.vue`、`Home.vue` 视觉、`NotFound.vue`、独立 `Tools.vue`（设计取舍）。
-- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `aiBrowser` / `elementInspector` 指向 Vue。
+- Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`）、Monaco 编辑、`SetupScreen.vue`、`StatusBar.vue`、`Home.vue` 视觉、`NotFound.vue`、独立 `Tools.vue`（设计取舍）。
+- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `elementInspector` 指向 Vue。
 - 隔离后端 `4568`（PID 46596）仍在运行，`.cache/iso-home` 里含真实 `config.json`（API key）；收尾时 `Stop-Process -Id 46596` 并按需删除该目录。
 
 ## 第 15 轮（2026-10-13 续）：社区链接 / 欢迎页项目管理 / 排队消息端到端验收 + 隔离环境收尾
@@ -683,8 +681,8 @@
 
 - 长粘贴保存仍只有**后端契约 + 前端代码/单测**保证，浏览器无法模拟真实 `ClipboardEvent`；如需再验，只能在 Electron/真实桌面里粘贴。
 - `.chat` 输入栏的「上传文件 / 大段粘贴」在旧版是**独立分组 + 每组「清除」按钮**（`clearUploadedFiles` / `clearLargePastes`），新版统一并入 `context.files` chip 行（逐条移除），未再补分组与「全部清除」，属交互简化。
-- Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`（仅桌面端渲染））、Monaco 文件编辑（后端无写文件接口）、`SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 旧视觉：设计取舍，未迁移。
-- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `aiBrowser` / `elementInspector` 指向 Vue；需求池已在新工作台内提供侧栏入口。
+- Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`（仅桌面端渲染））、Monaco 文件编辑（后端无写文件接口）、`SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 旧视觉：设计取舍，未迁移。
+- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `elementInspector` 指向 Vue；需求池已在新工作台内提供侧栏入口。
 - 隔离后端 `4568` 已停止、`.cache/iso-home` 已删除；如需再做真实模型/写操作验收，按 `docs/testing-isolation.md` 重新拉起即可。
 
 ## 第 16 轮（2026-10-13 续）：侧栏项目操作 / 输入栏上下文清除 / 定时会话过滤
@@ -737,7 +735,7 @@
 ### 3. 迁移完成度复核（逐端点 / 逐设置项 / 逐可见文案对比）
 
 - **REST 端点**：抽取 legacy `src/**`（排除 Electron 专属文件）与 `web/src/**` 的接口字符串对比。legacy 中只在 `services/api.js` 定义、**任何 UI 组件都不调用**的包装（`/api/jobs*`、`/api/memory*`、`/api/agent/info`、`/api/agent/stats`、`/api/usage/history`、`/api/usage/reset`、`/api/sessions/import`）不是 UI 功能，不计入缺口；`/api/agent/retry`、`/api/agent/rewind`、`/api/agent/compact` 仅出现在 `views/Help.vue` 的接口文档表里，前端未调用。其余端点（sessions/workspaces/files/git/tools/skills/plugins/mcp/lsp/openapi/snapshots/requirements/schedules/pets/usage/sub-agents/sub-sessions…）在新前端均有对应调用。
-- **设置项**：`settingsCategories`（通用 / 模型服务 / 智能体[会话默认·系统提示词·子代理] / 工具与集成[工具·技能·插件·拓展包·MCP·LSP·OpenAPI·浏览器] / 工作区与数据[项目·已隐藏会话·用量] / 连接与帮助[服务·快捷键·关于]）覆盖旧 `Settings.vue` 全部标签（general/tools/sub-agents/dashboard/pet/server/model-channels/workspace/plugins/extpacks/prompt/openapi/mcp/lsp/skill-market/about/ai）。
+- **设置项**：`settingsCategories`（通用 / 模型服务 / 智能体[会话默认·系统提示词·子代理] / 工具与集成[工具·技能·插件·拓展包·MCP·LSP·OpenAPI] / 工作区与数据[项目·已隐藏会话·用量] / 连接与帮助[服务·快捷键·关于]）覆盖旧 `Settings.vue` 全部标签（general/tools/sub-agents/dashboard/pet/server/model-channels/workspace/plugins/extpacks/prompt/openapi/mcp/lsp/skill-market/about/ai）。
 - **可见文案**：抽取 legacy 模板里的 `title=`/`placeholder=` 中文串与 web 源对比。剩余「未命中」项均为**措辞差异**而非缺功能，已逐条核对：模型价格配置（`ModelProviderSettings.tsx` 每个模型「配置价格」+ 输入/缓存/输出 元/百万 tokens）、常用要求增删改（`/prompt-presets`）、需求池优先级（`requirementPriorityLabel` + `REQUIREMENT_PRIORITY_OPTIONS`）、子代理角色字段、git 作者配置与「AI 生成说明」、拓展包按 JAR 地址/路径安装、`继续生成`、排队「引导（停止当前生成…）」等都已存在。
 - **结论**：web 控制台相对 `legacy.html` 的**功能**已对齐；剩余差异为两类——(a) Electron/桌面专属能力（设计取舍，见下），(b) 措辞/交互简化（如「添加预设」→「添加要求」、单行 chip 取代分组「清除」）。
 
@@ -750,7 +748,7 @@
 
 ### 5. 仍未迁移 / 待办（第 17 轮，沿用）
 
-- Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、`SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 旧视觉：设计取舍，未迁移。
+- Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、`SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 旧视觉：设计取舍，未迁移。
 - 长粘贴真实 `ClipboardEvent` 仍无法在 IAB 模拟（只有后端契约 + 前端代码/单测保证）。
 - 交互简化：输入栏合并为单行 chip + 单一「清除」；文件树/搜索等刷新使用工作区面板的统一「刷新」按钮（旧版为各页签独立刷新标题）。
 - 上述「可见文案」剩余差异为措辞级，如需与旧版逐字一致可再对齐，但不影响功能。
@@ -769,7 +767,7 @@
 - 类型检查：`tsc -b web/tsconfig.json` 通过（删除后无残留引用）。
 - 单测：`node --test web/tests/*.test.mjs` **229 全过**（`usageSummary` 仍被 `settings.test.mjs` 使用，故保留）。
 - 生产构建：`vite build` 通过。
-- 浏览器全设置复核（dev `3000` → 后端 `4567`，IAB）：通用 / 模型供应商 / 会话默认 / 系统提示词 / 子代理 / 项目 / 已隐藏会话 / 用量 / 服务器 / 快捷键 / 关于 全部渲染且无 `[role=alert]` 报错；工具与集成下拉逐项打开 技能（已安装）/ 插件（运行时插件 · loopra-prompt）/ 拓展包 / MCP 服务器（发布 Loopra 工具）/ 语言服务（LSP 服务器）/ OpenAPI 接口源 / 浏览器 全部渲染；全程 **0** console error / warning。
+- 浏览器全设置复核（dev `3000` → 后端 `4567`，IAB）：通用 / 模型供应商 / 会话默认 / 系统提示词 / 子代理 / 项目 / 已隐藏会话 / 用量 / 服务器 / 快捷键 / 关于 全部渲染且无 `[role=alert]` 报错；工具与集成下拉逐项打开 技能（已安装）/ 插件（运行时插件 · loopra-prompt）/ 拓展包 / MCP 服务器（发布 Loopra 工具）/ 语言服务（LSP 服务器）/ OpenAPI 接口源 全部渲染；全程 **0** console error / warning。
 
 ### 3. 仍未迁移 / 待办（第 18 轮，沿用）
 
@@ -820,8 +818,8 @@
 
 ### 4. 仍未迁移 / 待办（第 19 轮）
 
-- 同第 17/18 轮：Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
-- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `aiBrowser` / `elementInspector` 指向 Vue。
+- 同第 17/18 轮：Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
+- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `elementInspector` 指向 Vue。
 - 旧版对**直接键入**的超大正文（>32KB）在发送前会落盘外置；新版只对 `paste` 事件做外置（阈值 8000 字符）。属边界差异，未实现（避免改动发送链路引入回归）。
 - 交互简化：输入栏仍为单行 chip + 单一「清除」；图片/上传/粘贴不再各自分组。
 - Git 面板「初始化后创建首次提交」复选框与「Git 页签并排 diff」为**代码 + 单测**保证：当前后端 `4567` 挂载的两个工作区都不是「未初始化」态（`defaultWorkSpace` 未初始化但 UI 切过去需要新建会话，`loopra-web-ui` 已初始化且仅 1 个无文本 diff 的未跟踪项），因此未在浏览器里点出「有真实文本差异」的并排效果（已确认渲染的是 `DiffView` 组件）。
@@ -876,8 +874,8 @@
 
 ### 6. 仍未迁移 / 待办（第 20 轮，沿用）
 
-- Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
-- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `aiBrowser` / `elementInspector` 指向 Vue。
+- Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
+- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `elementInspector` 指向 Vue。
 - 直接键入的 >32KB 正文不在发送前落盘外置（旧版行为）；交互简化同前（单行 chip + 单一「清除」等）。
 
 ## 第 21 轮（2026-10-13 续）：修 1 处测试失败 → 系统提示词 Markdown/复制 + 消息文件改动复用存储 diff
@@ -916,8 +914,8 @@
 
 ### 5. 仍未迁移 / 待办（第 21 轮，沿用）
 
-- Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
-- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `aiBrowser` / `elementInspector` 指向 Vue。
+- Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
+- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `elementInspector` 指向 Vue。
 - 直接键入的 >32KB 正文不在发送前落盘外置（旧版行为）；交互简化同前（单行 chip + 单一「清除」等）。
 - 侧栏「会话批量清理 / 工作区排序与移除」入口、公式渲染的端到端（真实发含 `$x$` 消息）验收：见设置页 `DELETE /sessions`、`/sessions/cleanup` 与 `markdown-math` 单测。
 
@@ -966,8 +964,8 @@
 
 ### 5. 仍未迁移 / 待办（第 22 轮）
 
-- Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
-- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `aiBrowser` / `elementInspector` 指向 Vue。
+- Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍。
+- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `elementInspector` 指向 Vue。
 - 直接键入的 >32KB 正文不在发送前落盘外置（旧版行为）；交互简化同前（单行 chip + 单一「清除」等）。
 - 侧栏「会话批量清理 / 工作区排序与移除」入口、公式渲染端到端（真实发含 `$x$` 消息）验收。
 - Git「恢复默认作者」按钮：需后端暴露默认作者常量（见本轮 §2 说明）。
@@ -999,7 +997,7 @@
 
 ### 3. 证据线三：明确「未迁移」及其原因（架构约束，非疏漏）
 
-- `entry.js` 的路由是 `usesLegacyRenderer(search, !!window.electronAPI)` —— **只要存在 `electronAPI`，整包就走 Vue（`main.js`）**。也就是说新 React 前端只在浏览器环境运行，Electron 的独立窗口（`Desktop*`、`AIBrowser`、`ElementPanel`、`TerminalView`（xterm 交互终端）、`ServiceProcessManager`、`TitleBar`/`StatusBar`/`TabBar`、`SetupScreen`/`SplashScreen`）与 Monaco `FileEditor` 仍归 Vue 渲染层。要迁移必须先改 `entry.js` 与 Electron 主进程，并只能在安装好的 Electron 应用里验收——本轮不具备该验收条件，故不动。
+- `entry.js` 的路由是 `usesLegacyRenderer(search, !!window.electronAPI)` —— **只要存在 `electronAPI`，整包就走 Vue（`main.js`）**。也就是说新 React 前端只在浏览器环境运行，Electron 的独立窗口（`Desktop*`、`ElementPanel`、`TerminalView`（xterm 交互终端）、`ServiceProcessManager`、`TitleBar`/`StatusBar`/`TabBar`、`SetupScreen`/`SplashScreen`）与 Monaco `FileEditor` 仍归 Vue 渲染层。要迁移必须先改 `entry.js` 与 Electron 主进程，并只能在安装好的 Electron 应用里验收——本轮不具备该验收条件，故不动。
 - Monaco 文件编辑：后端 `WorkspaceFileController` 只有 `/tree`、`/search`、`/delete`、`/paste`，**没有写文件接口**，Web 端无法保存编辑。
 - legacy `views/Home.vue`（欢迎页）、`NotFound.vue`、`Tools.vue`（全屏工具箱）：由应用外壳 + 设置页「工具」取代，属设计取舍。
 - Git「恢复默认作者」：缺后端默认作者常量端点（见第 22 轮 §2）。
@@ -1036,8 +1034,8 @@
 
 ### 3. 仍未迁移 / 待办（第 24 轮）
 
-- Electron 桌面能力（`Desktop*.vue`、`AIBrowser.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍，需用户决策 + 改 `entry.js`/主进程 + 在 Electron 应用里验收。
-- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `aiBrowser` / `elementInspector` 指向 Vue。
+- Electron 桌面能力（`Desktop*.vue`、`TerminalView.vue`、`ServiceProcessManager.vue`、`ElementPanel.vue`、窗口控制类 `TitleBar.vue`）、Monaco 文件编辑（后端无写文件接口）、旧 `SetupScreen/SplashScreen/StatusBar/TabBar/Home/NotFound/Tools.vue` 视觉：设计取舍，需用户决策 + 改 `entry.js`/主进程 + 在 Electron 应用里验收。
+- `entry-routing.js` 仍把桌面窗口 / `requirementBoard` / `elementInspector` 指向 Vue。
 - Git「恢复默认作者」按钮：需后端暴露默认作者常量端点（第 22 轮 §2）。
 - 交互简化项（单行 chip + 单一「清除」等）。
 - 公式渲染端到端（真实发含 `$x$` 消息）验收：目前仅 `markdown-math` 单测覆盖。
@@ -1070,7 +1068,7 @@
 
 ### 3. 仍未迁移 / 待办（第 25 轮）
 
-- **Electron 渲染层**：本轮已用「组件引用图」复核——`AIBrowser`、`ElementPanel`（仅 `App.vue`）、`FileEditor`/`EditorTabs`/`TerminalView`/`ServiceProcessManager`/`EnvironmentPanel`/`DesktopToolPanel`（仅 `Desktop*`）在 legacy 里全部只被 Electron 外壳引用：
+- **Electron 渲染层**：本轮已用「组件引用图」复核——`ElementPanel`（仅 `App.vue`）、`FileEditor`/`EditorTabs`/`TerminalView`/`ServiceProcessManager`/`EnvironmentPanel`/`DesktopToolPanel`（仅 `Desktop*`）在 legacy 里全部只被 Electron 外壳引用：
   - `EnvironmentPanel.vue` 的变更列表/提交记录/提交/推送**全部走 `window.electronAPI.gitEnvironment`**（`desktopGit()`），Web 端根本没有对应后端接口；legacy Web 右侧面板只有 Git/文件/定时/命令四个页签。故 React Web 端「环境」页签只保留 `GET /git/environment` + 工作树开关（已实现），**不属 Web 缺口**。
   - 结论：legacy 的全部 **Web 可达** 功能（含设置 15 个 section：常规/工具/子代理/数据面板/宠物→通用/服务器/模型渠道/项目/插件/拓展包/系统提示词/OpenAPI/MCP/LSP/关于 + 技能市场，及 Chat/RightPanel/Sidebar/Sessions/Help/RequirementBoard/SubAgents）已全部对齐，未迁移项均属 Electron 渲染层，需用户决策 + 改 `entry.js`/主进程并只能在打包 Electron 里验收。
 - Git「恢复默认作者」：需后端暴露默认作者常量端点（第 22 轮 §2）。
@@ -1181,7 +1179,7 @@
 
 ### 4. 仍未迁移 / 待办（第 28 轮）
 
-- **Electron 渲染层**（第 25–28 轮一致结论）：Desktop* / TitleBar / Splash / Setup / AIBrowser / ElementPanel / ServiceProcessManager / xterm TerminalView / Monaco FileEditor 归 Vue，属架构取舍，需用户决策后改 `entry.js` 与主进程，且只能在打包 Electron 内验收。
+- **Electron 渲染层**（第 25–28 轮一致结论）：Desktop* / TitleBar / Splash / Setup / ElementPanel / ServiceProcessManager / xterm TerminalView / Monaco FileEditor 归 Vue，属架构取舍，需用户决策后改 `entry.js` 与主进程，且只能在打包 Electron 内验收。
 - 审计中确认属「措辞差异 / 有意重排」而非缺口的项：Git 面板文案、`中文字体`（legacy 仅桌面端）、`开源主页 Star`（React 放在「设置 → 关于」）、Markdown 告警框 / 图片放大预览（React 已实现）。
 
 ## 第 29 轮（2026-10-13 续）：Electron 无边框标题栏（React 接线）+ `?react=1` 逃生舱
@@ -1199,7 +1197,7 @@
 - 新增 `web/src/components/DesktopTitleBar.tsx`：无 bridge 时 `return null`（浏览器里彻底不渲染）；有 bridge 时渲染 `-webkit-app-region: drag` 标题栏 + 最小化/最大化(还原)/关闭，调 `electronAPI.window.*`，最大化态用 `isMaximized()` 决定图标/文案（「最大化窗口」/「还原窗口」）。**注意：本环境无法交互验收 Electron 窗口，已用 jsdom + 打桩 bridge 覆盖渲染与回调。**
 - `web/src/App.tsx`：根节点改为 `<div className={`desktop-app${isDesktopWindow() ? ' is-desktop-shell' : ''}`}>`，并在其前 `{isDesktopWindow() && <DesktopTitleBar />}`。
 - `web/src/styles.css`：新增 `.desktop-titlebar`（drag）/`.desktop-titlebar-title`/`.desktop-titlebar-spacer`/`.desktop-window-controls`（no-drag）/`.dw-btn`/`.dw-btn.dw-close:hover`（红）/`.desktop-app.is-desktop-shell`。
-- `src/entry-routing.js`：重构为 `ELECTRON_AUXILIARY` 常量（desktopSplash/Update/Onboarding/ChatTab/Search/Message/Popup/Pet/requirementBoard/aiBrowser/elementInspector 这些窗口仍走 Vue）；新增**逃生舱**——`?react=1` 且非辅助窗口时 `usesLegacyRenderer` 返回 `false`（Electron 主窗口可走 React）。`desktop`/辅助窗口/`desktopShell=1` 行为不变，默认桌面仍走 Vue（零回归）。
+- `src/entry-routing.js`：重构为 `ELECTRON_AUXILIARY` 常量（desktopSplash/Update/Onboarding/ChatTab/Search/Message/Popup/Pet/requirementBoard/elementInspector 这些窗口仍走 Vue）；新增**逃生舱**——`?react=1` 且非辅助窗口时 `usesLegacyRenderer` 返回 `false`（Electron 主窗口可走 React）。`desktop`/辅助窗口/`desktopShell=1` 行为不变，默认桌面仍走 Vue（零回归）。
 
 ### 3. 本轮验证
 
@@ -1211,5 +1209,5 @@
 ### 4. 仍未迁移 / 待办（第 29 轮）
 
 - **Electron 主窗口走 React 的端到端验收**：接线已完成，但 `desktopShell=1`（现默认）仍走 Vue；要真正切到 React 需在打包 Electron 里用 `?react=1` 打开并核对拖拽/最小化/最大化/关闭，**本环境无 GUI 无法确认**（`electron.exe` v42.8.1 存在但 `electron --version` 无输出）。需用户决策是否把默认渲染器切成 React。
-- **辅助窗口 / 深层桌面能力**（第 25–29 轮一致）：Desktop* / Splash / Setup / AIBrowser / ElementPanel / ServiceProcessManager / xterm TerminalView / Monaco FileEditor 仍归 Vue，属架构取舍。
+- **辅助窗口 / 深层桌面能力**（第 25–29 轮一致）：Desktop* / Splash / Setup / ElementPanel / ServiceProcessManager / xterm TerminalView / Monaco FileEditor 仍归 Vue，属架构取舍。
 - 真实写操作（排队消息发送、`/files/paste`、`/sessions/cleanup` 等破坏性入口）仍按 `docs/testing-isolation.md` 只在单测断言端点。

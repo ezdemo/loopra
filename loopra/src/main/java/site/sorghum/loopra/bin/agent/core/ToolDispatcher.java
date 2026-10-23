@@ -471,8 +471,7 @@ final class ToolDispatcher implements LoopraToolBatchHost {
                         String rawResult = cutinResult.ok()
                                 ? String.valueOf(cutinResult.content())
                                 : cutinResult.error();
-                        ImageToolResult.ImageResult imageResult = ("read_image".equals(toolCall.getName())
-                                || "browser_screenshot".equals(toolCall.getName()))
+                        ImageToolResult.ImageResult imageResult = "read_image".equals(toolCall.getName())
                                 ? ImageToolResult.parseResult(rawResult) : null;
                         String result = imageResult == null ? rawResult : imageResult.summary();
                         List<ToolChange> fileChanges = SessionFileChangeTracker.endTool();

@@ -14,7 +14,6 @@ export const settingsCategories = [
     { name: 'MCP', label: 'MCP', keywords: '外部 服务 连接 stdio SSE 工具权限 传输' },
     { name: 'MCP 服务器', label: 'MCP 服务器', keywords: '工具 发布 导出 MCP Server Cloudflare 隧道 连接地址' },
     { name: 'OpenAPI', label: 'OpenAPI', keywords: '接口 文档 认证' },
-    { name: '浏览器', label: '浏览器', keywords: '预览 无头 Chrome' },
   ] },
   { name: '工作区与数据', sections: [
     { name: '项目', label: '工作区', keywords: '路径 工作区 目录' },
