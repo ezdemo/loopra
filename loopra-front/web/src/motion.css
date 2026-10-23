@@ -52,6 +52,16 @@
    never change layout height, so the chat virtualiser still measures one stable
    height per row instead of chasing an animating box. */
 .content-collapse { animation: surface-pop-in 0.15s ease-out; }
+@keyframes history-dot-float {
+  0%, 70%, 100% { transform: translateY(0); opacity: .35; }
+  35% { transform: translateY(-.375rem); opacity: 1; }
+}
+.session-history-empty { animation: surface-pop-in .2s ease-out; }
+.session-history-loader i { animation: history-dot-float 1.2s ease-in-out infinite; }
+.session-history-loader i:nth-child(2) { animation-delay: .15s; }
+.session-history-loader i:nth-child(3) { animation-delay: .3s; }
+@keyframes composer-skeleton-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+.composer-skeleton { animation: composer-skeleton-pulse 1.6s ease-in-out infinite; }
 /* This preference also reaches overlays rendered in a NextUI portal. */
 html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="off"] *::after {
   animation: none !important; transition: none !important; scroll-behavior: auto !important;

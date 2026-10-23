@@ -5,9 +5,22 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { formatTokens, getModelCatalog, groupModels, composeMessage, estimateContext, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { formatTokens, getModelCatalog, groupModels, modelLabel, composeMessage, estimateContext, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 const providers = [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'magpie', name: 'magpie' }];
 const models = getModelCatalog(providers);
+
+test('display names are searchable labels while model identities and outgoing context keep the raw API name', () => {
+  const name = 'remote-magpie/opendesign-plugin/deepseek-v4.1-flash';
+  const [model] = getModelCatalog([{ id: 'custom', name: 'Custom', models: [{ name, displayName: '  DeepSeek Flash  ' }] }]);
+  assert.equal(model.id, `custom:${name}`);
+  assert.equal(model.name, name);
+  assert.equal(modelLabel(model), 'DeepSeek Flash');
+  assert.equal(groupModels([model], 'DEEPSEEK FLASH')[0].models[0], model);
+  assert.equal(groupModels([model], 'opendesign-plugin')[0].models[0], model);
+  assert.equal(modelLabel({ name, displayName: '  ' }), name);
+  assert.equal(modelLabel({ name }), name);
+  assert.match(composeMessage('hello', defaultOptions, { files: [], projects: [], skills: [] }, model), /Custom \/ remote-magpie\/opendesign-plugin\/deepseek-v4\.1-flash/);
+});
 
 test('same-name models keep distinct provider identities and search both fields', () => {
   const matches = groupModels(models, ' DEEPSEEK V4.1 ');

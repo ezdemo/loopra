@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Provider, Session } from './lib';
 import { LoopraClient, configProviders, remoteSession, withChatWorkspace, type RemoteConfig, type RemoteSession, type Workspace } from './backend';
 import type { SkillConfig, ToolConfig } from './settings-data';
@@ -20,6 +20,14 @@ export default function useLoopra(server: string) {
   const [version, setVersion] = useState('');
   const [updateCheck, setUpdateCheck] = useState<VersionCheck>();
   const [ready, setReady] = useState(false);
+  const providersRevision = useRef(0);
+  const refreshProviders = useCallback(async (signal?: AbortSignal) => {
+    const revision = ++providersRevision.current;
+    const nextConfig = await api.request<RemoteConfig>('/config', 'GET', undefined, signal);
+    if (signal?.aborted || revision !== providersRevision.current) return;
+    // Refresh the catalog without reapplying global defaults over session/composer settings.
+    setProviders(configProviders(nextConfig));
+  }, [api]);
   const refreshSessions = useCallback(async (projects: Workspace[], signal?: AbortSignal) => {
     const lists = await Promise.all(projects.map(async project => (await api.request<RemoteSession[]>(`/sessions?workspaceHash=${encodeURIComponent(project.hash)}`, 'GET', undefined, signal)).map(item => remoteSession(item, project))));
     if (signal?.aborted) return;
@@ -33,6 +41,7 @@ export default function useLoopra(server: string) {
     return visible;
   }, [api, refreshSessions]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const revision = ++providersRevision.current;
     setStatus('connecting'); setError('');
     try {
       const [health, agent, nextConfig, projects] = await Promise.all([
@@ -43,7 +52,9 @@ export default function useLoopra(server: string) {
       ]);
       if (signal?.aborted) return;
       const visibleProjects = withChatWorkspace(projects);
-      setVersion(health.version); setReady(agent.ready); setConfig(nextConfig); setProviders(configProviders(nextConfig)); setWorkspaces(visibleProjects);
+      setVersion(health.version); setReady(agent.ready); setConfig(nextConfig);
+      if (revision === providersRevision.current) setProviders(configProviders(nextConfig));
+      setWorkspaces(visibleProjects);
       if (agent.ready) {
         await refreshSessions(visibleProjects, signal);
         const resources = await Promise.allSettled([
@@ -61,6 +72,13 @@ export default function useLoopra(server: string) {
   }, [api, refreshSessions]);
   useEffect(() => { const controller = new AbortController(); void refresh(controller.signal); return () => controller.abort(); }, [refresh]);
   useEffect(() => {
+    if (status !== 'connected') return;
+    const controller = new AbortController();
+    const onFocus = () => { void refreshProviders(controller.signal).catch(() => {}); };
+    window.addEventListener('focus', onFocus);
+    return () => { window.removeEventListener('focus', onFocus); controller.abort(); };
+  }, [status, refreshProviders]);
+  useEffect(() => {
     if (status !== 'connected' || !version) { setUpdateCheck(undefined); return undefined; }
     // Keep the startup path responsive when the release host is unreachable:
     // version checking runs after the local service is already marked online.
@@ -76,5 +94,5 @@ export default function useLoopra(server: string) {
     const timer = setInterval(check, VERSION_CHECK_INTERVAL_MS);
     return () => { clearInterval(timer); controller.abort(); };
   }, [api, status, version]);
-  return { api, sessions, setSessions, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshSessions, refreshWorkspaces };
+  return { api, sessions, setSessions, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshProviders, refreshSessions, refreshWorkspaces };
 }

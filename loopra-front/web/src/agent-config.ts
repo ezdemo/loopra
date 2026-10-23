@@ -45,11 +45,11 @@ export function agentModelGroups(option: AgentConfigOption, fallbackName: string
   const groups = new Map<string, { id: string; name: string; models: AgentConfigValue[] }>();
   for (const value of option.options) {
     const parts = value.name.split(' / ');
-    const grouped = value.group || (parts.length === 2 ? parts[0] : '');
+    const grouped = value.group || (parts.length >= 2 ? parts[0] : '');
     const id = grouped || fallbackName;
     const name = grouped || fallbackName;
     if (!groups.has(id)) groups.set(id, { id, name, models: [] });
-    groups.get(id)!.models.push({ ...value, name: grouped && parts.length === 2 ? parts.slice(1).join(' / ') : value.name });
+    groups.get(id)!.models.push({ ...value, name: !value.group && grouped && parts.length >= 2 ? parts.slice(1).join(' / ') : value.name });
   }
   return [...groups.values()];
 }

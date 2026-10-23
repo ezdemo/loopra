@@ -9,6 +9,7 @@ import HomeView from './layout/HomeView';
 import IsolationSwitch from './layout/IsolationSwitch';
 import ChatDock from './layout/ChatDock';
 import { Messages } from './components/Conversation';
+import SessionHistoryState from './components/SessionHistoryState';
 import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
 import Settings, { defaultPreferences } from './components/Settings';
@@ -98,6 +99,12 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('通用');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    if (!settingsOpen || backend.status !== 'connected') return;
+    const controller = new AbortController();
+    void backend.refreshProviders(controller.signal).catch(() => {});
+    return () => controller.abort();
+  }, [settingsOpen, backend.status, backend.refreshProviders]);
   const [menu, setMenu] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
@@ -161,6 +168,7 @@ export default function App() {
   const [remoteRun, setRemoteRun] = useState<{ id: string; requestId?: string | null } | null>(null);
   const remoteRunRef = useRef<string | null>(null);
   const historyRequest = useRef<AbortController>();
+  const [historyState, setHistoryState] = useState<{ id: string; error?: string }>();
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
   const notifiedUpdate = useRef('');
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -559,18 +567,32 @@ export default function App() {
     // Opening a session always jumps to the newest message.
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setLiveSpeed(undefined);
+    setHistoryState(undefined);
     if (generatingId === id) return;
-    try {
-      const [history, settings, mode] = await Promise.all([
-        api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(selected)}`, 'GET', undefined, controller.signal),
-        api.request<{ model: string; modelChannelId: string; reasoningEffort: string }>(sessionRoute(selected, '/settings'), 'GET', undefined, controller.signal),
-        api.request<{ mode: string; pendingPlan?: string | null }>(`/agent/mode?${sessionQuery(selected)}`, 'GET', undefined, controller.signal),
-      ]);
-      if (controller.signal.aborted) return;
-      setSessions(current => current.map(item => item.id === id ? { ...item, messages: historyMessages(history) } : item));
-      setComposerOptions(current => ({ ...current, ...(selected.agentId && selected.agentId !== 'native' ? {} : { modelId: `${settings.modelChannelId}:${settings.model}` }), effort: settings.reasoningEffort || current.effort, plan: mode.mode === 'plan' }));
-      setPendingPlan(mode.pendingPlan || undefined);
-    } catch (error) { if (!controller.signal.aborted) notify(`加载会话失败：${error instanceof Error ? error.message : error}`); }
+    setHistoryState({ id });
+    // History is independently useful; slow Agent configuration must not hold it back.
+    await Promise.all([
+      api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(selected)}`, 'GET', undefined, controller.signal)
+        .then(history => {
+          if (controller.signal.aborted) return;
+          const messages = historyMessages(history);
+          setSessions(current => current.map(item => item.id === id ? { ...item, messages, messageCount: history.length } : item));
+          setHistoryState(undefined);
+        }).catch(error => {
+          if (controller.signal.aborted) return;
+          setHistoryState({ id, error: error instanceof Error ? error.message : String(error) });
+        }),
+      api.request<{ model: string; modelChannelId: string; reasoningEffort: string }>(sessionRoute(selected, '/settings'), 'GET', undefined, controller.signal)
+        .then(settings => {
+          if (!controller.signal.aborted) setComposerOptions(current => ({ ...current, ...(selected.agentId && selected.agentId !== 'native' ? {} : { modelId: `${settings.modelChannelId}:${settings.model}` }), effort: settings.reasoningEffort || current.effort }));
+        }).catch(error => { if (!controller.signal.aborted) notify(`加载会话模型设置失败：${error instanceof Error ? error.message : error}`); }),
+      api.request<{ mode: string; pendingPlan?: string | null }>(`/agent/mode?${sessionQuery(selected)}`, 'GET', undefined, controller.signal)
+        .then(mode => {
+          if (controller.signal.aborted) return;
+          setComposerOptions(current => ({ ...current, plan: mode.mode === 'plan' }));
+          setPendingPlan(mode.pendingPlan || undefined);
+        }).catch(error => { if (!controller.signal.aborted) notify(`加载会话计划状态失败：${error instanceof Error ? error.message : error}`); }),
+    ]);
   }
   function toggleMenu(name: string) { setMenu(current => current === name ? null : name); }
   function openSettings(tab = '通用') { setSettingsTab(tab); setSettingsOpen(true); setMenu(null); }
@@ -1194,7 +1216,7 @@ export default function App() {
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
-            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
+            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}

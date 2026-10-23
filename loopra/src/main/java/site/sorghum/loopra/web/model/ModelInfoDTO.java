@@ -7,6 +7,7 @@ public record ModelInfoDTO(
         String name,
         boolean active,
         String channelId,
-        String channelName
+        String channelName,
+        String displayName
 ) {
 }

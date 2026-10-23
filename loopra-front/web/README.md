@@ -28,6 +28,7 @@ pnpm build
 - “管理项目”的目录选择按钮在 Web 和 Electron 中均可用：两端统一调用 `POST /api/system/pick-directory`（请求体 `{ "path": "初始目录" }`），通过 SWT 在后端所在电脑打开系统选择器。选定目录后自动添加并进入项目，关闭管理弹窗；取消选择保持当前项目。也可手动输入路径后点击“添加项目”。后端分发包内含 Windows x64、Linux x64/ARM64、macOS x64/ARM64 的 SWT 运行库。
 - 顶栏文件夹及打开方式菜单统一调用 `POST /api/system/open-workspace`，请求体为 `{ "workspaceHash": "项目标识", "application": "folder|powershell|git-bash|bash|terminal" }`。Java 根据项目标识解析真实目录，在服务所在电脑启动文件管理器或终端，不接受任意命令。Windows 的 Bash 使用 Git for Windows，默认终端使用 PowerShell；macOS 使用 Terminal，Linux 使用已安装的桌面终端。程序未安装或启动失败时会在页面显示错误。“后台命令”仍查看应用内任务。
 - 供应商编辑支持远程模型获取，NextUI 弹窗内可搜索、多选、批量添加。添加只更新草稿，点击保存配置后写入后端；已有模型参数保持原值。
+- 每个模型可配置可选的 `displayName` 展示名称，保存到服务端模型渠道配置。聊天选择器、默认模型和 Git 生成模型优先显示该名称，留空回退到原模型名；模型 ID、请求参数和已保存的模型选择不变。选择器同时搜索展示名称与原始 ID，长名称可换行并悬停查看全文。
 - 80%–150% 连续界面缩放同步调整文字、侧栏、按钮、图标和弹层。保留 NextUI 原生交互动效。
 - API 密钥由后端保存和脱敏；本地存储仅保存外观、服务地址等偏好，不保存渠道密钥。
 

@@ -404,7 +404,7 @@ class LoopraConfigTest {
                     "id", "main", "name", "Main", "baseUrl", "https://example.test", "apiKey", "secr****-key",
                             "apiProtocol", "responses",
                             "specialCompatibility", "opencode",
-                            "models", List.of(Map.of("name", "vision-model", "contextTokens", 128000,
+                            "models", List.of(Map.of("name", "vision-model", "displayName", "  Vision 中文名称  ", "contextTokens", 128000,
                                     "maxTokens", 65536, "imageInput", true,
                                     "price", Map.of("input", 1.5, "cache", 0.2, "output", 3)))
                     ))
@@ -418,6 +418,8 @@ class LoopraConfigTest {
             assertEquals("opencode", saved.modelChannel("main").specialCompatibility());
             assertEquals(128000, entry.contextTokens());
             assertEquals(65536, entry.maxTokens());
+            assertEquals("vision-model", entry.name());
+            assertEquals("Vision 中文名称", entry.displayName());
             assertTrue(entry.imageInput());
             assertEquals(1.5, entry.price().get("input"));
             assertEquals(1.5, saved.price().get("vision-model").get("input"));
@@ -425,6 +427,14 @@ class LoopraConfigTest {
             ONode root = ONode.ofJson(Files.readString(configDir.resolve("config.json")));
             assertEquals("root-secret", root.select("$.apiKey").getString());
             assertTrue(root.select("$.modelChannels[0].models[0]").isObject());
+            assertEquals("Vision 中文名称", root.select("$.modelChannels[0].models[0].displayName").getString());
+            saved.updateAndSave(Map.of("modelChannels", List.of(Map.of("id", "main",
+                    "models", List.of(Map.of("name", "vision-model", "displayName", "  "))))));
+            LoopraConfig cleared = LoopraConfig.load();
+            assertEquals("", cleared.modelEntry("main", "vision-model").displayName());
+            assertEquals("vision-model", cleared.model());
+            assertFalse(ONode.ofJson(Files.readString(configDir.resolve("config.json")))
+                    .select("$.modelChannels[0].models[0]").getObject().containsKey("displayName"));
         } finally {
             System.setProperty("user.home", originalUserHome);
         }

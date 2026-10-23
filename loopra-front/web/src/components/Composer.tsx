@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
-import { Button, Chip, Input, Spinner, Switch, Textarea, Tooltip } from '@nextui-org/react';
+import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Star, Trash2, X, Zap } from 'lucide-react';
-import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands } from '../composer';
+import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, modelLabel, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands } from '../composer';
 import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
 import { contextFromUsage, contextPartPercent, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
 import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
@@ -42,6 +42,14 @@ type Menu = 'models' | 'effort' | 'tools' | 'projects' | 'skills' | 'permission'
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
   return <Switch size="sm" aria-label={label} isSelected={value} onValueChange={onChange} classNames={{ label: 'sr-only' }}>{label}</Switch>;
+}
+
+function ComposerToolbarSkeleton() {
+  return <>
+    <span className="sr-only" role="status">正在加载输入栏配置…</span>
+    <div className="composer-left" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-permission" /><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-icon" /></div>
+    <div className="composer-right" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-model" /><span className="composer-skeleton skeleton-effort" /><span className="composer-skeleton skeleton-send" /></div>
+  </>;
 }
 
 export default function Composer(props: Props) {
@@ -104,6 +112,7 @@ export default function Composer(props: Props) {
   const planOn = agentPlan?.id === 'collaboration_mode' ? 'plan' : 'on';
   const planOff = agentPlan?.id === 'collaboration_mode' ? 'default' : 'off';
   const agentBusy = !!props.agentConfig?.busy;
+  const initialConfigLoading = agentBusy && !props.agentConfig?.error && !agentOptions?.length && !props.generating && !props.remoteRunning;
   const sendDisabled = agentBusy || (!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy);
   function sendDraft() { if (!sendDisabled) props.onSend(); }
   const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
@@ -115,9 +124,12 @@ export default function Composer(props: Props) {
   const activeModelLabel = agentModel
     ? modelGroupsForAgent.flatMap(group => group.models).find(model => model.value === configValue(agentModel))?.name || agentOptionLabel(agentModel)
     : '';
+  const activeModelTooltip = agentModel
+    ? [...new Set([agentOptionLabel(agentModel), agentOptionDescription(agentModel)])].filter(Boolean).join('\n')
+    : selected ? `${selected.provider} / ${modelLabel(selected)}${modelLabel(selected) !== selected.name ? `\n${selected.name}` : ''}` : '选择模型';
   const modelQuery = query.trim().toLowerCase();
   const visibleModelGroups = modelGroupsForAgent
-    .map(group => ({ ...group, models: group.models.filter(model => !modelQuery || `${group.name} ${model.name} ${model.description || ''}`.toLowerCase().includes(modelQuery)) }))
+    .map(group => ({ ...group, models: group.models.filter(model => !modelQuery || `${group.name} ${model.name} ${model.value} ${model.description || ''}`.toLowerCase().includes(modelQuery)) }))
     .filter(group => group.models.length);
   const agentModelValue = agentModel ? configValue(agentModel) : '';
   const agentModeValue = agentMode ? configValue(agentMode) : '';
@@ -362,7 +374,8 @@ export default function Composer(props: Props) {
         }
         if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendDraft(); }
       }} />
-    <div className="composer-bottom">
+    <div className={`composer-bottom${initialConfigLoading ? ' composer-toolbar-loading' : ''}`} aria-busy={initialConfigLoading || undefined}>
+      {initialConfigLoading ? <ComposerToolbarSkeleton /> : <>
       <div className="composer-left">
         <Tooltip content="附件、项目、技能和计划模式" delay={600}><Button isIconOnly variant="light" aria-label="添加附件或工具" aria-expanded={menu === 'tools'} className={`composer-icon ${menu === 'tools' ? 'is-active' : ''}`} onPress={() => open('tools')}><Plus size="1.125rem" strokeWidth={1.75} /></Button></Tooltip>
         {agentMode ? <Tooltip content={agentOptionDescription(agentMode)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-permission ${isDangerousAgentMode(agentMode) ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
@@ -377,12 +390,12 @@ export default function Composer(props: Props) {
         <Tooltip content={`上下文 ${usagePercent}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${usage.windowKnown === false ? 0 : Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
         {agentOptions ? <>
           {otherAgentOptions.length > 0 && <Tooltip content="更多 Agent 配置" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'more' ? 'is-active' : ''}`} aria-label="更多 Agent 配置" aria-expanded={menu === 'more'} onPress={() => open('more')}><Settings2 size="1rem" /></Button></Tooltip>}
-          {agentModel && <Tooltip content={agentOptionDescription(agentModel)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} aria-label={`选择模型：${agentOptionLabel(agentModel)}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{activeModelLabel}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
+          {agentModel && <Tooltip content={activeModelTooltip} classNames={{ content: 'model-name-tooltip' }} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} title={activeModelTooltip} aria-label={`选择模型：${agentOptionLabel(agentModel)}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{activeModelLabel}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
           {(agentEffort || agentFast) && <Tooltip content="推理强度与快速模式" delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-effort ${menu === 'effort' ? 'is-active' : ''}`} aria-label="推理设置" aria-expanded={menu === 'effort'} onPress={() => open('effort')}>{agentFastOn ? <Zap size="0.875rem" /> : <Brain size="0.875rem" />}<span>{agentEffort ? agentOptionLabel(agentEffort) : '快速'}</span></Button></Tooltip>}
         </> : props.agentConfig
-          ? !props.agentConfig.error && props.agentConfig.busy ? <span className="agent-config-loading" role="status" aria-label="正在加载 Agent 配置"><Spinner size="sm" /></span> : null
+          ? null
           : <>
-            {!external && <Tooltip content={selected ? `${selected.provider} / ${selected.name}` : '选择模型'} delay={600}><Button variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} aria-label={`选择模型：${selected?.name || '未选择'}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{selected?.name || '选择模型'}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
+            {!external && <Tooltip content={activeModelTooltip} classNames={{ content: 'model-name-tooltip' }} delay={600}><Button variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} title={activeModelTooltip} aria-label={`选择模型：${selected ? modelLabel(selected) : '未选择'}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{selected ? modelLabel(selected) : '选择模型'}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
             {!external && <Tooltip content="推理强度与快速模式" delay={600}><Button variant="light" className={`composer-effort ${menu === 'effort' ? 'is-active' : ''}`} aria-label="推理设置" aria-expanded={menu === 'effort'} onPress={() => open('effort')}>{options.fast ? <Zap size="0.875rem" /> : <Brain size="0.875rem" />}<span>{effort ? effort.value === 'none' ? '无' : effort.value === 'xhigh' ? 'XHigh' : effort.value[0].toUpperCase() + effort.value.slice(1) : options.effort}</span></Button></Tooltip>}
           </>}
         {props.agentConfig?.error && <Tooltip content={props.agentConfig.error} delay={300}><Button isIconOnly size="sm" variant="light" className="composer-icon" onPress={props.agentConfig.onPrepare} aria-label="重试加载 Agent 配置"><RefreshCw size="1rem" /></Button></Tooltip>}
@@ -390,6 +403,7 @@ export default function Composer(props: Props) {
           : props.remoteRunning ? <Button isIconOnly aria-label="停止后台任务" className="send-button generating" onPress={props.onStopRemote}><Square size="0.75rem" fill="currentColor" /></Button> : null}
         <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={sendDisabled} onPress={sendDraft}><ArrowUp size="1rem" strokeWidth={2.25} /></Button>
       </div>
+      </>}
     </div>
     <input ref={fileInput} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.properties,.cfg,.conf,.env,.vue,.svelte" onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />
 
@@ -415,7 +429,7 @@ export default function Composer(props: Props) {
                 <Collapse open={openGroup}>{group.models.map(model => {
                   const selected = model.value === agentModelValue;
                   return <div className={`composer-model-row agent-model-row ${selected ? 'is-selected' : ''}`} key={model.value}>
-                    <button role="radio" aria-checked={selected} aria-label={`${group.name} / ${model.name}`} onClick={() => { changeAgent(agentModel.id, model.value); close(); focusInput(); }}>
+                    <button role="radio" aria-checked={selected} aria-label={`${group.name} / ${model.name}`} title={[model.name, model.description].filter(Boolean).join('\n')} onClick={() => { changeAgent(agentModel.id, model.value); close(); focusInput(); }}>
                       <span><strong>{model.name}</strong>{model.description && <small>{model.description}</small>}</span>{selected && <Check size="1rem" />}
                     </button>
                     {!external && <Tooltip content={model.value === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${group.name} / ${model.name}`} aria-pressed={model.value === props.defaultModel} onPress={() => { props.onDefaultModel(model.value); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.value === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>}
@@ -434,8 +448,8 @@ export default function Composer(props: Props) {
                 <span className="provider-dot" style={{ background: group.color || '#9298a1' }} /><span>{group.name}</span><small>{group.models.length}</small><ChevronDown size="0.875rem" className={query || !collapsed.includes(group.id) ? 'rotated' : ''} />
               </button>
               <Collapse open={!!query || !collapsed.includes(group.id)}>{group.models.map(model => <div className={`composer-model-row ${model.id === options.modelId ? 'is-selected' : ''}`} key={model.id}>
-                <button role="radio" aria-checked={model.id === options.modelId} aria-label={`${model.provider} / ${model.name}`} onClick={() => { update('modelId', model.id); close(); focusInput(); }}><span>{model.name}</span>{model.id === options.modelId && <Check size="1rem" />}</button>
-                <Tooltip content={model.id === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${model.provider} / ${model.name}`} aria-pressed={model.id === props.defaultModel} onPress={() => { props.onDefaultModel(model.id); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.id === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>
+                <button role="radio" aria-checked={model.id === options.modelId} aria-label={`${model.provider} / ${modelLabel(model)}`} title={model.name} onClick={() => { update('modelId', model.id); close(); focusInput(); }}><span className="model-option-copy"><strong>{modelLabel(model)}</strong>{modelLabel(model) !== model.name && <small>{model.name}</small>}</span>{model.id === options.modelId && <Check size="1rem" />}</button>
+                <Tooltip content={model.id === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${model.provider} / ${modelLabel(model)}`} aria-pressed={model.id === props.defaultModel} onPress={() => { props.onDefaultModel(model.id); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.id === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>
               </div>)}</Collapse>
             </div>)}
             {!groupModels(models, query).length && <div className="composer-empty"><Search size="1.4375rem" /><p>没有找到匹配的模型</p><small>试试模型名或供应商名称</small></div>}

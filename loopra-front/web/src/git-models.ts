@@ -2,7 +2,7 @@
 // Legacy GitPanel.vue loaded GET /models and rendered the models grouped by
 // channel with a warning when the chosen model was not in the list.
 
-export type GitModel = { name: string; active?: boolean; channelId?: string; channelName?: string };
+export type GitModel = { name: string; displayName?: string; active?: boolean; channelId?: string; channelName?: string };
 export type GitModelChannel = { id: string; name: string; models: GitModel[] };
 
 /** Groups `/models` entries by their channel, keeping the server order. */
