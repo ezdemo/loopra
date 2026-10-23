@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
+import { SessionRuns, sessionRunKey } from './helpers/session-runs.mjs';
 
 const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -15,7 +16,7 @@ function environment() {
   const requests = [];
   const state = { sessions: ['one', 'two'].map(id => ({ id, name: id, workspaceHash: 'project', messages: [] })), notices: [], options: {} };
   const env = {
-    sessions: state.sessions, narrow: false, generatingId: null,
+    sessions: state.sessions, narrow: false, generatingId: null, server: 'http://loopra.test', runs: new SessionRuns(), sessionRunKey,
     historyRequest: { current: undefined }, userScrolledAway: { current: true }, lastScrollTop: { current: 50 }, emptyContext: {},
     selectMainTab() {}, setWorkspace() {}, setMenu() {}, setDraft() {}, setComposerContext() {}, setShowScrollBtn() {}, setLiveSpeed() {},
     setActiveId: value => { state.active = value; },
@@ -81,4 +82,17 @@ test('late history and metadata from an aborted session cannot overwrite the nex
   await next;
   assert.equal(state.options.modelId, 'new:new');
   assert.equal(state.sessions[1].messages[0].text, 'new');
+});
+
+test('a delayed opening history cannot replace output from a stream started meanwhile', async () => {
+  const { env, select, state, requests } = environment();
+  const pending = select('one');
+  env.runs.claim(sessionRunKey(env.server, 'one'), { server: env.server, requestId: 'local', controller: new AbortController(), session: state.sessions[0] });
+  state.sessions[0].messages = [{ text: 'live reply' }];
+  requests[0].resolve([{ content: 'stale disk history' }]);
+  requests[1].resolve({ model: 'model', modelChannelId: 'channel' });
+  requests[2].resolve({ mode: 'execute' });
+  await pending;
+  assert.equal(state.sessions[0].messages[0].text, 'live reply');
+  assert.equal(state.history, undefined);
 });

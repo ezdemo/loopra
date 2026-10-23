@@ -164,6 +164,45 @@ class ChatTaskServiceTest {
         assertEquals(1, agents.unregistered.get());
     }
 
+    @Test
+    void differentSessionsRunInParallelAndCancellingOneDoesNotInterruptTheOther() throws Exception {
+        service.close();
+        var parallel = Executors.newFixedThreadPool(2);
+        service = new ChatTaskService(parallel, agents, clock::get);
+        CountDownLatch started = new CountDownLatch(2);
+        CountDownLatch completedA = new CountDownLatch(1);
+        CountDownLatch completedB = new CountDownLatch(1);
+        CountDownLatch releaseB = new CountDownLatch(1);
+        AtomicBoolean interruptedA = new AtomicBoolean();
+        AtomicBoolean interruptedB = new AtomicBoolean();
+        service.submit("A", "same-project", "first", () -> {
+            started.countDown();
+            try { new CountDownLatch(1).await(); }
+            catch (InterruptedException exception) { interruptedA.set(true); }
+        }, failure -> completedA.countDown());
+        service.submit("B", "same-project", "second", () -> {
+            started.countDown();
+            try { releaseB.await(); }
+            catch (InterruptedException exception) { interruptedB.set(true); }
+        }, failure -> completedB.countDown());
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS), "both sessions must enter before either completes");
+            service.cancel("A");
+            assertTrue(completedA.await(5, TimeUnit.SECONDS));
+            assertTrue(interruptedA.get());
+            assertFalse(interruptedB.get());
+            assertEquals(Set.of("B"), agents.active);
+            assertEquals(1, completedB.getCount());
+            releaseB.countDown();
+            assertTrue(completedB.await(5, TimeUnit.SECONDS));
+            assertTrue(agents.active.isEmpty());
+            assertEquals(2, agents.unregistered.get());
+        } finally {
+            releaseB.countDown(); service.close();
+            assertTrue(parallel.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
     private static final class RecordingAgents extends AgentService {
         final Set<String> active = ConcurrentHashMap.newKeySet();
         final AtomicInteger unregistered = new AtomicInteger();
