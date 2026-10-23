@@ -36,7 +36,7 @@ function UserMessage({ message, onEdit, onRollback, busy, notify, onRawEvents, c
   </div></Enter>;
 }
 
-function AssistantMessage({ message, streaming, showDuration = true, canManageHistory, ...actions }: { message: Message; streaming: boolean; showDuration?: boolean } & MessageViewActions) {
+function AssistantMessage({ message, streaming, showDuration = true, canBranch, ...actions }: { message: Message; streaming: boolean; showDuration?: boolean; canBranch: boolean } & MessageActions) {
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
   const [clock, setClock] = useState(Date.now());
@@ -69,7 +69,7 @@ function AssistantMessage({ message, streaming, showDuration = true, canManageHi
     </section>}
     <BlockRenderer blocks={final} streaming={streaming} {...actions} />
     {streaming && !message.text && <div className="thinking" role="status"><i /><i /><i /><span>正在准备回复…</span></div>}
-    {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>修改 {stats.edited.length} 文件</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>新增 {stats.created.length} 文件</button>}</span><span className="msg-actions"><IconButton label="复制回复" onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canManageHistory && <button type="button" className="msg-action-button" aria-label="继续到新会话" title="继续到新会话" disabled={actions.busy} onClick={() => actions.onBranch(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
+    {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>修改 {stats.edited.length} 文件</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>新增 {stats.created.length} 文件</button>}</span><span className="msg-actions"><IconButton label="复制回复" onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canBranch && <button type="button" className="msg-action-button" aria-label="继续到新会话" title="从此回复继续到新会话" disabled={actions.busy} onClick={() => actions.onBranch(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
   </div></Enter>;
 }
 
@@ -78,6 +78,7 @@ function AssistantMessage({ message, streaming, showDuration = true, canManageHi
 export function Messages({ session, loading, scrollRef, offsetsRef, showDuration = true, ...actions }: { session: Session; loading: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
   const messages = getSessionMessages(session);
   const canManageHistory = !session.agentId || session.agentId === 'native';
+  const canBranch = canManageHistory || session.agentId === 'codex' || session.agentId === 'claude-code';
   const last = messages[messages.length - 1];
   const virtualized = messages.length > VIRTUALIZATION_THRESHOLD;
   const heights = useRef(new Map<string, number>());
@@ -141,7 +142,7 @@ export function Messages({ session, loading, scrollRef, offsetsRef, showDuration
 
   const render = (message: Message) => message.role === 'user'
     ? <UserMessage key={message.id} message={message} canManageHistory={canManageHistory} {...actions} />
-    : <AssistantMessage key={message.id} message={message} streaming={loading && message.id === last?.id} showDuration={showDuration} canManageHistory={canManageHistory} {...actions} />;
+    : <AssistantMessage key={message.id} message={message} streaming={loading && message.id === last?.id} showDuration={showDuration} canBranch={canBranch} {...actions} />;
   const visible = virtualized ? messages.slice(view.start, view.end) : messages;
   return <div className="loopra-conversation" aria-label="聊天内容"><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}

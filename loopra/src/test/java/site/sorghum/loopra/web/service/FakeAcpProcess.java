@@ -9,6 +9,8 @@ public final class FakeAcpProcess {
     private static List<String> directories = List.of();
     private static String mcp = "[]";
     private static String setup = "new";
+    private static String rootSession = "fake-session";
+    private static String forkMessageId;
     private static boolean nativeChildren;
     private static String permissionChild;
     private static boolean forms;
@@ -21,6 +23,12 @@ public final class FakeAcpProcess {
             ONode message = ONode.ofJson(input.nextLine());
             String method = message.get("method").getString();
             Object id = message.get("id").getValue();
+            String trace = System.getProperty("loopra.fake.requestTrace");
+            if (trace != null && method != null) {
+                try { java.nio.file.Files.writeString(java.nio.file.Path.of(trace), message.toJson() + "\n",
+                        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND); }
+                catch (java.io.IOException e) { throw new java.io.UncheckedIOException(e); }
+            }
             if (method == null) {
                 if (promptId == null) continue;
                 if (answeringInput) {
@@ -50,9 +58,12 @@ public final class FakeAcpProcess {
                     terminalOutputDelta = message.get("params").get("clientCapabilities").get("_meta").get("terminal_output_delta").getBoolean();
                     nativeChildren = message.get("params").get("clientCapabilities").get("subagents").isObject()
                             && !Boolean.getBoolean("loopra.fake.noSubagents");
+                    Map<String, Object> sessions = new LinkedHashMap<>();
+                    if (nativeChildren) sessions.put("subagents", Map.of());
+                    if (!Boolean.getBoolean("loopra.fake.noFork")) sessions.put("fork", Map.of());
                     response(id, Map.of("protocolVersion", 1,
                         "agentCapabilities", Map.of("loadSession", true, "additionalDirectories", true,
-                                "sessionCapabilities", nativeChildren ? Map.of("subagents", Map.of()) : Map.of(),
+                                "sessionCapabilities", sessions,
                                 "mcpCapabilities", Map.of("http", true, "sse", true))));
                 }
                 case "session/new" -> {
@@ -79,9 +90,33 @@ public final class FakeAcpProcess {
                     setup = "new";
                     response(id, Map.of("sessionId", "fake-session", "configOptions", config()));
                 }
+                case "session/fork" -> {
+                    if (Boolean.getBoolean("loopra.fake.forkFailure")) {
+                        send(Map.of("jsonrpc", "2.0", "id", id, "error",
+                                Map.of("code", -32603, "message", "fork failed")));
+                        continue;
+                    }
+                    var point = message.get("params").get("_meta").get("jetbrains").get("air").get("fork");
+                    forkMessageId = point.get("messageId").getString();
+                    String expectedPoint = System.getProperty("loopra.fake.expectedForkMessageId");
+                    if (expectedPoint != null && (!expectedPoint.equals(forkMessageId)
+                            || point.get("version").getInt() != 1 || point.get("messageOccurrence").getInt() != 2
+                            || !point.get("messageFingerprint").getString().matches("sha256:[0-9a-f]{64}"))
+                            || Boolean.getBoolean("loopra.fake.rejectForkPoint") && point.isObject()) {
+                        send(Map.of("jsonrpc", "2.0", "id", id, "error",
+                                Map.of("code", -32602, "message", "Fork point message was not found")));
+                        continue;
+                    }
+                    rootSession = System.getProperty("loopra.fake.forkId", "fake-fork");
+                    setup = "fork";
+                    directories = readDirectories(message);
+                    mcp = message.get("params").get("mcpServers").toJson();
+                    response(id, Map.of("sessionId", rootSession, "configOptions", config()));
+                }
                 case "session/load" -> {
                     String conflict = System.getProperty("loopra.fake.writerConflictMarker");
-                    if (conflict != null && java.nio.file.Files.exists(java.nio.file.Path.of(conflict))) {
+                    rootSession = message.get("params").get("sessionId").getString();
+                    if ("fake-session".equals(rootSession) && conflict != null && java.nio.file.Files.exists(java.nio.file.Path.of(conflict))) {
                         send(Map.of("jsonrpc", "2.0", "id", id, "error", Map.of(
                                 "code", -32600, "message", "This Codex session is in use by another Codex client",
                                 "data", Map.of("reason", "thread_active_writer", "threadId", "fake-session",
@@ -111,6 +146,24 @@ public final class FakeAcpProcess {
                 }
                 case "session/prompt" -> {
                     String text = message.get("params").get("prompt").get(0).get("text").getString();
+                    if ("message-ids".equals(text)) {
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "messageId", "remote-first",
+                                "content", Map.of("type", "text", "text", "first ")));
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "messageId", "remote-first",
+                                "content", Map.of("type", "text", "text", "reply")));
+                        update(Map.of("sessionUpdate", "agent_thought_chunk", "messageId", "remote-final",
+                                "content", Map.of("type", "text", "text", "thinking")));
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "messageId", "remote-final",
+                                "content", Map.of("type", "text", "text", "second reply")));
+                        response(id, Map.of("stopReason", "end_turn"));
+                        continue;
+                    }
+                    if ("echo-fork-point".equals(text)) {
+                        update(Map.of("sessionUpdate", "agent_message_chunk",
+                                "content", Map.of("type", "text", "text", "fork-point:" + forkMessageId)));
+                        response(id, Map.of("stopReason", "end_turn"));
+                        continue;
+                    }
                     if (List.of("input", "child-input", "input-timeout").contains(text)) {
                         if (!forms) { response(id, Map.of("stopReason", "refusal")); continue; }
                         String source = "child-input".equals(text) ? "child-1" : "fake-session";
@@ -301,7 +354,7 @@ public final class FakeAcpProcess {
                 Map.of("id", "future", "name", "Future", "type", "unknown_future_type", "currentValue", 4));
     }
     private static void update(Map<String, Object> update) {
-        childUpdate("fake-session", update);
+        childUpdate(rootSession, update);
     }
     private static void legacyCodexTranscript(String text) {
         var running = Map.of("senderThreadId", "fake-session", "receiverThreadIds", List.of("legacy-child"),

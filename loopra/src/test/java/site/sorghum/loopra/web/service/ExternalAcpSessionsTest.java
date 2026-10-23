@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.noear.solon.core.handle.ContextEmpty;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.session.JsonlSessionStore;
@@ -408,6 +409,138 @@ class ExternalAcpSessionsTest {
             assertEquals(List.of("existing history", "recovered", "reply:recovered"),
                     store.load("chat").stream().map(message -> message.getContent()).toList());
         } finally { store.shutdown(); }
+    }
+
+    @Test
+    void forksAnOccupiedRemoteSessionWithoutLoadingItAndRestoresTheForkAfterRestart() throws Exception {
+        Path conflict = java.nio.file.Files.writeString(home.resolve("writer-conflict"), "busy");
+        Path trace = home.resolve("requests.jsonl");
+        var source = store("codex");
+        var target = new JsonlSessionStore(source.sessionsDir());
+        source.bindTo("chat");
+        source.append(site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("existing history"));
+        source.updateTitle("chat", "Original");
+        source.setAcpBinding("chat", new SessionStore.AcpBinding("codex", "fake-session", home.toString()));
+        source.setAgentConfig("chat", Map.of("model", "\"beta\"", "mode", "\"plan\""));
+        String[] flags = {"-Dloopra.fake.writerConflictMarker=" + conflict, "-Dloopra.fake.requestTrace=" + trace};
+        try {
+            try (var runtime = runtime(flags)) {
+                runtime.fork("fork-key", home, "chat", source, "fork", target, List.of(home.resolve("linked").toString()));
+                assertEquals("fake-fork", target.getAcpBinding("fork").remoteSessionId());
+                assertEquals("codex", target.getAcpBinding("fork").agentId());
+                assertEquals("[复刻]Original", target.getTitle("fork"));
+                assertEquals(source.getAgentConfig("chat"), target.getAgentConfig("fork"));
+                assertEquals(List.of("existing history"), target.load("fork").stream().map(message -> message.getContent()).toList());
+                String requests = java.nio.file.Files.readString(trace);
+                assertTrue(requests.contains("\"method\":\"session/fork\""));
+                assertFalse(requests.contains("\"method\":\"session/load\""));
+                assertFalse(requests.contains("\"method\":\"session/new\""));
+                assertTrue(requests.contains(home.resolve("linked").toString().replace("\\", "\\\\")));
+                runtime.prompt("fork-key", home, "fork", target, UserMessage.of("state"), AgentOutput.NOOP,
+                        false, null, List.of(home.resolve("linked").toString()), ignored -> {}, ignored -> {});
+                assertTrue(target.load("fork").stream().anyMatch(message -> "reply:state:beta:plan".equals(message.getContent())));
+                assertThrows(ServiceException.class, () -> runtime.configuration("source-key", home, "chat", source, null, null));
+            }
+            try (var runtime = runtime(flags)) {
+                runtime.prompt("fork-key", home, "fork", target, UserMessage.of("continued"), AgentOutput.NOOP,
+                        false, null, List.of(), ignored -> {}, ignored -> {});
+            }
+            assertTrue(target.load("fork").stream().anyMatch(message -> "reply:continued".equals(message.getContent())));
+            assertEquals(List.of("existing history"), source.load("chat").stream().map(message -> message.getContent()).toList());
+            assertEquals("fake-session", source.getAcpBinding("chat").remoteSessionId());
+            assertTrue(java.nio.file.Files.exists(conflict));
+            var requests = java.nio.file.Files.readAllLines(trace).stream().map(org.noear.snack4.ONode::ofJson).toList();
+            assertTrue(requests.stream().filter(request -> "session/prompt".equals(request.get("method").getString()))
+                    .allMatch(request -> "fake-fork".equals(request.get("params").get("sessionId").getString())));
+        } finally { target.shutdown(); source.shutdown(); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"codex,true", "codex,false", "claude-code,true", "claude-code,false"})
+    void historicalForkCarriesTheExactPointAndExcludesLaterHistory(String agentId, boolean hasIds) throws Exception {
+        Path trace = home.resolve("requests.jsonl");
+        Path conflict = java.nio.file.Files.writeString(home.resolve("busy"), "busy");
+        var source = store(agentId);
+        var target = new JsonlSessionStore(source.sessionsDir());
+        var answer = site.sorghum.loopra.bin.agent.model.ChatMessage.assistant("same answer", null, null);
+        if (hasIds) answer.setAcpMessageId("selected-remote");
+        source.bindTo("chat");
+        source.rewrite(List.of(site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("first"),
+                site.sorghum.loopra.bin.agent.model.ChatMessage.assistant("same answer", null, null),
+                site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("second"), answer,
+                site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("future"),
+                site.sorghum.loopra.bin.agent.model.ChatMessage.assistant("do not inherit", null, null)));
+        source.setAcpBinding("chat", new SessionStore.AcpBinding(agentId, "fake-session", home.toString()));
+        String expectedId = hasIds ? "selected-remote" : "loopra-history-4";
+        try (var runtime = runtime("-Dloopra.fake.requestTrace=" + trace, "-Dloopra.fake.writerConflictMarker=" + conflict,
+                "-Dloopra.fake.expectedForkMessageId=" + expectedId)) {
+            runtime.fork("branch", home, "chat", source, "branch", target, List.of(), 4);
+            assertEquals(4, target.load("branch").size());
+            assertEquals(6, source.load("chat").size());
+            assertEquals(hasIds ? "selected-remote" : null, target.load("branch").get(3).getAcpMessageId());
+            assertEquals(agentId, target.getAcpBinding("branch").agentId());
+            String requests = java.nio.file.Files.readString(trace);
+            assertFalse(requests.contains("\"method\":\"session/load\""));
+            assertFalse(requests.contains("\"method\":\"session/new\""));
+            runtime.prompt("branch", home, "branch", target, UserMessage.of("echo-fork-point"), AgentOutput.NOOP,
+                    false, null, List.of(), ignored -> {}, ignored -> {});
+            assertEquals("fork-point:" + expectedId, target.load("branch").get(5).getContent());
+            assertEquals(6, source.load("chat").size());
+        } finally { target.shutdown(); source.shutdown(); }
+    }
+
+    @Test void missingHistoricalPointSurfacesAnAgentErrorWithoutCreatingALatestHistoryFork() throws Exception {
+        var source = store("codex");
+        var target = new JsonlSessionStore(source.sessionsDir());
+        source.bindTo("chat");
+        source.rewrite(List.of(site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("question"),
+                site.sorghum.loopra.bin.agent.model.ChatMessage.assistant("answer", null, null)));
+        source.setAcpBinding("chat", new SessionStore.AcpBinding("codex", "fake-session", home.toString()));
+        try (var runtime = runtime("-Dloopra.fake.rejectForkPoint=true")) {
+            ServiceException failure = assertThrows(ServiceException.class,
+                    () -> runtime.fork("branch", home, "chat", source, "branch", target, List.of(), 2));
+            assertEquals(502, failure.getCode());
+            assertTrue(failure.getMessage().contains("Fork point message was not found"));
+            assertFalse(java.nio.file.Files.exists(source.sessionsDir().resolve("branch.jsonl")));
+            assertFalse(java.nio.file.Files.exists(source.sessionsDir().resolve("branch.meta")));
+            assertEquals(2, source.load("chat").size());
+        } finally { target.shutdown(); source.shutdown(); }
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"codex", "claude-code"})
+    void recordsRemoteMessageIdsWithoutMergingDistinctAssistantMessages(String agentId) throws Exception {
+        var store = store(agentId);
+        try (var runtime = runtime()) {
+            prompt(runtime, store, "message-ids", AgentOutput.NOOP);
+            var history = store.load("chat");
+            assertEquals(3, history.size());
+            assertEquals("first reply", history.get(1).getContent());
+            assertEquals("remote-first", history.get(1).getAcpMessageId());
+            assertEquals("second reply", history.get(2).getContent());
+            assertEquals("thinking", history.get(2).getReasoningContent());
+            assertEquals("remote-final", history.get(2).getAcpMessageId());
+        } finally { store.shutdown(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"-Dloopra.fake.noFork=true", "-Dloopra.fake.forkFailure=true",
+            "-Dloopra.fake.forkId=fake-session", "-Dloopra.fake.forkId="})
+    void failedForkLeavesNoPartialLocalConversationAndPreservesSource(String flag) throws Exception {
+        var source = store("codex");
+        var target = new JsonlSessionStore(source.sessionsDir());
+        source.bindTo("chat");
+        source.append(site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("existing history"));
+        var binding = new SessionStore.AcpBinding("codex", "fake-session", home.toString());
+        source.setAcpBinding("chat", binding);
+        try (var runtime = runtime(flag)) {
+            assertThrows(Exception.class, () -> runtime.fork("fork-key", home, "chat", source, "fork", target, List.of()));
+            assertFalse(java.nio.file.Files.exists(source.sessionsDir().resolve("fork.jsonl")));
+            assertFalse(java.nio.file.Files.exists(source.sessionsDir().resolve("fork.meta")));
+            assertEquals(binding, source.getAcpBinding("chat"));
+            assertEquals(List.of("existing history"), source.load("chat").stream().map(message -> message.getContent()).toList());
+            // Failed setup released the reservation, so this key can be used again.
+            runtime.configuration("fork-key", home, "chat", source, null, null);
+        } finally { target.shutdown(); source.shutdown(); }
     }
 
     @Test

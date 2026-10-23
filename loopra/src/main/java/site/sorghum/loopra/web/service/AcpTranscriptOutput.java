@@ -20,8 +20,16 @@ final class AcpTranscriptOutput implements AgentOutput {
     private final StringBuilder thought = new StringBuilder();
     private final java.util.Map<String, ToolCallEntry> tools = new java.util.LinkedHashMap<>();
     private boolean toolsUpdated;
+    private String messageId;
 
     AcpTranscriptOutput(AgentOutput delegate, SessionStore store) { this.delegate = delegate; this.store = store; }
+
+    synchronized void message(String id) {
+        if (!java.util.Objects.equals(messageId, id)) {
+            flush();
+            messageId = id;
+        }
+    }
 
     @Override public synchronized void onContentDelta(String token) { text.append(token); delegate.onContentDelta(token); }
     @Override public synchronized void onReasoningDelta(String token) { thought.append(token); delegate.onReasoningDelta(token); }
@@ -81,7 +89,9 @@ final class AcpTranscriptOutput implements AgentOutput {
     @Override public void onChoice(List<site.sorghum.loopra.tool.ChoiceOption> options) { delegate.onChoice(options); }
     synchronized void flush() {
         if (!text.isEmpty() || !thought.isEmpty()) {
-            append(ChatMessage.assistant(text.toString(), null, thought.toString()));
+            ChatMessage message = ChatMessage.assistant(text.toString(), null, thought.toString());
+            message.setAcpMessageId(messageId);
+            append(message);
             text.setLength(0); thought.setLength(0);
         }
         store.flush();

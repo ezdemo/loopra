@@ -79,6 +79,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     /** The Agent's last reported context usage; ACP omits cumulative session tokens. */
     private volatile Usage lastUsage = new Usage(0, 0, null, null, null);
     private volatile java.util.function.Consumer<Usage> usageListener;
+    private volatile java.util.function.Consumer<String> messageListener;
     private volatile java.util.function.Consumer<List<AcpPlanEntry>> planListener;
     private volatile java.util.function.Consumer<List<AcpCommand>> commandsListener;
     private final AcpElicitations elicitations = new AcpElicitations(
@@ -182,6 +183,8 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         this.usageListener = listener;
     }
 
+    public void setMessageListener(java.util.function.Consumer<String> listener) { this.messageListener = listener; }
+
     public void setPlanListener(java.util.function.Consumer<List<AcpPlanEntry>> listener) { planListener = listener; }
     public void setCommandsListener(java.util.function.Consumer<List<AcpCommand>> listener) { commandsListener = listener; }
 
@@ -257,24 +260,7 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     public String open(String cwd, String existingSessionId, List<String> additionalDirectories, List<McpServer> mcpServers) {
         List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
         List<McpServer> servers = mcpServers == null ? List.of() : List.copyOf(mcpServers);
-        initialized = client.initialize(new InitializeRequest(1,
-                new ClientCapabilities(new FileSystemCapability(false, false), false, new ElicitationCapabilities(Map.of(), null, null),
-                        // Native events for Loopra; the historical Claude Code capability that keeps
-                        // a subagent's transcript on the root session so it can be nested in the UI.
-                        Map.of(AcpAgentOutput.EXTENSION, true, SUBAGENT_TRANSCRIPT, true, "terminal_output_delta", true)),
-                new Implementation("loopra-workbench", "26.9.91", "Loopra Workbench"), null));
-        if (initialized.protocolVersion() == null || initialized.protocolVersion() != 1) {
-            throw new IllegalStateException("Agent did not negotiate ACP v1");
-        }
-        nativeEvents = initialized.agentCapabilities() != null && initialized.agentCapabilities().meta() != null
-                && Boolean.TRUE.equals(initialized.agentCapabilities().meta().get(AcpAgentOutput.EXTENSION));
-        McpCapabilities mcp = initialized.agentCapabilities() == null ? null : initialized.agentCapabilities().mcpCapabilities();
-        for (McpServer server : servers) {
-            if (server instanceof McpServerHttp && (mcp == null || !Boolean.TRUE.equals(mcp.http())))
-                throw new IllegalStateException("Agent 不支持 HTTP MCP: " + site.sorghum.loopra.bin.acp.AcpMcpServers.name(server));
-            if (server instanceof McpServerSse && (mcp == null || !Boolean.TRUE.equals(mcp.sse())))
-                throw new IllegalStateException("Agent 不支持 SSE MCP: " + site.sorghum.loopra.bin.acp.AcpMcpServers.name(server));
-        }
+        initialize(servers);
         if (existingSessionId != null) {
             if (initialized.agentCapabilities() == null || !Boolean.TRUE.equals(initialized.agentCapabilities().loadSession())) {
                 throw new IllegalStateException("Agent 不支持恢复会话，请创建新会话");
@@ -293,6 +279,53 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         }
         if (sessionId == null || sessionId.isBlank()) throw new IllegalStateException("Agent returned an empty session ID");
         return sessionId;
+    }
+
+    public String fork(String cwd, String sourceSessionId, List<String> additionalDirectories, List<McpServer> mcpServers) {
+        return fork(cwd, sourceSessionId, additionalDirectories, mcpServers, null);
+    }
+
+    public String fork(String cwd, String sourceSessionId, List<String> additionalDirectories, List<McpServer> mcpServers,
+                       Map<String, Object> meta) {
+        List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
+        List<McpServer> servers = mcpServers == null ? List.of() : List.copyOf(mcpServers);
+        initialize(servers);
+        var capabilities = initialized.agentCapabilities() == null ? null : initialized.agentCapabilities().sessionCapabilities();
+        if (capabilities == null || capabilities.fork() == null) {
+            throw new ServiceException("当前 Agent 不支持创建会话分叉，请关闭另一客户端中的原会话后重试");
+        }
+        // Fork directly: loading the source first would require its writer lock.
+        replaying = true;
+        try {
+            var forked = client.forkSession(new ForkSessionRequest(sourceSessionId, cwd, servers, directories, meta));
+            if (forked.sessionId() == null || forked.sessionId().isBlank() || forked.sessionId().equals(sourceSessionId)) {
+                throw new ServiceException("Agent 未返回独立的分叉会话 ID");
+            }
+            sessionId = forked.sessionId();
+            legacyConfiguration(forked.modes(), forked.models());
+            return sessionId;
+        } finally { replaying = false; }
+    }
+
+    private void initialize(List<McpServer> servers) {
+        initialized = client.initialize(new InitializeRequest(1,
+                new ClientCapabilities(new FileSystemCapability(false, false), false, new ElicitationCapabilities(Map.of(), null, null),
+                        // Native events for Loopra; the historical Claude Code capability that keeps
+                        // a subagent's transcript on the root session so it can be nested in the UI.
+                        Map.of(AcpAgentOutput.EXTENSION, true, SUBAGENT_TRANSCRIPT, true, "terminal_output_delta", true)),
+                new Implementation("loopra-workbench", "26.9.91", "Loopra Workbench"), null));
+        if (initialized.protocolVersion() == null || initialized.protocolVersion() != 1) {
+            throw new IllegalStateException("Agent did not negotiate ACP v1");
+        }
+        nativeEvents = initialized.agentCapabilities() != null && initialized.agentCapabilities().meta() != null
+                && Boolean.TRUE.equals(initialized.agentCapabilities().meta().get(AcpAgentOutput.EXTENSION));
+        McpCapabilities mcp = initialized.agentCapabilities() == null ? null : initialized.agentCapabilities().mcpCapabilities();
+        for (McpServer server : servers) {
+            if (server instanceof McpServerHttp && (mcp == null || !Boolean.TRUE.equals(mcp.http())))
+                throw new IllegalStateException("Agent 不支持 HTTP MCP: " + site.sorghum.loopra.bin.acp.AcpMcpServers.name(server));
+            if (server instanceof McpServerSse && (mcp == null || !Boolean.TRUE.equals(mcp.sse())))
+                throw new IllegalStateException("Agent 不支持 SSE MCP: " + site.sorghum.loopra.bin.acp.AcpMcpServers.name(server));
+        }
     }
 
     private void legacyConfiguration(SessionModeState modes, SessionModelState models) {
@@ -353,11 +386,19 @@ public final class AcpWorkbenchClient implements AutoCloseable {
             if (nativeEvents && chunk.meta() != null && chunk.meta().get(AcpAgentOutput.EVENT) instanceof Map<?, ?> event) {
                 output.sendEvent(String.valueOf(event.get("type")), String.valueOf(event.get("data")));
             } else if (chunk.content() instanceof TextContent text) {
-                if (subId == null) output.onContentDelta(text.text());
+                if (subId == null) {
+                    var listener = messageListener;
+                    if (listener != null) listener.accept(chunk.messageId());
+                    output.onContentDelta(text.text());
+                }
                 else sendSubEvent(subId, "sub_content", Map.of("token", text.text()));
             }
         } else if (update instanceof AgentThoughtChunk chunk && chunk.content() instanceof TextContent text) {
-            if (subId == null) output.onReasoningDelta(text.text());
+            if (subId == null) {
+                var listener = messageListener;
+                if (listener != null) listener.accept(chunk.messageId());
+                output.onReasoningDelta(text.text());
+            }
             else sendSubEvent(subId, "sub_reasoning", Map.of("token", text.text()));
         } else if (update instanceof ToolCall call) {
             String key = toolKey(child, call.toolCallId());

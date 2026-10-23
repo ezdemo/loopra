@@ -60,6 +60,10 @@ public class ChatMessage {
     @ONodeAttr(name = "reasoning_content")
     private String reasoningContent;
 
+    /** ACP source message identity, used to fork the remote model context at this reply. */
+    @ONodeAttr(name = "acp_message_id")
+    private String acpMessageId;
+
     /**
      * 原始 thinking / redacted_thinking 内容块 JSON（Anthropic 协议专用）。
      * 元素为服务端返回的块原文（含 signature），多轮对话时需原样回传，不能拼接或伪造。
@@ -203,6 +207,8 @@ public class ChatMessage {
         }
         Object reasoning = m.get("reasoning_content");
         msg.reasoningContent = reasoning != null ? reasoning.toString() : null;
+        Object acpMessageId = m.get("acp_message_id");
+        msg.acpMessageId = acpMessageId instanceof String id ? id : null;
         Object thinkingBlocks = m.get("thinking_blocks");
         if (thinkingBlocks instanceof List<?> blockList && !blockList.isEmpty()) {
             msg.thinkingBlocks = new ArrayList<>();
@@ -470,6 +476,7 @@ public class ChatMessage {
         copy.toolImageUrl = this.toolImageUrl;
         copy.toolImageDetail = this.toolImageDetail;
         copy.reasoningContent = this.reasoningContent;
+        copy.acpMessageId = this.acpMessageId;
         if (this.thinkingBlocks != null) {
             copy.thinkingBlocks = new ArrayList<>(this.thinkingBlocks);
         }

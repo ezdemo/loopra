@@ -181,17 +181,26 @@ const renderMessages = async (messages, extra = {}) => {
 };
 const longSession = () => Array.from({ length: 80 }, (_, index) => ({ id: `m${index}`, role: index % 2 ? 'assistant' : 'user', text: `消息 ${index}` }));
 
-test('external agents expose only copy actions even when history includes rollback metadata', async () => {
+test('external agents offer historical branches without enabling unsupported edit or rollback actions', async () => {
   const messages = [
     { id: 'u1', role: 'user', text: '问', rollbackId: 'rollback', rollbackTimestamp: 123, snapshotId: 'snapshot' },
     { id: 'a1', role: 'assistant', text: '答', historyCount: 2 },
   ];
   for (const agentId of ['codex', 'claude-code', 'custom-acp']) {
+    const calls = [];
     const view = await renderMessages(messages, {
       session: { id: 's', title: 't', workspace: 'w', kind: 'mock', agentId, messages },
+      onBranch: id => calls.push(id),
     });
     try {
-      assert.deepEqual([...view.container.querySelectorAll('.msg-actions button')].map(button => button.getAttribute('aria-label')), ['复制消息', '复制回复'], agentId);
+      const labels = ['复制消息', '复制回复'];
+      if (agentId !== 'custom-acp') labels.push('继续到新会话');
+      assert.deepEqual([...view.container.querySelectorAll('.msg-actions button')].map(button => button.getAttribute('aria-label')), labels, agentId);
+      const branch = view.container.querySelector('[aria-label="继续到新会话"]');
+      if (branch) {
+        await act(async () => branch.click());
+        assert.deepEqual(calls, ['a1']);
+      }
     } finally { await view.close(); }
   }
 });

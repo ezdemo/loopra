@@ -1596,6 +1596,9 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
      */
     public String branchSession(String workspacePath, String sourceSession, int messageCount) throws Exception {
         if (!isReady()) throw new ServiceException("Agent 未初始化");
+        if (ExternalAcpProviders.isExternal(sessionAgentId(workspacePath, sourceSession))) {
+            return forkSession(workspacePath, sourceSession, messageCount);
+        }
         String sessionKey = generateSessionKey(workspacePath, sourceSession);
         LoopraAgent agent = getOrCreateAgent(sessionKey);
         SessionStore store = agent.getCtx().getSessionStore();
@@ -1631,6 +1634,31 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
         }
     }
 
+    public String forkSession(String workspacePath, String sourceSession) throws Exception {
+        return forkSession(workspacePath, sourceSession, null);
+    }
+
+    private String forkSession(String workspacePath, String sourceSession, Integer messageCount) throws Exception {
+        if (!isReady()) throw new ServiceException("Agent 未初始化");
+        if (sourceSession == null || sourceSession.isBlank()) throw new ServiceException("会话名称不能为空");
+        String project = workspacePath != null ? workspacePath : getCurrentProject();
+        SessionStore source = sessionStoreFor(project);
+        if (source == null) throw new ServiceException("会话存储不可用");
+        try {
+            if (!ExternalAcpProviders.isExternal(source.getAcpBinding(sourceSession).agentId())) {
+                throw new ServiceException("当前会话不支持 ACP 分叉");
+            }
+            String name = "loopra-" + java.util.UUID.randomUUID();
+            SessionStore target = new JsonlSessionStore(source.sessionsDir());
+            try {
+                // New conversations use the main project directory, independent of any source worktree.
+                externalAcpSessions.fork(generateSessionKey(project, name), Path.of(project), sourceSession,
+                        source, name, target, List.of(), messageCount);
+                return name;
+            } finally { target.shutdown(); }
+        } finally { source.shutdown(); }
+    }
+
     static List<ChatMessage> copyBranchMessages(List<ChatMessage> sourceMessages, int messageCount) {
         if (sourceMessages == null || sourceMessages.isEmpty()) {
             throw new ServiceException("源会话没有消息");
@@ -1643,7 +1671,7 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
 
     static String branchTitle(String sourceTitle, String sourceSession) {
         String title = sourceTitle == null || sourceTitle.isBlank() ? sourceSession : sourceTitle;
-        return title + "[复刻]";
+        return "[复刻]" + title;
     }
 
     /**
