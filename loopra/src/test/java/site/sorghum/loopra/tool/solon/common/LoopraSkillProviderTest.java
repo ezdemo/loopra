@@ -27,6 +27,8 @@ class LoopraSkillProviderTest {
             Path shared = Files.createDirectories(workspace.resolve("shared library/browser-use"));
             Files.writeString(shared.resolve("SKILL.md"), "---\ndescription: Browser skill\n---\nLinked browser body.");
             directoryLink(installed.resolve("browser-use"), shared);
+            Path common = Files.createDirectories(home.resolve(".agents/skills"));
+            directoryLink(common.resolve("browser-use"), shared);
             Path ordinary = Files.createDirectories(installed.resolve("ordinary"));
             Files.writeString(ordinary.resolve("SKILL.md"), "---\ndescription: Ordinary skill\n---\nOrdinary body.");
             Path outside = Files.createDirectories(workspace.resolve("private"));
@@ -36,8 +38,11 @@ class LoopraSkillProviderTest {
 
             LoopraSkillProvider provider = LoopraSkillProvider.getOrCreate(workspace.toString());
             var catalog = provider.getPoolManager().getSkillCatalog();
-            assertEquals(2, catalog.getSkillCount());
+            assertEquals(4, catalog.getSkillCount());
             assertTrue(catalog.readContent("@loopra-skills/browser-use").getText().contains("Linked browser body."));
+            assertTrue(catalog.readContent("@agents-skills/browser-use").getText().contains("Linked browser body."));
+            assertEquals(common.resolve("browser-use"), provider.getPoolManager()
+                    .resolveResource("@agents-skills/browser-use").getLocalPath().orElseThrow());
             assertNotNull(catalog.readContent("@loopra-skills/ordinary"));
             assertEquals(installed.resolve("browser-use"), provider.getPoolManager()
                     .resolveResource("@loopra-skills/browser-use").getLocalPath().orElseThrow());
@@ -48,7 +53,7 @@ class LoopraSkillProviderTest {
             Path projectSkills = Files.createDirectories(workspace.resolve(".loopra/skills"));
             directoryLink(projectSkills.resolve("browser-use"), shared);
             LoopraSkillProvider.refreshAllSkillPools();
-            assertEquals(3, catalog.getSkillCount());
+            assertEquals(5, catalog.getSkillCount());
             assertNotNull(catalog.readContent("@project-skills/browser-use"));
         } finally {
             LoopraSkillProvider.removeFor(workspace.toString());
@@ -68,7 +73,7 @@ class LoopraSkillProviderTest {
     }
 
     @Test
-    void userAndProjectSkillsKeepDistinctAliasesAndRefreshDiscoversNewDirectories() throws Exception {
+    void userCommonAndProjectSkillsKeepDistinctAliasesAndRefreshDiscoversNewDirectories() throws Exception {
         String previousHome = System.getProperty("user.home");
         Path home = Files.createDirectories(workspace.resolve("home"));
         System.setProperty("user.home", home.toString());
@@ -80,15 +85,28 @@ class LoopraSkillProviderTest {
             var catalog = provider.getPoolManager().getSkillCatalog();
             assertNotNull(catalog.getDescriptor("@loopra-skills/example"));
             assertNull(catalog.getDescriptor("@project-skills/example"));
+            assertNull(catalog.getDescriptor("@agents-skills/example"));
+            assertFalse(Files.exists(home.resolve(".agents/skills")), "mounting does not create the common directory");
 
             Path projectSkill = workspace.resolve(".loopra/skills/example/SKILL.md");
             Files.createDirectories(projectSkill.getParent());
             Files.writeString(projectSkill, "---\ndescription: Project example\n---\nProject skill body.");
+            Path commonSkill = home.resolve(".agents/skills/example/SKILL.md");
+            Files.createDirectories(commonSkill.getParent());
+            Files.writeString(commonSkill, "---\ndescription: Common example\n---\nCommon skill body.");
             LoopraSkillProvider.refreshAllSkillPools();
 
-            assertEquals(2, catalog.getSkillCount());
+            assertEquals(4, catalog.getSkillCount());
             assertTrue(catalog.readContent("@loopra-skills/example").getText().contains("User skill body."));
             assertTrue(catalog.readContent("@project-skills/example").getText().contains("Project skill body."));
+            LoopraSkillTalent talent = new LoopraSkillTalent(catalog);
+            assertTrue(talent.skillread("@agents-skills/example", null).contains("Common skill body."));
+            assertTrue(talent.skillsearch("Common example").contains("@agents-skills/example"));
+            assertEquals(commonSkill.getParent(), provider.getPoolManager()
+                    .resolveResource("@agents-skills/example").getLocalPath().orElseThrow());
+            Path otherWorkspace = Files.createDirectories(workspace.resolve("other"));
+            assertTrue(new LoopraSkillProvider(otherWorkspace.toString()).getPoolManager().getSkillCatalog()
+                    .readContent("@agents-skills/example").getText().contains("Common skill body."));
             assertEquals(projectSkill.getParent(), provider.getPoolManager()
                     .resolveResource("@project-skills/example").getLocalPath().orElseThrow());
             assertTrue(new LoopraSkillTalent(catalog).skillread("@project-skills/example", null)

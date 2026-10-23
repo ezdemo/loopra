@@ -208,6 +208,10 @@ loopra web 0
 | 项目状态 | `memory` 将跨会话事实保存到 `.loopra/loopra-memory.md`；共享上下文保存到 `.loopra/workspace/` |
 | 多模态 | `read_image` 支持模型原生图片输入及图片理解模型 |
 
+Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`），介绍能力入口、技能发现与加载、MCP/OpenAPI 接入、插件与拓展包及能力缺失排查。系统提示会引导 Agent 在首次处理任务前通过 `skillread` 读取，完整正文按需加载。内置技能位于 JAR 的 `loopra/skills/` 资源目录，与用户级、项目级技能分别挂载；新增内置技能时同时更新该目录下的 `index` 文件，以兼容不保留目录条目的 JAR 打包方式。
+
+原生 Agent 默认也读取通用技能目录 `~/.agents/skills/<skill-name>/SKILL.md`，挂载别名为 `@agents-skills`。它与 `~/.loopra/skills`（`@loopra-skills`）、项目技能（`@project-skills`）和内置技能分别挂载，同名技能通过完整标识区分。目录可在启动后创建，调用 `skillrefresh` 即可发现；支持顶层技能目录的符号链接与 Windows junction。技能市场仍安装到 `~/.loopra/skills`。
+
 MCP、OpenAPI 和技能可为 Agent 注入额外工具。除用户级 `~/.loopra/mcp-servers.json` 外，项目根目录下的 `.loopra/mcp-servers.json` 也会被自动读取；项目级配置只对当前项目的 Agent 生效，不会写入或污染用户级 MCP 配置。项目技能可放在 `.loopra/skills/<skill-name>/SKILL.md`，与用户级 `~/.loopra/skills` 分开挂载。桌面端会话左侧的“项目能力”入口只展示当前项目 Skill、项目 MCP 连接状态及工具列表。修改项目 MCP 文件后，可点击该面板的刷新按钮，或让 Agent 调用 `mcprefresh`；后者会在当前回复结束后重建连接，并从下一条消息起使用新工具。项目文件支持标准的 `mcpServers` 对象格式，也兼容 Loopra 管理页使用的 `servers` 数组格式，例如：
 
 ```json
