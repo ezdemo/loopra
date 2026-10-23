@@ -5,9 +5,22 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { formatTokens, getModelCatalog, groupModels, modelLabel, composeMessage, estimateContext, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { formatTokens, getModelCatalog, groupModels, modelLabel, composeMessage, estimateContext, HistoryTokenEstimator, appendPreset, attachmentViews, defaultOptions, largeInputReference, composeOutgoing, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 const providers = [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'magpie', name: 'magpie' }];
 const models = getModelCatalog(providers);
+
+test('cached history estimates match full scans through live edits, duplicate turns and session switches', () => {
+  const estimator = new HistoryTokenEstimator();
+  const context = { projects: [], skills: [], files: [] };
+  const histories = [[], ['abc', ''], ['abc', '中😀'], ['abc', '中😀 next'], ['abc', 'abc'], ['a\nb', 'c'], ['another session'], []];
+  for (const history of histories) {
+    const expected = estimateContext(history, 'draft😀', context, 64000, 'system');
+    const actual = estimateContext([], 'draft😀', context, 64000, 'system', estimator.estimate(history));
+    assert.deepEqual(actual, expected);
+  }
+  assert.equal(estimateContext([], '', context).total, 420);
+  assert.equal(estimateContext(['😀中a'], '', context).total, 423);
+});
 
 test('display names are searchable labels while model identities and outgoing context keep the raw API name', () => {
   const name = 'remote-magpie/opendesign-plugin/deepseek-v4.1-flash';

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Star, Trash2, X, Zap } from 'lucide-react';
-import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, modelLabel, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands } from '../composer';
+import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, modelLabel, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
 import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
 import { contextFromUsage, contextPartPercent, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
 import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
@@ -83,9 +83,11 @@ export default function Composer(props: Props) {
     ...(menuPlacement.maxHeight ? { '--composer-popover-max-height': `${menuPlacement.maxHeight}px` } : {}),
     '--composer-suggestions-max-height': `${suggestionPlacement.maxHeight}px`,
   } as CSSProperties;
-  const models = getModelCatalog(providers);
+  const models = useMemo(() => getModelCatalog(providers), [providers]);
   const selected = models.find(model => model.id === options.modelId);
-  const localUsage = estimateContext(props.history, draft, context, selected?.contextTokens, props.systemPrompt);
+  const historyEstimator = useMemo(() => new HistoryTokenEstimator(), []);
+  const historyTokens = useMemo(() => historyEstimator.estimate(props.history), [historyEstimator, props.history]);
+  const localUsage = useMemo(() => estimateContext([], draft, context, selected?.contextTokens, props.systemPrompt, historyTokens), [historyTokens, draft, context, selected?.contextTokens, props.systemPrompt]);
   const usage = contextFromUsage(remoteUsage, external ? { ...localUsage, limit: 0, percent: 0, windowKnown: false } : localUsage);
   const usagePercent = usage.windowKnown === false ? '—' : `${usage.percent.toFixed(1)}%`;
   // ACP Agents report context usage but no cumulative token counters, so omit the

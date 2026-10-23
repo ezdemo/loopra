@@ -184,6 +184,7 @@ export default function App() {
   const chatLogs = useChatLogs();
   const settingsQueue = useRef(Promise.resolve());
   const session = sessions.find(item => item.id === activeId && !hiddenSessions.includes(item.id));
+  const composerHistory = useMemo(() => session ? getSessionMessages(session).map(message => message.text) : [], [session?.messages, session?.kind]);
   const isHome = !session;
   const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
   const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
@@ -1194,7 +1195,7 @@ export default function App() {
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
-    history={session ? getSessionMessages(session).map(message => message.text) : []}
+    history={composerHistory}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
     // resumes from the existing context (and approves pending HITL) without

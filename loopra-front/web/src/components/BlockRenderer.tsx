@@ -14,7 +14,7 @@ function StatusIcon({ status }: { status: ToolStatus }) {
   return <span className={`tool-icon ${status === '成功' ? 'success' : status === '失败' ? 'failed' : 'running'}`}>{status === '成功' ? <Check size="0.9375rem" /> : status === '失败' ? <X size="0.9375rem" /> : <LoaderCircle size="0.9375rem" className="spin" />}</span>;
 }
 
-function ToolBlock({ block, onOpenFile }: { block: Extract<ChatBlock, { type: 'tool_call' }>; onOpenFile?: (path: string) => void }) {
+const ToolBlock = memo(function ToolBlock({ block, onOpenFile }: { block: Extract<ChatBlock, { type: 'tool_call' }>; onOpenFile?: (path: string) => void }) {
   const detailId = useId();
   const [open, setOpen] = useState(false);
   useCollapseAll(() => setOpen(false));
@@ -25,7 +25,7 @@ function ToolBlock({ block, onOpenFile }: { block: Extract<ChatBlock, { type: 't
     ? <span className="tool-file" role="button" tabIndex={0} title={param.title} onClick={openFile} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFile(event); } }}>{param.text}</span>
     : param ? <span className="tool-param" title={param.title}>{param.text}</span> : null;
   return <div className="block-tool"><button type="button" className="tool-head" aria-expanded={open} aria-controls={detailId} onClick={() => setOpen(!open)}><StatusIcon status={block.status} /><code className="tool-name">{block.name}</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span>{paramNode}{block.duration && <span className="tool-duration">{block.duration}</span>}<ChevronDown size="0.875rem" className={open ? 'rotated' : ''} /></button><Collapse open={open} id={detailId} className="tool-detail">{block.args && <><span className="tool-detail-label">参数</span><pre><code>{JSON.stringify(block.args, null, 2)}</code></pre></>}{block.result && <><span className="tool-detail-label">结果</span><pre><code>{block.result}</code></pre></>}</Collapse></div>;
-}
+});
 
 // One row of the file list: the name expands the diff in the transcript, the
 // trailing button hands the same patch to the workspace pane instead.
@@ -106,7 +106,7 @@ function ReasoningPreview({ content, streaming }: { content: string; streaming: 
   return <span ref={ref} className="reasoning-preview" data-streaming={streaming} title={preview}>{preview || '思考'}</span>;
 }
 
-function Step({ block, streaming = false, ...actions }: StepProps) {
+const Step = memo(function Step({ block, streaming = false, ...actions }: StepProps) {
   if (block.type === 'reasoning' || block.type === 'reasoning_started') {
     // Thinking is shown as plain text: Markdown parsing/highlighting of streamed reasoning only burns CPU.
     const reasoning = block.type === 'reasoning' ? formatReasoningText(block.content) : '';
@@ -118,7 +118,7 @@ function Step({ block, streaming = false, ...actions }: StepProps) {
     return <Disclosure className="block-tool" headingClass="tool-head" heading={<><StatusIcon status={block.status} /><code className="tool-name">子代理</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span><span className="tool-param">{block.name} · {block.blocks.length} 步</span><ChevronDown size="0.875rem" /></>}><div className="tool-group-detail"><BlockRenderer blocks={block.blocks} streaming={streaming && block.status === '执行中'} {...actions} /></div></Disclosure>;
   }
   return null;
-}
+});
 
 function Chain({ steps, streaming = false, ...actions }: { steps: ChatBlock[]; streaming?: boolean } & BlockActions) {
   const running = steps.some(step => (step.type === 'tool_call' || step.type === 'sub_agent') && step.status === '执行中');

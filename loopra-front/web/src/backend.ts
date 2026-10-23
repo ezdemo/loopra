@@ -81,27 +81,73 @@ export class LoopraClient {
     if (!response.body) throw new Error('浏览器未收到聊天流');
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let dispatchFailed = false;
+    let dispatchError: unknown;
+    const updates = new StreamEventBuffer(onEvent, error => { dispatchFailed = true; dispatchError = error; void reader.cancel().catch(() => {}); });
     let completed = false;
     let terminalReply = false;
     const parser = new SseParser(event => {
-      if (event.type === 'error') throw new LoopraApiError(event.error || event.content || '模型请求失败', undefined, event.reason);
-      if (event.type === 'done') completed = true;
+      if (event.type === 'error') { updates.flush(); throw new LoopraApiError(event.error || event.content || '模型请求失败', undefined, event.reason); }
+      if (event.type === 'done') { updates.flush(); completed = true; }
       else {
         // Loopra 26.9 sends complete (or a pending HITL choice), but its
         // emitter can close before writing done. Still read any trailing events.
         if (event.type === 'complete' || (event.type === 'choice' && !event.permissionRequestId)) terminalReply = true;
         if (event.type === 'stream_reset') terminalReply = false;
-        onEvent(event);
+        updates.push(event);
       }
     });
     try {
       while (!completed) {
         const { value, done } = await reader.read();
+        if (dispatchFailed) throw dispatchError;
         if (done) { parser.push(decoder.decode(), true); break; }
         parser.push(decoder.decode(value, { stream: true }));
       }
       if (!completed && !terminalReply) throw new Error('连接意外中断，回复可能不完整');
-    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    } finally {
+      try { updates.close(!signal.aborted && !dispatchFailed); }
+      finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    }
+  }
+}
+
+/** Bound streaming renders without delaying approvals, tool events or the first text. */
+export class StreamEventBuffer {
+  private pending: StreamEvent[] = [];
+  private speed?: StreamEvent;
+  private timer?: ReturnType<typeof setTimeout>;
+  private chars = 0;
+  private firstText = true;
+  private closed = false;
+  constructor(private emit: (event: StreamEvent) => void, private onError: (error: unknown) => void, private delay = 40) {}
+  push(event: StreamEvent) {
+    if (this.closed) return;
+    const text = ['content', 'reasoning', 'sub_content', 'sub_reasoning'].includes(event.type);
+    if (!text && (event.type !== 'token_speed' || event.done)) { this.flush(); this.emit(event); return; }
+    if (text) {
+      const content = event.content ?? event.token ?? '';
+      if (this.firstText && content.trim()) { this.firstText = false; this.flush(); this.emit(event); return; }
+      const last = this.pending.at(-1);
+      // Keep whitespace-only leading deltas separate: the message reducer may
+      // discard them before a content block exists (Markdown indentation matters).
+      if (last?.type === event.type && last.subId === event.subId && last.task === event.task && last.content?.trim()) last.content += content;
+      else this.pending.push({ ...event, content });
+      this.chars += content.length;
+    } else this.speed = event;
+    if (this.chars >= 32768 || this.pending.length >= 128) { this.flush(); return; }
+    this.timer ??= setTimeout(() => { this.timer = undefined; try { this.flush(); } catch (error) { this.close(false); this.onError(error); } }, this.delay);
+  }
+  flush() {
+    clearTimeout(this.timer); this.timer = undefined;
+    const pending = this.pending; const speed = this.speed;
+    this.pending = []; this.speed = undefined; this.chars = 0;
+    for (const event of pending) this.emit(event);
+    if (speed) this.emit(speed);
+  }
+  close(flush = true) {
+    try { if (flush) this.flush(); }
+    finally { this.closed = true; clearTimeout(this.timer); this.timer = undefined; this.pending = []; this.speed = undefined; this.chars = 0; }
   }
 }
 
@@ -139,7 +185,11 @@ export class SseParser {
 const stringify = (value: unknown) => typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value, null, 2);
 const argsObject = (value: unknown): Record<string, unknown> => { try { const parsed = typeof value === 'string' ? JSON.parse(value) : value; return parsed && typeof parsed === 'object' ? parsed : { value }; } catch { return { value }; } };
 export function applyEvent(message: Message, event: StreamEvent): Message {
-  const blocks: ChatBlock[] = structuredClone(message.blocks || []);
+  // Preserve completed tools/Markdown by identity. A delta must not copy all of
+  // the (potentially megabytes of) tool output accumulated earlier in this turn.
+  const previous = message.blocks || [];
+  const blocks: ChatBlock[] = [...previous];
+  const edit = <T extends ChatBlock>(block: T): T => { const copy = { ...block }; blocks[blocks.indexOf(block)] = copy; return copy; };
   const id = `${message.id}-${blocks.length}`;
   const content = event.content ?? event.token ?? '';
   if (event.type === 'sub_choice') {
@@ -148,6 +198,7 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     const subId = `${message.id}-sub-${event.subId || 'agent'}`;
     let sub = blocks.find(block => block.id === subId && block.type === 'sub_agent');
     if (!sub || sub.type !== 'sub_agent') { sub = { id: subId, type: 'sub_agent', name: event.task || '子代理', status: '执行中', blocks: [] }; blocks.push(sub); }
+    else sub = edit(sub);
     if (event.task) sub.name = event.task;
     if (event.type === 'sub_end') sub.status = event.status === 'error' ? '失败' : event.status === 'aborted' ? '失败' : '成功';
     else if (event.type === 'sub_error') sub.status = '失败';
@@ -164,8 +215,8 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
       while (index >= 0 && blocks[index].type === 'sub_agent') index--;
     }
     const target = index >= 0 ? blocks[index] : undefined;
-    if (target?.type === 'content' && event.type === 'content') target.content += content;
-    else if (target?.type === 'reasoning' && event.type === 'reasoning') target.content += content;
+    if (target?.type === 'content' && event.type === 'content') blocks[index] = { ...target, content: target.content + content };
+    else if (target?.type === 'reasoning' && event.type === 'reasoning') blocks[index] = { ...target, content: target.content + content };
     else if (target?.type === 'reasoning_started' && event.type === 'reasoning') blocks[index] = { id: target.id, type: 'reasoning', content };
     else if (content.trim()) blocks.push({ id, type: event.type, content });
   } else if (event.type === 'stream_reset') {
@@ -176,19 +227,21 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     if (!existing) blocks.push({ id, type: 'tool_call', ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}), name: event.name || 'unknown', status: '执行中', args: argsObject(event.args ?? event.arguments) });
   }
   else if (event.type === 'tool_update') {
-    const existing = blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
+    let existing = blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
     if (existing?.type === 'tool_call') {
+      existing = edit(existing);
       if (event.name) existing.name = event.name;
       if (event.args != null) existing.args = argsObject(event.args);
       if (event.result != null) existing.result = stringify(event.result);
     }
   }
   else if (event.type === 'tool_result') {
-    const target = [...blocks].reverse().find(block => block.type === 'tool_call' && (event.toolCallId ? block.toolCallId === event.toolCallId : block.status === '执行中' && (!event.name || block.name === event.name)));
-    if (target?.type === 'tool_call') { target.result = stringify(event.result ?? content); target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception|\[failed\])/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
+    const found = [...blocks].reverse().find(block => block.type === 'tool_call' && (event.toolCallId ? block.toolCallId === event.toolCallId : block.status === '执行中' && (!event.name || block.name === event.name)));
+    if (found?.type === 'tool_call') { const target = edit(found); target.result = stringify(event.result ?? content); target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception|\[failed\])/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
   } else if (event.type === 'file_changes' && event.changes?.length) {
     let summary = blocks.find(block => block.type === 'file_changes');
     if (!summary || summary.type !== 'file_changes') { summary = { id, type: 'file_changes', changes: [] }; blocks.push(summary); }
+    else { summary = edit(summary); summary.changes = summary.changes.map(change => ({ ...change })); }
     for (const change of event.changes) { const old = summary.changes.find(item => item.path === change.path); if (old) {
       // Successive edits of one file collapse into a single net diff (not the file shown twice).
       const merged = mergeFileDiffs(old.diff, change.diff);
@@ -198,9 +251,10 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
     } else summary.changes.push(change); }
   } else if (event.type === 'choice' && event.options?.length) blocks.push({ id, type: 'choice', ...(event.permissionRequestId ? { permissionRequestId: event.permissionRequestId } : {}), question: event.title || event.question || '请选择', description: event.description, options: event.options.map(option => ({ title: option.title, value: option.value, description: option.summary })) });
   else if (event.type === 'permission_resolved') {
-    for (const block of blocks) if (block.type === 'choice' && block.permissionRequestId === event.permissionRequestId) block.selected = block.options.find(option => option.value === event.optionId)?.title || '已取消';
+    for (const block of blocks) if (block.type === 'choice' && block.permissionRequestId === event.permissionRequestId) edit(block).selected = block.options.find(option => option.value === event.optionId)?.title || '已取消';
   }
   else if (event.type === 'complete' && content && !blocks.some(block => block.type === 'content' && block.content.trim())) blocks.push({ id, type: 'content', content });
+  if (blocks.length === previous.length && blocks.every((block, index) => block === previous[index])) return message;
   return { ...message, blocks, text: blocks.flatMap(block => block.type === 'content' ? [block.content] : []).join('\n\n') };
 }
 

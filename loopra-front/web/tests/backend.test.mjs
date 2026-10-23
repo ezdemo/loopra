@@ -8,7 +8,7 @@ const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileM
 const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
-const { acpStopMessage, SseParser, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { acpStopMessage, SseParser, StreamEventBuffer, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('model display names round-trip independently of API names and can be cleared', () => {
   const channels = [{ id: 'main', name: 'Main', baseUrl: '', apiKey: '', apiProtocol: 'responses', specialCompatibility: '', models: [{ name: 'namespace/long-api-model-id', displayName: 'Flash', contextTokens: 128000, maxTokens: 32768, imageInput: true }] }];
@@ -430,4 +430,115 @@ test('remote conversations preserve their Agent identity independently of model 
   const session = remoteSession({ name: 'claude-chat', mtime: 1, messageCount: 2, agentId: 'claude-code' }, { hash: 'p', name: 'Project', path: '/project' });
   assert.equal(session.agentId, 'claude-code');
   assert.equal(session.id, 'p/claude-chat');
+});
+
+test('stream updates share untouched tools and never mutate previously rendered blocks', () => {
+  const freeze = value => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  const events = [
+    { type: 'tool_call', toolCallId: 'read', name: 'read', args: { path: 'large.txt' } },
+    { type: 'tool_result', toolCallId: 'read', result: 'x'.repeat(100_000) },
+    { type: 'content', content: 'first' }, { type: 'content', content: ' second' },
+    { type: 'sub_start', subId: 'child', task: 'child' },
+    { type: 'sub_tool_call', subId: 'child', toolCallId: 'child-tool', name: 'read' },
+    { type: 'sub_tool_update', subId: 'child', toolCallId: 'child-tool', args: { path: 'a' } },
+    { type: 'sub_tool_result', subId: 'child', toolCallId: 'child-tool', result: 'done' },
+    { type: 'sub_content', subId: 'child', content: 'child text' }, { type: 'sub_end', subId: 'child' },
+    { type: 'tool_update', toolCallId: 'read', name: 'updated' },
+    { type: 'file_changes', changes: [{ path: 'a', additions: 1, deletions: 0, diff: 'first' }] },
+    { type: 'file_changes', changes: [{ path: 'a', additions: 2, deletions: 0, diff: 'second' }] },
+    { type: 'choice', permissionRequestId: 'approval', options: [{ title: 'Allow', value: 'yes' }] },
+    { type: 'permission_resolved', permissionRequestId: 'approval', optionId: 'yes' },
+    { type: 'stream_reset' },
+  ];
+  for (const event of events) {
+    freeze(message); freeze(event);
+    const previous = JSON.stringify(message);
+    const next = applyEvent(message, event);
+    assert.equal(JSON.stringify(message), previous);
+    if (event.type === 'content') assert.equal(next.blocks[0], message.blocks[0], 'text leaves large tool output untouched');
+    if (event.type.startsWith('sub_')) assert.equal(next.blocks[0], message.blocks[0], 'child events leave parent tools untouched');
+    message = next;
+  }
+  assert.equal(message.text, 'first second');
+  assert.equal(applyEvent(message, { type: 'usage' }), message, 'non-message metadata needs no new message');
+});
+
+test('buffered text preserves stream semantics, child ownership and control event order', () => {
+  const events = [], failures = [];
+  const buffer = new StreamEventBuffer(event => events.push(event), error => failures.push(error));
+  const source = [
+    { type: 'content', content: ' ' }, { type: 'content', content: 'first' },
+    ...Array.from({ length: 100 }, () => ({ type: 'content', token: 'x' })),
+    { type: 'token_speed', tokensPerSecond: 10 }, { type: 'token_speed', tokensPerSecond: 20 },
+    { type: 'choice', permissionRequestId: 'approval', options: [{ title: 'Allow', value: 'yes' }] },
+    { type: 'sub_content', subId: 'a', content: 'A' }, { type: 'sub_content', subId: 'b', content: 'B' },
+    { type: 'sub_content', subId: 'a', content: '2' },
+    { type: 'stream_reset' }, { type: 'reasoning', content: 'think' }, { type: 'content', content: 'final' },
+    { type: 'complete' },
+  ];
+  for (const event of source) buffer.push(event);
+  buffer.close();
+  const seed = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  assert.deepEqual(events.reduce(applyEvent, seed), source.reduce(applyEvent, seed));
+  assert.equal(events.filter(event => event.type === 'token_speed').length, 1);
+  assert.equal(events.find(event => event.type === 'token_speed').tokensPerSecond, 20);
+  assert.equal(events.filter(event => event.type === 'content').length, 4);
+  assert.deepEqual(failures, []);
+});
+
+test('first text and approvals are immediate, and cancellation discards pending deliveries', () => {
+  const events = [];
+  const buffer = new StreamEventBuffer(event => events.push(event), assert.fail);
+  buffer.push({ type: 'content', content: 'first' });
+  assert.equal(events.length, 1);
+  buffer.push({ type: 'content', content: 'next' });
+  assert.equal(events.length, 1);
+  buffer.push({ type: 'elicitation', elicitationRequestId: 'question' });
+  assert.deepEqual(events.map(event => event.type), ['content', 'content', 'elicitation']);
+  buffer.push({ type: 'content', content: 'discard' });
+  buffer.close(false); buffer.flush(); buffer.push({ type: 'content', content: 'late' });
+  assert.equal(events.length, 3);
+});
+
+test('buffers deliver during an open stream and bound queued memory', async () => {
+  let delivered;
+  const ready = new Promise(resolve => { delivered = resolve; });
+  const events = [];
+  const buffer = new StreamEventBuffer(event => { events.push(event); if (event.content === 'later') delivered(); }, assert.fail, 1);
+  try {
+    buffer.push({ type: 'content', content: 'first' }); buffer.push({ type: 'content', content: 'later' });
+    await ready;
+    assert.equal(events.length, 2);
+    buffer.push({ type: 'content', content: 'x'.repeat(32768) });
+    assert.equal(events.length, 3, 'large bursts flush without retaining an unbounded queue');
+  } finally { buffer.close(false); }
+});
+
+test('completion and upstream failure retain buffered partial text and close the timer', async () => {
+  const original = globalThis.fetch;
+  const frame = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+  try {
+    for (const terminal of ['done', 'error', 'eof']) {
+      globalThis.fetch = async () => new Response(frame('content', { content: 'first' }) + frame('content', { content: ' buffered' }) + (terminal === 'eof' ? '' : frame(terminal, { error: 'failed' })), { headers: { 'content-type': 'text/event-stream' } });
+      const events = [];
+      const pending = new LoopraClient().stream({}, event => events.push(event), new AbortController().signal);
+      if (terminal === 'done') await pending;
+      else await assert.rejects(pending, terminal === 'error' ? /failed/ : /连接意外中断/);
+      assert.equal(events.map(event => event.content || '').join(''), 'first buffered');
+    }
+  } finally { globalThis.fetch = original; }
+});
+
+test('an async buffered callback failure cancels the reader and rejects the owning stream', async () => {
+  const original = globalThis.fetch;
+  let cancelled = false;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode('event: content\ndata: "first"\n\nevent: content\ndata: "buffered"\n\n')); },
+    cancel() { cancelled = true; },
+  }), { headers: { 'content-type': 'text/event-stream' } });
+  try {
+    await assert.rejects(new LoopraClient().stream({}, event => { if (event.content === 'buffered') throw new Error('render failed'); }, new AbortController().signal), /render failed/);
+    assert.equal(cancelled, true);
+  } finally { globalThis.fetch = original; }
 });
