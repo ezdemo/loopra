@@ -77,6 +77,7 @@ final class ExternalAcpSessions implements AutoCloseable {
                     "codex".equals(connection.agentId));
             else connection.client.bindOutput(transcript);
             AcpWorkbenchClient client = connection.client;
+            client.setMessageListener(transcript::message);
             // Both flattened Claude traffic and native Codex child sessions use the replay store.
             client.setSubAgentListener(recorder == null ? null : recorder::record);
             active.accept(client);
@@ -121,6 +122,7 @@ final class ExternalAcpSessions implements AutoCloseable {
                 try {
                     if (connection.client != null) {
                         inactive.accept(connection.client);
+                        connection.client.setMessageListener(null);
                         connection.client.bindOutput(AgentOutput.NOOP);
                     }
                     if (!success) discard(key, connection);
@@ -172,6 +174,59 @@ final class ExternalAcpSessions implements AutoCloseable {
         }
     }
 
+    void fork(String key, Path cwd, String sourceName, SessionStore source, String name, SessionStore target,
+              List<String> additionalDirectories) throws Exception {
+        fork(key, cwd, sourceName, source, name, target, additionalDirectories, null);
+    }
+
+    void fork(String key, Path cwd, String sourceName, SessionStore source, String name, SessionStore target,
+              List<String> additionalDirectories, Integer messageCount) throws Exception {
+        var binding = source.getAcpBinding(sourceName);
+        if (binding.remoteSessionId() == null || binding.remoteSessionId().isBlank()) {
+            throw new ServiceException("源会话尚未建立远端记录，无法创建分叉");
+        }
+        List<ChatMessage> sourceHistory = source.load(sourceName);
+        AcpForkPoint point = messageCount == null ? new AcpForkPoint(sourceHistory, null) : AcpForkPoint.at(sourceHistory, messageCount);
+        Connection connection = acquire(key, cwd, binding.agentId(), false);
+        boolean success = false;
+        try {
+            refreshMcp(connection, key, cwd);
+            AcpWorkbenchClient client = new AcpWorkbenchClient(transportFactory.apply(connection.agentId, cwd),
+                    AgentOutput.NOOP, "codex".equals(connection.agentId));
+            connection.client = client;
+            List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
+            CompletableFuture<String> opening = CompletableFuture.supplyAsync(() ->
+                    client.fork(cwd.toString(), binding.remoteSessionId(), directories, connection.mcpServers, point.meta()));
+            String id;
+            try { id = opening.get(60, TimeUnit.SECONDS); }
+            catch (Exception e) { opening.cancel(true); throw e; }
+            if (!target.bindTo(name)) throw new ServiceException("无法创建分叉会话");
+            target.rewrite(point.history());
+            target.updateTitle(name, AgentService.branchTitle(source.getTitle(sourceName), sourceName));
+            target.setAcpBinding(name, new SessionStore.AcpBinding(binding.agentId(), id, cwd.toString()));
+            target.setAgentConfig(name, source.getAgentConfig(sourceName));
+            restoreConfiguration(client, name, target);
+            connection.directories = directories;
+            target.flush();
+            success = true;
+        } catch (Exception failure) {
+            throw translateFailure(failure);
+        } finally {
+            boolean interrupted = Thread.interrupted();
+            try {
+                if (!success) {
+                    discard(key, connection);
+                    target.shutdown();
+                    target.delete(name);
+                }
+            } finally {
+                connection.lastUsed = System.nanoTime();
+                connection.lock.unlock();
+                if (interrupted) Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     private static Exception translateFailure(Exception failure) {
         Throwable cause = failure;
         while ((cause instanceof ExecutionException || cause instanceof CompletionException) && cause.getCause() != null) {
@@ -181,7 +236,11 @@ final class ExternalAcpSessions implements AutoCloseable {
                 && "thread_active_writer".equals(data.get("reason"))) {
             return new ServiceException(409,
                     "Codex 会话已被其他客户端占用。请在 Codex 桌面端、CLI 或 IDE 中关闭该会话后重试，"
-                            + "或在 Loopra 新建会话。原会话历史已保留。", "thread_active_writer");
+                            + "或在 Loopra 创建会话分叉继续。原会话历史已保留。", "thread_active_writer");
+        }
+        if (cause instanceof ServiceException business) return business;
+        if (cause instanceof AcpClientSession.AcpError error) {
+            return new ServiceException(502, "Agent 请求失败：" + error.getMessage());
         }
         return failure;
     }

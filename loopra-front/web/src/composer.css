@@ -6,7 +6,6 @@
 .session-occupied-copy { flex: 1; min-width: 0; text-align: left; }
 .session-occupied-copy strong { display: block; color: var(--text); font-size: .875rem; font-weight: 600; }
 .session-occupied-copy p { margin: .375rem 0 0; color: var(--secondary); font-size: .8125rem; line-height: 1.6; overflow-wrap: anywhere; }
-.session-occupied-copy .session-occupied-error { color: var(--danger); }
 .session-occupied-actions { display: flex; flex: 0 0 auto; align-items: center; gap: .375rem; padding-left: .875rem; border-left: 1px solid var(--line); }
 .session-occupied-actions button { display: inline-flex; align-items: center; justify-content: center; gap: .375rem; min-height: 2.25rem; padding: .375rem .625rem; border-radius: var(--radius-md); color: var(--text); font-size: .8125rem; white-space: nowrap; }
 .session-occupied-actions button:hover:not(:disabled) { background: var(--hover); }

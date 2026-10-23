@@ -136,6 +136,8 @@ export default function App() {
   const [agentConfigError, setAgentConfigError] = useState('');
   const [agentConfigRevision, setAgentConfigRevision] = useState(0);
   const [occupiedSessions, setOccupiedSessions] = useState<Set<string>>(() => new Set());
+  const forkRequest = useRef<string>();
+  const [forkBusy, setForkBusy] = useState<string>();
   const occupiedSessionsRef = useRef(occupiedSessions);
   const composerViewRef = useRef({ server, activeId, draft });
   composerViewRef.current = { server, activeId, draft };
@@ -228,6 +230,7 @@ export default function App() {
       .catch(error => {
         if (controller.signal.aborted) return;
         if (isSessionOccupiedError(error)) recordSessionOccupancy(id, true);
+        else if (isSessionOccupied(id)) notify(`检查失败：${error instanceof Error ? error.message : String(error)}`);
         else setAgentConfigError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => setAgentConfigBusy(current => current === busyKey ? undefined : current));
@@ -493,12 +496,52 @@ export default function App() {
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
   }
-  function newChatFromOccupied() {
-    const previousDraft = draft;
-    const previousContext = composerContext;
-    newSession();
-    setDraft(previousDraft);
-    setComposerContext(previousContext);
+  async function forkOccupiedSession() {
+    if (!session || composerConfigBusy) return;
+    await createSessionBranch(session);
+  }
+  async function createSessionBranch(source: Session, messageCount?: number) {
+    if (forkRequest.current || backend.status !== 'connected' || !backend.ready) return;
+    const label = messageCount === undefined ? '分叉' : '分支';
+    const key = `${server}::${source.id}`;
+    forkRequest.current = key;
+    setForkBusy(key);
+    try {
+      const route = messageCount === undefined ? sessionRoute(source, '/fork')
+        : `${sessionRoute(source, '/branch')}&messageCount=${messageCount}`;
+      const result = await api.request<{ sessionName: string }>(route, 'POST', undefined, AbortSignal.timeout(65000));
+      if (!result.sessionName || result.sessionName === source.name) throw new Error('未能创建独立的分叉会话');
+      if (composerViewRef.current.server !== server) return;
+      const next: Session = { ...source, id: `${source.workspaceHash}/${result.sessionName}`, name: result.sessionName,
+        title: `[复刻]${source.title}`, worktreeMode: false, archived: false, mtime: Date.now(),
+        messages: messageCount === undefined ? source.messages
+          : source.messages.filter(message => message.historyCount !== undefined && message.historyCount <= messageCount) };
+      // The fork already exists. Keep it visible even if the history refresh fails.
+      setSessions(current => [next, ...current.filter(item => item.id !== next.id)]);
+      let historyError = false;
+      try {
+        const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(next)}`);
+        if (composerViewRef.current.server !== server) return;
+        setSessions(current => current.map(item => item.id === next.id ? { ...item, messages: historyMessages(history) } : item));
+      } catch { historyError = true; }
+      const view = composerViewRef.current;
+      if (view.server !== server || view.activeId !== source.id) return;
+      historyRequest.current?.abort();
+      selectMainTab(null, next.workspaceHash || '');
+      setActiveId(next.id); setWorkspace(next.workspaceHash || '');
+      setPendingPlan(undefined); setLiveSpeed(undefined); setMenu(null);
+      userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
+      notify(historyError ? `${label}已创建，历史刷新失败，可重新打开此会话加载`
+        : messageCount === undefined ? '已保留历史并创建独立会话' : '已从所选回复创建独立分支会话');
+    } catch (error) {
+      const view = composerViewRef.current;
+      if (view.server === server && view.activeId === source.id) {
+        notify(`创建${label}失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      forkRequest.current = undefined;
+      setForkBusy(undefined);
+    }
   }
   function selectWorkspace(hash: string) {
     if (hash !== workspace) setComposerContext(withoutWorkspaceContext);
@@ -763,14 +806,9 @@ export default function App() {
     const messages = getSessionMessages(session);
     const index = messages.findIndex(message => message.id === messageId);
     if (index < 0) return;
-    try {
-      const count = messages[index].historyCount;
-      if (!count) { notify('请重新打开会话后再创建分支'); return; }
-      const result = await api.request<{ sessionName: string }>(`${sessionRoute(session, '/branch')}&messageCount=${count}`, 'POST');
-      const next = { ...session, id: `${session.workspaceHash}/${result.sessionName}`, name: result.sessionName };
-      const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(next)}`);
-      await backend.refreshSessions(workspaces); setSessions(current => current.map(item => item.id === next.id ? { ...item, messages: historyMessages(history) } : item)); setActiveId(next.id); notify('已在 Loopra 创建分支会话');
-    } catch (error) { notify(`创建分支失败：${error instanceof Error ? error.message : error}`); }
+    const count = messages[index].historyCount;
+    if (!count) { notify('请重新打开会话后再创建分支'); return; }
+    await createSessionBranch(session, count);
   }
 
   // Legacy Chat.vue queued messages per session: sending while a reply is
@@ -1100,7 +1138,7 @@ export default function App() {
 
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
-    ? <SessionOccupiedNotice busy={composerConfigBusy} disabled={backend.status !== 'connected' || !backend.ready} error={agentConfigError} onRetry={retryAgentConfig} onNew={newChatFromOccupied} />
+    ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
     : <Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && agentPreferencesError) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
@@ -1156,7 +1194,7 @@ export default function App() {
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
-            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
+            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll}><div className="chat-content"><Enter key={session.id}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}

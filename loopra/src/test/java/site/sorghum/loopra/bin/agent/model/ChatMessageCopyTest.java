@@ -30,6 +30,7 @@ class ChatMessageCopyTest {
         ChatMessage original = ChatMessage.ofUser("x");
         original.setSnapshotId("snap-1");
         original.setRollbackId("rollback-1");
+        original.setAcpMessageId("remote-message-1");
         original.setWebHidden(true);
         original.setTimestamp(1234L);
 
@@ -39,6 +40,7 @@ class ChatMessageCopyTest {
         assertEquals("x", copy.getContent());
         assertEquals("snap-1", copy.getSnapshotId());
         assertEquals("rollback-1", copy.getRollbackId());
+        assertEquals("remote-message-1", copy.getAcpMessageId());
         assertEquals(1234L, copy.getTimestamp());
     }
 

@@ -290,6 +290,17 @@ public class SessionController {
         return ApiResponse.ok(new SessionCreateDTO("已分支到新会话", workspaceHash, newName));
     }
 
+    @ApiOperation(value = "创建会话分叉", notes = "保留完整历史并创建独立的 ACP 远端会话")
+    @Post
+    @Mapping("/{name}/fork")
+    public ApiResponse<SessionCreateDTO> forkSession(
+            @Path("name") String name,
+            @Param(value = "workspaceHash", required = true) String workspaceHash) throws Exception {
+        String workspacePath = agentService.resolveProjectHashOrThrow(workspaceHash);
+        String newName = agentService.forkSession(workspacePath, name);
+        return ApiResponse.ok(new SessionCreateDTO("已创建会话分叉", workspaceHash, newName));
+    }
+
     @ApiOperation(value = "获取缓存统计", notes = "返回当前 Agent 缓存的数量和上限")
     @Get
     @Mapping("/stats")

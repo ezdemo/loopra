@@ -11,7 +11,7 @@ const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toStr
 const diffUrl = dataUrl(compile(await readFile(new URL('../src/diff.ts', import.meta.url), 'utf8')));
 const backendSource = compile(await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8'))
   .replaceAll("'./diff'", JSON.stringify(diffUrl));
-const { LoopraApiError, isSessionOccupiedError, historyMessages, isChatWorkspace, sessionQuery, applyEvent, CHAT_WORKSPACE } = await import(dataUrl(backendSource));
+const { LoopraApiError, isSessionOccupiedError, historyMessages, isChatWorkspace, sessionQuery, sessionRoute, applyEvent, CHAT_WORKSPACE } = await import(dataUrl(backendSource));
 const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const app = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
@@ -39,6 +39,7 @@ function environment() {
     setAgentConfigs: update => { state.configs = update(state.configs); },
     setOccupiedSessions: value => { state.occupied = value; },
     setAgentConfigRevision: update => { state.revision = update(state.revision); },
+    notify: message => { state.notice = message; },
     sendQueuedMessage: id => state.sends.push(id),
   };
   env.isSessionOccupied = callback('isSessionOccupied', env);
@@ -85,14 +86,15 @@ test('retry holds the occupied notice until a successful response and resumes it
   cleanup();
 });
 
-test('failed retries stay occupied and surface network failures without erasing the state', async () => {
+test('failed retries stay occupied and surface network failures through the page toast', async () => {
   const { env, state } = environment();
   env.recordSessionOccupancy(target.id, true);
   env.api.request = async () => { throw new Error('offline'); };
   const cleanup = startConfiguration(env)();
   await settle();
   assert.equal(env.isSessionOccupied(target.id), true);
-  assert.equal(state.error, 'offline');
+  assert.equal(state.error, '');
+  assert.equal(state.notice, '检查失败：offline');
   cleanup();
 });
 
@@ -179,19 +181,139 @@ test('a queued message rejected by the remote writer stays queued without a retr
   assert.deepEqual(env.queuedRef.current[target.id], [item]);
 });
 
-test('new chat keeps the unsent draft and attachments while leaving the locked conversation intact', () => {
+function forkEnvironment() {
   const { env, state } = environment();
+  state.sessions = [target]; state.activeId = target.id;
+  state.draft = 'unsent'; state.context = { files: ['report.pdf'] };
   env.draft = 'unsent';
-  env.composerContext = { files: ['report.pdf'] };
-  env.newSession = () => { state.draft = ''; state.context = {}; state.created = true; };
-  env.setDraft = value => { state.draft = value; };
-  env.setComposerContext = value => { state.context = value; };
+  Object.assign(env, {
+    composerConfigBusy: false, forkRequest: { current: undefined }, sessionRoute, sessionQuery, historyMessages,
+    composerViewRef: { current: { server: env.server, activeId: target.id, draft: state.draft } },
+    historyRequest: { current: undefined }, userScrolledAway: { current: true }, lastScrollTop: { current: 10 },
+    setForkBusy: value => { state.forkBusy = value; },
+    setSessions: update => { state.sessions = update(state.sessions); },
+    setActiveId: value => { state.activeId = value; }, setWorkspace() {}, selectMainTab() {},
+    setPendingPlan() {}, setLiveSpeed() {}, setMenu() {}, setShowScrollBtn() {},
+    notify: value => { state.notice = value; },
+  });
+  env.api.request = async (route, method) => {
+    state.requests ||= []; state.requests.push({ route, method });
+    if (method === 'POST') return { sessionName: 'fork' };
+    return [{ role: 'user', content: 'existing history' }];
+  };
   env.recordSessionOccupancy(target.id, true);
-  callback('newChatFromOccupied', env)();
-  assert.equal(state.created, true);
+  env.createSessionBranch = callback('createSessionBranch', env);
+  return { env, state };
+}
+
+test('fork preserves history, draft and attachments while leaving the source occupied', async () => {
+  const { env, state } = forkEnvironment();
+  await callback('forkOccupiedSession', env)();
+  assert.equal(state.activeId, 'project/fork');
+  assert.equal(state.sessions[1], target);
+  assert.equal(state.sessions[0].agentId, 'codex');
+  assert.equal(state.sessions[0].messages[0].text, 'existing history');
+  assert.deepEqual(state.requests.map(item => item.route), ['/sessions/chat/fork?workspaceHash=project', '/agent/history?workspaceHash=project&sessionName=fork']);
   assert.equal(state.draft, 'unsent');
   assert.deepEqual(state.context, { files: ['report.pdf'] });
   assert.equal(env.isSessionOccupied(target.id), true);
+  assert.equal(state.forkBusy, undefined);
+});
+
+test('fork failure preserves source selection and surfaces an actionable error', async () => {
+  const { env, state } = forkEnvironment();
+  env.api.request = async () => { throw new Error('Agent 不支持创建会话分叉'); };
+  await callback('forkOccupiedSession', env)();
+  assert.equal(state.activeId, target.id);
+  assert.deepEqual(state.sessions, [target]);
+  assert.equal(state.draft, 'unsent');
+  assert.equal(state.notice, '创建分叉失败：Agent 不支持创建会话分叉');
+  assert.equal(env.forkRequest.current, undefined);
+});
+
+test('duplicate clicks share one fork request and late completion does not steal another selection', async () => {
+  const { env, state } = forkEnvironment();
+  let finish, count = 0;
+  env.api.request = async (_route, method) => {
+    if (method === 'POST') { count++; return new Promise(resolve => { finish = resolve; }); }
+    return [];
+  };
+  const fork = callback('forkOccupiedSession', env);
+  const pending = fork();
+  await fork();
+  assert.equal(count, 1);
+  assert.ok(state.forkBusy);
+  env.composerViewRef.current.activeId = 'project/other';
+  state.activeId = 'project/other'; state.draft = 'other draft';
+  finish({ sessionName: 'fork' });
+  await pending;
+  assert.equal(state.activeId, 'project/other');
+  assert.equal(state.draft, 'other draft');
+  assert.ok(state.sessions.some(item => item.id === 'project/fork'));
+});
+
+test('late fork completion cannot insert an old server session into a different backend', async () => {
+  const { env, state } = forkEnvironment();
+  env.api.request = async () => {
+    env.composerViewRef.current.server = 'http://localhost:9999';
+    return { sessionName: 'fork' };
+  };
+  await callback('forkOccupiedSession', env)();
+  assert.deepEqual(state.sessions, [target]);
+});
+
+test('a history refresh failure keeps the created fork visible without retrying the mutation', async () => {
+  const { env, state } = forkEnvironment();
+  env.api.request = async (_route, method) => {
+    if (method === 'POST') return { sessionName: 'fork' };
+    throw new Error('offline');
+  };
+  await callback('forkOccupiedSession', env)();
+  assert.equal(state.activeId, 'project/fork');
+  assert.match(state.notice, /分叉已创建/);
+  assert.equal(state.sessions.length, 2);
+});
+
+test('the history branch action sends the selected prefix to the shared branch endpoint for each engine', async () => {
+  for (const agentId of ['native', 'codex', 'claude-code']) {
+    const { env, state } = forkEnvironment();
+    env.session = { ...target, agentId, messages: [
+      { id: 'first', role: 'assistant', text: 'first', historyCount: 2 },
+      { id: 'second', role: 'assistant', text: 'second', historyCount: 4 },
+    ] };
+    env.generatingId = null;
+    env.getSessionMessages = session => session.messages;
+    await callback('branchSession', env)('first');
+    assert.equal(state.requests[0].route, '/sessions/chat/branch?workspaceHash=project&messageCount=2');
+    assert.equal(state.sessions[0].agentId, agentId);
+    assert.equal(state.activeId, 'project/fork');
+    assert.equal(state.notice, '已从所选回复创建独立分支会话');
+  }
+});
+
+test('failed history refresh never displays messages beyond the selected branch position', async () => {
+  const { env, state } = forkEnvironment();
+  const source = { ...target, messages: [
+    { id: 'first', role: 'assistant', text: 'first', historyCount: 2 },
+    { id: 'future', role: 'assistant', text: 'future', historyCount: 4 },
+  ] };
+  env.api.request = async (_route, method) => {
+    if (method === 'POST') return { sessionName: 'fork' };
+    throw new Error('offline');
+  };
+  await env.createSessionBranch(source, 2);
+  assert.deepEqual(state.sessions[0].messages.map(message => message.text), ['first']);
+  assert.match(state.notice, /分支已创建/);
+});
+
+test('a late branch failure cannot show an error over a different conversation', async () => {
+  const { env, state } = forkEnvironment();
+  env.api.request = async () => {
+    env.composerViewRef.current.activeId = 'other';
+    throw new Error('fork failed');
+  };
+  await env.createSessionBranch(target, 2);
+  assert.equal(state.notice, undefined);
 });
 
 const dom = new JSDOM('<html><body></body></html>');
@@ -209,20 +331,24 @@ test('the occupied notice exposes retry, checking and offline states without a s
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
   const calls = [];
-  const props = { busy: false, disabled: false, onRetry: () => calls.push('retry'), onNew: () => calls.push('new') };
+  const props = { busy: false, forking: false, disabled: false, onRetry: () => calls.push('retry'), onFork: () => calls.push('fork') };
   const render = patch => act(() => root.render(createElement(Notice, { ...props, ...patch })));
   try {
     render({});
     assert.match(host.textContent, /已在另一个应用中打开/);
     assert.equal(host.querySelector('textarea'), null);
     act(() => { host.querySelectorAll('button')[0].click(); host.querySelectorAll('button')[1].click(); });
-    assert.deepEqual(calls, ['retry', 'new']);
+    assert.deepEqual(calls, ['retry', 'fork']);
     render({ busy: true });
     assert.equal(host.querySelector('section').getAttribute('aria-busy'), 'true');
     assert.match(host.textContent, /检查中/);
     assert.ok([...host.querySelectorAll('button')].every(button => button.disabled));
-    render({ disabled: true, error: 'offline' });
-    assert.match(host.textContent, /检查失败：offline/);
+    render({ forking: true });
+    assert.match(host.textContent, /创建中/);
+    assert.equal(host.querySelector('section').getAttribute('aria-busy'), 'true');
+    assert.ok([...host.querySelectorAll('button')].every(button => button.disabled));
+    render({ disabled: true });
+    assert.equal(host.querySelector('.session-occupied-error'), null);
     assert.ok([...host.querySelectorAll('button')].every(button => button.disabled));
   } finally { act(() => root.unmount()); host.remove(); }
 });

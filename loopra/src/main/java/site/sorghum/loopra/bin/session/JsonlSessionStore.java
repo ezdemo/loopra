@@ -150,6 +150,7 @@ public class JsonlSessionStore implements SessionStore {
         if (msg.getReasoningContent() != null) {
             node.set("reasoning_content", msg.getReasoningContent());
         }
+        if (msg.getAcpMessageId() != null) node.set("acp_message_id", msg.getAcpMessageId());
         if (msg.getResponseReasoning() != null) {
             node.set("response_reasoning", msg.getResponseReasoning());
         }
