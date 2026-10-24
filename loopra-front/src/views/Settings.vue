@@ -394,7 +394,7 @@
                   <div class="pet-preview" title="点击切换动画">
                     <PetSprite
                         v-if="pet.hasSpritesheet"
-                        :spritesheet-url="pet.spritesheetUrl + '?t=' + Date.now()"
+                        :spritesheet-url="pet.spritesheetUrl + (pet.spritesheetUrl.includes('?') ? '&' : '?') + 't=' + Date.now()"
                         :state="activePetName === pet.name ? activePetAnim : 'idle'"
                         :initial-size-index="0"
                     />

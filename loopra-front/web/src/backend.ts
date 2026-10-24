@@ -51,7 +51,10 @@ export class LoopraClient {
     const sameOrigin = typeof window !== 'undefined' && this.base === window.location.origin;
     this.apiBase = localProxy || sameOrigin ? '/api' : `${this.base}/api`;
   }
-  assetUrl(path: string) { return `${this.apiBase}${path}`; }
+  assetUrl(path: string) {
+    const url = `${this.apiBase}${path}`;
+    return typeof window !== 'undefined' && window.loopraAssetUrl ? window.loopraAssetUrl(url) : url;
+  }
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     const response = await fetch(`${this.apiBase}${path}`, { method, signal: signal || AbortSignal.timeout(30000), headers: body === undefined ? {} : { 'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json' }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
     const result = await response.json().catch(() => { throw new Error(`Loopra 返回了无效响应（HTTP ${response.status}）`); });
