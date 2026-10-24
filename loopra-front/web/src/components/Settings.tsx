@@ -100,7 +100,7 @@ export default function Settings(props: Props) {
         {!filtered.length && <p className="settings-nav-empty">没有匹配的设置</p>}
       </nav>
       <IconButton label="关闭设置" onClick={onClose} className="settings-close"><X size="1.25rem" /></IconButton>
-      <Enter key={query.trim() ? 'search' : tab} as="section" className="settings-content rich-settings-content">
+      <Enter key={query.trim() ? 'search' : tab} as="section" className={`settings-content rich-settings-content${!query.trim() && tab === '模型供应商' ? ' provider-settings-content' : ''}`}>
         <nav className="settings-mobile-categories" aria-label="设置分类快捷导航">{settingsCategories.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={!query.trim() && category.name === item.name} onPress={() => openCategory(item.name)}>{item.name}</Button>)}</nav>
         {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{settingsCategoryFor(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : <>
         <div className="settings-breadcrumb" aria-label="当前位置"><span>{category.name}</span>{category.name !== currentSection.label && <><ChevronRight size="0.875rem" /><span>{currentSection.label}</span></>}</div>

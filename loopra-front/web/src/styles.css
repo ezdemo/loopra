@@ -731,7 +731,6 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 .settings-close { position: absolute !important; right: 1.6875rem; top: 1rem; z-index: 2; }
 
 .settings-content { overflow-y: auto; padding: 3rem 2.5rem 2rem; min-width: 0; }
-.settings-content > * { max-width: 44rem; }
 
 .settings-content h2 { font-size: 1.125rem; line-height: 1.75rem; font-weight: 600; letter-spacing: -.01em; margin: 0 0 1rem; }
 
