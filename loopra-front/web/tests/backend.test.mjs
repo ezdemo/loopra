@@ -10,6 +10,31 @@ let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
 const { acpStopMessage, SseParser, StreamEventBuffer, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
+test('a view cancellation signal does not disable request deadlines', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = AbortSignal.timeout;
+  let deadline;
+  let deadlineMs;
+  let receivedSignal;
+  try {
+    AbortSignal.timeout = ms => { deadlineMs = ms; deadline = new AbortController(); return deadline.signal; };
+    globalThis.fetch = async (_url, init) => {
+      receivedSignal = init.signal;
+      return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
+    };
+    const view = new AbortController();
+    const request = new LoopraClient().request('/agent-engines/config', 'GET', undefined, view.signal);
+    assert.equal(deadlineMs, 65000);
+    assert.notEqual(receivedSignal, view.signal);
+    deadline.abort(new DOMException('Deadline exceeded', 'TimeoutError'));
+    await assert.rejects(request, error => error.reason === 'request_timeout');
+    const cancelled = new LoopraClient().request('/config', 'GET', undefined, view.signal);
+    assert.equal(deadlineMs, 30000);
+    view.abort();
+    await assert.rejects(cancelled, error => error.name === 'AbortError');
+  } finally { globalThis.fetch = originalFetch; AbortSignal.timeout = originalTimeout; }
+});
+
 test('model display names round-trip independently of API names and can be cleared', () => {
   const channels = [{ id: 'main', name: 'Main', baseUrl: '', apiKey: '', apiProtocol: 'responses', specialCompatibility: '', models: [{ name: 'namespace/long-api-model-id', displayName: 'Flash', contextTokens: 128000, maxTokens: 32768, imageInput: true }] }];
   const providers = configProviders({ modelChannels: channels });

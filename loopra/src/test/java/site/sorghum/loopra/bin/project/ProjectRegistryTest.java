@@ -15,6 +15,35 @@ class ProjectRegistryTest {
     Path projects;
 
     @Test
+    void directLookupReadsTheLatestRegistrationWithoutListingOtherProjects() throws Exception {
+        Path project = Files.createDirectories(projects.resolve("lookup"));
+        ProjectRegistry registry = ProjectRegistry.getOrCreate(project.toString());
+        String hash = ProjectRegistry.computeProjectHash(project.toString());
+        ProjectRegistry lookup = new ProjectRegistry() {
+            @Override public java.util.List<ProjectInfo> listProjects() {
+                throw new AssertionError("Direct lookup must not enumerate the catalog");
+            }
+        };
+        assertEquals(project.toString(), lookup.findProjectPath(hash));
+        Files.delete(registry.getProjectConfigPath(project.toString()));
+        assertNull(lookup.findProjectPath(hash), "Deleted registrations must not remain in a path cache");
+    }
+
+    @Test
+    void directLookupRejectsTraversalAndReadsUpdatedRegistrationPaths() throws Exception {
+        ProjectRegistry registry = ProjectRegistry.getOrCreate(projects.toString());
+        for (String hash : new String[]{"../escape", "..\\escape", "", "000000000000", "invalid"}) {
+            assertNull(registry.findProjectPath(hash));
+        }
+        assertNull(registry.findProjectPath(null));
+        Path metadata = registry.getProjectConfigPath(projects.toString());
+        Files.writeString(metadata, "{\"path\":\"different-project\"}");
+        assertEquals("different-project", registry.findProjectPath(ProjectRegistry.computeProjectHash(projects.toString())));
+        Files.writeString(metadata, "{\"path\":\" \"}");
+        assertNull(registry.findProjectPath(ProjectRegistry.computeProjectHash(projects.toString())));
+    }
+
+    @Test
     void defaultRegistryAndSessionStoresUseIsolatedHome() throws Exception {
         String isolated = System.getProperty("loopra.test.home");
         assertNotNull(isolated, "Test home must be installed before static stores initialize");

@@ -57,6 +57,10 @@ export default function useLoopra(server: string) {
       setWorkspaces(visibleProjects);
       if (agent.ready) {
         await refreshSessions(visibleProjects, signal);
+        if (signal?.aborted) return;
+        // Tool/skill discovery may scan local directories. The connection and
+        // conversations are usable before that optional catalog finishes.
+        setStatus('connected');
         const resources = await Promise.allSettled([
           api.request<Omit<ToolConfig, 'category'>[]>('/tools', 'GET', undefined, signal),
           api.request<{ name: string; description: string }[]>('/agent/skills', 'GET', undefined, signal),

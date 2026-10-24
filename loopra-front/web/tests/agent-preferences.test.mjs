@@ -29,6 +29,7 @@ function environment() {
   const calls = [], state = { selected: 'native', ready: undefined, error: '', drafts: [], cached: [], composer: {}, busy: undefined };
   const env = {
     server: 'http://127.0.0.1:40001', newAgentId: 'native', backend: { status: 'connected' },
+    enginesError: '', selectedEngineAvailable: true,
     preparedNewSession: { current: null }, newAgentConfigRef: { current: null },
     composerViewRef: { current: { server: 'http://127.0.0.1:40001', activeId: null, draftKey: 'home' } }, homeRunKey: 'home',
     agentConfigRequest: { current: 0 },
@@ -54,6 +55,44 @@ test('backend selection wins over stale local state after a desktop port change'
   assert.equal(state.ready, env.server);
   assert.deepEqual(calls.map(call => [call.path, call.method]), [['/agent-engines/preferences', 'GET']]);
   cleanup();
+});
+
+test('preparation waits for the selected Agent detection to finish', () => {
+  const effect = app.body.statements.find(node => ts.isExpressionStatement(node)
+    && ts.isCallExpression(node.expression) && node.expression.expression.getText(ast) === 'useEffect'
+    && node.expression.arguments[0].getText(ast).includes('loadNewAgentConfig'));
+  const create = new Function('env', `with (env) { return ${compile(`(${effect.expression.arguments[0].getText(ast)})`)}; }`);
+  const calls = [];
+  const env = {
+    session: undefined, currentWorkspace: { hash: 'project' }, backend: { status: 'connected', ready: true },
+    agentPreferencesReady: true, agentSelectionBusy: false, newAgentConfig: null,
+    preparedNewSession: { current: null }, agentConfigKey: 'key', agentId: 'codex',
+    selectedEngineAvailable: undefined, AbortController,
+    setTimeout: callback => { calls.push(callback); return 1; }, clearTimeout: () => {},
+    loadNewAgentConfig: () => {},
+  };
+  assert.equal(create(env)(), undefined);
+  assert.equal(calls.length, 0);
+  env.selectedEngineAvailable = false;
+  assert.equal(create(env)(), undefined);
+  assert.equal(calls.length, 0);
+  env.selectedEngineAvailable = true;
+  const cleanup = create(env)();
+  assert.equal(calls.length, 1);
+  cleanup();
+});
+
+test('retry after runtime detection failure repeats detection before preparing a session', () => {
+  const { env } = environment();
+  let revision = 0;
+  Object.assign(env, {
+    session: undefined, agentPreferencesReady: true, enginesError: 'detection timed out',
+    selectedEngineAvailable: undefined,
+    setEnginesRevision: update => { revision = update(revision); },
+    loadNewAgentConfig: () => assert.fail('Must redetect before creating a session'),
+  });
+  callback('retryAgentConfig', env)();
+  assert.equal(revision, 1);
 });
 
 test('first run migrates the local Agent selection and waits for durable storage', async () => {
