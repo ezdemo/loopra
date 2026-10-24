@@ -52,7 +52,7 @@ async function loadPet() {
     const petKey = pet.name || url
     if (activePetKey.value !== petKey) {
       activePetKey.value = petKey
-      spritesheetUrl.value = `${url}?t=${Date.now()}`
+      spritesheetUrl.value = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`
       spriteKey.value++
     }
     if (typeof pet.sizeIndex === 'number') sizeIndex.value = pet.sizeIndex

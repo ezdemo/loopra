@@ -51,9 +51,22 @@ export class LoopraClient {
     const sameOrigin = typeof window !== 'undefined' && this.base === window.location.origin;
     this.apiBase = localProxy || sameOrigin ? '/api' : `${this.base}/api`;
   }
-  assetUrl(path: string) { return `${this.apiBase}${path}`; }
+  assetUrl(path: string) {
+    const url = `${this.apiBase}${path}`;
+    return typeof window !== 'undefined' && window.loopraAssetUrl ? window.loopraAssetUrl(url) : url;
+  }
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
-    const response = await fetch(`${this.apiBase}${path}`, { method, signal: signal || AbortSignal.timeout(30000), headers: body === undefined ? {} : { 'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json' }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
+    // Opening an external ACP session has a 60s backend deadline. Keep a
+    // matching finite UI deadline even when a view supplies its own signal.
+    const timeout = AbortSignal.timeout(path.startsWith('/agent-engines/') ? 65000 : 30000);
+    const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    let response: Response;
+    try {
+      response = await fetch(`${this.apiBase}${path}`, { method, signal: requestSignal, headers: body === undefined ? {} : { 'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json' }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
+    } catch (error) {
+      if (timeout.aborted && !signal?.aborted) throw new LoopraApiError(path.startsWith('/agent-engines/') ? 'Agent 配置加载超时，请重试' : '请求超时，请重试', undefined, 'request_timeout');
+      throw error;
+    }
     const result = await response.json().catch(() => { throw new Error(`Loopra 返回了无效响应（HTTP ${response.status}）`); });
     if (!response.ok || result.success !== true) throw new LoopraApiError(result.error || result.message || `HTTP ${response.status}`, response.status, result.reason);
     return result.data as T;

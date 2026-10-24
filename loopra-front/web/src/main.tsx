@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { resolveInitialServer } from './runtime-config';
+import { ensureAccess, installAccessKeyProtocol, setAccessProxy } from '../../src/services/access-key.js';
 import './styles.css';
 import './chat-blocks.css';
 import './motion.css';
@@ -23,8 +24,11 @@ import './session-records.css';
 import './project-manager.css';
 
 document.documentElement.classList.add('workspace-theme');
+installAccessKeyProtocol();
+if (import.meta.env.DEV && ['3000', '5173'].includes(window.location.port)) setAccessProxy(window.location.origin, 'http://127.0.0.1:4567');
 
 async function initialize() {
+  let server = import.meta.env.DEV ? 'http://127.0.0.1:4567' : window.location.origin;
   // Keep explicit browser preferences; otherwise migrate the original console's
   // address and honor config.json without pinning packaged Web pages to port 4567.
   try {
@@ -38,13 +42,17 @@ async function initialize() {
         if (response.ok) configured = (await response.json()).apiBase;
       } catch { /* Same-origin/default fallback remains available. */ }
     }
-    const server = resolveInitialServer({
+    server = resolveInitialServer({
       saved: localStorage.getItem('loopra:backend-server'),
       legacy: localStorage.getItem('loopra-api-base'), configured, desktopPort,
       origin: window.location.origin, development: import.meta.env.DEV,
     });
+    // A printed launch link belongs to this service, even if a different
+    // backend had previously been selected in this browser profile.
+    if (!desktopPort && !import.meta.env.DEV && new URLSearchParams(window.location.search).has('rk')) server = window.location.origin;
     localStorage.setItem('loopra:backend-server', JSON.stringify(server));
   } catch { /* Storage restrictions must not prevent mounting the application. */ }
+  await ensureAccess(server, true);
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <App />

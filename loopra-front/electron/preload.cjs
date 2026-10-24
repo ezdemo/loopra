@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     terminateProcess: (pid) => ipcRenderer.invoke('terminate_loopra_java_process', pid),
     pickFolder: () => ipcRenderer.invoke('pick_loopra_workspace_folder'),
     getCurrentPort: () => ipcRenderer.invoke('get_loopra_web_port'),
+    getAccessKey: (port) => ipcRenderer.invoke('get_loopra_web_access_key', port),
+    setAccessKey: (port, key) => ipcRenderer.invoke('set_loopra_web_access_key', port, key),
     installOnline: (source) => ipcRenderer.invoke('install_loopra_web_online', { source })
   },
 

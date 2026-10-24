@@ -21,7 +21,12 @@
 }
 .session-item > .selection-indicator { flex: none; mask-image: none; overflow: visible; }
 .session-item > .session-run-indicator { flex: none; width: .375rem; height: .375rem; border-radius: 50%; background: var(--blue); }
-.session-run-indicator.running { animation: composer-skeleton-pulse 1.2s ease-in-out infinite; box-shadow: 0 0 0 .1875rem color-mix(in srgb, var(--blue) 12%, transparent); }
+.session-item > .session-run-indicator.running {
+  width: .75rem; height: .75rem; box-sizing: border-box;
+  border: .09375rem solid var(--muted); border-top-color: color-mix(in srgb, var(--muted) 25%, transparent);
+  background: transparent; animation: session-run-spin .8s linear infinite;
+}
+@keyframes session-run-spin { to { transform: rotate(360deg); } }
 .session-item.selected, .settings-nav button.selected, .dark .settings-nav button.selected,
 .segmented > button.selected, .file-view-toggle button.selected { background: transparent; box-shadow: none; }
 .settings-nav .selection-indicator { background: var(--soft); }

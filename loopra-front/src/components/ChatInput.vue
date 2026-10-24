@@ -2112,7 +2112,7 @@ async function loadPet() {
       // 统一解析为完整 URL，桌面端 file:// 协议下才能加载（适配服务端端口）
       const url = petAPI.resolveUrl(petData.spritesheetUrl || petData.spritesheetPath)
       if (url) {
-        petSpritesheetUrl.value = url + '?t=' + Date.now()
+        petSpritesheetUrl.value = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now()
       }
       if (petData.position) {
         petPosition.value = { x: petData.position.x || 0, y: petData.position.y || 0 }

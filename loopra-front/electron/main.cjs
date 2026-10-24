@@ -15,6 +15,8 @@ const { registerDesktopContextMenus } = require('./desktop-context-menu.cjs')
 const { createDesktopTheme, registerDesktopThemeIpc } = require('./desktop-theme.cjs')
 const fs = require('fs')
 const net = require('net')
+const { randomBytes } = require('crypto')
+const { fileURLToPath } = require('url')
 
 // ==================== Squirrel 安装事件处理 ====================
 // Squirrel 安装/卸载时会以特定参数启动应用，需要处理并立即退出
@@ -75,6 +77,12 @@ let updateWindow = null
 let onboardingWindow = null
 let loopraWebProcess = null
 let currentPort = 0
+const serviceAccessKeys = new Map()
+
+function serviceAccessHeaders(port) {
+  const key = serviceAccessKeys.get(Number(port))
+  return key ? { 'X-Loopra-Key': key } : {}
+}
 let currentElectronProxyAddress = ''
 registerDesktopThemeIpc({ ipcMain, getMainWindow: () => mainWindow, theme: desktopTheme })
 const desktopUpdateOptions = readDesktopUpdateOptions(app)
@@ -167,7 +175,8 @@ function openLoopraWebWindow(port) {
   })
   loopraWebWindows.set(port, serviceWindow)
   serviceWindow.on('closed', () => loopraWebWindows.delete(port))
-  serviceWindow.loadURL(`http://127.0.0.1:${port}/index.html`)
+  const key = serviceAccessKeys.get(Number(port))
+  serviceWindow.loadURL(`http://127.0.0.1:${port}/index.html${key ? `?rk=${encodeURIComponent(key)}` : ''}`)
 }
 
 async function listLoopraJavaProcesses() {
@@ -248,48 +257,18 @@ async function getDefaultPort() {
 async function healthCheck(port) {
   try {
     const resp = await fetch(`http://127.0.0.1:${port}/api/system/health`, {
+      headers: serviceAccessHeaders(port),
       signal: AbortSignal.timeout(3000)
     })
-    return resp.ok
-  } catch { return false }
-}
-
-// 获取运行中服务的版本（health API 返回的 data.version）
-async function fetchServiceVersion(port) {
-  try {
-    const resp = await fetch(`http://127.0.0.1:${port}/api/system/health`, {
-      signal: AbortSignal.timeout(3000)
-    })
-    if (!resp.ok) return ''
-    const body = await resp.json()
-    return String(body?.data?.version || '').trim()
-  } catch { return '' }
-}
-
-// 运行中的服务版本是否与本地安装的运行时版本一致：
-// 本地版本读不到时保守复用；运行版本读不到时保守重启（保证更新后的 jar 生效）；
-// 运行版本不低于本地版本即可复用（避免把更新的服务降级重启）。
-async function isServiceVersionCurrent(port) {
-  const installedVersion = readLoopraGuiVersion()
-  if (!installedVersion) return true
-  const runningVersion = await fetchServiceVersion(port)
-  if (!runningVersion) return false
-  return compareVersions(runningVersion, installedVersion) >= 0
-}
-
-// 终止指定端口上的 loopra-web 进程（用于替换旧版本服务）
-async function stopLoopraWebOnPort(port) {
-  try {
-    const processes = await listLoopraJavaProcesses()
-    const target = processes.find((item) => item.port === port)
-    if (!target) return false
-    await stopLoopraJavaProcess(target.pid)
-    console.log(`Stopped stale loopra-web process ${target.pid} on port ${port}`)
-    return true
-  } catch (error) {
-    console.warn(`Failed to stop loopra-web process on port ${port}: ${error.message}`)
+    if (resp.ok) return true
+    // A locked development backend is already running. Let the renderer ask
+    // for its key instead of treating authentication as a failed startup.
+    if (isDev && Number(port) === 4567 && resp.status === 401) {
+      const result = await resp.json()
+      return result.reason === 'access_key_required'
+    }
     return false
-  }
+  } catch { return false }
 }
 
 // 杀掉整个进程树（包括 java 子进程）
@@ -767,6 +746,9 @@ function startLoopraWeb(port) {
   }
 
   console.log(`Starting: ${binPath} web ${port}`)
+  const key = randomBytes(32).toString('base64url')
+  serviceAccessKeys.set(Number(port), key)
+  const serviceEnv = { ...process.env, LOOPRA_ACCESS_KEY: key }
 
   let child
   if (isWin) {
@@ -778,6 +760,7 @@ function startLoopraWeb(port) {
       'web', String(port)
     ], {
       cwd: binDir,
+      env: serviceEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
@@ -785,6 +768,7 @@ function startLoopraWeb(port) {
     // macOS/Linux: 直接执行
     child = spawn(binPath, ['web', String(port)], {
       cwd: binDir,
+      env: serviceEnv,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -794,12 +778,14 @@ function startLoopraWeb(port) {
   child.stderr.on('data', (d) => console.error(`[loopra-web] ${d}`))
 
   child.on('exit', (code) => {
+    serviceAccessKeys.delete(Number(port))
     console.log(`loopra-web exited with code ${code}`)
     loopraWebProcess = null
     currentPort = 0
   })
 
   child.on('error', (err) => {
+    serviceAccessKeys.delete(Number(port))
     console.error('loopra-web spawn error:', err)
     loopraWebProcess = null
     currentPort = 0
@@ -1173,6 +1159,13 @@ function openDesktopPetWindow() {
 }
 
 async function openDesktopWorkspace() {
+  // A separately started development backend owns its runtime and version.
+  // Reuse it before checking the desktop's bundled core or installed Java.
+  if (isDev && await healthCheck(4567)) {
+    currentPort = 4567
+    createWindow()
+    return
+  }
   // Run bundled updates before reusing a healthy service as well.
   const bundledVersion = isLoopraCoreBundled() ? readBundledCoreVersion() : ''
   const installedVersion = readLoopraGuiVersion()
@@ -1427,6 +1420,43 @@ ipcMain.handle('get_loopra_web_port', async () => {
   return currentPort
 })
 
+function isServiceAccessSender(event) {
+  // Only bundled renderer pages and the known development UI can retrieve keys.
+  // Arbitrary local websites opened in an inspector must never inherit access.
+  try {
+    const url = new URL(event.senderFrame?.url || '')
+    let trusted = false
+    if (url.protocol === 'file:') {
+      const relative = path.relative(path.resolve(__dirname, '../renderer'), fileURLToPath(url))
+      trusted = !relative.startsWith('..') && !path.isAbsolute(relative)
+    } else {
+      trusted = isDev && DESKTOP_CHAT_DEV_RENDERER_ORIGINS.includes(url.origin)
+    }
+    return trusted
+  } catch { return false }
+}
+
+ipcMain.handle('get_loopra_web_access_key', (event, port) => {
+  return isServiceAccessSender(event) ? serviceAccessKeys.get(Number(port)) || '' : ''
+})
+
+ipcMain.handle('set_loopra_web_access_key', async (event, port, key) => {
+  // An externally launched dev server has no shared parent process. A key
+  // entered in its trusted renderer can be verified and retained in memory.
+  if (!isServiceAccessSender(event) || !isDev || Number(port) !== 4567
+    || typeof key !== 'string' || !/^[A-Za-z0-9_-]{43,128}$/.test(key)) return false
+  try {
+    const response = await fetch('http://127.0.0.1:4567/api/system/health', {
+      headers: { 'X-Loopra-Key': key }, signal: AbortSignal.timeout(3000), redirect: 'error'
+    })
+    if (!response.ok) return false
+    const result = await response.json()
+    if (result.success !== true || result.data?.status !== 'ok') return false
+    serviceAccessKeys.set(4567, key)
+    return true
+  } catch { return false }
+})
+
 ipcMain.handle('get_electron_version', async () => {
   return app.getVersion()
 })
@@ -1542,6 +1572,15 @@ ipcMain.handle('start_loopra_web', async () => {
   // Only development builds reuse an external service on the default port.
   const preferredPort = 4567
 
+  // Reuse before process cleanup, without comparing an external development
+  // server against the installed GUI core's version.
+  if (isDev && await healthCheck(preferredPort)) {
+    if (loopraWebProcess && currentPort !== preferredPort) cleanupLoopraWeb()
+    console.log(`Loopra Web already running on port ${preferredPort}, reusing`)
+    currentPort = preferredPort
+    return preferredPort
+  }
+
   // 桌面端重启后，核心服务也应随之重新启动：
   // 终止上次遗留的 GUI 运行时进程（~/.loopra-gui），避免直接复用旧进程/旧版本服务；
   // CLI（~/.loopra）启动的服务不在清理范围。
@@ -1557,20 +1596,6 @@ ipcMain.handle('start_loopra_web', async () => {
     }
   } catch (error) {
     console.warn('Failed to list loopra java processes:', error.message)
-  }
-
-  if (isDev && await healthCheck(preferredPort)) {
-    // 复用前校验版本：运行中的服务若与本地安装的运行时版本不一致（如刚更新过核心服务），
-    // 终止旧进程并继续走启动逻辑，避免更新后的 jar 不生效。
-    if (await isServiceVersionCurrent(preferredPort)) {
-      if (loopraWebProcess && currentPort !== preferredPort) cleanupLoopraWeb()
-      console.log(`Loopra Web already running on port ${preferredPort}, reusing`)
-      currentPort = preferredPort
-      await closeOtherLoopraJavaProcesses(currentPort)
-      return preferredPort
-    }
-    console.log(`Loopra Web on port ${preferredPort} is outdated, restarting with installed runtime`)
-    await stopLoopraWebOnPort(preferredPort)
   }
 
   if (loopraWebProcess) {
@@ -2103,7 +2128,7 @@ ipcMain.handle('pick_loopra_workspace_folder', async (event) => {
   if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized folder picker request')
   const response = await fetch(`http://127.0.0.1:${currentPort || 4567}/api/system/pick-directory`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...serviceAccessHeaders(currentPort || 4567) },
     body: JSON.stringify({ path: '' }),
     signal: AbortSignal.timeout(130000)
   })

@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
@@ -242,6 +243,23 @@ public class ProjectRegistry {
         // 按创建时间排序（固定顺序，不随切换跳动）
         projects.sort(Comparator.comparingLong(a -> a.createdAt));
         return projects;
+    }
+
+    /** Resolve one registered project without enumerating every workspace or counting sessions. */
+    public String findProjectPath(String hash) throws IOException {
+        if (hash == null || !hash.matches("[a-f0-9]{12}")) return null;
+        Path configPath = WORKSPACES_DIR.resolve(hash).resolve("workspace.json");
+        String json;
+        try {
+            json = Files.readString(configPath);
+        } catch (NoSuchFileException missing) {
+            return null;
+        }
+        String path = org.noear.snack4.ONode.ofJson(json).get("path").getString();
+        // The directory is the registration key. A sync/migration may update
+        // its stored path while keeping that key; listProjects has always used
+        // the latest registered path, and direct lookups must agree with it.
+        return path != null && !path.isBlank() ? path : null;
     }
 
     /**

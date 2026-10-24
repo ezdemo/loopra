@@ -67,7 +67,7 @@ export function petFrame(animation: PetAnimation, elapsed: number) {
   return 0;
 }
 export function petImageUrl(api: LoopraClient, name: string, revision?: number) {
-  return api.assetUrl(`/pets/${encodeURIComponent(name)}/spritesheet`) + (revision ? `?v=${revision}` : '');
+  return api.assetUrl(`/pets/${encodeURIComponent(name)}/spritesheet${revision ? `?v=${revision}` : ''}`);
 }
 export async function loadPets(api: LoopraClient, signal?: AbortSignal): Promise<PetSnapshot> {
   const [pets, active] = await Promise.all([

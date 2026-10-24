@@ -40,6 +40,7 @@ function environment() {
     setAgentConfigBusy: value => { state.busy = typeof value === 'function' ? value(state.busy) : value; },
     setAgentConfigError: value => { state.error = value; },
     setAgentConfigs: update => { state.configs = update(state.configs); },
+    cacheAgentConfig: () => {},
     setOccupiedSessions: value => { state.occupied = value; },
     setAgentConfigRevision: update => { state.revision = update(state.revision); },
     notify: message => { state.notice = message; },

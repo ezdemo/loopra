@@ -37,17 +37,14 @@ final class ProjectCatalog {
         if (ChatMode.isChatHash(hash)) {
             return ChatMode.root().toString();
         }
-        // 1. 优先使用 ProjectRegistry 的磁盘索引（可靠，不依赖 sessionCache）
+        // The hash is already the on-disk directory name. Looking it up must
+        // not scan the entire workspace catalog on every session API request.
         try {
             ProjectRegistry projects = new ProjectRegistry();
-            List<ProjectRegistry.ProjectInfo> projectList = projects.listProjects();
-            for (ProjectRegistry.ProjectInfo ws : projectList) {
-                if (hash.equals(ws.hash())) {
-                    return ws.path();
-                }
-            }
+            String path = projects.findProjectPath(hash);
+            if (path != null) return path;
         } catch (Exception e) {
-            log.warn("[web] 读取项目列表失败: {}", e.getMessage());
+            log.warn("[web] 读取项目索引失败: {}", e.getMessage());
         }
 
         // 2. 检查默认项目

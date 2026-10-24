@@ -120,6 +120,7 @@ export default function App() {
   // The backend re-detects installed Agent runtimes on every request; bump this to refresh
   // after the user installs a missing runtime outside the app.
   const [enginesRevision, setEnginesRevision] = useState(0);
+  const [enginesError, setEnginesError] = useState('');
   const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});
   // Home has no session yet, but its composer still advertises the selected
   // Agent's options. The prepared backend session is reused by the first send.
@@ -191,6 +192,7 @@ export default function App() {
   // External ACP engines own their own toolset, so pure chat stays on Native.
   const agentId = chatMode ? 'native' : requestedAgentId;
   const externalAgent = agentId !== 'native';
+  const selectedEngineAvailable = engines.find(item => item.id === agentId)?.available;
   const agentConfigKey = `${server}::${workspace}::${agentId}`;
   const homeRunKey = draftRunKey(server, workspace, agentId, agentDraftRevision);
   const currentRunKey = session ? sessionRunKey(server, session.id) : homeRunKey;
@@ -244,6 +246,7 @@ export default function App() {
       .then(result => {
         if (controller.signal.aborted) return;
         setAgentConfigs(current => ({ ...current, [id]: result.configOptions }));
+        cacheAgentConfig(session.agentId || 'native', result.configOptions);
         recordSessionOccupancy(id, false);
         if (queuedRef.current[id]?.length) void sendQueuedMessage(id);
       })
@@ -258,7 +261,14 @@ export default function App() {
   }, [api, session?.id, backend.status, agentConfigRevision, generatingId]);
   useEffect(() => {
     const controller = new AbortController();
-    void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal).then(setEngines).catch(() => setEngines([]));
+    setEnginesError('');
+    void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setEngines(result); setEnginesError(''); } })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        setEngines([]);
+        setEnginesError(`检测 Agent 运行环境失败：${error instanceof Error ? error.message : String(error)}`);
+      });
     return () => controller.abort();
   }, [api, backend.status, enginesRevision]);
   // Pending HITL/ask_choice cards drive the composer popup. Read from the live
@@ -279,14 +289,15 @@ export default function App() {
   useEffect(() => {
     if (session || !currentWorkspace || backend.status !== 'connected' || !backend.ready || !agentPreferencesReady || agentSelectionBusy) return;
     if (newAgentConfig?.key === agentConfigKey || preparedNewSession.current?.key === agentConfigKey) return;
-    const engine = engines.find(item => item.id === agentId);
-    if (engine && !engine.available) return;
+    // Wait for installation detection, and depend on its boolean result. A
+    // second catalog response must not cancel an ACP process already opening.
+    if (selectedEngineAvailable !== true) return;
     const controller = new AbortController();
     // Debounce so StrictMode's throwaway first effect (and rapid Agent toggles)
     // never spawns a backend session that nobody asked for.
     const timer = setTimeout(() => void loadNewAgentConfig(currentWorkspace.hash, agentId, controller.signal), 120);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [session, agentConfigKey, currentWorkspace, backend.status, backend.ready, newAgentConfig?.key, engines, agentId, agentPreferencesReady, agentSelectionBusy, agentDraftRevision]);
+  }, [session, agentConfigKey, currentWorkspace?.hash, backend.status, backend.ready, newAgentConfig?.key, selectedEngineAvailable, agentId, agentPreferencesReady, agentSelectionBusy, agentDraftRevision]);
 
   useLayoutEffect(() => {
     // Root tokens also reach NextUI menus, modals and tooltips rendered in portals.
@@ -407,6 +418,7 @@ export default function App() {
   }
   function retryAgentConfig() {
     if (!session && !agentPreferencesReady) { setAgentPreferencesRevision(value => value + 1); return; }
+    if (!session && (enginesError || selectedEngineAvailable !== true)) { setEnginesRevision(value => value + 1); return; }
     if (session) { setAgentConfigRevision(value => value + 1); return; }
     if (currentWorkspace) void loadNewAgentConfig(currentWorkspace.hash, agentId);
   }
@@ -1191,7 +1203,7 @@ export default function App() {
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
     : <Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
-    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && agentPreferencesError) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
+    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}

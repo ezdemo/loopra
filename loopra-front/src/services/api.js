@@ -1,5 +1,6 @@
 import axios from 'axios'
 import {message} from 'ant-design-vue'
+import {authenticatedAssetUrl, ensureAccess, getAccessHeaders} from './access-key'
 
 /** 默认兜底值，运行时优先读 public/config.json */
 export const DEFAULT_API_BASE = 'http://localhost:4567'
@@ -11,7 +12,9 @@ export async function initConfig() {
     if (resp.ok) {
       const cfg = await resp.json()
       if (cfg.apiBase && !localStorage.getItem('loopra-api-base')) {
-        localStorage.setItem('loopra-api-base', cfg.apiBase)
+        const sameOrigin = !import.meta.env.DEV && /^https?:$/.test(window.location.protocol)
+        const bundledDefault = [DEFAULT_API_BASE, 'http://127.0.0.1:4567', '/'].includes(cfg.apiBase)
+        localStorage.setItem('loopra-api-base', sameOrigin && bundledDefault ? window.location.origin : cfg.apiBase)
       }
     }
   } catch { /* 加载失败则用 DEFAULT_API_BASE */ }
@@ -20,7 +23,8 @@ export async function initConfig() {
 // 读取持久化的 API 地址（用户在设置页配置的）
 // 优先级：localStorage 用户设置 > config.json > 硬编码
 export function getCustomBaseURL() {
-  return localStorage.getItem('loopra-api-base') || DEFAULT_API_BASE
+  const sameOrigin = !import.meta.env.DEV && /^https?:$/.test(window.location.protocol)
+  return localStorage.getItem('loopra-api-base') || (sameOrigin ? window.location.origin : DEFAULT_API_BASE)
 }
 
 /**
@@ -30,9 +34,9 @@ export function getCustomBaseURL() {
  */
 export function resolveApiUrl(path) {
   if (!path) return ''
-  if (/^https?:\/\//i.test(path)) return path
+  if (/^https?:\/\//i.test(path)) return authenticatedAssetUrl(path)
   const base = (getCustomBaseURL() || DEFAULT_API_BASE).replace(/\/+$/, '')
-  return base + (path.startsWith('/') ? path : '/' + path)
+  return authenticatedAssetUrl(base + (path.startsWith('/') ? path : '/' + path))
 }
 
 const api = axios.create({
@@ -45,12 +49,13 @@ const api = axios.create({
 
 // 请求拦截器
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
     // 动态 baseURL：优先使用用户配置的服务端地址
     const customBase = getCustomBaseURL()
     if (customBase) {
       config.baseURL = customBase.replace(/\/+$/, '') + '/api'
     }
+    Object.assign(config.headers, await getAccessHeaders(customBase || window.location.origin))
     
     // 添加认证令牌
     const token = localStorage.getItem('loopra-token')
@@ -91,7 +96,12 @@ api.interceptors.response.use(
 
     return data
   },
-  (error) => {
+  async (error) => {
+    if (error.response?.status === 401 && error.response?.data?.reason === 'access_key_required' && !error.config._accessRetried) {
+      await ensureAccess(getCustomBaseURL() || window.location.origin)
+      error.config._accessRetried = true
+      return api(error.config)
+    }
     if (error.config?.silent) return Promise.reject(error)
     console.error('API Error:', error)
 

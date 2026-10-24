@@ -9,6 +9,9 @@ import './utils/highlight' // 高亮初始化（Shiki 预载在模块加载时�
 import './assets/styles/main.css'
 import './assets/styles/desktop.css'
 import {installDesktopMessageBridge} from './utils/desktopMessage'
+import {ensureAccess, installAccessKeyProtocol} from './services/access-key'
+
+installAccessKeyProtocol()
 
 const resolveRootComponent = (page) => {
   if (page.get('desktopShell') === '1') return () => import('./DesktopShell.vue')
@@ -42,6 +45,14 @@ const initApp = async () => {
     import('./services/api').then(({initConfig}) => initConfig())
   ])
   const app = createApp(rootModule.default)
+
+  if (webApp && !window.electronAPI) {
+    const {getCustomBaseURL} = await import('./services/api')
+    if (!import.meta.env.DEV && page.has('rk')) {
+      try { localStorage.setItem('loopra-api-base', window.location.origin) } catch { /* Memory-only key storage remains available. */ }
+    }
+    await ensureAccess(getCustomBaseURL(), true)
+  }
 
   if (desktopShell || desktopChatTab) installDesktopMessageBridge()
 
