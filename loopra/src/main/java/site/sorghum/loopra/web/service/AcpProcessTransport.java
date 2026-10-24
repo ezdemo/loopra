@@ -36,6 +36,8 @@ final class AcpProcessTransport implements AcpClientTransport {
         this.command = List.copyOf(command); this.env = Map.copyOf(env); this.cwd = cwd;
     }
 
+    boolean isAlive() { return !closed.get() && process != null && process.isAlive(); }
+
     @Override public Mono<Void> connect(Function<Mono<JSONRPCMessage>, Mono<JSONRPCMessage>> handler) {
         return Mono.fromRunnable(() -> {
             this.handler = handler;

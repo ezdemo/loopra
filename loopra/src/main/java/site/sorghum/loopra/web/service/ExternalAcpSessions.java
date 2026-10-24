@@ -19,16 +19,17 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** One persistent ACP process per external conversation, bounded and independently cancellable. */
+/** Persistent isolated conversation clients, with compatible initialized adapters shared between them. */
 final class ExternalAcpSessions implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(ExternalAcpSessions.class);
     private static final int MAX_CONNECTIONS = 8;
     private final Map<String, Connection> connections = new HashMap<>();
     private final java.util.function.BiFunction<String, Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> transportFactory;
     private final java.util.function.BiFunction<String, Path, List<McpServer>> mcpResolver;
+    private final SharedAcpProcesses sharedProcesses;
 
     ExternalAcpSessions() { this((id, cwd) -> ExternalAcpProviders.require(id).create(cwd),
-            (key, cwd) -> AcpMcpServers.managed(key.contains("::") ? Path.of(key.split("::", 2)[0]) : cwd)); }
+            (key, cwd) -> AcpMcpServers.managed(key.contains("::") ? Path.of(key.split("::", 2)[0]) : cwd), true); }
     ExternalAcpSessions(java.util.function.Function<Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> factory) {
         this(factory, (key, cwd) -> AcpMcpServers.managed(key.contains("::") ? Path.of(key.split("::", 2)[0]) : cwd));
     }
@@ -40,8 +41,26 @@ final class ExternalAcpSessions implements AutoCloseable {
 
     ExternalAcpSessions(java.util.function.BiFunction<String, Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> factory,
                         java.util.function.BiFunction<String, Path, List<McpServer>> mcpResolver) {
+        this(factory, mcpResolver, false);
+    }
+
+    ExternalAcpSessions(java.util.function.BiFunction<String, Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> factory,
+                        java.util.function.BiFunction<String, Path, List<McpServer>> mcpResolver, boolean shareProcesses) {
         transportFactory = factory;
         this.mcpResolver = mcpResolver;
+        sharedProcesses = shareProcesses ? new SharedAcpProcesses(factory) : null;
+    }
+
+    private com.agentclientprotocol.sdk.spec.AcpClientTransport transport(Connection connection, Path cwd, String name,
+                                                                         SessionStore store, List<String> directories) throws Exception {
+        String remote = store.getAcpBinding(name).remoteSessionId();
+        connection.adapterReused = false;
+        if (sharedProcesses != null && remote != null && !remote.isBlank() && store.hasMessages(name)) {
+            var transport = sharedProcesses.borrow(connection.agentId, cwd, directories, connection.mcpServers, remote);
+            connection.adapterReused = SharedAcpProcesses.reusesHandshake(transport);
+            return transport;
+        }
+        return transportFactory.apply(connection.agentId, cwd);
     }
 
     void prompt(String key, Path cwd, String name, SessionStore store, UserMessage message,
@@ -73,7 +92,7 @@ final class ExternalAcpSessions implements AutoCloseable {
                 connection.client = null;
                 connection.directories = List.of();
             }
-            if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(connection.agentId, cwd), transcript,
+            if (connection.client == null) connection.client = new AcpWorkbenchClient(transport(connection, cwd, name, store, directories), transcript,
                     "codex".equals(connection.agentId));
             else connection.client.bindOutput(transcript);
             AcpWorkbenchClient client = connection.client;
@@ -138,20 +157,43 @@ final class ExternalAcpSessions implements AutoCloseable {
 
     List<site.sorghum.loopra.bin.acp.AcpConfigOption> configuration(String key, Path cwd, String name,
                     SessionStore store, String configId, Object value) throws Exception {
-        Connection connection = acquire(key, cwd, store.getAcpBinding(name).agentId(), false);
+        try (var timing = new AcpStartupTiming(store.getAcpBinding(name).agentId(), configId == null ? "read" : "write")) {
+            var options = configuration(key, cwd, name, store, configId, value, timing);
+            timing.success();
+            return options;
+        }
+    }
+
+    List<site.sorghum.loopra.bin.acp.AcpConfigOption> configuration(String key, Path cwd, String name,
+                    SessionStore store, String configId, Object value, AcpStartupTiming timing) throws Exception {
+        Connection connection;
+        try (var phase = AcpStartupTiming.step(timing, "acquire")) {
+            connection = acquire(key, cwd, store.getAcpBinding(name).agentId(), false);
+        }
         AcpSubAgentRecorder recorder = null;
         boolean success = false;
         try {
-            refreshMcp(connection, key, cwd);
-            if (connection.client == null) connection.client = new AcpWorkbenchClient(transportFactory.apply(connection.agentId, cwd), AgentOutput.NOOP,
-                    "codex".equals(connection.agentId));
+            try (var phase = AcpStartupTiming.step(timing, "mcpConfig")) { refreshMcp(connection, key, cwd); }
+            if (connection.client == null) {
+                timing.cold();
+                try (var phase = AcpStartupTiming.step(timing, "clientCreate")) {
+                    connection.client = new AcpWorkbenchClient(transport(connection, cwd, name, store, connection.directories), AgentOutput.NOOP,
+                            "codex".equals(connection.agentId));
+                    if (connection.adapterReused) timing.adapterReused();
+                }
+            }
             if (store.sessionsDir() != null) {
                 recorder = new AcpSubAgentRecorder(new SubAgentSessionStore(store.sessionsDir()), name);
                 connection.client.setSubAgentListener(recorder::record);
             }
             // Configuration reads must not pretend the linked-directory set changed.
-            open(connection, cwd, name, store, connection.directories);
-            var options = configId == null ? connection.client.configOptions() : connection.client.setConfigOption(configId, value);
+            // The workbench already owns its transcript. Reading toolbar options needs
+            // a live session, but not a second copy of its entire history over stdio.
+            open(connection, cwd, name, store, connection.directories, timing, false);
+            List<AcpConfigOption> options;
+            try (var phase = AcpStartupTiming.step(timing, "configReadOrWrite")) {
+                options = configId == null ? connection.client.configOptions() : connection.client.setConfigOption(configId, value);
+            }
             if (configId != null) {
                 Map<String, String> saved = new LinkedHashMap<>(store.getAgentConfig(name));
                 saved.put(configId, org.noear.snack4.ONode.serialize(value));
@@ -258,6 +300,11 @@ final class ExternalAcpSessions implements AutoCloseable {
 
     private void open(Connection connection, Path cwd, String name, SessionStore store,
                       List<String> additionalDirectories) throws Exception {
+        open(connection, cwd, name, store, additionalDirectories, null, true);
+    }
+
+    private void open(Connection connection, Path cwd, String name, SessionStore store,
+                      List<String> additionalDirectories, AcpStartupTiming timing, boolean replayHistory) throws Exception {
         AcpWorkbenchClient client = connection.client;
         client.setPlanListener(entries -> {
             try { store.setAcpPlan(name, entries); }
@@ -284,16 +331,21 @@ final class ExternalAcpSessions implements AutoCloseable {
         if (!connection.agentId.equals(binding.agentId())) throw new ServiceException(409, "Agent 会话绑定已变化，请重试");
         if (binding.cwd() != null && !Path.of(binding.cwd()).equals(cwd)) throw new ServiceException("Agent 会话工作目录已变化，请创建新会话");
         // Before the first prompt, some Agents have not written a resumable transcript yet.
-        String restoreId = store.load(name).isEmpty() ? null : binding.remoteSessionId();
+        String restoreId;
+        try (var phase = AcpStartupTiming.step(timing, "historyCheck")) {
+            restoreId = store.hasMessages(name) ? binding.remoteSessionId() : null;
+        }
         // Setup responses also carry configOptions. Keep persistence disabled until the
         // saved choices have been restored, otherwise defaults overwrite the user's picks.
         client.setConfigListener(null);
-        CompletableFuture<String> opening = CompletableFuture.supplyAsync(() -> client.open(cwd.toString(), restoreId, directories, connection.mcpServers));
+        CompletableFuture<String> opening = CompletableFuture.supplyAsync(() -> client.open(cwd.toString(), restoreId, directories, connection.mcpServers, timing, replayHistory));
         String id;
         try { id = opening.get(60, TimeUnit.SECONDS); }
         catch (Exception e) { opening.cancel(true); throw e; }
-        store.setAcpBinding(name, new SessionStore.AcpBinding(connection.agentId, id, cwd.toString()));
-        restoreConfiguration(client, name, store);
+        try (var phase = AcpStartupTiming.step(timing, "bindingPersist")) {
+            store.setAcpBinding(name, new SessionStore.AcpBinding(connection.agentId, id, cwd.toString()));
+        }
+        try (var phase = AcpStartupTiming.step(timing, "restoreOptions")) { restoreConfiguration(client, name, store); }
         connection.directories = directories;
         client.setConfigListener(options -> persistConfiguration(store, name, options));
         client.setUsageListener(usage -> persistUsage(store, name, usage));
@@ -449,7 +501,14 @@ final class ExternalAcpSessions implements AutoCloseable {
         if (connection != null && connection.client != null) { connection.client.cancel(); connection.client.close(); }
     }
     @Override public synchronized void close() {
-        for (String key : List.copyOf(connections.keySet())) close(key);
+        RuntimeException failure = null;
+        for (String key : List.copyOf(connections.keySet())) {
+            try { close(key); }
+            catch (RuntimeException error) { if (failure == null) failure = error; else failure.addSuppressed(error); }
+        }
+        try { if (sharedProcesses != null) sharedProcesses.close(); }
+        catch (RuntimeException error) { if (failure == null) failure = error; else failure.addSuppressed(error); }
+        if (failure != null) throw failure;
     }
     private static final class Connection {
         final Path cwd;
@@ -458,6 +517,7 @@ final class ExternalAcpSessions implements AutoCloseable {
         /** A prompt owns this connection (vice versa: a held lock may be a config read). */
         volatile boolean prompting;
         AcpWorkbenchClient client;
+        boolean adapterReused;
         List<String> directories = List.of();
         List<McpServer> mcpServers = List.of();
         long lastUsed = System.nanoTime();

@@ -86,6 +86,9 @@ public interface SessionStore {
      */
     List<ChatMessage> load(String name) throws IOException;
 
+    /** Whether a resumable conversation has messages, without requiring a complete transcript load. */
+    default boolean hasMessages(String name) throws IOException { return !load(name).isEmpty(); }
+
     /**
      * 重写整个会话文件
      */

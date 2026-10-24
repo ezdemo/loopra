@@ -3,6 +3,10 @@
 主聊天支持 **Loopra Native / Claude Code / Codex**。外部 Agent 共用 ACP 客户端、
 进程池、工具卡片、审批、取消、MCP 和本地历史，各自保存远端会话身份与配置。
 
+同一执行环境中，已有会话可以复用完成握手的 ACP 适配器及 Codex app-server；
+每个会话的客户端、输出、配置、审批与取消仍分别管理。不同执行目录、关联目录
+或受管 MCP 配置不共用适配器。诊断字段与实测见 [启动耗时诊断](acp-startup-diagnostics.md)。
+
 ## 安装与使用
 
 在运行 Loopra 后端的机器上安装 Node.js 22+ 和维护中的适配器（本次验证版本为 2.2.2）：

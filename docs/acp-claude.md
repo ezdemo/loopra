@@ -3,6 +3,10 @@
 主聊天可以选择 Loopra Native 或本机 Claude Code。两者复用 ACP Client、工具卡片、
 审批和停止流程；Claude Code 使用独立进程和自己的登录、模型与项目配置。
 
+已有会话可在相同执行环境中复用已初始化的 ACP 适配器。会话内的 Claude CLI、
+配置、审批与输出继续独立，因此这项优化省去外层握手，仍保留 CLI 的初始化成本。
+诊断字段与实测见 [启动耗时诊断](acp-startup-diagnostics.md)。
+
 ## 使用
 
 1. 安装 Node.js 22+、Claude Code，并确认终端里的 Claude 可以正常对话。

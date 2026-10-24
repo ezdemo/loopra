@@ -1045,12 +1045,25 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
             }
             return options;
         }
-        if (ExternalAcpProviders.isExternal(sessionAgentId(workspacePath, sessionName))) {
-            SessionStore store = sessionStoreFor(workspacePath);
-            if (store == null) throw new ServiceException("会话存储不可用");
-            try { return externalAcpSessions.configuration(key, resolveSessionEnvironment(workspacePath, sessionName).executionRoot(),
-                    sessionName, store, configId, value); }
-            finally { store.shutdown(); }
+        String agentId = sessionAgentId(workspacePath, sessionName);
+        if (ExternalAcpProviders.isExternal(agentId)) {
+            try (var timing = new AcpStartupTiming(agentId, configId == null ? "read" : "write")) {
+                SessionStore store;
+                try (var phase = AcpStartupTiming.step(timing, "storeOpen")) { store = sessionStoreFor(workspacePath); }
+                if (store == null) throw new ServiceException("会话存储不可用");
+                List<AcpConfigOption> options;
+                try {
+                    Path cwd;
+                    try (var phase = AcpStartupTiming.step(timing, "environment")) {
+                        cwd = resolveSessionEnvironment(workspacePath, sessionName).executionRoot();
+                    }
+                    options = externalAcpSessions.configuration(key, cwd, sessionName, store, configId, value, timing);
+                } finally {
+                    try (var phase = AcpStartupTiming.step(timing, "storeClose")) { store.shutdown(); }
+                }
+                timing.success();
+                return options;
+            }
         }
         LoopraAcpAgent nativeAgent = new LoopraAcpAgent(new WorkbenchNativeSession(key));
         try (JsonRpcLoopback connection = new JsonRpcLoopback()) {

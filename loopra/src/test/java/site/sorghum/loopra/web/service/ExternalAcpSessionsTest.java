@@ -46,6 +46,57 @@ class ExternalAcpSessionsTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    void configurationResumesWithoutReplayAndRestoresOptionsBeforeReusingConnectionForPrompt(String agentId) throws Exception {
+        Path trace = home.resolve("requests.jsonl");
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AcpStartupTiming.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        var store = store(agentId);
+        store.bindTo("chat");
+        store.append(site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("existing history"));
+        store.setAcpBinding("chat", new SessionStore.AcpBinding(agentId, "fake-session", home.toString()));
+        store.setAgentConfig("chat", Map.of("model", "\"beta\"", "mode", "\"plan\""));
+        try (var runtime = runtime("-Dloopra.fake.resume=true", "-Dloopra.fake.requestTrace=" + trace)) {
+            var options = runtime.configuration("key", home, "chat", store, null, null);
+            assertEquals("beta", options.get(0).currentValue());
+            assertEquals("plan", options.get(1).currentValue());
+            prompt(runtime, store, "state", AgentOutput.NOOP);
+            var requests = java.nio.file.Files.readAllLines(trace).stream().map(org.noear.snack4.ONode::ofJson).toList();
+            assertEquals(1, requests.stream().filter(item -> "session/resume".equals(item.get("method").getString())).count());
+            assertFalse(requests.stream().anyMatch(item -> Set.of("session/load", "session/new").contains(item.get("method").getString())));
+            var resumed = requests.stream().filter(item -> "session/resume".equals(item.get("method").getString())).findFirst().orElseThrow();
+            assertEquals("fake-session", resumed.get("params").get("sessionId").getString());
+            assertEquals(home.toString(), resumed.get("params").get("cwd").getString());
+            assertEquals(List.of("existing history", "state", "reply:state:beta:plan"), store.load("chat").stream().map(message -> message.getContent()).toList());
+            var diagnostics = appender.list.stream().map(event -> event.getFormattedMessage()).toList();
+            assertTrue(diagnostics.stream().anyMatch(message -> message.contains("cold=true") && message.contains("success=true") && message.contains("sessionResume=")));
+            assertTrue(diagnostics.stream().noneMatch(message -> message.contains(home.toString()) || message.contains("existing history") || message.contains("beta")),
+                    "Startup diagnostics must not expose workspace paths, messages or configuration values");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+            store.shutdown();
+        }
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void configurationUsesLoadForOlderAgentsAndPromptKeepsHistoryReplay(boolean resumeSupported) throws Exception {
+        Path trace = home.resolve("requests.jsonl");
+        var store = store("codex");
+        store.bindTo("chat");
+        store.append(site.sorghum.loopra.bin.agent.model.ChatMessage.ofUser("existing history"));
+        store.setAcpBinding("chat", new SessionStore.AcpBinding("codex", "fake-session", home.toString()));
+        try (var runtime = runtime("-Dloopra.fake.resume=" + resumeSupported, "-Dloopra.fake.requestTrace=" + trace)) {
+            if (resumeSupported) prompt(runtime, store, "after load", AgentOutput.NOOP);
+            else runtime.configuration("key", home, "chat", store, null, null);
+            var requests = java.nio.file.Files.readAllLines(trace).stream().map(org.noear.snack4.ONode::ofJson).toList();
+            assertEquals(1, requests.stream().filter(item -> "session/load".equals(item.get("method").getString())).count());
+            assertFalse(requests.stream().anyMatch(item -> "session/resume".equals(item.get("method").getString())));
+        } finally { store.shutdown(); }
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
     void managedMcpIsSentOnNewLoadAndChangedConfigurationReconnects(String agentId) throws Exception {
         Path config = home.resolve(".loopra/mcp-servers.json");
         java.nio.file.Files.createDirectories(config.getParent());
@@ -380,7 +431,7 @@ class ExternalAcpSessionsTest {
         prompt(runtime, store, text, output, null, List.of());
     }
 
-    @ParameterizedTest @ValueSource(strings = {"configuration", "prompt"})
+    @ParameterizedTest @ValueSource(strings = {"configuration", "resume", "prompt"})
     void busyRemoteWriterReturnsConflictWithoutReplacingHistoryAndCanRecover(String operation) throws Exception {
         Path conflict = java.nio.file.Files.writeString(home.resolve("writer-conflict"), "busy");
         Path newSession = home.resolve("new-session");
@@ -390,9 +441,10 @@ class ExternalAcpSessionsTest {
         var binding = new SessionStore.AcpBinding("codex", "fake-session", home.toString());
         store.setAcpBinding("chat", binding);
         try (var runtime = runtime("-Dloopra.fake.writerConflictMarker=" + conflict,
+                "-Dloopra.fake.resume=" + operation.equals("resume"),
                 "-Dloopra.fake.sessionNewMarker=" + newSession)) {
             ServiceException error = assertThrows(ServiceException.class, () -> {
-                if (operation.equals("configuration")) runtime.configuration("key", home, "chat", store, null, null);
+                if (!operation.equals("prompt")) runtime.configuration("key", home, "chat", store, null, null);
                 else prompt(runtime, store, "must not be appended", AgentOutput.NOOP);
             });
             assertEquals(409, error.getCode());
