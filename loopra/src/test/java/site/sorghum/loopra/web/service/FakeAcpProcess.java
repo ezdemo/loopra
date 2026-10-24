@@ -60,6 +60,7 @@ public final class FakeAcpProcess {
                             && !Boolean.getBoolean("loopra.fake.noSubagents");
                     Map<String, Object> sessions = new LinkedHashMap<>();
                     if (nativeChildren) sessions.put("subagents", Map.of());
+                    if (Boolean.getBoolean("loopra.fake.resume")) sessions.put("resume", Map.of());
                     if (!Boolean.getBoolean("loopra.fake.noFork")) sessions.put("fork", Map.of());
                     response(id, Map.of("protocolVersion", 1,
                         "agentCapabilities", Map.of("loadSession", true, "additionalDirectories", true,
@@ -113,7 +114,7 @@ public final class FakeAcpProcess {
                     mcp = message.get("params").get("mcpServers").toJson();
                     response(id, Map.of("sessionId", rootSession, "configOptions", config()));
                 }
-                case "session/load" -> {
+                case "session/load", "session/resume" -> {
                     String conflict = System.getProperty("loopra.fake.writerConflictMarker");
                     rootSession = message.get("params").get("sessionId").getString();
                     if ("fake-session".equals(rootSession) && conflict != null && java.nio.file.Files.exists(java.nio.file.Path.of(conflict))) {
@@ -124,11 +125,13 @@ public final class FakeAcpProcess {
                         continue;
                     }
                     mcp = message.get("params").get("mcpServers").toJson();
-                    setup = "load";
+                    setup = method.equals("session/resume") ? "resume" : "load";
                     directories = readDirectories(message);
-                    update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "OLD REPLAY")));
-                    if (nativeChildren && Boolean.getBoolean("loopra.fake.replayChildren")) nativeTranscript();
-                    if (Boolean.getBoolean("loopra.fake.replayLegacyChildren")) legacyCodexTranscript("legacy-codex");
+                    if (method.equals("session/load")) {
+                        update(Map.of("sessionUpdate", "agent_message_chunk", "content", Map.of("type", "text", "text", "OLD REPLAY")));
+                        if (nativeChildren && Boolean.getBoolean("loopra.fake.replayChildren")) nativeTranscript();
+                        if (Boolean.getBoolean("loopra.fake.replayLegacyChildren")) legacyCodexTranscript("legacy-codex");
+                    }
                     response(id, Map.of("configOptions", config()));
                 }
                 case "session/set_mode" -> response(id, Map.of());

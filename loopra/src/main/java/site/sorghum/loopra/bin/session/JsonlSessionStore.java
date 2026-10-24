@@ -423,6 +423,31 @@ public class JsonlSessionStore implements SessionStore {
     }
 
     @Override
+    public boolean hasMessages(String name) throws IOException {
+        lock.lock();
+        try {
+            Path file = sessionPath(name);
+            ReentrantLock fileIoLock = fileLock(file);
+            fileIoLock.lock();
+            try {
+                if (!Files.exists(file)) return false;
+                try (BufferedReader input = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+                    String line;
+                    while ((line = input.readLine()) != null) {
+                        line = line.trim();
+                        if (line.isEmpty() || line.startsWith("//")) continue;
+                        try {
+                            ChatMessage message = ChatMessage.fromMap(ONodeUtil.toMap(ONode.ofJson(line)));
+                            if (!(message.isUser() && ConversationContext.isInternalNotice(message.getContent()))) return true;
+                        } catch (RuntimeException ignored) { /* Match load(): malformed lines are not messages. */ }
+                    }
+                }
+                return false;
+            } finally { fileIoLock.unlock(); }
+        } finally { lock.unlock(); }
+    }
+
+    @Override
     public List<ChatMessage> load(String name) throws IOException {
         lock.lock();
         try {

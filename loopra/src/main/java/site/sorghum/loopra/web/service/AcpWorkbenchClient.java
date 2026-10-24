@@ -258,24 +258,39 @@ public final class AcpWorkbenchClient implements AutoCloseable {
     }
 
     public String open(String cwd, String existingSessionId, List<String> additionalDirectories, List<McpServer> mcpServers) {
+        return open(cwd, existingSessionId, additionalDirectories, mcpServers, null, true);
+    }
+
+    String open(String cwd, String existingSessionId, List<String> additionalDirectories, List<McpServer> mcpServers,
+                AcpStartupTiming timing, boolean replayHistory) {
         List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
         List<McpServer> servers = mcpServers == null ? List.of() : List.copyOf(mcpServers);
-        initialize(servers);
+        try (var phase = AcpStartupTiming.step(timing, "initialize")) { initialize(servers); }
         if (existingSessionId != null) {
-            if (initialized.agentCapabilities() == null || !Boolean.TRUE.equals(initialized.agentCapabilities().loadSession())) {
+            var capabilities = initialized.agentCapabilities();
+            boolean resume = !replayHistory && capabilities != null && capabilities.sessionCapabilities() != null
+                    && capabilities.sessionCapabilities().resume() != null;
+            if (!resume && (capabilities == null || !Boolean.TRUE.equals(capabilities.loadSession()))) {
                 throw new IllegalStateException("Agent 不支持恢复会话，请创建新会话");
             }
             sessionId = existingSessionId;
             replaying = true;
-            try {
-                var loaded = client.loadSession(new LoadSessionRequest(existingSessionId, cwd, servers, directories));
-                legacyConfiguration(loaded.modes(), loaded.models());
+            try (var phase = AcpStartupTiming.step(timing, resume ? "sessionResume" : "sessionLoad")) {
+                if (resume) {
+                    var resumed = client.resumeSession(new ResumeSessionRequest(existingSessionId, cwd, servers, directories));
+                    legacyConfiguration(resumed.modes(), resumed.models());
+                } else {
+                    var loaded = client.loadSession(new LoadSessionRequest(existingSessionId, cwd, servers, directories));
+                    legacyConfiguration(loaded.modes(), loaded.models());
+                }
             }
             finally { replaying = false; }
         } else {
-            var created = client.newSession(new NewSessionRequest(cwd, servers, directories));
-            sessionId = created.sessionId();
-            legacyConfiguration(created.modes(), created.models());
+            try (var phase = AcpStartupTiming.step(timing, "sessionNew")) {
+                var created = client.newSession(new NewSessionRequest(cwd, servers, directories));
+                sessionId = created.sessionId();
+                legacyConfiguration(created.modes(), created.models());
+            }
         }
         if (sessionId == null || sessionId.isBlank()) throw new IllegalStateException("Agent returned an empty session ID");
         return sessionId;
