@@ -48,7 +48,7 @@ class ExternalAgentRoutingTest {
     @Test void providersKeepSeparateConfigurationBindingsAndRecoveryThroughTheWorkbench() throws Exception {
         String path = project.toString();
         try (var service = service()) {
-            for (String id : List.of("claude-code", "codex")) {
+            for (String id : List.of("claude-code", "codex", "pi", "dsh")) {
                 service.selectSessionAgent(path, id, id);
                 service.agentConfiguration(path, id, null, null);
                 if (id.equals("codex")) service.agentConfiguration(path, id, "model", "beta");
@@ -61,7 +61,7 @@ class ExternalAgentRoutingTest {
             assertEquals(0, service.getCacheSize(), "External conversations must not construct Native Agents");
         }
         try (var service = service()) {
-            for (String id : List.of("claude-code", "codex")) {
+            for (String id : List.of("claude-code", "codex", "pi", "dsh")) {
                 String events = run(service, id, "state");
                 assertFalse(events.contains("event: error"), events);
                 assertFalse(events.contains("OLD REPLAY"));
@@ -70,7 +70,7 @@ class ExternalAgentRoutingTest {
                 assertEquals(2, service.getHistory(path, id).stream().filter(message -> message.isUser()).count());
             }
         }
-        assertEquals(List.of("claude-code", "codex", "claude-code", "codex"), launches);
+        assertEquals(List.of("claude-code", "codex", "pi", "dsh", "claude-code", "codex", "pi", "dsh"), launches);
     }
 
     @Test void emptySessionCanSwitchProvidersAndIsolationResetKeepsCodexIdentity() throws Exception {

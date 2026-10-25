@@ -301,6 +301,9 @@ final class ExternalAcpSessions implements AutoCloseable {
 
     private void refreshMcp(Connection connection, String key, Path cwd) {
         List<McpServer> desired = List.copyOf(mcpResolver.apply(key, cwd));
+        if ("pi".equals(connection.agentId) && !desired.isEmpty()) {
+            throw new ServiceException("pi-acp 暂不转发工作台 MCP，请先在工作台停用这些 MCP，并在 Pi 中配置所需扩展");
+        }
         if (!connection.mcpServers.equals(desired)) {
             // ACP binds MCP at new/load. Reconnect before the next turn to apply edits,
             // including revoked servers, while retaining the persisted remote session id.
@@ -327,6 +330,9 @@ final class ExternalAcpSessions implements AutoCloseable {
             catch (java.io.IOException e) { log.warn("[acp] 保存命令列表失败: session={}", name, e); }
         });
         List<String> directories = additionalDirectories == null ? List.of() : List.copyOf(additionalDirectories);
+        if ("dsh".equals(connection.agentId) && !directories.isEmpty()) {
+            throw new ServiceException("DSH ACP 只支持一个工作目录，请取消关联项目后重试");
+        }
         if (client.sessionId() != null) {
             if (!connection.directories.equals(directories)) {
                 // ACP binds additionalDirectories at session setup; the prompt text still

@@ -88,6 +88,42 @@ final class AcpRuntimePaths {
         return env;
     }
 
+    /** Resolve npm's declared JS bin rather than assuming every package uses dist/index.js. */
+    static Path npmBin(List<Path> roots, Path home, boolean windows, String override,
+                       String command, List<String> packages) {
+        if (override != null && !override.isBlank()) return Path.of(override).toAbsolutePath().normalize();
+        List<Path> candidates = new ArrayList<>(roots);
+        candidates.add(home.resolve(".npm-global/lib"));
+        for (Path root : candidates) {
+            if (!windows) {
+                try {
+                    Path linked = root.resolve(command).toRealPath();
+                    if (isJavaScript(linked)) return linked;
+                } catch (java.io.IOException ignored) {}
+            }
+            for (Path base : List.of(root, root.resolve("../lib").normalize())) {
+                for (String name : packages) {
+                    Path pkg = base.resolve("node_modules").resolve(name).toAbsolutePath().normalize();
+                    try {
+                        var bin = org.noear.snack4.ONode.ofJson(Files.readString(pkg.resolve("package.json"))).get("bin");
+                        if (bin.isObject()) bin = bin.get(command);
+                        if (!bin.isString() || bin.getString().isBlank()) continue;
+                        Path script = pkg.resolve(bin.getString()).normalize();
+                        if (script.startsWith(pkg) && isJavaScript(script)) return script;
+                    } catch (Exception ignored) {
+                        // An incomplete installation must not hide a working one in another prefix.
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean isJavaScript(Path file) {
+        String name = file.toString();
+        return Files.isRegularFile(file) && (name.endsWith(".js") || name.endsWith(".mjs") || name.endsWith(".cjs"));
+    }
+
     static String environment(Map<String, String> env, String key) {
         return env.entrySet().stream().filter(entry -> entry.getKey().equalsIgnoreCase(key))
                 .map(Map.Entry::getValue).findFirst().orElse(null);

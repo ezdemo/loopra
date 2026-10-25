@@ -63,7 +63,7 @@ public final class FakeAcpProcess {
                     if (Boolean.getBoolean("loopra.fake.resume")) sessions.put("resume", Map.of());
                     if (!Boolean.getBoolean("loopra.fake.noFork")) sessions.put("fork", Map.of());
                     response(id, Map.of("protocolVersion", 1,
-                        "agentCapabilities", Map.of("loadSession", true, "additionalDirectories", true,
+                        "agentCapabilities", Map.of("loadSession", !Boolean.getBoolean("loopra.fake.noLoad"), "additionalDirectories", true,
                                 "sessionCapabilities", sessions,
                                 "mcpCapabilities", Map.of("http", true, "sse", true))));
                 }
@@ -115,6 +115,10 @@ public final class FakeAcpProcess {
                     response(id, Map.of("sessionId", rootSession, "configOptions", config()));
                 }
                 case "session/load", "session/resume" -> {
+                    if (method.equals("session/load") && Boolean.getBoolean("loopra.fake.noLoad")) {
+                        send(Map.of("jsonrpc", "2.0", "id", id, "error", Map.of("code", -32601, "message", "session/load unsupported")));
+                        continue;
+                    }
                     String conflict = System.getProperty("loopra.fake.writerConflictMarker");
                     rootSession = message.get("params").get("sessionId").getString();
                     if ("fake-session".equals(rootSession) && conflict != null && java.nio.file.Files.exists(java.nio.file.Path.of(conflict))) {
