@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ExternalLink, Globe } from 'lucide-react';
+import { Globe } from 'lucide-react';
 import { LINK_POPOVER_HIDE_DELAY_MS, linkPopoverPosition, normalizeActionUrl } from '../link-popover';
 
 type Popover = { url: string; x: number; y: number };
@@ -13,7 +13,7 @@ export function useLinkPopover() {
 }
 
 function electronBridge() {
-  return (window as unknown as { electronAPI?: { openExternal?: (url: string) => unknown; elementInspectorWindow?: { open?: (url: string) => unknown } } }).electronAPI;
+  return (window as unknown as { electronAPI?: { openExternal?: (url: string) => unknown } }).electronAPI;
 }
 
 export function LinkPopoverProvider({ children }: { children?: ReactNode }) {
@@ -44,19 +44,9 @@ export function LinkPopoverProvider({ children }: { children?: ReactNode }) {
     if (bridge?.openExternal) void bridge.openExternal(url);
     else window.open(url, '_blank', 'noopener,noreferrer');
   };
-  const openInElement = () => {
-    const url = popover?.url;
-    setPopover(null);
-    if (!url) return;
-    const bridge = electronBridge();
-    if (bridge?.elementInspectorWindow?.open) void bridge.elementInspectorWindow.open(url);
-    else window.dispatchEvent(new CustomEvent('loopra:open-in-element', { detail: { url } }));
-  };
-
   return <LinkPopoverContext.Provider value={{ show, scheduleHide }}>{children}
     {popover && createPortal(
       <div className="link-popover" style={{ left: popover.x, top: popover.y }} onMouseEnter={cancelHide} onMouseLeave={scheduleHide}>
-        {!!electronBridge() && <button type="button" className="link-popover-btn" onClick={openInElement}><ExternalLink size="0.8125rem" />元素界面打开</button>}
         <button type="button" className="link-popover-btn" onClick={openInBrowser}><Globe size="0.8125rem" />浏览器打开</button>
       </div>,
       document.body,

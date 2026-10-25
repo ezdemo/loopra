@@ -31,10 +31,13 @@ test('section names are unique and every section resolves to its own category', 
 
 test('aliases used by deep links resolve to a real section', () => {
   // App.tsx opens settings with these legacy/alias names.
-  assert.equal(normalizeSettingsSection('宠物'), '通用');
+  assert.equal(normalizeSettingsSection('宠物'), '宠物');
   assert.equal(normalizeSettingsSection('实验室'), '通用');
   assert.equal(normalizeSettingsSection('账户'), '关于');
   // Category names collapse to their first section.
+  assert.equal(normalizeSettingsSection('偏好设置'), '通用');
+  assert.equal(settingsCategoryFor('通用').name, '偏好设置');
+  assert.equal(settingsCategoryFor('宠物').name, '偏好设置');
   assert.equal(normalizeSettingsSection('智能体'), '智能体与会话');
   assert.equal(normalizeSettingsSection('工具与集成'), '工具');
   assert.equal(normalizeSettingsSection('工作区与数据'), '项目');

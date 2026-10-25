@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { resolveInitialServer } from './runtime-config';
+import { installFocusAppearance } from './focus';
 import { ensureAccess, installAccessKeyProtocol, setAccessProxy } from '../../src/services/access-key.js';
 import './styles.css';
 import './chat-blocks.css';
@@ -17,13 +18,18 @@ import './workspace-tabs.css';
 import './git-panel.css';
 import './environment.css';
 import './resources.css';
+import './subagents.css';
+import './skills.css';
 import './capabilities.css';
 import './requirements.css';
 import './dialogs.css';
 import './session-records.css';
 import './project-manager.css';
+import './focus.css';
 
 document.documentElement.classList.add('workspace-theme');
+const removeFocusAppearance = installFocusAppearance();
+if (import.meta.hot) import.meta.hot.dispose(removeFocusAppearance);
 installAccessKeyProtocol();
 if (import.meta.env.DEV && ['3000', '5173'].includes(window.location.port)) setAccessProxy(window.location.origin, 'http://127.0.0.1:4567');
 

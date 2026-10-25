@@ -30,14 +30,14 @@ test('consolidated settings keep legacy entry points and merged controls reachab
   assert.equal(settingsCategories.length, 6);
   assert.equal(normalizeSettingsSection('账户'), '关于');
   assert.equal(normalizeSettingsSection('实验室'), '通用');
-  assert.equal(normalizeSettingsSection('宠物'), '通用');
+  assert.equal(normalizeSettingsSection('宠物'), '宠物');
   assert.equal(normalizeSettingsSection('智能体'), '智能体与会话');
   assert.equal(settingsCategoryFor('MCP 服务器').name, '工具与集成');
   assert.equal(settingsCategoryFor('服务器').name, '连接与帮助');
   const sections = settingsCategories.flatMap(category => category.sections);
   assert.equal(new Set(sections.map(section => section.name)).size, sections.length);
   for (const section of sections) assert.equal(normalizeSettingsSection(section.name), section.name);
-  assert.equal(searchSettings('宠物', sections).find(item => item.title === '宠物')?.category, '通用');
+  assert.equal(searchSettings('宠物', sections).find(item => item.title === '显示宠物')?.category, '宠物');
   assert.equal(searchSettings('实验室', sections).find(item => item.title === '界面动画')?.category, '通用');
 });
 

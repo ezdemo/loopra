@@ -23,19 +23,72 @@
 .pet-reply-bubble { padding-right: 2.375rem; }
 .pet-reply-bubble > button { position: absolute; top: 0.375rem; right: 0.375rem; }
 .pet-reply-bubble > span { display: block; max-height: 6rem; overflow: auto; overscroll-behavior: contain; overflow-wrap: anywhere; touch-action: pan-y; }
-.pet-interaction-hint { flex-basis: 100%; }
-.settings-pet-body { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem 1rem; }
-.settings-pet-current { display: flex; align-items: center; gap: 0.5rem; flex: 1 0 100%; min-width: 0; }
-.settings-pet-current strong { font-size: 0.875rem; }
-.settings-pet-current p { margin-top: 0.25rem; color: var(--muted); font-size: 0.75rem; }
-.settings-pet-body .settings-compact-select { flex: 1; min-width: 7rem; }
-.settings-pet-body > .settings-error, .settings-pet-body > .form-hint { flex-basis: 100%; }
-.pet-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: .5rem; flex-basis: 100%; max-height: 18rem; overflow: auto; }
-.pet-card { position: relative; display: flex; align-items: flex-start; border: 1px solid var(--line); border-radius: var(--radius-lg); padding: .25rem; background: var(--surface); }
-.pet-card.is-active { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
-.pet-card.is-empty { opacity: .6; }
-.pet-card-main { flex: 1; min-width: 0; display: grid; justify-items: center; gap: .2rem; padding: .375rem .25rem; text-align: center; }
-.pet-card-main strong { font-size: .75rem; overflow-wrap: anywhere; }
-.pet-card-main small { color: var(--muted); font-size: .6875rem; }
-.pet-card-empty { display: grid; place-items: center; height: 3rem; font-size: .6875rem; color: var(--muted); }
+.pet-settings-page { min-width: 0; container: pet-settings / inline-size; }
+.pet-settings-page > .resource-page-heading { margin-bottom: .375rem; }
+.pet-page-description { margin-bottom: 1.5rem; }
+.pet-settings-error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .75rem 1rem; border-radius: var(--radius-md); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); color: var(--danger); font-size: .75rem; }
+.pet-settings-error > span { min-width: 0; overflow-wrap: anywhere; }
+.pet-settings-error > button { flex-shrink: 0; font-weight: 500; }
+.pet-overview { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 1.5rem; align-items: center; padding: 1.25rem 1.5rem 1.25rem 1.25rem; border: 1px solid var(--line); border-radius: var(--radius-xl); }
+.pet-overview-stage { position: relative; display: grid; place-items: center; height: 12rem; border-radius: var(--radius-lg); background: radial-gradient(ellipse at 50% 85%, color-mix(in srgb, var(--accent) 8%, var(--soft)), var(--soft) 70%); }
+.pet-overview-stage > .pet-sprite { z-index: 1; }
+.pet-overview-stage.is-empty { color: var(--muted); }
+.pet-stage-ground { position: absolute; bottom: 1.25rem; left: 25%; width: 50%; height: .5rem; border-radius: 50%; background: color-mix(in srgb, var(--text) 7%, transparent); filter: blur(4px); }
+.pet-overview-details { min-width: 0; }
+.pet-overview-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; color: var(--muted); font-size: .75rem; }
+.pet-overview-details h3 { margin: .625rem 0 .5rem; color: var(--text); font-size: 1.375rem; line-height: 1.35; font-weight: 600; overflow-wrap: anywhere; }
+.pet-overview-details > p { color: var(--secondary); font-size: .8125rem; line-height: 1.7; overflow-wrap: anywhere; }
+.pet-visibility-status { display: inline-flex; align-items: center; gap: .375rem; margin-top: 1.125rem; color: var(--muted); font-size: .6875rem; }
+.pet-visibility-status i { width: .375rem; height: .375rem; border-radius: 50%; background: currentColor; }
+.pet-visibility-status.is-visible { color: var(--success); }
+.pet-display-settings { margin-top: 1.75rem; }
+.pet-display-settings .settings-card { margin-bottom: 0; }
+.pet-size-control { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.pet-size-options { display: flex; gap: .25rem; padding: .1875rem; border-radius: var(--radius-md); background: var(--soft); }
+.pet-size-options button { min-width: 2.5rem; height: 1.75rem; border-radius: .375rem; color: var(--secondary); font-size: .75rem; }
+.pet-size-options button[aria-checked="true"] { background: var(--surface); box-shadow: var(--shadow-sm); color: var(--text); }
+.pet-size-options button:disabled { opacity: .45; }
+.pet-custom-size { color: var(--muted); font-size: .6875rem; }
+.pet-interaction-hint { margin: .625rem .25rem 0; color: var(--muted); font-size: .6875rem; line-height: 1.6; }
+.pet-library { margin-top: 1.75rem; }
+.pet-library-heading, .pet-library-heading h3 { display: flex; align-items: center; gap: .5rem; }
+.pet-library-heading { justify-content: space-between; margin-bottom: .875rem; }
+.pet-library-heading h3 { color: var(--text); font-size: .875rem; font-weight: 600; }
+.pet-library-heading h3 > span { padding: .0625rem .375rem; border-radius: .3125rem; background: var(--soft); color: var(--muted); font-size: .6875rem; font-weight: 400; }
+.pet-library-heading > a { display: inline-flex; align-items: center; gap: .25rem; color: var(--secondary); font-size: .75rem; }
+.pet-library-heading > a:hover { color: var(--text); }
+.pet-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: .75rem; }
+.pet-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); transition: background .15s, border-color .15s; }
+.pet-card:hover { border-color: var(--line-strong); }
+.pet-card.is-active { border-color: var(--line-strong); background: var(--soft); }
+.pet-card-main { width: 100%; display: flex; flex-direction: column; align-items: center; min-width: 0; padding: .75rem .875rem .625rem; text-align: center; }
+.pet-card-main:disabled { cursor: default; }
+.pet-card-preview { display: grid; place-items: center; width: 100%; height: 7rem; color: var(--muted); }
+.pet-card-main strong { width: 100%; margin: .25rem 0 .375rem; color: var(--text); font-size: .8125rem; font-weight: 500; overflow-wrap: anywhere; }
+.pet-card-main small { display: -webkit-box; min-height: 2.25rem; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--muted); font-size: .6875rem; line-height: 1.6; }
+.pet-card.is-empty .pet-card-preview { opacity: .5; }
+.pet-card-footer { display: flex; justify-content: space-between; align-items: center; gap: .375rem; padding: .375rem .5rem .375rem .875rem; border-top: 1px solid var(--line); }
+.pet-card-footer > span { display: inline-flex; align-items: center; gap: .25rem; color: var(--muted); font-size: .6875rem; }
+.pet-card-footer > .pet-selected-label { color: var(--success); }
+.pet-card-footer > button { min-width: 1.75rem; width: 1.75rem; height: 1.75rem; color: var(--muted); }
+.pet-card-footer > button:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.pet-library-empty { display: flex; flex-direction: column; align-items: center; padding: 2rem 1rem; border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); color: var(--muted); text-align: center; }
+.pet-library-empty h4 { margin: .75rem 0 .375rem; color: var(--secondary); font-size: .8125rem; font-weight: 500; }
+.pet-library-empty p { font-size: .75rem; }
+@media (max-width: 600px) {
+  .pet-overview { grid-template-columns: 1fr; gap: 1rem; padding: 1rem; }
+  .pet-overview-stage { height: 10rem; }
+  .pet-overview-details h3 { margin-top: .375rem; font-size: 1.125rem; }
+  .pet-visibility-status { margin-top: .75rem; }
+  .pet-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+  .pet-library-heading { align-items: flex-start; gap: .75rem; }
+}
+@container pet-settings (max-width: 34rem) {
+  .pet-overview { grid-template-columns: 1fr; gap: 1rem; padding: 1rem; }
+  .pet-overview-stage { height: 10rem; }
+  .pet-overview-details h3 { margin-top: .375rem; font-size: 1.125rem; }
+  .pet-visibility-status { margin-top: .75rem; }
+  .pet-display-settings .setting-row { flex-wrap: wrap; gap: .75rem; }
+  .pet-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+}
 @media (max-width: 760px) { .composer-pet { right: 0.75rem; } }

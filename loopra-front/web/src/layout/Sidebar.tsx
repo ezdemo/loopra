@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ChevronRight, FolderClosed, FolderOpen, FoldVertical, MessageCircle, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Trash2, UnfoldVertical } from 'lucide-react';
+import { ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, MessageCircle, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
 import { IconButton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
@@ -26,6 +26,8 @@ export type SidebarProps = {
   onClose: () => void;
   onNewSession: (workspaceHash?: string) => void;
   onSearch: () => void;
+  onSkills: () => void;
+  skillsOpen?: boolean;
   onSettings: () => void;
   onRefreshAll: () => void;
   onRefreshProject: (hash: string) => void;
@@ -122,12 +124,13 @@ export default function Sidebar(props: SidebarProps) {
     <div className="sidebar-actions">
       <button onClick={() => props.onNewSession()}><MessageCirclePlus />{english ? 'New chat' : '新建会话'}</button>
       <button onClick={props.onSearch}><SearchIcon />{english ? 'Search' : '搜索'}</button>
+      <button className={props.skillsOpen ? 'selected' : undefined} aria-current={props.skillsOpen ? 'page' : undefined} onClick={props.onSkills}><Sparkles />{english ? 'Skills' : '技能'}</button>
     </div>
     <div className="session-section">
       <div className="section-label">
         <span>会话</span>
         <div>
-          <IconButton label={allCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={() => onCollapsed(allCollapsed ? [] : workspaces.map(item => item.hash))}>{allCollapsed ? <UnfoldVertical size="0.9375rem" /> : <FoldVertical size="0.9375rem" />}</IconButton>
+          <IconButton label={allCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={() => onCollapsed(allCollapsed ? [] : workspaces.map(item => item.hash))}>{allCollapsed ? <CopyPlus size="0.9375rem" /> : <CopyMinus size="0.9375rem" />}</IconButton>
           <IconButton label="刷新项目列表" onClick={() => void props.onRefreshAll()}><RefreshCw size="0.875rem" /></IconButton>
         </div>
       </div>

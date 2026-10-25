@@ -1,0 +1,65 @@
+.agent-role-page { min-width: 0; container: agent-role-settings / inline-size; }
+.agent-role-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1.25rem 0 1rem; }
+.agent-role-toolbar > .agent-role-search { width: min(22rem, 65%); }
+.agent-role-toolbar > span { color: var(--muted); font-size: .6875rem; white-space: nowrap; }
+.agent-role-list { display: block; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.agent-role-list:empty { display: none; }
+.agent-role-row { display: block; padding: 1rem 1.125rem; }
+.agent-role-row + .agent-role-row { border-top: 1px solid var(--line); }
+.agent-role-row-main { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) auto; align-items: start; gap: .75rem; }
+.agent-role-row-content { min-width: 0; }
+.agent-role-avatar { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); color: var(--secondary); }
+.agent-role-row-title { display: flex; align-items: center; flex-wrap: wrap; gap: .625rem; min-height: 1.375rem; }
+.agent-role-row-title h3 { color: var(--text); font-size: .875rem; line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
+.agent-role-description { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin: .375rem 0 .5rem; color: var(--secondary); font-size: .75rem; line-height: 1.65; overflow-wrap: anywhere; }
+.agent-role-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem 1rem; color: var(--muted); font-size: .6875rem; }
+.agent-role-row-meta > span { display: inline-flex; align-items: center; gap: .25rem; min-width: 0; overflow-wrap: anywhere; }
+.agent-role-row-meta > span:first-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.agent-role-row-actions { display: flex; align-items: center; gap: .125rem; }
+.agent-role-row-actions > button { min-width: 0; height: 1.875rem; padding: 0 .5rem; gap: .25rem; color: var(--secondary); font-size: .75rem; }
+.agent-role-row-actions > .agent-role-remove { width: 1.875rem; padding: 0; color: var(--muted); }
+.agent-role-row-actions > .agent-role-remove:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.agent-role-row.is-disabled .agent-role-avatar, .agent-role-row.is-disabled .agent-role-description { opacity: .65; }
+.agent-role-detail-toggle { display: inline-flex; align-items: center; gap: .375rem; margin: .625rem 0 0 3rem; padding: .125rem 0; border-radius: .25rem; color: var(--secondary); font-size: .6875rem; }
+.agent-role-detail-toggle:hover { color: var(--text); }
+.agent-role-detail-toggle svg { transition: transform .15s; }
+.agent-role-detail-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.agent-role-details { margin: .75rem 0 0 3rem; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--sidebar); }
+.agent-role-details h4 { margin: 0 0 .5rem; color: var(--secondary); font-size: .6875rem; font-weight: 600; }
+.agent-role-details h4:not(:first-child) { margin-top: 1rem; }
+.agent-role-details pre { max-height: 14rem; overflow: auto; margin: 0; color: var(--text); font: .75rem/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-role-details > p { color: var(--muted); font-size: .75rem; }
+.agent-role-tool-chips { display: flex; flex-wrap: wrap; gap: .375rem; margin: 0; padding: 0; list-style: none; }
+.agent-role-tool-chips > li { max-width: 100%; padding: .1875rem .4375rem; border: 1px solid var(--line); border-radius: .3125rem; background: var(--surface); color: var(--secondary); font: .6875rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.agent-role-empty { padding: 2.5rem 1rem; color: var(--muted); text-align: center; }
+.agent-role-empty > svg { margin: 0 auto .875rem; }
+.agent-role-empty h3 { margin-bottom: .5rem; color: var(--secondary); font-size: .875rem; font-weight: 500; }
+.agent-role-empty p, .agent-role-empty > button { font-size: .75rem; }
+.agent-role-empty > button { margin-top: .75rem; color: var(--accent); }
+.agent-role-editor-section { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--line); }
+.agent-role-editor-section > h3 { margin: 0 0 1rem; color: var(--text); font-size: .8125rem; font-weight: 600; }
+.agent-role-editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 1.25rem 1rem; }
+.agent-role-field-wide { grid-column: 1 / -1; }
+.agent-role-inherit-note { display: flex; align-items: center; gap: .5rem; align-self: center; color: var(--muted); font-size: .75rem; line-height: 1.7; }
+.agent-role-editor-toggles { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; margin-bottom: 1rem; }
+.agent-role-tool-note { margin: .5rem 0 .75rem; color: var(--muted); font-size: .75rem; line-height: 1.6; }
+.agent-role-tool-import { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: .75rem; }
+.agent-role-tool-import > button { color: var(--secondary); font-size: .75rem; }
+.agent-role-tool-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .375rem .75rem; }
+.agent-role-tool-options > label { max-width: 100%; margin: 0; }
+.agent-role-tool-options [data-slot="label"] { font: .75rem/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.agent-role-editor-footer { display: flex; justify-content: flex-end; gap: .5rem; padding: .75rem 0; background: var(--surface); }
+@container agent-role-settings (max-width: 36rem) {
+  .agent-role-row { padding: 1rem; }
+  .agent-role-row-main { grid-template-columns: 2.25rem minmax(0, 1fr); }
+  .agent-role-row-actions { grid-column: 2; }
+  .agent-role-toolbar { flex-wrap: wrap; gap: .625rem; }
+  .agent-role-toolbar > .agent-role-search { width: 100%; }
+  .agent-role-editor-fields { grid-template-columns: minmax(0, 1fr); }
+}
+@container agent-role-settings (max-width: 24rem) {
+  .agent-role-row-main { grid-template-columns: minmax(0, 1fr); }
+  .agent-role-avatar { display: none; }
+  .agent-role-row-actions { grid-column: 1; }
+  .agent-role-detail-toggle, .agent-role-details { margin-left: 0; }
+}

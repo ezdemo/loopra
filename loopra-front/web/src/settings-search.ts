@@ -1,7 +1,8 @@
 export type SettingSearchItem = { category: string; title: string; keywords: string };
 
 const fields: Record<string, string[]> = {
-  '通用': ['外观', '语言', '界面缩放', '系统通知', '通知提示音', '默认打开应用', '宠物', '界面动画'],
+  '通用': ['外观', '语言', '界面缩放', '系统通知', '通知提示音', '默认打开应用', '界面动画'],
+  '宠物': ['显示宠物', '宠物大小', '宠物位置', '我的宠物'],
   '关于': ['Loopra Web 服务', '数据存储', '帮助中心'],
   '项目': ['添加本地项目', '项目绝对路径', '会话管理', '需求池'],
   '服务器': ['后端 API 地址'],
@@ -17,6 +18,7 @@ const aliases: Record<string, string> = {
   '通知提示音': '声音 音效 sound',
   '默认打开应用': '文件管理器 终端 File Explorer Terminal Git Bash',
   '宠物': '宠物 pet',
+  '显示宠物': '宠物 pet 开关 显示 隐藏',
   '界面动画': '动效 实验室 animation',
   '代理地址': '代理 proxy socks http https 出站 网络 直连',
   '出站代理': '代理 proxy socks http https 网络 直连',
