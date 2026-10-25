@@ -307,7 +307,7 @@ export default function App() {
   }, [preferences.fontScale]);
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
-  const coreUpdate = useCoreServiceUpdate(api, notify, () => { setSettingsOpen(false); setMenu(null); }, settingsOpen);
+  const coreUpdate = useCoreServiceUpdate(api, notify, () => { setSettingsOpen(false); setMenu(null); }, settingsOpen && !isDesktopWindow());
   const desktopUpdate = useDesktopUpdate(anyGenerating || remoteRun ? '任务正在运行，请在任务结束后重启安装。'
     : coreUpdate.update?.running || coreUpdate.startingUpdate ? '核心服务正在更新，请在完成后重启安装。' : '',
     () => { setSettingsOpen(false); setMenu(null); });
@@ -622,6 +622,7 @@ export default function App() {
   function toggleMenu(name: string) { setMenu(current => current === name ? null : name); }
   function openSettings(tab = '通用') { setSettingsTab(tab); setSettingsOpen(true); setMenu(null); }
   function openCoreUpdate() {
+    if (isDesktopWindow()) { desktopUpdate.show(); return; }
     if (coreUpdate.update?.running || coreUpdate.startingUpdate) coreUpdate.show();
     else coreUpdate.prepare(backend.version || backend.updateCheck?.currentVersion || '-', backend.updateCheck);
   }
@@ -1310,7 +1311,7 @@ export default function App() {
       onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }}
       notify={notify}
     />
-    <CoreServiceUpdateDialog controller={coreUpdate} notify={notify} />
+    {!isDesktopWindow() && <CoreServiceUpdateDialog controller={coreUpdate} notify={notify} />}
     <DesktopUpdateDialog controller={desktopUpdate} />
     <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>

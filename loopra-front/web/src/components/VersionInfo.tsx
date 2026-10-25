@@ -1,22 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { ArrowUpRight, Download, RefreshCw, Server } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Copy, Download, Monitor, RefreshCw, Server, Terminal } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { errorText } from './RemoteControls';
-import { PageActions, SelectField, SettingRow } from './SettingControls';
+import { SelectField } from './SettingControls';
 import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL, buildUpdateCommand } from '../update-scripts';
 import type { VersionCheck } from '../version';
 import { CoreServiceUpdateDialog, useCoreServiceUpdate, type CoreServiceUpdateController } from './CoreServiceUpdate';
 import type { DesktopUpdateController } from './DesktopUpdate';
+import { isDesktopWindow } from '../desktop-shell';
 
 type SystemVersion = { version: string; name?: string; buildTime?: string };
 
-// 设置 → 关于：核心服务版本、检查更新与更新命令（旧 VersionInfoPanel.vue）。
 type VersionInfoProps = { api: LoopraClient; notify: (text: string) => void; initialCheck?: VersionCheck; desktopUpdate?: DesktopUpdateController };
 
 export default function VersionInfo(props: VersionInfoProps) {
-  const coreUpdate = useCoreServiceUpdate(props.api, props.notify);
-  return <><VersionInfoPanel {...props} coreUpdate={coreUpdate} /><CoreServiceUpdateDialog controller={coreUpdate} notify={props.notify} /></>;
+  const coreReadOnly = !!props.desktopUpdate || isDesktopWindow();
+  const coreUpdate = useCoreServiceUpdate(props.api, props.notify, undefined, !coreReadOnly);
+  return <><VersionInfoPanel {...props} coreUpdate={coreUpdate} />{!coreReadOnly && <CoreServiceUpdateDialog controller={coreUpdate} notify={props.notify} />}</>;
 }
 
 export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate, desktopUpdate }: VersionInfoProps & { coreUpdate: CoreServiceUpdateController }) {
@@ -49,50 +50,62 @@ export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate, deskto
     catch { notify('复制失败，请手动选择内容'); }
   }
 
-  const version = check?.currentVersion || current?.version || '-';
+  const coreReadOnly = !!desktopUpdate || isDesktopWindow();
+  const version = current?.version || check?.currentVersion || '-';
   const latest = check?.latestVersion;
   const hasNew = !!check?.hasNewVersion;
-  const releaseUrl = check?.releaseUrl || RELEASE_LATEST_URL;
+  const releaseUrl = (!coreReadOnly && check?.releaseUrl) || RELEASE_LATEST_URL;
   const commands = buildUpdateCommand(source);
   const options = [{ value: UPDATE_SOURCE_NORMAL, label: '直连（GitHub）' }, ...MIRROR_SOURCES.map(mirror => ({ value: mirror.value, label: `镜像 · ${mirror.label}` }))];
   const updateRunning = !!update?.running;
   const updateBusy = startingUpdate || stoppingUpdate;
+  const desktop = desktopUpdate?.state;
+  const desktopStatus = desktop ? {
+    unsupported: '手动更新', idle: desktop.checkedAt ? '已是最新' : '未检查', checking: '检查中',
+    available: '发现新版', downloading: `下载中 ${Math.floor(desktop.percent)}%`, verifying: '校验中',
+    downloaded: '待重启安装', installing: '安装中', error: '更新失败',
+  }[desktop.status] : '读取中';
+  const desktopTone = desktop?.status === 'error' ? 'error'
+    : desktop?.status === 'downloaded' || (desktop?.status === 'idle' && desktop.checkedAt) ? 'success'
+      : desktop && ['checking', 'available', 'downloading', 'verifying', 'installing'].includes(desktop.status) ? 'active' : 'neutral';
 
-  return <>
-    <PageActions title="版本与更新" />
-    {desktopUpdate && <div className="settings-card">
-      <SettingRow title="桌面客户端" description={desktopUpdate.state?.supported ? '自动检查并下载新版，退出时安装' : '从发布页下载桌面端更新'}>
-        <span className="version-value">{desktopUpdate.state ? `v${desktopUpdate.state.currentVersion}` : '读取中…'}</span>
-      </SettingRow>
-      <div className="version-actions"><Button size="sm" color="primary" variant="flat" onPress={desktopUpdate.show} startContent={<Download size=".875rem" />}>桌面端更新</Button></div>
-    </div>}
-    <div className="settings-card">
-      <SettingRow title="核心服务" description={`Loopra Web 服务 · ${api.base}`}>
-        <span className="version-value">v{version}<i className={`tag ${hasNew && check ? '' : 'is-ok'}`}>{check ? (hasNew ? '新版' : '已是最新') : '未检查'}</i></span>
-      </SettingRow>
-      <SettingRow title="最新发布" description={check?.checkTime ? `上次检查：${check.checkTime}` : '点击「检查更新」获取远程最新版本'}>
-        <span className="version-value">{latest ? `v${latest}` : '—'}<a className="version-link" href={releaseUrl} target="_blank" rel="noreferrer">查看发布页<ArrowUpRight size=".875rem" aria-hidden="true" /></a></span>
-      </SettingRow>
-      <SettingRow title="更新源" description="更新命令与自动更新使用的下载源">
-        <SelectField compact label="更新源" value={source} onChange={setSource} options={options} />
-      </SettingRow>
+  return <section className="version-panel" aria-label="版本与更新">
+    <div className="about-section-heading"><h3>版本与更新</h3><a className="version-link" href={releaseUrl} target="_blank" rel="noreferrer">查看发布页<ArrowUpRight size=".875rem" aria-hidden="true" /></a></div>
+    <div className={`version-cards${desktopUpdate ? '' : ' version-cards-single'}`}>
+      {desktopUpdate && <article className="version-card" aria-label="桌面客户端">
+        <div className="version-card-heading"><span className="version-card-icon"><Monitor size="1.125rem" aria-hidden="true" /></span><h4>桌面客户端</h4><span className="version-status" data-tone={desktopTone} role="status">{desktopStatus}</span></div>
+        <div className="version-card-number">{desktop?.currentVersion ? `v${desktop.currentVersion}` : '读取中…'}</div>
+        <p className="version-card-latest">{desktop?.latestVersion ? <>最新版本 <strong>v{desktop.latestVersion}</strong></> : '安装包包含桌面端与核心服务'}</p>
+        <p className="version-card-description">{desktop?.status === 'error' ? '更新遇到问题，打开详情后可重试'
+          : desktop?.supported ? '后台下载新版，退出时安装' : '从发布页下载桌面端安装包'}</p>
+        <div className="version-card-actions"><Button size="sm" variant="flat" onPress={desktopUpdate.show} startContent={<Download size=".875rem" />}>{desktop?.status === 'downloaded' ? '查看并安装' : '桌面端更新'}</Button></div>
+      </article>}
+      <article className="version-card" aria-label="核心服务">
+        <div className="version-card-heading"><span className="version-card-icon"><Server size="1.125rem" aria-hidden="true" /></span><h4>核心服务</h4><span className="version-status" data-tone={(!coreReadOnly && updateRunning) || checking || hasNew ? 'active' : check ? 'success' : 'neutral'} role="status">{!coreReadOnly && updateRunning ? '更新中' : checking ? '检查中' : check ? (hasNew ? '发现新版' : '已是最新') : '未检查'}</span></div>
+        <div className="version-card-number">{version === '-' ? '读取中…' : `v${version}`}</div>
+        <p className="version-card-latest">{latest ? <>最新版本 <strong>v{latest}</strong></> : '检查更新以获取最新版本'}</p>
+        <p className="version-card-description">{check?.checkTime ? `上次检查：${check.checkTime}` : '提供会话、工作区与 Agent 服务'}{coreReadOnly && <><br />核心服务随桌面安装包更新</>}</p>
+        <div className="version-card-actions">
+          {!coreReadOnly && (updateRunning
+            ? <Button size="sm" color="primary" variant="flat" onPress={coreUpdate.show}>查看更新进度</Button>
+            : <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'}
+              isDisabled={checking || updateBusy} isLoading={startingUpdate} onPress={() => coreUpdate.prepare(version, check)}
+              startContent={<Download size=".875rem" />}>{startingUpdate ? '启动中…' : '更新核心服务'}</Button>)}
+          <Button size="sm" variant="light" isLoading={checking} isDisabled={updateRunning || updateBusy} onPress={() => void checkLatest()} startContent={<RefreshCw size=".875rem" />}>检查更新</Button>
+        </div>
+      </article>
     </div>
     {error && <p className="settings-error" role="alert">{error}</p>}
-    <div className="settings-card">
-      <SettingRow title="更新命令" description="在对应系统的终端中运行，将 Loopra 更新到最新版本">
-        <span />
-      </SettingRow>
-      <button type="button" className="version-command" title="点击复制" onClick={() => void copy(commands.windows)}><span className="uc-badge win">PS</span><code>{commands.windowsLabel}</code></button>
-      <button type="button" className="version-command" title="点击复制" onClick={() => void copy(commands.unix)}><span className="uc-badge unix">sh</span><code>{commands.unixLabel}</code></button>
-      <div className="version-actions">
-        <Button size="sm" variant="flat" isLoading={checking} onPress={() => void checkLatest()} startContent={<RefreshCw size="0.875rem" />}>检查更新</Button>
-        {updateRunning
-          ? <Button size="sm" color="primary" variant="flat" onPress={coreUpdate.show} startContent={<Server size="0.875rem" />}>查看更新进度</Button>
-          : <Button size="sm" color={hasNew ? 'primary' : 'default'} variant={hasNew ? 'solid' : 'flat'}
-            isDisabled={checking || updateBusy} isLoading={startingUpdate} onPress={() => coreUpdate.prepare(version, check)}
-            startContent={<Server size="0.875rem" />}>{startingUpdate ? '启动中…' : '更新核心服务'}</Button>}
-        {!desktopUpdate && <Button size="sm" variant="light" onPress={() => window.open(RELEASE_LATEST_URL, '_blank', 'noreferrer')} startContent={<Download size="0.875rem" />}>下载桌面端（推荐）</Button>}
-      </div>
-    </div>
-  </>;
+    {!coreReadOnly && <div className="version-tools">
+      <div className="version-source"><div><h4>核心服务更新源</h4><p>用于服务更新与手动更新命令</p></div><SelectField compact label="更新源" value={source} onChange={setSource} options={options} disabled={updateRunning || updateBusy} /></div>
+      <details className="version-manual">
+        <summary><Terminal size="1rem" aria-hidden="true" /><span>手动更新核心服务</span><ChevronDown size=".875rem" aria-hidden="true" /></summary>
+        <div className="version-manual-content"><p>选择对应系统，点击复制后在服务所在设备的终端中运行。</p>
+          <button type="button" className="version-command" title={commands.windows} aria-label="复制 Windows PowerShell 更新命令" onClick={() => void copy(commands.windows)}><span className="uc-badge win">PS</span><code>{commands.windowsLabel}</code><Copy size=".875rem" aria-hidden="true" /></button>
+          <button type="button" className="version-command" title={commands.unix} aria-label="复制 macOS / Linux 更新命令" onClick={() => void copy(commands.unix)}><span className="uc-badge unix">sh</span><code>{commands.unixLabel}</code><Copy size=".875rem" aria-hidden="true" /></button>
+        </div>
+      </details>
+    </div>}
+    {!coreReadOnly && <a className="version-desktop-download" href={RELEASE_LATEST_URL} target="_blank" rel="noreferrer"><Monitor size=".875rem" aria-hidden="true" />下载桌面端<ArrowUpRight size=".875rem" aria-hidden="true" /></a>}
+  </section>;
 }

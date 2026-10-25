@@ -80,6 +80,9 @@ public class VersionUpdateService {
      * 启动独立更新进程。当前服务保持运行，更新完成后由用户手动重启。
      */
     public synchronized VersionUpdateDTO start(String source) {
+        if (isDesktopRuntime(codeSource)) {
+            throw new ServiceException("桌面版核心服务随安装包发放，请通过桌面端更新，不能单独更新核心服务");
+        }
         if (isRunning()) throw new ServiceException("核心服务更新已在进行中");
         try {
             String normalizedOs = osName.toLowerCase(Locale.ROOT);
@@ -89,8 +92,7 @@ public class VersionUpdateService {
             if (!windows && !unix) throw new ServiceException("当前操作系统不支持自动更新");
 
             String mirror = normalizeMirror(source);
-            boolean desktop = isDesktopRuntime(codeSource);
-            String setupName = "setup" + (desktop ? "-gui" : "") + (windows ? ".ps1" : ".sh");
+            String setupName = "setup" + (windows ? ".ps1" : ".sh");
             String setupUrl = mirror.isEmpty()
                     ? RELEASE_BASE + setupName
                     : mirror + "/" + RELEASE_BASE + setupName;
@@ -102,7 +104,7 @@ public class VersionUpdateService {
             logFile = updateDir.resolve("update-" + stamp + ".log");
             statusFile = updateDir.resolve("latest-update.txt");
             platform = osName;
-            target = desktop ? "桌面端核心服务" : "核心服务";
+            target = "核心服务";
             stopped = false;
             Files.deleteIfExists(statusFile);
             // Windows PowerShell 5.1 treats UTF-8 files without a BOM as ANSI.

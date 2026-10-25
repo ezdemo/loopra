@@ -66,11 +66,12 @@ test('the app renders the title bar and shell class only on desktop', () => {
 test('the shell first row is the drag region with no-drag controls', () => {
   const titleRow = styles.match(/\.desktop-app\.is-desktop-shell \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell \.conversation-header,\s*\.desktop-app\.is-desktop-shell \.panel-header \{([^}]*)\}/)[1];
   assert.match(titleRow, /height: 2\.25rem;/);
-  const dragRegion = styles.match(/\.desktop-app\.is-desktop-shell \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell \.panel-header,\s*\.desktop-app\.is-desktop-shell \.header-drag \{([^}]*)\}/)[1];
+  const dragRegion = styles.match(/\.desktop-app\.is-desktop-shell \.sidebar-brand,\s*\.desktop-app\.is-desktop-shell \.panel-header,\s*\.desktop-app\.is-desktop-shell \.header-leading \{([^}]*)\}/)[1];
   assert.match(dragRegion, /-webkit-app-region: drag;/);
   // The header's drag area is the empty stretch only: a drag region under the
   // fixed window controls would swallow their clicks (Electron behaviour).
   assert.match(header, /className="header-drag" aria-hidden="true"/);
+  assert.match(header, /<div className="header-leading">[\s\S]*className="breadcrumb"[\s\S]*className="header-drag" aria-hidden="true" \/>\s*<\/div>\s*<div className="header-actions">/);
   assert.doesNotMatch(styles, /\.conversation-header \{[^}]*-webkit-app-region: drag;/);
   assert.match(styles, /\.desktop-app\.is-desktop-shell button,[\s\S]*?-webkit-app-region: no-drag;/);
   assert.match(styles, /\.desktop-window-controls \{[^}]*-webkit-app-region: no-drag;/);

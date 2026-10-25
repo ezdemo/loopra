@@ -24,23 +24,38 @@ class VersionUpdateServiceTest {
     Path tempDir;
 
     @Test
-    void startsDesktopWindowsUpdaterWithoutStoppingTheCurrentService() throws Exception {
+    void rejectsDesktopCoreUpdatesBeforeWritingFilesOrStartingProcesses() {
+        for (String os : new String[]{"Windows 11", "Linux", "Mac OS X"}) {
+            VersionUpdateService service = new VersionUpdateService(builder -> {
+                throw new AssertionError("Desktop core must never launch an updater");
+            }, os, tempDir, Path.of("/home/demo/.loopra-gui/bin/loopra-web.jar"));
+
+            ServiceException error = assertThrows(ServiceException.class, () -> service.start("normal"));
+
+            assertTrue(error.getMessage().contains("不能单独更新核心服务"));
+            assertFalse(Files.exists(tempDir.resolve(".loopra/updates")));
+            assertFalse(service.status().running());
+        }
+    }
+
+    @Test
+    void startsStandaloneWindowsUpdaterWithoutStoppingTheCurrentService() throws Exception {
         AtomicReference<ProcessBuilder> started = new AtomicReference<>();
         VersionUpdateService service = new VersionUpdateService(builder -> {
             started.set(builder);
             return new TestProcess();
         }, "Windows 11", tempDir,
-                Path.of("C:/Users/demo/.loopra-gui/bin/loopra-web.jar"));
+                Path.of("C:/Users/demo/.loopra/bin/loopra-web.jar"));
 
         VersionUpdateDTO result = service.start("normal");
 
         assertTrue(result.running());
         assertEquals("starting", result.state());
-        assertEquals("桌面端核心服务", result.target());
+        assertEquals("核心服务", result.target());
         assertTrue(result.message().contains("正在准备"));
         assertNotNull(started.get());
         assertEquals("powershell.exe", started.get().command().get(0));
-        assertTrue(started.get().environment().get("LOOPRA_UPDATE_SETUP_URL").endsWith("/setup-gui.ps1"));
+        assertTrue(started.get().environment().get("LOOPRA_UPDATE_SETUP_URL").endsWith("/setup.ps1"));
 
         Path script = Path.of(started.get().command().get(started.get().command().size() - 1));
         byte[] scriptBytes = Files.readAllBytes(script);
