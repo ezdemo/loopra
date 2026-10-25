@@ -67,7 +67,9 @@ const coreServiceUpdateUrl = await sourceUrl('components/CoreServiceUpdate.tsx',
 const { CoreServiceUpdateDialog, useCoreServiceUpdate } = await import(coreServiceUpdateUrl);
 const { default: VersionInfo, VersionInfoPanel } = await import(await sourceUrl('components/VersionInfo.tsx', {
   ...sharedDependencies,
+  'lucide-react': import.meta.resolve('lucide-react'),
   './CoreServiceUpdate': coreServiceUpdateUrl,
+  '../desktop-shell': await sourceUrl('desktop-shell.ts'),
   './SettingControls': settingControlsStub,
   '../update-scripts': updateScriptsUrl,
 }));
@@ -467,7 +469,7 @@ test('reads the current version on mount', async () => {
   try {
     assert.deepEqual(globalThis.__calls[0], { path: '/version/', method: 'GET' });
     assert.ok(view.container.textContent.includes('v26.9.91'));
-    assert.match(view.container.querySelector('.row').textContent, /未检查/);
+    assert.equal(view.container.querySelector('.version-card[aria-label="核心服务"] [role="status"]').textContent, '未检查');
   } finally { await view.close(); }
 });
 
@@ -500,6 +502,9 @@ test('shows the startup update result before another manual check', async () => 
 test('copies the update command and switches the download source', async () => {
   const view = await mount();
   try {
+    const manual = view.container.querySelector('details.version-manual');
+    assert.equal(manual.open, false);
+    manual.open = true;
     await click(view.container.querySelectorAll('.version-command')[0]);
     assert.match(globalThis.__copied, /setup\.ps1 \| iex$/);
     assert.deepEqual(globalThis.__notify, ['已复制到剪贴板']);
@@ -508,6 +513,77 @@ test('copies the update command and switches the download source', async () => {
     assert.match(view.container.querySelectorAll('.version-command')[0].textContent, /setup-mirror\.ps1/);
     assert.equal(dom.window.localStorage.getItem('loopra.updateSource'), 'https://gh-proxy.org/');
   } finally { await view.close(); }
+});
+
+test('desktop About retains core update checks and only installs through the desktop controller', async () => {
+  let opened = 0;
+  function Host(props) {
+    return createElement(VersionInfo, { ...props, desktopUpdate: { state: { ...desktopState, status: 'downloading', percent: 47 }, show() { opened++; } } });
+  }
+  const view = await mount({ currentVersion: '26.10.2402', latestVersion: '26.10.2402', hasNewVersion: false }, Host);
+  try {
+    const desktop = view.container.querySelector('article[aria-label="桌面客户端"]');
+    const core = view.container.querySelector('article[aria-label="核心服务"]');
+    assert.match(desktop.textContent, /v26\.10\.2001/);
+    assert.match(desktop.textContent, /v26\.10\.2002/);
+    assert.equal(desktop.querySelector('[role="status"]').textContent, '下载中 47%');
+    assert.equal(core.querySelector('[role="status"]').textContent, '已是最新');
+    assert.match(core.textContent, /最新版本 v26\.10\.2402/);
+    assert.match(core.textContent, /核心服务随桌面安装包更新/);
+    assert.match(core.textContent, /v26\.9\.91/);
+    assert.equal(buttonIn(core, '更新核心服务'), undefined);
+    assert.ok(buttonIn(core, '检查更新'));
+    assert.equal(view.container.querySelector('.version-tools'), null);
+    assert.equal(view.container.querySelector('.version-command'), null);
+    assert.equal(view.container.querySelector('select[aria-label="更新源"]'), null);
+    await click(buttonIn(desktop, '桌面端更新'));
+    assert.equal(opened, 1);
+    assert.equal(globalThis.__calls.some(call => call.method === 'POST' || call.path === '/version/check' || call.path === '/version/update'), false);
+    await click(buttonIn(core, '检查更新'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/version/check'));
+    assert.match(core.textContent, /最新版本 v26\.10\.1/);
+    assert.match(core.textContent, /上次检查：2026-10-13 09:00:00/);
+    assert.equal(core.querySelector('[role="status"]').textContent, '发现新版');
+    assert.equal(buttonIn(core, '更新核心服务'), undefined);
+    assert.equal(globalThis.__calls.some(call => call.method === 'POST' || call.path === '/version/update'), false);
+  } finally { await view.close(); }
+});
+
+test('desktop core stays read-only before updater state is available, including older preload bridges', async () => {
+  for (const controller of [{ show() {} }, undefined]) {
+    dom.window.electronAPI = { window: { minimize() {} } };
+    function Host(props) { return createElement(VersionInfo, { ...props, desktopUpdate: controller }); }
+    const view = await mount({ currentVersion: 'old', latestVersion: 'new', hasNewVersion: true }, Host);
+    try {
+      const core = view.container.querySelector('article[aria-label="核心服务"]');
+      assert.match(core.textContent, /核心服务随桌面安装包更新/);
+      assert.equal(buttonIn(core, '更新核心服务'), undefined);
+      assert.ok(buttonIn(core, '检查更新'));
+      assert.equal(view.container.querySelector('.version-tools'), null);
+      assert.equal(view.container.querySelector('[role="dialog"]'), null);
+      assert.deepEqual(globalThis.__calls, [{ path: '/version/', method: 'GET' }]);
+    } finally { await view.close(); delete dom.window.electronAPI; }
+  }
+});
+
+test('About gives manual desktop installs and failures their own actionable status', async () => {
+  for (const state of [
+    { ...desktopState, supported: false, status: 'unsupported' },
+    { ...desktopState, status: 'error' },
+    { ...desktopState, status: 'downloaded' },
+  ]) {
+    function Host(props) {
+      const coreUpdate = useCoreServiceUpdate(props.api, props.notify);
+      return createElement(VersionInfoPanel, { ...props, coreUpdate, desktopUpdate: { state, show() {} } });
+    }
+    const view = await mount(undefined, Host);
+    try {
+      const desktop = view.container.querySelector('article[aria-label="桌面客户端"]');
+      assert.equal(desktop.querySelector('[role="status"]').textContent, { unsupported: '手动更新', error: '更新失败', downloaded: '待重启安装' }[state.status]);
+      assert.ok(buttonIn(desktop, state.status === 'downloaded' ? '查看并安装' : '桌面端更新'));
+      assert.equal(globalThis.__calls.some(call => call.method === 'POST'), false);
+    } finally { await view.close(); }
+  }
 });
 
 test('the update button asks the Java service to update without creating an agent session', async () => {
@@ -526,7 +602,7 @@ test('the update button asks the Java service to update without creating an agen
     assert.ok(view.container.textContent.includes('/tmp/loopra-update.log'));
     assert.ok(view.container.textContent.includes('更新日志'));
     assert.ok(view.container.textContent.includes('正在下载并安装新版本'));
-    assert.equal(view.container.querySelector('[role="status"]').dataset.state, 'running');
+    assert.equal(view.container.querySelector('[role="dialog"] [role="status"]').dataset.state, 'running');
     assert.equal(view.container.querySelector('.version-update-line-count').textContent, '1 行');
     assert.deepEqual(globalThis.__notify, ['核心服务更新中']);
 
@@ -540,7 +616,7 @@ test('the update button asks the Java service to update without creating an agen
     assert.ok(!buttonIn(view.container, '停止更新'));
     assert.ok(view.container.textContent.includes('已停止'));
     assert.ok(view.container.textContent.includes('[Loopra] 更新已停止'));
-    assert.equal(view.container.querySelector('[role="status"]').dataset.state, 'stopped');
+    assert.equal(view.container.querySelector('[role="dialog"] [role="status"]').dataset.state, 'stopped');
   } finally { await view.close(); }
 });
 

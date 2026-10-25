@@ -65,6 +65,7 @@ export default function Header(p: HeaderProps) {
   const updateTitle = desktop ? `桌面端 ${desktopVersion}${hasNewVersion ? ` · 最新 v${releaseVersion}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
     : hasNewVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`;
   return <header className={`conversation-header ${p.isHome ? 'home-header' : ''}`}>
+    <div className="header-leading">
     {!p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
     {!p.isHome && session && <div className="breadcrumb">
       <span>{p.workspaceName}</span><span className="breadcrumb-divider">/</span><strong title={session.title}>{session.title}</strong>
@@ -81,8 +82,9 @@ export default function Header(p: HeaderProps) {
         </Popup>
       </div>
     </div>}
-    {/* Electron drag area: the empty stretch between the title and the actions. */}
+    {/* Keep the flexible space inside the title's drag region, away from the right-hand controls. */}
     <div className="header-drag" aria-hidden="true" />
+    </div>
     <div className="header-actions">
       <button type="button" className={`app-version${updateText ? ' has-update' : ''}`}
         title={updateTitle}

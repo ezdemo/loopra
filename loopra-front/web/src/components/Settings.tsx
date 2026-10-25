@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Input, Modal, ModalContent } from '@nextui-org/react';
 import { AnimatePresence } from 'framer-motion';
-import { Archive, Bot, ChevronDown, ChevronRight, FolderClosed, Plug, Search, Server, SlidersHorizontal, Star, X, Zap } from 'lucide-react';
+import { Archive, ArrowUpRight, BookOpen, Bot, ChevronDown, ChevronRight, Database, FolderClosed, Monitor, Plug, Search, Server, SlidersHorizontal, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Enter, SelectionIndicator } from './Motion';
 import { normalizeUiScale, UI_SCALE_LEVELS, type Provider, type Session } from '../lib';
 import type { AgentSettings } from '../settings-data';
 import type { ComposerOptions } from '../composer';
-import { IconButton } from './ui';
+import { IconButton, LoopraMark } from './ui';
 import { PageActions, SettingRow, SettingSwitch, SelectField, SettingSegments } from './SettingControls';
 import ModelProviderSettings from './ModelProviderSettings';
 import { BackendProjects, BackendServer } from './BackendSettings';
@@ -129,7 +129,21 @@ export default function Settings(props: Props) {
         {['OpenAPI', 'MCP'].includes(tab) && <IntegrationManager key={tab} api={api} kind={tab === 'OpenAPI' ? 'openapi' : 'mcp'} />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}
         {tab === '快捷键' && <><PageActions title="快捷键" /><div className="settings-card">{[['新建会话', 'Ctrl / ⌘ + N'], ['搜索会话或工作区', 'Ctrl / ⌘ + K'], ['打开设置', 'Ctrl / ⌘ + ,'], ['切换侧边栏', 'Ctrl / ⌘ + B'], ['发送消息', 'Enter'], ['消息换行', 'Shift + Enter'], ['输入指令 / 文件引用', '/ 或 @'], ['选择建议', '↑ ↓ / Tab / Enter'], ['关闭弹窗', 'Esc']].map(([name, key]) => <SettingRow key={name} title={name}><kbd>{key}</kbd></SettingRow>)}</div></>}
-        {tab === '关于' && <><VersionInfoPanel api={api} notify={notify} initialCheck={props.updateCheck} coreUpdate={coreUpdate} desktopUpdate={props.desktopUpdate} /><div className="settings-card"><SettingRow title="Loopra Web 服务" description={props.server}><Button size="sm" variant="light" onPress={() => openCategory('服务器')}>连接设置</Button></SettingRow><SettingRow title="开源主页" description="在 Gitee 或 GitHub 上关注 Loopra，欢迎点个 Star"><span className="about-community"><Button size="sm" variant="light" startContent={<Star size="0.875rem" />} onPress={() => window.open(GITEE_HOME_URL, '_blank', 'noreferrer')}>Gitee</Button><Button size="sm" variant="light" startContent={<Star size="0.875rem" />} onPress={() => window.open(GITHUB_HOME_URL, '_blank', 'noreferrer')}>GitHub</Button></span></SettingRow><SettingRow title="帮助中心" description="快速入门、命令参考与故障排除"><Button size="sm" variant="flat" onPress={props.onOpenHelp}>打开帮助中心</Button></SettingRow><SettingRow title="数据存储" description="工作区、会话与运行配置保存在后端；界面偏好保存在当前浏览器。"><span /></SettingRow></div></>}
+        {tab === '关于' && <div className="about-settings">
+          <header className="about-heading"><LoopraMark /><div><h2>关于 Loopra</h2><p>版本、更新与数据存储</p></div></header>
+          <VersionInfoPanel api={api} notify={notify} initialCheck={props.updateCheck} coreUpdate={coreUpdate} desktopUpdate={props.desktopUpdate} />
+          <section className="about-storage" aria-label="连接与存储">
+            <div className="about-section-heading"><h3>连接与存储</h3></div>
+            <div className="about-storage-card">
+              <div className="about-connection"><span className="about-row-icon"><Server size="1rem" aria-hidden="true" /></span><div><h4>当前服务</h4><p>{props.server}</p></div><Button size="sm" variant="light" onPress={() => openCategory('服务器')}>连接设置<ChevronRight size=".875rem" aria-hidden="true" /></Button></div>
+              <div className="about-storage-locations">
+                <div><Database size="1rem" aria-hidden="true" /><div><h4>服务端数据</h4><p>工作区、会话与运行配置保存在后端服务所在设备。</p></div></div>
+                <div><Monitor size="1rem" aria-hidden="true" /><div><h4>本机偏好</h4><p>外观、缩放等界面偏好保存在当前浏览器或桌面端。</p></div></div>
+              </div>
+            </div>
+          </section>
+          <footer className="about-footer"><button type="button" onClick={props.onOpenHelp}><BookOpen size="1rem" aria-hidden="true" />帮助中心<ArrowUpRight size=".875rem" aria-hidden="true" /></button><div><span>开源主页</span><a href={GITEE_HOME_URL} target="_blank" rel="noreferrer">Gitee<ArrowUpRight size=".875rem" aria-hidden="true" /></a><a href={GITHUB_HOME_URL} target="_blank" rel="noreferrer">GitHub<ArrowUpRight size=".875rem" aria-hidden="true" /></a></div></footer>
+        </div>}
         {tab === '已归档的会话' && <><PageActions title="已隐藏会话" />{sessions.some(session => session.archived) ? <div className="settings-card">{sessions.filter(session => session.archived).map(session => <SettingRow key={session.id} title={session.title} description={session.workspace}><Button variant="light" className="restore-button" onPress={() => onRestore(session.id)}>恢复会话</Button></SettingRow>)}</div> : <div className="empty-setting"><Archive size="1.75rem" strokeWidth={1.5} /><h3>暂无隐藏会话</h3><p>在本机隐藏的会话可以在这里恢复。</p></div>}</>}
         </>}
       </Enter>
