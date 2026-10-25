@@ -45,7 +45,7 @@ Loopra 将用户任务、模型推理与受控工具调用组织成持续执行�
 Web 与 Electron 主窗口默认使用 React + TypeScript + NextUI 工作台，包含项目与会话、聊天、模型配置、工具与集成、文件预览和 Git 面板。Vue 兼容控制台保留在 `/legacy.html`，安装、更新、宠物等独立辅助窗口仍使用 Vue。源码和开发说明见 [前端说明](loopra-front/README.md) 与 [Web 工作台](loopra-front/web/README.md)。
 
 主聊天的 Native ACP 接入、协议扩展与当前迁移范围见 [Native ACP 接入](docs/acp-native.md)。
-外部 Agent 接入见 [Claude Code](docs/acp-claude.md) 和 [Codex](docs/acp-codex.md)。新建会话时可选择引擎；外部引擎需要在后端所在机器安装相应依赖并完成认证，已有消息或远端绑定的会话不能直接切换引擎。下文的内置工具、模型渠道与审批规则主要适用于 Loopra Native，外部引擎的能力取决于各自适配器。
+外部 Agent 接入见 [Claude Code](docs/acp-claude.md)、[Codex](docs/acp-codex.md) 和 [Pi / DeepSeek Harness](docs/acp-pi-dsh.md)。新建会话时可选择引擎；外部引擎需要在后端所在机器安装相应依赖并完成认证，已有消息或远端绑定的会话不能直接切换引擎。下文的内置工具、模型渠道与审批规则主要适用于 Loopra Native，外部引擎的能力取决于各自适配器。
 
 ```text
 任务 -> 模型推理 -> 工具调用 -> 结果反馈 -> 模型推理 -> ... -> 完成

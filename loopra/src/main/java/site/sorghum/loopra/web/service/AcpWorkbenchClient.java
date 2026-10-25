@@ -268,9 +268,11 @@ public final class AcpWorkbenchClient implements AutoCloseable {
         try (var phase = AcpStartupTiming.step(timing, "initialize")) { initialize(servers); }
         if (existingSessionId != null) {
             var capabilities = initialized.agentCapabilities();
-            boolean resume = !replayHistory && capabilities != null && capabilities.sessionCapabilities() != null
+            boolean canLoad = capabilities != null && Boolean.TRUE.equals(capabilities.loadSession());
+            // Resume-only agents (DSH) restore context without replay; Loopra retains local history.
+            boolean resume = (!replayHistory || !canLoad) && capabilities != null && capabilities.sessionCapabilities() != null
                     && capabilities.sessionCapabilities().resume() != null;
-            if (!resume && (capabilities == null || !Boolean.TRUE.equals(capabilities.loadSession()))) {
+            if (!resume && !canLoad) {
                 throw new IllegalStateException("Agent 不支持恢复会话，请创建新会话");
             }
             sessionId = existingSessionId;

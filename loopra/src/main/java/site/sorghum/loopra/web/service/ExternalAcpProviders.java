@@ -27,7 +27,15 @@ public final class ExternalAcpProviders {
             new Provider("codex", "Codex", () -> {
                 var installation = CodexAcpProcess.detect();
                 return new Availability(installation.available(), installation.reason());
-            }, CodexAcpProcess::create));
+            }, CodexAcpProcess::create),
+            new Provider("pi", "Pi", () -> {
+                var installation = PiAcpProcess.detect();
+                return new Availability(installation.available(), installation.reason());
+            }, PiAcpProcess::create),
+            new Provider("dsh", "DeepSeek Harness", () -> {
+                var installation = DshAcpProcess.detect();
+                return new Availability(installation.available(), installation.reason());
+            }, DshAcpProcess::create));
 
     public static List<Provider> all() { return PROVIDERS; }
 

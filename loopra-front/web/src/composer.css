@@ -272,10 +272,10 @@
 .composer-tool-list strong, .composer-selection-list strong, .composer-tool-plan strong { display: block; font-weight: 500; font-size: 0.8125rem; }
 .composer-tool-list small, .composer-selection-list small, .composer-tool-plan small { display: block; font-size: 0.6875rem; color: var(--muted); margin-top: 0.1875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-tool-list > button > svg:last-child, .composer-tool-list > .agent-option > button:first-child > svg:last-child { color: var(--muted); }
-/* An external Agent without its runtime keeps the row disabled and offers the
-   install prompt as a separate control (a button cannot nest in a button). */
+/* Missing runtimes open installation help from either the row or its shortcut. */
 .agent-option { position: relative; }
-.agent-option > button:first-child { padding-right: 3.75rem; }
+.agent-option:has(> .agent-install) > button:first-child { padding-right: 5rem; }
+.agent-option > button:first-child small { display: block; margin-top: .25rem; color: var(--muted); font-size: .6875rem; line-height: 1.4; white-space: normal; }
 .agent-option > .agent-install { position: absolute; right: 0.5rem; top: 50%; width: auto; min-height: 1.5rem; height: 1.5rem; padding: 0 0.5rem; transform: translateY(-50%); justify-content: center; background: var(--soft); color: var(--blue); font-size: 0.6875rem; font-weight: 500; }
 .agent-option > .agent-install:hover { background: var(--hover); color: var(--text); }
 .composer-tool-list em { font-size: 0.6875rem; font-style: normal; color: var(--blue); }

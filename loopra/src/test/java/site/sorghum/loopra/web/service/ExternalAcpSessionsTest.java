@@ -45,7 +45,7 @@ class ExternalAcpSessionsTest {
         return store;
     }
 
-    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex", "pi", "dsh"})
     void configurationResumesWithoutReplayAndRestoresOptionsBeforeReusingConnectionForPrompt(String agentId) throws Exception {
         Path trace = home.resolve("requests.jsonl");
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AcpStartupTiming.class);
@@ -78,6 +78,45 @@ class ExternalAcpSessionsTest {
             appender.stop();
             store.shutdown();
         }
+    }
+
+    @Test void resumeOnlyAgentRestoresContextAndKeepsLocalHistoryOnFirstPromptAfterRestart() throws Exception {
+        Path trace = home.resolve("resume-only.jsonl");
+        var store = store("dsh");
+        try {
+            try (var runtime = runtime("-Dloopra.fake.resume=true", "-Dloopra.fake.noLoad=true")) {
+                prompt(runtime, store, "before restart", AgentOutput.NOOP);
+            }
+            try (var runtime = runtime("-Dloopra.fake.resume=true", "-Dloopra.fake.noLoad=true", "-Dloopra.fake.requestTrace=" + trace)) {
+                prompt(runtime, store, "after restart", AgentOutput.NOOP);
+            }
+            var requests = java.nio.file.Files.readAllLines(trace).stream().map(org.noear.snack4.ONode::ofJson).toList();
+            assertEquals(1, requests.stream().filter(item -> "session/resume".equals(item.get("method").getString())).count());
+            assertFalse(requests.stream().anyMatch(item -> Set.of("session/load", "session/new").contains(item.get("method").getString())));
+            assertEquals(List.of("before restart", "reply:before restart", "after restart", "reply:after restart"),
+                    store.load("chat").stream().map(message -> message.getContent()).toList());
+        } finally { store.shutdown(); }
+    }
+
+    @Test void piRejectsManagedMcpInsteadOfSilentlyDroppingTools() throws Exception {
+        var store = store("pi");
+        var server = new com.agentclientprotocol.sdk.spec.AcpSchema.McpServerStdio("test", "unused", List.of(), List.of());
+        try (var runtime = new ExternalAcpSessions(cwd -> { throw new AssertionError("Must reject before launch"); },
+                (key, cwd) -> List.of(server))) {
+            var error = assertThrows(ServiceException.class, () -> prompt(runtime, store, "hello", AgentOutput.NOOP));
+            assertTrue(error.getMessage().contains("MCP"));
+            assertFalse(store.hasMessages("chat"));
+        } finally { store.shutdown(); }
+    }
+
+    @Test void dshRejectsAdditionalWorkspacesBeforeSessionSetup() throws Exception {
+        var store = store("dsh");
+        try (var runtime = runtime()) {
+            var error = assertThrows(ServiceException.class,
+                    () -> prompt(runtime, store, "hello", AgentOutput.NOOP, "linked", List.of(home.resolve("linked").toString())));
+            assertTrue(error.getMessage().contains("一个工作目录"));
+            assertFalse(store.hasMessages("chat"));
+        } finally { store.shutdown(); }
     }
 
     @ParameterizedTest @ValueSource(booleans = {false, true})
@@ -125,7 +164,7 @@ class ExternalAcpSessionsTest {
         } finally { assertEquals(agentId, store.getAcpBinding("chat").agentId()); store.shutdown(); }
     }
 
-    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex", "pi", "dsh"})
     void preservesConnectionAndRestoresRemoteSessionWithoutDuplicateReplay(String agentId) throws Exception {
         var store = store(agentId);
         try {
@@ -231,7 +270,7 @@ class ExternalAcpSessionsTest {
         } finally { store.shutdown(); }
     }
 
-    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex"})
+    @ParameterizedTest @ValueSource(strings = {"claude-code", "codex", "pi", "dsh"})
     void groupedConfigurationChangesPersistAcrossConnectionsAndDriveActualPrompts(String agentId) throws Exception {
         var store = store(agentId);
         try {

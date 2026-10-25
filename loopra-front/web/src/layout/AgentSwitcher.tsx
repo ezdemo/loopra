@@ -80,21 +80,25 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
         const selected = engine.id === (agentId || 'native');
         const installable = !engine.available && !!agentAcpInstallPrompt(engine.id);
         return <div key={engine.id} className="agent-option">
-          <button type="button" disabled={!engine.available}
-            onClick={() => { setOpen(false); onSelect(engine.id); }}>
-            <span><strong>{engine.name}</strong></span>
+          <button type="button" disabled={!engine.available && !installable}
+            title={!engine.available ? engine.detail || '依赖未就绪' : undefined}
+            onClick={() => {
+              if (installable) { openInstall(engine); return; }
+              setOpen(false); onSelect(engine.id);
+            }}>
+            <span><strong>{engine.name}</strong>{!engine.available && <small>{installable ? '未就绪 · 点击查看安装说明' : engine.detail || '暂不可用'}</small>}</span>
             {selected && <Check size="1rem" />}
           </button>
           {installable && <button type="button" className="agent-install" aria-label={`安装 ${engine.name} ACP 依赖`}
-            title="查看安装提示词" onClick={() => openInstall(engine)}>安装</button>}
+            title="查看安装说明" onClick={() => openInstall(engine)}>安装说明</button>}
         </div>;
       })}</div>
     </Popup>
     <Modal isOpen={!!installing} onClose={() => setInstalling(null)} placement="center" scrollBehavior="inside"
       classNames={{ base: 'app-dialog agent-install-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }}
-      aria-label={`安装 ${installing?.name || 'Agent'} ACP`}>
+      aria-label={`${installing?.name || 'Agent'} ACP 安装说明`}>
       <ModalContent>
-        <ModalHeader className="app-dialog-header"><h2>安装 {installing?.name} ACP</h2></ModalHeader>
+        <ModalHeader className="app-dialog-header"><h2>{installing?.name} ACP 安装说明</h2></ModalHeader>
         <ModalBody className="app-dialog-body">
           <p>在运行 Loopra 后端的机器上安装 {installing?.name} 的 ACP 依赖。可以把下面的提示词复制给一个 Agent，让它直接完成安装。</p>
           {installing?.detail && <p className="agent-install-reason">当前检测：{installing.detail}</p>}

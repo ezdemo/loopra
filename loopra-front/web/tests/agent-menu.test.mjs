@@ -39,20 +39,20 @@ export const Popup = ({ open, children, className }) => open ? createElement('di
 `);
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const Button = ({ children }) => createElement('button', { type: 'button' }, children);
-export const Modal = ({ isOpen, children }) => isOpen ? createElement('div', null, children) : null;
+export const Button = ({ children, onPress }) => createElement('button', { type: 'button', onClick: onPress }, children);
+export const Modal = ({ isOpen, children, 'aria-label': label }) => isOpen ? createElement('div', { role: 'dialog', 'aria-label': label }, children) : null;
 export const ModalBody = ({ children }) => createElement('div', null, children);
 export const ModalContent = ({ children }) => createElement('div', null, children);
 export const ModalFooter = ({ children }) => createElement('div', null, children);
 export const ModalHeader = ({ children }) => createElement('div', null, children);
 `);
-const installStub = dataUrl('export const agentAcpInstallPrompt = () => "";');
+const installUrl = await sourceUrl('agent-install.ts');
 
 const switcherUrl = await sourceUrl('layout/AgentSwitcher.tsx', {
   'lucide-react': iconStub,
   '@nextui-org/react': nextuiStub,
   '../components/Motion': motionStub,
-  '../agent-install': installStub,
+  '../agent-install': installUrl,
   './menu-placement': placementUrl,
 });
 const { default: AgentSwitcher } = await import(switcherUrl);
@@ -73,7 +73,7 @@ const engines = Array.from({ length: 8 }, (_, index) => ({
 }));
 const rectOf = ({ top, bottom }) => ({ top, bottom, left: 0, right: 1500, width: 1500, height: bottom - top, x: 0, y: top, toJSON() {} });
 
-async function mount(rect, viewportHeight) {
+async function mount(rect, viewportHeight, props = {}) {
   const original = dom.window.Element.prototype.getBoundingClientRect;
   Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: viewportHeight });
   dom.window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
@@ -85,13 +85,14 @@ async function mount(rect, viewportHeight) {
   const root = createRoot(container);
   try {
     await act(async () => root.render(createElement(AgentSwitcher, {
-      engines, agentId: 'native', disabled: false, onSelect() {},
+      engines, agentId: 'native', disabled: false, onSelect() {}, ...props,
     })));
     await act(async () => { container.querySelector('.agent-selector > button').click(); });
   } finally {
     dom.window.Element.prototype.getBoundingClientRect = original;
   }
   return {
+    container,
     anchor: container.querySelector('.agent-selector'),
     menu: container.querySelector('.popup.agent-menu'),
     async close() { await act(async () => root.unmount()); container.remove(); },
@@ -126,4 +127,43 @@ test('the agent list is the only scrolling part of the menu', () => {
   assert.match(list, /overflow-y:\s*auto/);
   assert.match(list, /overscroll-behavior:\s*contain/);
   assert.doesNotMatch(styles, /^\.agent-menu > \.composer-note\s*\{/m);
+});
+
+for (const engine of [
+  { id: 'pi', name: 'Pi', available: false, detail: '未找到 Pi CLI', dependency: 'pi-coding-agent' },
+  { id: 'dsh', name: 'DeepSeek Harness', available: false, detail: '未找到 DeepSeek Harness', dependency: '@deepseek-ai/dsh' },
+]) {
+  test(`${engine.name} row and install button open instructions without switching Agents`, async () => {
+    const view = await mount({ top: 400, bottom: 420 }, 800, {
+      engines: [engine], onSelect() { assert.fail('An unavailable engine must not be selected'); },
+    });
+    try {
+      const row = view.menu.querySelector('.agent-option > button:first-child');
+      assert.equal(row.disabled, false);
+      assert.equal(row.title, engine.detail);
+      assert.match(row.textContent, /点击查看安装说明/);
+      assert.equal(view.menu.querySelector('.agent-install').textContent, '安装说明');
+      await act(async () => row.click());
+      let dialog = view.container.querySelector('[role="dialog"]');
+      assert.equal(dialog.getAttribute('aria-label'), `${engine.name} ACP 安装说明`);
+      assert.ok(dialog.textContent.includes(engine.detail));
+      assert.ok(dialog.querySelector('pre').textContent.includes(engine.dependency));
+      await act(async () => [...dialog.querySelectorAll('button')].find(button => button.textContent === '关闭').click());
+      assert.equal(view.container.querySelector('[role="dialog"]'), null);
+      await act(async () => view.anchor.querySelector(':scope > button').click());
+      await act(async () => view.anchor.querySelector('.agent-install').click());
+      dialog = view.container.querySelector('[role="dialog"]');
+      assert.ok(dialog.querySelector('pre').textContent.includes(engine.dependency));
+    } finally { await view.close(); }
+  });
+}
+
+test('available Agent rows continue to select the engine', async () => {
+  const selected = [];
+  const view = await mount({ top: 400, bottom: 420 }, 800, { engines: [{ id: 'codex', name: 'Codex', available: true }], onSelect: id => selected.push(id) });
+  try {
+    await act(async () => view.menu.querySelector('.agent-option > button').click());
+    assert.deepEqual(selected, ['codex']);
+    assert.equal(view.container.querySelector('[role="dialog"]'), null);
+  } finally { await view.close(); }
 });
