@@ -11,6 +11,7 @@ import site.sorghum.cutin.integrations.model.AnthropicMessagesProvider;
 import site.sorghum.cutin.integrations.model.OpenAiChatCompletionsProvider;
 import site.sorghum.cutin.integrations.model.OpenAiResponsesProvider;
 import site.sorghum.cutin.integrations.model.ProviderInterceptor;
+import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.model.special.OpenCodeProviderInterceptor;
 
 import java.util.List;
@@ -28,6 +29,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * LoopraModelProvider 直接实现 cutin ModelProvider 后的核心行为测试。
  */
 class LoopraModelProviderTest {
+
+    @Test
+    void backgroundRequestsIncludeUserImagesAndToolImages() {
+        LoopraModelProvider provider = provider("openai", "chat_completions", "vision-model");
+        ModelCallRequest request = provider.buildRequest(List.of(
+                ChatMessage.ofUser("read this", List.of("https://example.com/user.png")),
+                ChatMessage.toolWithImage("call-1", "image loaded", "data:image/png;base64,AAAA", "high")
+        ), null);
+        var body = provider.buildBody(request, false);
+        assertEquals("read this", JsonSupport.text(body, "", "messages", 0, "content", 0, "text"));
+        assertEquals("https://example.com/user.png", JsonSupport.text(body, "", "messages", 0, "content", 1, "image_url", "url"));
+        assertEquals("data:image/png;base64,AAAA", JsonSupport.text(body, "", "messages", 2, "content", 1, "image_url", "url"));
+        assertEquals("high", JsonSupport.text(body, "", "messages", 2, "content", 1, "image_url", "detail"));
+    }
 
     @Test
     void defaultsToChatCompletionsProtocol() {

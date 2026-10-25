@@ -65,6 +65,19 @@ class CutinMessageBridgeTest {
     }
 
     @Test
+    void toolImageSurvivesRoundTripAndKeepsDetail() {
+        ChatMessage original = ChatMessage.toolWithImage(
+                "call_1", "image loaded", "data:image/png;base64,AAAA", "high");
+        Message cutin = CutinMessageBridge.toCutin(original);
+        assertEquals("high", cutin.metadata("tool_image_detail"));
+        ChatMessage restored = CutinMessageBridge.toLoopra(List.of(cutin)).get(0);
+        assertEquals(original.getToolCallId(), restored.getToolCallId());
+        assertEquals(original.getContent(), restored.getContent());
+        assertEquals(original.getToolImageUrl(), restored.getToolImageUrl());
+        assertEquals(original.getToolImageDetail(), restored.getToolImageDetail());
+    }
+
+    @Test
     void assistantMessagePreservesToolImageUrlMetadata() {
         ChatMessage chat = ChatMessage.assistant("我看了截图", null, null);
         chat.setToolImageUrl("data:image/png;base64,BBBB");

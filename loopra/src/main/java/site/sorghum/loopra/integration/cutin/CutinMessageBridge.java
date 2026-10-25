@@ -34,6 +34,9 @@ public final class CutinMessageBridge {
             Map<String, Object> metadata = new HashMap<>();
             if (message.getToolImageUrl() != null && !message.getToolImageUrl().isBlank()) {
                 metadata.put("tool_image_url", message.getToolImageUrl());
+                if (message.getToolImageDetail() != null) {
+                    metadata.put("tool_image_detail", message.getToolImageDetail());
+                }
             }
             return new Message(
                 "tool",
@@ -56,6 +59,9 @@ public final class CutinMessageBridge {
             }
             if (message.getToolImageUrl() != null && !message.getToolImageUrl().isBlank()) {
                 metadata.put("tool_image_url", message.getToolImageUrl());
+                if (message.getToolImageDetail() != null) {
+                    metadata.put("tool_image_detail", message.getToolImageDetail());
+                }
             }
             return new Message(
                 "assistant",
@@ -126,9 +132,11 @@ public final class CutinMessageBridge {
                 case "system" -> result.add(ChatMessage.ofSystem(message.content()));
                 case "user" -> result.add(toLoopraUser(message));
                 case "assistant" -> result.add(toLoopraAssistant(message));
-                case "tool" -> result.add(ChatMessage.tool(
+                case "tool" -> result.add(ChatMessage.toolWithImage(
                     message.toolCallId(),
-                    message.content()
+                    message.content(),
+                    metadataString(message, "tool_image_url"),
+                    metadataString(message, "tool_image_detail")
                 ));
                 default -> result.add(ChatMessage.ofUser(message.content()));
             }
@@ -163,6 +171,8 @@ public final class CutinMessageBridge {
         if (responseReasoning != null) {
             assistant.setResponseReasoning(String.valueOf(responseReasoning));
         }
+        assistant.setToolImageUrl(metadataString(message, "tool_image_url"));
+        assistant.setToolImageDetail(metadataString(message, "tool_image_detail"));
         return assistant;
     }
 
