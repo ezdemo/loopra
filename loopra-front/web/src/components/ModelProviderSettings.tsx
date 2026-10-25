@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
-import { Box, ChevronDown, Copy, Download, Image, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
-import type { AgentSettings } from '../settings-data';
+import { Box, Copy, Download, Image, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { applyProviderPreset, providerPresetFor, providerPresets, validateProvider } from '../settings-data';
 import type { Provider, ProviderModel } from '../lib';
-import { formatTokens, getModelCatalog, modelLabel, newModel, providerModels, type ComposerOptions } from '../composer';
-import { Field, ModelSelect, SelectField, SettingSwitch } from './SettingControls';
+import { formatTokens, modelLabel, newModel, providerModels } from '../composer';
+import { Field, SelectField, SettingSwitch } from './SettingControls';
 import RemoteModelsPicker from './RemoteModelsPicker';
 
-type Props = { server: string; providers: Provider[]; onProviders: (value: Provider[]) => void | Promise<void>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void; defaultModel: string; onDefaultModel: (id: string) => void; config: AgentSettings; onConfig: (value: AgentSettings) => void; notify: (message: string) => void };
+type Props = { server: string; providers: Provider[]; onProviders: (value: Provider[]) => void | Promise<void> };
 type ModelEdit = { channel: string; index: number; initial: ProviderModel };
 const copyProvider = (provider: Provider): Provider => ({ ...provider, models: providerModels(provider).map(model => ({ ...model })) });
 
@@ -43,7 +42,7 @@ function ModelConfigDialog({ initial, adding, onClose, onApply }: { initial: Pro
 }
 
 export default function ModelProviderSettings(props: Props) {
-  const { providers, onProviders, options, onOptions, config, onConfig } = props;
+  const { providers, onProviders } = props;
   const [selectedId, setSelectedId] = useState<string>();
   const [drafts, setDrafts] = useState<Record<string, Provider>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -51,7 +50,6 @@ export default function ModelProviderSettings(props: Props) {
   const [query, setQuery] = useState('');
   const [modelEdit, setModelEdit] = useState<ModelEdit | null>(null);
   const [remoteProvider, setRemoteProvider] = useState<Provider | null>(null);
-  const models = useMemo(() => getModelCatalog(providers), [providers]);
   const channels = [...providers.map(provider => ({ key: provider.id, provider: drafts[provider.id] || provider })), ...Object.entries(drafts).filter(([key]) => !providers.some(provider => provider.id === key)).map(([key, provider]) => ({ key, provider }))];
   const selected = channels.find(channel => channel.key === selectedId) || channels[0];
   const key = selected?.key || '';
@@ -103,7 +101,6 @@ export default function ModelProviderSettings(props: Props) {
     finally { setSaving(false); }
   }
   return <>
-    <details className="provider-defaults"><summary>默认模型与用途<ChevronDown size=".875rem" /></summary><div className="settings-field-grid"><ModelSelect label="新会话默认模型" value={props.defaultModel} onChange={props.onDefaultModel} models={models} /><ModelSelect label="当前聊天模型" value={options.modelId} onChange={modelId => onOptions({ ...options, modelId })} models={models} /><ModelSelect label="命令校验模型" optional value={config.validatorModel} onChange={validatorModel => onConfig({ ...config, validatorModel })} models={models} /><ModelSelect label="图片理解模型" optional value={config.imageModel} onChange={imageModel => onConfig({ ...config, imageModel })} models={models.filter(model => model.imageInput)} /></div></details>
     <div className="provider-workspace">
       <aside className="provider-channels" aria-label="模型渠道"><div className="provider-channels-heading"><span>渠道</span><small>{channels.length}</small></div><nav className="provider-channel-list" aria-label="选择模型渠道">{channels.map(channel => <button type="button" key={channel.key} aria-current={key === channel.key ? 'true' : undefined} className={`provider-channel${key === channel.key ? ' selected' : ''}`} onClick={() => select(channel.key)} title={channel.provider.name || '新渠道'}><Box size="1rem" /><span><strong>{channel.provider.name || '新渠道'}</strong><small>{providerModels(channel.provider).length} 个模型</small></span>{drafts[channel.key] && <i title="未保存" aria-label="未保存" />}</button>)}{!channels.length && <p className="provider-channel-empty">暂无渠道</p>}</nav><Button disableAnimation variant="light" className="provider-add-channel" startContent={<Plus size="1rem" />} onPress={() => add()}>添加渠道</Button></aside>
       {editing ? <section className="provider-detail" aria-label={`渠道配置：${editing.name || '新渠道'}`}>

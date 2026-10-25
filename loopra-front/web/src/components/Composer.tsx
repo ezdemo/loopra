@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
-import { ArrowLeft, ArrowUp, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Star, Trash2, X, Zap } from 'lucide-react';
-import { acpSlashCommands, appendPreset, attachmentViews, effortLevels, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, groupModels, modelLabel, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
+import { ArrowLeft, ArrowUp, BookOpen, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
+import { acpSlashCommands, appendPreset, attachmentViews, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
 import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
 import { contextFromUsage, contextPartPercent, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
 import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
 import { useLocalState, type Provider } from '../lib';
 import type { AcpCommand, AcpSessionState, AgentEngine, LoopraClient, Workspace } from '../backend';
-import { Collapse, Popup } from './Motion';
+import { Popup } from './Motion';
 import PetCompanion from './PetCompanion';
 import { petScale, type PetAnimation, type PetReply } from '../pets';
 import type { PetStore } from '../usePets';
-import ReasoningControl from './ReasoningControl';
+import ModelReasoningSelector from './ModelReasoningSelector';
 import AgentConfigControls from './AgentConfigControls';
-import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
+import { agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
 import { useMenuPlacement } from '../layout/menu-placement';
 
 type Props = {
@@ -38,7 +38,7 @@ type Props = {
   onExport: () => void; onSessions: () => void;
   onClear: () => void;
 };
-type Menu = 'models' | 'effort' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more';
+type Menu = 'model-settings' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more';
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
   return <Switch size="sm" aria-label={label} isSelected={value} onValueChange={onChange} classNames={{ label: 'sr-only' }}>{label}</Switch>;
@@ -48,7 +48,7 @@ function ComposerToolbarSkeleton() {
   return <>
     <span className="sr-only" role="status">正在加载输入栏配置…</span>
     <div className="composer-left" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-permission" /><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-icon" /></div>
-    <div className="composer-right" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-model" /><span className="composer-skeleton skeleton-effort" /><span className="composer-skeleton skeleton-send" /></div>
+    <div className="composer-right" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-model" /><span className="composer-skeleton skeleton-send" /></div>
   </>;
 }
 
@@ -60,7 +60,6 @@ export default function Composer(props: Props) {
   const commandScope = JSON.stringify([props.agentId, props.workspaceHash, props.sessionName]);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [query, setQuery] = useState('');
-  const [collapsed, setCollapsed] = useState<string[]>([]);
   const [presets, setPresets] = useLocalState<PromptPreset[]>('prompt-presets', initialPresets);
   const [editing, setEditing] = useState<PromptPreset | null>(null);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -100,8 +99,6 @@ export default function Composer(props: Props) {
         usage.metrics.cacheHitRate != null ? `命中率 ${usage.metrics.cacheHitRate.toFixed(1)}%` : '',
       ].filter(Boolean).join(' · ')
     : '';
-  const effortIndex = effortLevels.findIndex(level => level.value === options.effort);
-  const effort = effortLevels[effortIndex];
   // ACP owns the per-session choices. Its standard categories map onto the
   // composer's existing permission, model and reasoning controls, so Native and
   // external engines look and behave the same; only the advertised values differ.
@@ -118,24 +115,9 @@ export default function Composer(props: Props) {
   const sendDisabled = agentBusy || (!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy);
   function sendDraft() { if (!sendDisabled) props.onSend(); }
   const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
-  const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
-  const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const handledOptions = new Set([agentMode, agentModel, agentEffort, agentFast, agentPlan].filter(Boolean).map(option => option!.id));
   const otherAgentOptions = (agentOptions || []).filter(option => !handledOptions.has(option.id));
-  const modelGroupsForAgent = agentModel ? groupAgentModels(agentModel, agentEngineName) : [];
-  const activeModelLabel = agentModel
-    ? modelGroupsForAgent.flatMap(group => group.models).find(model => model.value === configValue(agentModel))?.name || agentOptionLabel(agentModel)
-    : '';
-  const activeModelTooltip = agentModel
-    ? [...new Set([agentOptionLabel(agentModel), agentOptionDescription(agentModel)])].filter(Boolean).join('\n')
-    : selected ? `${selected.provider} / ${modelLabel(selected)}${modelLabel(selected) !== selected.name ? `\n${selected.name}` : ''}` : '选择模型';
-  const modelQuery = query.trim().toLowerCase();
-  const visibleModelGroups = modelGroupsForAgent
-    .map(group => ({ ...group, models: group.models.filter(model => !modelQuery || `${group.name} ${model.name} ${model.value} ${model.description || ''}`.toLowerCase().includes(modelQuery)) }))
-    .filter(group => group.models.length);
-  const agentModelValue = agentModel ? configValue(agentModel) : '';
   const agentModeValue = agentMode ? configValue(agentMode) : '';
-  const agentEffortValue = agentEffort ? configValue(agentEffort) : '';
   const planActive = agentPlan ? configValue(agentPlan) === planOn : !external && options.plan;
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
@@ -143,13 +125,6 @@ export default function Composer(props: Props) {
   function close() { setMenu(null); setEditing(null); }
   function open(next: Menu) {
     props.onOpen(); setMenu(current => current === next ? null : next); setQuery(''); setEditing(null);
-    if (next === 'models') {
-      if (agentModel) {
-        const groups = groupAgentModels(agentModel, agentEngineName);
-        const activeGroup = groups.find(group => group.models.some(model => model.value === agentModelValue));
-        setCollapsed(groups.map(group => group.id).filter(id => id !== activeGroup?.id));
-      } else setCollapsed([...new Set(models.map(model => model.providerId))].filter(id => id !== selected?.providerId));
-    }
     setDismissedDraft(draft);
   }
   function focusInput() { requestAnimationFrame(() => inputRef.current?.focus()); }
@@ -329,7 +304,7 @@ export default function Composer(props: Props) {
     setPresets(next); persistPresets(next);
     setEditing(null); notify('常用要求已保存');
   }
-  const menuTitles: Record<Menu, string> = { models: '选择模型', effort: '推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置' };
+  const menuTitles: Record<Menu, string> = { 'model-settings': '模型与推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置' };
   // Legacy ChatInput split context into image thumbnails and file chips with sizes.
   const { images: contextImages, files: contextFiles } = attachmentViews(context, pasteChars);
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
@@ -390,16 +365,10 @@ export default function Composer(props: Props) {
       </div>
       <div className={`composer-right ${agentOptions ? 'has-agent-config' : ''}`}>
         <Tooltip content={`上下文 ${usagePercent}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${usage.windowKnown === false ? 0 : Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
-        {agentOptions ? <>
-          {otherAgentOptions.length > 0 && <Tooltip content="更多 Agent 配置" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'more' ? 'is-active' : ''}`} aria-label="更多 Agent 配置" aria-expanded={menu === 'more'} onPress={() => open('more')}><Settings2 size="1rem" /></Button></Tooltip>}
-          {agentModel && <Tooltip content={activeModelTooltip} classNames={{ content: 'model-name-tooltip' }} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} title={activeModelTooltip} aria-label={`选择模型：${agentOptionLabel(agentModel)}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{activeModelLabel}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
-          {(agentEffort || agentFast) && <Tooltip content="推理强度与快速模式" delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-effort ${menu === 'effort' ? 'is-active' : ''}`} aria-label="推理设置" aria-expanded={menu === 'effort'} onPress={() => open('effort')}>{agentFastOn ? <Zap size="0.875rem" /> : <Brain size="0.875rem" />}<span>{agentEffort ? agentOptionLabel(agentEffort) : '快速'}</span></Button></Tooltip>}
-        </> : props.agentConfig
-          ? null
-          : <>
-            {!external && <Tooltip content={activeModelTooltip} classNames={{ content: 'model-name-tooltip' }} delay={600}><Button variant="light" className={`composer-model ${menu === 'models' ? 'is-active' : ''}`} title={activeModelTooltip} aria-label={`选择模型：${selected ? modelLabel(selected) : '未选择'}`} aria-expanded={menu === 'models'} onPress={() => open('models')}><span>{selected ? modelLabel(selected) : '选择模型'}</span><ChevronDown size="0.875rem" /></Button></Tooltip>}
-            {!external && <Tooltip content="推理强度与快速模式" delay={600}><Button variant="light" className={`composer-effort ${menu === 'effort' ? 'is-active' : ''}`} aria-label="推理设置" aria-expanded={menu === 'effort'} onPress={() => open('effort')}>{options.fast ? <Zap size="0.875rem" /> : <Brain size="0.875rem" />}<span>{effort ? effort.value === 'none' ? '无' : effort.value === 'xhigh' ? 'XHigh' : effort.value[0].toUpperCase() + effort.value.slice(1) : options.effort}</span></Button></Tooltip>}
-          </>}
+        {agentOptions && otherAgentOptions.length > 0 && <Tooltip content="更多 Agent 配置" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'more' ? 'is-active' : ''}`} aria-label="更多 Agent 配置" aria-expanded={menu === 'more'} onPress={() => open('more')}><Settings2 size="1rem" /></Button></Tooltip>}
+        <ModelReasoningSelector open={menu === 'model-settings'} onOpenChange={() => open('model-settings')} onClose={close} onSelected={focusInput}
+          models={models} options={options} onOptions={onOptions} agentConfig={props.agentConfig} external={external} agentEngineName={agentEngineName}
+          busy={props.busy} connected={props.connected} defaultModel={props.defaultModel} onDefaultModel={props.onDefaultModel} onManage={props.onManage} notify={notify} />
         {props.agentConfig?.error && <Tooltip content={props.agentConfig.error} delay={300}><Button isIconOnly size="sm" variant="light" className="composer-icon" onPress={props.agentConfig.onPrepare} aria-label="重试加载 Agent 配置"><RefreshCw size="1rem" /></Button></Tooltip>}
         {props.generating ? <Button isIconOnly aria-label="停止生成" className="send-button generating" onPress={props.onStop}><Square size="0.75rem" fill="currentColor" /></Button>
           : props.remoteRunning ? <Button isIconOnly aria-label="停止后台任务" className="send-button generating" onPress={props.onStopRemote}><Square size="0.75rem" fill="currentColor" /></Button> : null}
@@ -409,63 +378,12 @@ export default function Composer(props: Props) {
     </div>
     <input ref={fileInput} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.properties,.cfg,.conf,.env,.vue,.svelte" onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />
 
-    <Popup open={!!menu} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
+    <Popup open={!!menu && menu !== 'model-settings'} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
       {menu && <section role="dialog" aria-label={menuTitles[menu]}>
         <div className="composer-popover-header">
-          <div>{['projects', 'skills', 'permission'].includes(menu) && <Button isIconOnly size="sm" variant="light" aria-label="返回输入工具" onPress={() => open('tools')}><ArrowLeft size="1rem" /></Button>}<strong>{menuTitles[menu]}</strong>{menu === 'models' && <span className="demo-badge">{props.connected ? '在线' : '离线'}</span>}</div>
+          <div>{['projects', 'skills', 'permission'].includes(menu) && <Button isIconOnly size="sm" variant="light" aria-label="返回输入工具" onPress={() => open('tools')}><ArrowLeft size="1rem" /></Button>}<strong>{menuTitles[menu]}</strong></div>
           <Button isIconOnly size="sm" variant="light" aria-label="关闭输入弹层" onPress={() => { close(); focusInput(); }}><X size="1rem" /></Button>
         </div>
-
-        {menu === 'models' && (agentModel ? <>
-          <div className="popover-search"><Input autoFocus size="sm" variant="bordered" aria-label="搜索模型" placeholder="搜索模型…" value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
-          <div className="model-group-list">
-            {agentModel.options.length > 0 && !agentModel.options.some(value => value.value === agentModelValue) && <div className="composer-model-row is-selected">
-              <button role="radio" aria-checked onClick={() => {}}><span><strong>{agentModelValue}</strong></span><Check size="1rem" /></button>
-            </div>}
-            {visibleModelGroups.map(group => {
-              const openGroup = !!modelQuery || !collapsed.includes(group.id);
-              return <div key={group.id} className="composer-model-group">
-                <button className="model-group-heading" aria-expanded={openGroup} onClick={() => setCollapsed(current => current.includes(group.id) ? current.filter(id => id !== group.id) : [...current, group.id])}>
-                  <span className="provider-dot" style={{ background: '#9298a1' }} /><span>{group.name}</span><small>{group.models.length}</small><ChevronDown size="0.875rem" className={openGroup ? 'rotated' : ''} />
-                </button>
-                <Collapse open={openGroup}>{group.models.map(model => {
-                  const selected = model.value === agentModelValue;
-                  return <div className={`composer-model-row agent-model-row ${selected ? 'is-selected' : ''}`} key={model.value}>
-                    <button role="radio" aria-checked={selected} aria-label={`${group.name} / ${model.name}`} title={[model.name, model.description].filter(Boolean).join('\n')} onClick={() => { changeAgent(agentModel.id, model.value); close(); focusInput(); }}>
-                      <span><strong>{model.name}</strong>{model.description && <small>{model.description}</small>}</span>{selected && <Check size="1rem" />}
-                    </button>
-                    {!external && <Tooltip content={model.value === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${group.name} / ${model.name}`} aria-pressed={model.value === props.defaultModel} onPress={() => { props.onDefaultModel(model.value); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.value === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>}
-                  </div>;
-                })}</Collapse>
-              </div>;
-            })}
-            {!visibleModelGroups.length && <div className="composer-empty"><Search size="1.4375rem" /><p>没有找到匹配的模型</p><small>试试模型名或供应商名称</small></div>}
-          </div>
-          <div className="popover-footer"><span>模型来自 {external ? agentEngineName : 'Loopra 配置'}</span>{!external && <Button size="sm" variant="light" onPress={() => { close(); props.onManage(); }}><Settings2 size="0.875rem" />管理模型</Button>}</div>
-        </> : <>
-          <div className="popover-search"><Input autoFocus size="sm" variant="bordered" aria-label="搜索模型或供应商" placeholder="搜索模型或供应商…" value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
-          <div className="model-group-list">
-            {groupModels(models, query).map(group => <div key={group.id} className="composer-model-group">
-              <button className="model-group-heading" aria-expanded={!!query || !collapsed.includes(group.id)} onClick={() => setCollapsed(current => current.includes(group.id) ? current.filter(id => id !== group.id) : [...current, group.id])}>
-                <span className="provider-dot" style={{ background: group.color || '#9298a1' }} /><span>{group.name}</span><small>{group.models.length}</small><ChevronDown size="0.875rem" className={query || !collapsed.includes(group.id) ? 'rotated' : ''} />
-              </button>
-              <Collapse open={!!query || !collapsed.includes(group.id)}>{group.models.map(model => <div className={`composer-model-row ${model.id === options.modelId ? 'is-selected' : ''}`} key={model.id}>
-                <button role="radio" aria-checked={model.id === options.modelId} aria-label={`${model.provider} / ${modelLabel(model)}`} title={model.name} onClick={() => { update('modelId', model.id); close(); focusInput(); }}><span className="model-option-copy"><strong>{modelLabel(model)}</strong>{modelLabel(model) !== model.name && <small>{model.name}</small>}</span>{model.id === options.modelId && <Check size="1rem" />}</button>
-                <Tooltip content={model.id === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${model.provider} / ${modelLabel(model)}`} aria-pressed={model.id === props.defaultModel} onPress={() => { props.onDefaultModel(model.id); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.id === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>
-              </div>)}</Collapse>
-            </div>)}
-            {!groupModels(models, query).length && <div className="composer-empty"><Search size="1.4375rem" /><p>没有找到匹配的模型</p><small>试试模型名或供应商名称</small></div>}
-          </div>
-          <div className="popover-footer"><span>模型来自 Loopra 配置</span><Button size="sm" variant="light" onPress={() => { close(); props.onManage(); }}><Settings2 size="0.875rem" />管理模型</Button></div>
-        </>)}
-
-        {menu === 'effort' && (agentEffort || agentFast ? <div className="effort-body">
-          {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
-          {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />快速模式</span><small>{agentOptionDescription(agentFast) || '发送快速模式参数，需模型支持'}</small></div><Toggle label="快速模式" value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
-        </div> : <div className="effort-body">
-          <ReasoningControl value={options.effort} disabled={props.busy} onCommit={value => update('effort', value)} onClose={close} />
-          <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />快速模式</span><small>发送快速模式参数，需模型支持</small></div><Toggle label="快速模式" value={options.fast} onChange={value => update('fast', value)} /></div>
-        </div>)}
 
         {menu === 'tools' && <div className="composer-tool-list">
           <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>上传文件</strong><small>图片、文本、PDF、Word、Excel · 读取内容发送</small></span><Plus size="0.9375rem" /></button>

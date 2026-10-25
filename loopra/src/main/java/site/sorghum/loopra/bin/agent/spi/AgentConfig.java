@@ -86,6 +86,15 @@ public interface AgentConfig {
         return null;
     }
 
+    /** 标题生成和记忆整理使用的模型；空值保持原有处理方式。 */
+    default String toolModel() {
+        return "";
+    }
+
+    default Channel toolModelChannel() {
+        return null;
+    }
+
     /** 旧版 HITL 白名单配置；当前审核链不使用此列表绕过本地及 AI 审核。 */
     List<String> autoWhitelist();
 

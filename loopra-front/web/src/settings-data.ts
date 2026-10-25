@@ -10,7 +10,7 @@ export type Extension = { id: string; name: string; description: string; enabled
 export type AgentSettings = {
   defaultWorkspace: string; projectPath: string; agentName: string; systemPrompt: string;
   serverUrl: string;
-  validatorModel: string; imageModel: string; tools: ToolConfig[]; skills: SkillConfig[]; agents: AgentProfile[];
+  validatorModel: string; imageModel: string; toolModel: string; tools: ToolConfig[]; skills: SkillConfig[]; agents: AgentProfile[];
   integrations: Integration[]; plugins: Extension[]; extensions: Extension[]; petEnabled: boolean;
 };
 export const defaultSystemPrompt = '# Loopra\n\n你是一位编程助手。先理解需求与现有代码，再给出清晰、可验证的解决方案。\n保持现有项目风格，说明改动与验证结果。';
@@ -26,7 +26,7 @@ export const defaultTools: ToolConfig[] = [
 export const defaultAgentSettings: AgentSettings = {
   defaultWorkspace: 'comfyui', projectPath: '~\\Documents\\ChatGPT\\comfyui', agentName: '编程助手', systemPrompt: defaultSystemPrompt,
   serverUrl: 'http://127.0.0.1:8080',
-  validatorModel: '', imageModel: '', tools: defaultTools,
+  validatorModel: '', imageModel: '', toolModel: '', tools: defaultTools,
   skills: [
     { id: 'review', name: '代码审查', description: '检查逻辑、边界条件与潜在回归', enabled: true },
     { id: 'frontend', name: '前端开发', description: '组件、交互与响应式布局', enabled: true },

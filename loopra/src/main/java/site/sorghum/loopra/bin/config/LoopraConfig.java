@@ -125,6 +125,8 @@ public class LoopraConfig implements AgentConfig {
                   "validationModelChannelId": "",
                   "imageUnderstandingModel": "",
                   "imageUnderstandingModelChannelId": "",
+                  "toolModel": "",
+                  "toolModelChannelId": "",
                   "modelChannels": [
                     {
                       "id": "default",
@@ -473,6 +475,20 @@ public class LoopraConfig implements AgentConfig {
     @Override
     public ModelChannel imageUnderstandingModelChannel() {
         return modelChannel(imageUnderstandingModelChannelId());
+    }
+
+    @Override
+    public String toolModel() {
+        return trim(root.select("$.toolModel").getString());
+    }
+
+    public String toolModelChannelId() {
+        return trim(root.select("$.toolModelChannelId").getString());
+    }
+
+    @Override
+    public ModelChannel toolModelChannel() {
+        return modelChannel(toolModelChannelId());
     }
 
     /** 当前选中模型所属的渠道 ID。 */
@@ -1057,7 +1073,9 @@ public class LoopraConfig implements AgentConfig {
                         && !"validationModel".equals(key)
                         && !"validationModelChannelId".equals(key)
                         && !"imageUnderstandingModel".equals(key)
-                        && !"imageUnderstandingModelChannelId".equals(key))
+                        && !"imageUnderstandingModelChannelId".equals(key)
+                        && !"toolModel".equals(key)
+                        && !"toolModelChannelId".equals(key))
                     || ("apiKey".equals(key) && str.contains("****")))) continue;
 
             // 旧的全局模型参数已废弃；配置只能写入具体模型/渠道条目。

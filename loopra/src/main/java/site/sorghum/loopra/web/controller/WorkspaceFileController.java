@@ -33,6 +33,17 @@ public class WorkspaceFileController {
     @Inject
     private PasteContentService pasteContentService;
 
+    @Get
+    @Mapping("/image")
+    public void image(@Param(value = "workspaceHash", required = false) String workspaceHash, @Param("path") String path) throws java.io.IOException {
+        var image = workspaceFileService.image(workspaceHash, path);
+        var context = org.noear.solon.core.handle.Context.current();
+        context.headerSet("Content-Type", image.mimeType());
+        context.headerSet("X-Content-Type-Options", "nosniff");
+        context.headerSet("Cache-Control", "no-store");
+        context.output(image.bytes());
+    }
+
     @ApiOperation(value = "获取项目目录项", notes = "仅返回指定目录的直接子项，前端按需加载子目录")
     @Get
     @Mapping("/tree")

@@ -50,3 +50,13 @@ test('settings search finds individual controls, aliases and category destinatio
   assert.deepEqual(searchSettings('不存在的选项', categories), []);
   assert.deepEqual(searchSettings('   ', categories), []);
 });
+
+
+test('model usage controls and background tasks search to their dedicated settings page', () => {
+  const sections = settingsCategories.flatMap(category => category.sections);
+  for (const query of ['新会话默认模型', '当前聊天模型', '工具模型', '命令校验模型', '图片理解模型', '标题', '记忆', 'memory']) {
+    const results = searchSettings(query, sections);
+    assert.ok(results.length, query);
+    assert.ok(results.every(result => result.category === '模型用途'), query);
+  }
+});

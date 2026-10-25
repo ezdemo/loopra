@@ -49,6 +49,21 @@ class SessionServiceTest {
     }
 
     @Test
+    void generatedTitleUsesOnlyUserTextAndFallsBackOnFailure() throws Exception {
+        SessionService service = new SessionService(
+                new ConversationContext(new PromptPrefix("test", ONode.ofJson("[]"))), tempDir);
+        service.setTitleGenerator(text -> {
+            assertEquals("整理设置", text);
+            return "模型用途设置";
+        });
+        assertEquals("模型用途设置", service.generateSessionTitle("```折叠块\n自动附带的文件\n```\n整理设置"));
+        service.setTitleGenerator(text -> { throw new IllegalStateException("offline"); });
+        assertEquals("整理设置", service.generateSessionTitle("整理设置"));
+        service.setTitleGenerator(text -> " ");
+        assertEquals("整理设置", service.generateSessionTitle("整理设置"));
+    }
+
+    @Test
     void usesInjectedSessionStore() throws Exception {
         JsonlSessionStore injected = new JsonlSessionStore(tempDir);
         ConversationContext ctx = new ConversationContext(new PromptPrefix("test", ONode.ofJson("[]")));
@@ -57,6 +72,29 @@ class SessionServiceTest {
 
         assertSame(injected, service.getStore());
         assertSame(injected, ctx.getSessionStore());
+    }
+
+    @Test
+    void slowTitleGenerationDoesNotBlockTheFirstTurn() throws Exception {
+        SessionService service = new SessionService(
+                new ConversationContext(new PromptPrefix("test", ONode.ofJson("[]"))), tempDir);
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        service.setTitleGenerator(text -> {
+            started.countDown();
+            try { release.await(3, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            return "生成的标题";
+        });
+        try {
+            String name = assertTimeoutPreemptively(java.time.Duration.ofSeconds(1), () -> service.beforeTurn("原始消息"));
+            assertTrue(started.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals("原始消息", service.getStore().getTitle(name));
+            release.countDown();
+            assertTimeoutPreemptively(java.time.Duration.ofSeconds(3), () -> {
+                while (!"生成的标题".equals(service.getStore().getTitle(name))) Thread.sleep(5);
+            });
+        } finally { release.countDown(); }
     }
 
     @Test

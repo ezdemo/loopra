@@ -341,3 +341,10 @@
 .loopra-conversation :is(.chain-head, .tool-head, .reasoning-head) > .tool-icon > svg { width: .875rem; height: .875rem; }
 .loopra-conversation .tool-icon { height: 1.25rem; line-height: 0; }
 .loopra-conversation :is(.tool-name, .tool-param, .tool-file, .tool-duration, .tool-status, .chain-summary, .chain-tools, .reasoning-preview, .reasoning-head > span) { line-height: 1.25rem; }
+.tool-image-result { margin: .5rem 0 .875rem; }
+.tool-image-thumbnails { display: flex; flex-wrap: wrap; gap: .625rem; }
+.tool-image-thumbnail { display: grid; place-items: center; width: 9rem; height: 9rem; max-width: 100%; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--soft); cursor: zoom-in; }
+.tool-image-thumbnail > img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.tool-image-thumbnail:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.tool-image-thumbnail:disabled { cursor: default; }
+.tool-image-unavailable { padding: .75rem; color: var(--muted); font-size: .75rem; }

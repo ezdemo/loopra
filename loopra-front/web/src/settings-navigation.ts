@@ -1,6 +1,9 @@
 export const settingsCategories = [
   { name: '通用', sections: [{ name: '通用', label: '通用', keywords: '外观 主题 字体 语言 通知 动画 宠物 实验室' }] },
-  { name: '模型服务', sections: [{ name: '模型供应商', label: '模型供应商', keywords: '模型渠道 API 密钥 上下文 价格' }] },
+  { name: '模型服务', sections: [
+    { name: '模型供应商', label: '模型供应商', keywords: '模型渠道 API 密钥 上下文 价格' },
+    { name: '模型用途', label: '模型用途', keywords: '默认模型 新会话 当前聊天 命令校验 图片理解 模型分配' },
+  ] },
   { name: '智能体', sections: [
     { name: '智能体与会话', label: '会话默认', keywords: '权限 推理 计划 快速' },
     { name: '系统提示词', label: '系统提示词', keywords: 'prompt loopra.md' },

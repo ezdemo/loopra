@@ -17,6 +17,30 @@ export function toolFileName(path: string) {
   return parts[parts.length - 1] || path;
 }
 
+/** Image-reader titles may include their path, e.g. `View Image C:\\...\\screen.png`. */
+export function imageToolSources(name: string, args?: Record<string, unknown>): string[] {
+  const imageReader = /(?:^|[.:/_\s])(?:view[ _-]?image|read[ _-]?image)(?=$|[\s.:/_-])/i.test(name);
+  const fileReader = /^(?:read|readfile)(?:$|\s)/i.test(name);
+  if (!imageReader && !fileReader) return [];
+  const paths = ['path', 'file_path', 'filePath', 'image_path', 'imagePath', 'paths', 'files']
+    .flatMap(key => Array.isArray(args?.[key]) ? args![key] as unknown[] : [args?.[key]])
+    .filter((value): value is string => typeof value === 'string' && /\.(?:png|jpe?g|gif|webp)$/i.test(value));
+  if (imageReader && !paths.length) {
+    const fromTitle = name.match(/(?:view[ _-]?image|read[ _-]?image)\s+(.+\.(?:png|jpe?g|gif|webp))$/i)?.[1];
+    if (fromTitle) paths.push(fromTitle.replace(/^["']|["']$/g, ''));
+  }
+  if (imageReader && typeof args?.url === 'string' && /^https?:\/\//i.test(args.url)) paths.push(args.url);
+  if (imageReader && typeof args?.base64 === 'string') {
+    const value = args.base64;
+    if (/^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(value)) paths.push(value);
+    else if (/^[a-z0-9+/=\s]+$/i.test(value)) {
+      const mime = value.startsWith('iVBOR') ? 'png' : value.startsWith('/9j/') ? 'jpeg' : value.startsWith('R0lGOD') ? 'gif' : value.startsWith('UklGR') ? 'webp' : '';
+      if (mime) paths.push(`data:image/${mime};base64,${value}`);
+    }
+  }
+  return [...new Set(paths)].slice(0, 8);
+}
+
 /**
  * Formats the inline parameter shown on a tool card, mirroring legacy
  * `BlockRenderer.vue` (`getBashCommand` / `getGrepPath` / `getGlobPath` /
