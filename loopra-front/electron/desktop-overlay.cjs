@@ -1,4 +1,4 @@
-const { WebContentsView, shell } = require('electron')
+const { WebContentsView } = require('electron')
 
 /**
  * 管理挂在主窗口 contentView 上的原生浮层。
@@ -162,10 +162,6 @@ class DesktopNativeOverlayManager {
 
     const entry = { key, view, visible: false, ready: null }
     this.entries.set(key, entry)
-    view.webContents.setWindowOpenHandler(({ url }) => {
-      shell.openExternal(url)
-      return { action: 'deny' }
-    })
     view.webContents.on('destroyed', () => {
       if (this.get(key) === entry) this.entries.delete(key)
     })

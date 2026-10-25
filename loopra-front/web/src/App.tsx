@@ -14,6 +14,7 @@ import SessionHistoryState from './components/SessionHistoryState';
 import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
 import Settings, { defaultPreferences } from './components/Settings';
+import SkillsPage from './components/SkillsPage';
 import { CoreServiceUpdateDialog, useCoreServiceUpdate } from './components/CoreServiceUpdate';
 import { DesktopUpdateDialog, useDesktopUpdate } from './components/DesktopUpdate';
 import type { Preferences } from './components/Settings';
@@ -99,6 +100,7 @@ export default function App() {
   const [homeTaskToolbar, setHomeTaskToolbar] = useState<HTMLDivElement | null>(null);
   const [gitBranch, setGitBranch] = useState('工作区');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('通用');
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
@@ -515,6 +517,7 @@ export default function App() {
     finally { setAgentSelectionBusy(false); }
   }
   function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') {
+    setSkillsOpen(false);
     agentConfigRequest.current++;
     setAgentDraftRevision(value => value + 1);
     preparedNewSession.current = null;
@@ -584,6 +587,7 @@ export default function App() {
   // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
   function clearChat() { if (generatingId) { notify('生成中无法清空，请先停止生成'); return; } newSession(workspace || workspaces[0]?.hash || ''); notify('已新建空白会话'); }
   async function selectSession(id: string) {
+    setSkillsOpen(false);
     const selected = sessions.find(item => item.id === id); if (!selected) return;
     selectMainTab(null, selected.workspaceHash || '');
     if (narrow) setSidebar(false);
@@ -1208,7 +1212,7 @@ export default function App() {
     agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={composerHistory}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -1232,13 +1236,14 @@ export default function App() {
     {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={activeId ?? ''} workspace={workspace} isHome={isHome} collapsed={collapsed} onCollapsed={setCollapsed}
+      {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={skillsOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!skillsOpen && isHome} collapsed={collapsed} onCollapsed={setCollapsed}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
+        skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setChanges(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
       <main className={`main-area ${changes && !chatMode ? 'has-changes' : ''}`}>
-        <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
-          chatMode={chatMode}
+        <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={skillsOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
+          chatMode={skillsOpen || chatMode}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
@@ -1250,6 +1255,8 @@ export default function App() {
           onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
           onHide={archiveSession} onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
+        {skillsOpen && <SkillsPage api={api} onRefresh={() => backend.refresh()} onBack={() => setSkillsOpen(false)} />}
+        <div className="app-chat-workspace" hidden={skillsOpen}>
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
@@ -1265,6 +1272,7 @@ export default function App() {
             <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
+        </div>
       </main>
       {!chatMode && changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
       {!chatMode && changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}

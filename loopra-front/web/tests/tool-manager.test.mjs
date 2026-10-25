@@ -27,7 +27,7 @@ async function sourceUrl(name, dependencies = {}) {
 }
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const Button = ({ children, onPress, isDisabled, isLoading, className, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, className: className || undefined, ...rest }, children);
+export const Button = ({ children, onPress, isDisabled, isLoading, className, startContent, endContent, isIconOnly, variant, size, color, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, className: className || undefined, ...rest }, children);
 ${checkboxStub}
 `);
 const controlsStub = dataUrl(`
@@ -53,12 +53,21 @@ const usageStub = dataUrl('export const UsageDashboard = () => null;');
 const gitModelsSource = await readFile(new URL('../src/git-models.ts', import.meta.url), 'utf8');
 const { outputText: gitModelsOut } = ts.transpileModule(gitModelsSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 const gitModelsUrl = dataUrl(gitModelsOut);
+const subAgentsUrl = await sourceUrl('components/SubAgentManager.tsx', {
+  '@nextui-org/react': nextuiStub,
+  'lucide-react': import.meta.resolve('lucide-react'),
+  './RemoteControls': controlsStub,
+  './SettingControls': settingControlsStub,
+  '../git-models': gitModelsUrl,
+  '../composer': await sourceUrl('composer.ts'),
+});
 const { ToolManager, SubAgentManager } = await import(await sourceUrl('components/ResourceManagers.tsx', {
   '@nextui-org/react': nextuiStub,
   './RemoteControls': controlsStub,
   './SettingControls': settingControlsStub,
   './UsageDashboard': usageStub,
   '../git-models': gitModelsUrl,
+  './SubAgentManager': subAgentsUrl,
 }));
 
 const tools = [
@@ -123,13 +132,15 @@ const profileTools = [
   { name: 'disabled_tool', readOnly: false, enabled: false },
 ];
 
-async function mountSubAgents() {
+async function mountSubAgents(initialProfiles = []) {
   globalThis.__calls = [];
+  let profiles = initialProfiles;
   const api = { request: (path, method = 'GET', body) => {
     globalThis.__calls.push({ path, method, body });
+    if (path === '/sub-agents' && method === 'PUT') profiles = body.profiles.map(profile => ({ ...profile, systemPrompt: profile.instructions }));
     const data = path.startsWith('/sub-agents/denied-tools') ? ['denied_tool']
-      : path.startsWith('/sub-agents') ? []
-      : path.startsWith('/models') ? { models: [{ name: 'gpt-6-sol', channelId: 'kimi', channelName: 'Kimi Code · DeepSeek' }, { name: 'claude', channelId: 'cpa', channelName: 'CPA' }] }
+      : path.startsWith('/sub-agents') ? profiles
+      : path.startsWith('/models') ? { models: [{ name: 'gpt-6-sol', displayName: 'GPT-6 Sol', channelId: 'kimi', channelName: 'Kimi Code · DeepSeek' }, { name: 'claude', channelId: 'cpa', channelName: 'CPA' }] }
       : path.startsWith('/tools') ? profileTools : undefined;
     return Promise.resolve(data);
   } };
@@ -160,7 +171,7 @@ test('the sub-agent editor picks channel/model from dropdowns and inherits by de
     channelSelect().value = 'kimi';
     await act(async () => { channelSelect().dispatchEvent(new dom.window.Event('change', { bubbles: true })); await Promise.resolve(); });
     const modelSelect = () => form().querySelector('select[aria-label="渠道模型"]');
-    assert.deepEqual([...modelSelect().options].map(option => [option.value, option.textContent]), [['', '渠道默认模型'], ['gpt-6-sol', 'gpt-6-sol']]);
+    assert.deepEqual([...modelSelect().options].map(option => [option.value, option.textContent]), [['', '渠道默认模型'], ['gpt-6-sol', 'GPT-6 Sol']]);
     // 切换渠道会重置已选模型。
     channelSelect().value = '';
     await act(async () => { channelSelect().dispatchEvent(new dom.window.Event('change', { bubbles: true })); await Promise.resolve(); });
@@ -190,5 +201,39 @@ test('the sub-agent tool whitelist imports all read-only or all write tools', as
     assert.deepEqual(checkedToolNames(form()), ['read_file']);
     await click(buttonIn(form(), '一键导入写入'));
     assert.deepEqual(checkedToolNames(form()), ['write_file']);
+  } finally { await view.close(); }
+});
+
+test('compact role browsing and editing preserve prompts, tool permissions and raw model IDs', async () => {
+  const source = { id: 'review', name: '代码审查', description: '检查代码质量与潜在问题', readOnly: true, enable: true, systemPrompt: 'Review with evidence and do not modify files.', allowedTools: ['read_file'], tools: ['read_file'], modelChannel: 'kimi', model: 'gpt-6-sol' };
+  const view = await mountSubAgents([source]);
+  try {
+    const row = () => view.container.querySelector('.agent-role-row');
+    assert.ok(row().textContent.includes('GPT-6 Sol'));
+    assert.equal(row().querySelector('pre'), null, 'the prompt is disclosed on demand');
+    await click(row().querySelector('.agent-role-detail-toggle'));
+    assert.equal(row().querySelector('pre').textContent, source.systemPrompt);
+    assert.ok(row().querySelector('.agent-role-tool-chips').textContent.includes('read_file'));
+    await click(row().querySelector('button[aria-label="编辑 代码审查"]'));
+    const form = view.container.querySelector('form');
+    assert.equal(form.querySelector('input[aria-label="角色 ID"]').readOnly, true);
+    assert.equal(form.querySelector('textarea[aria-label="角色提示词"]').value, source.systemPrompt);
+    assert.equal(form.querySelector('select[aria-label="渠道模型"]').value, source.model);
+    await click(buttonIn(form, '取消'));
+    assert.equal(globalThis.__calls.filter(call => call.method === 'PUT').length, 0);
+    await click(row().querySelector('button[aria-label="停用 代码审查"]'));
+    const saved = globalThis.__calls.find(call => call.method === 'PUT').body.profiles[0];
+    assert.equal(saved.enable, false);
+    assert.equal(saved.instructions, source.systemPrompt);
+    assert.equal(saved.readOnly, true);
+    assert.deepEqual(saved.allowedTools, source.allowedTools);
+    assert.equal(saved.model, source.model);
+    assert.equal(saved.modelChannel, source.modelChannel);
+    const input = view.container.querySelector('input[aria-label="搜索角色"]');
+    await act(async () => { Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, '不存在'); input.dispatchEvent(new dom.window.Event('input', { bubbles: true })); });
+    assert.equal(row(), null);
+    assert.ok(view.container.textContent.includes('没有匹配的角色'));
+    await click(buttonIn(view.container, '清除搜索'));
+    assert.ok(row());
   } finally { await view.close(); }
 });

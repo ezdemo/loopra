@@ -60,8 +60,7 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
   const { show, scheduleHide } = useLinkPopover();
   const path = localFilePath(href);
   if (path && openFile) return <a href="#" className="ai-link ai-file-link" title="打开文件预览" onClick={event => { event.preventDefault(); openFile(path); }}>{children}</a>;
-  // Hovering an external link reveals the legacy link toolbar ("浏览器打开",
-  // plus "元素界面打开" when running under Electron).
+  // Hovering an external link offers the system browser action.
   return <a href={href} className="ai-link" target="_blank" rel="noopener noreferrer" onMouseEnter={event => show(event.currentTarget)} onMouseLeave={scheduleHide}>{children}</a>;
 }
 

@@ -129,10 +129,6 @@
          :style="{ left: linkPopover.x + 'px', top: linkPopover.y + 'px' }"
          @mouseenter="onPopoverMouseEnter"
          @mouseleave="onPopoverMouseLeave">
-      <button v-if="isElectron" class="link-popover-btn" @click="openInElement">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-        元素界面打开
-      </button>
       <button class="link-popover-btn" @click="openInBrowser">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         浏览器打开
@@ -146,7 +142,6 @@ import {BRANCH_ICON, COPY_ICON, ROLLBACK_ICON} from '../utils/icons'
 import BlockRenderer from './BlockRenderer.vue'
 import CollapseTransition from './CollapseTransition.vue'
 import {computed, onBeforeUnmount, onMounted, reactive, ref, watch} from 'vue'
-import platform from '../services/platform'
 
 const props = defineProps({
   msg: {type: Object, required: true},
@@ -161,8 +156,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['previewImage', 'rollbackSnapshot', 'copyMessage', 'branchSession', 'sendChoice', 'openFile', 'openDiff', 'revertFileChanges', 'viewRawEvents'])
-
-const isElectron = platform.isElectron
 
 // 用户消息截断
 const USER_MAX_LEN = 300
@@ -442,11 +435,9 @@ function onMsgClick(e) {
     return
   }
 
-  // 浏览器环境直接打开
-  if (!isElectron) {
-    window.open(link.getAttribute('href'), '_blank')
-  }
-  // 桌面环境由浮层按钮处理
+  const url = link.getAttribute('href')
+  if (window.electronAPI?.openExternal) void window.electronAPI.openExternal(url)
+  else window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 async function openInBrowser() {
@@ -458,21 +449,6 @@ async function openInBrowser() {
   } else {
     window.open(url, '_blank')
   }
-}
-
-async function openInElement() {
-  const url = linkPopover.url
-  linkPopover.visible = false
-  if (!url) return
-  if (window.electronAPI?.elementInspectorWindow?.open) {
-    try {
-      await window.electronAPI.elementInspectorWindow.open(url)
-      return
-    } catch (error) {
-      console.error('[chat-message] failed to open element inspector:', error)
-    }
-  }
-  window.dispatchEvent(new CustomEvent('loopra:open-in-element', { detail: { url } }))
 }
 
 function normalizeActionUrl(rawUrl) {

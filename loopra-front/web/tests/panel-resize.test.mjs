@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 
-// Skills remain available in settings after simplifying the sidebar.
+// Skills have a dedicated main-page entry in the sidebar.
 // The right dock retains the legacy resize behaviour.
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const sidebar = await readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8');
@@ -14,10 +14,13 @@ const panelResizeSource = await readFile(new URL('../src/panel-resize.ts', impor
 const { outputText } = ts.transpileModule(panelResizeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 const { clampPanelWidth, clampSidebarWidth, resizePanelWidth, resizeSidebarWidth } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
-test('skills remain available in settings after removing the sidebar shortcut', async () => {
+test('skills open in the main area from the sidebar instead of settings', async () => {
   const settings = await readFile(new URL('../src/components/Settings.tsx', import.meta.url), 'utf8');
-  assert.match(settings, /tab === '技能' && <SkillManager/);
-  assert.doesNotMatch(app, /onClick=\{\(\) => openSettings\('技能'\)\}/);
+  assert.doesNotMatch(settings, /SkillManager/);
+  assert.match(sidebar, /onClick=\{props.onSkills\}/);
+  assert.ok(sidebar.indexOf('onClick={props.onSearch}') < sidebar.indexOf('onClick={props.onSkills}'));
+  assert.match(app, /skillsOpen && <SkillsPage/);
+  assert.match(app, /className="app-chat-workspace" hidden=\{skillsOpen\}/);
 });
 
 test('the sidebar keeps refresh and fold-all but drops locate and sort controls', () => {

@@ -1,0 +1,24 @@
+/* NextUI's data-focus-visible can outlive a pointer press or restored focus.
+   Keep pointer focus quiet and show a cue only after keyboard navigation.
+   Portalled controls are covered by the document-level workspace-theme class. */
+.workspace-theme { --keyboard-focus: #7c3aed; }
+.workspace-theme.dark,
+.workspace-theme[data-theme="dark"] { --keyboard-focus: #a78bfa; }
+
+.workspace-theme :is(button, a[href], select, summary, [role="button"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [tabindex]:not(input):not(textarea)):focus,
+.workspace-theme [data-focus-visible="true"] {
+  outline: none !important;
+}
+
+/* Clear only Tailwind's focus ring; preserve each control's ordinary shadow. */
+.workspace-theme [data-focus-visible="true"],
+.workspace-theme [data-focus-visible="true"] [class*="ring-focus"] {
+  --tw-ring-color: transparent !important;
+  --tw-ring-offset-width: 0px !important;
+}
+
+.workspace-theme[data-focus-modality="keyboard"] :is(button, a[href], select, summary, [role="button"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [tabindex]:not(input):not(textarea)):focus-visible {
+  outline: 2px solid var(--keyboard-focus) !important;
+  /* Draw inside the control so scroll panes and disclosure clips keep every edge. */
+  outline-offset: -2px !important;
+}

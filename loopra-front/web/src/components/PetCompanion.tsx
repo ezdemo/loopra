@@ -183,7 +183,7 @@ export default function PetCompanion(props: Props) {
         <PetSprite src={props.src} name={props.name} scale={scale} activity={activity} />
       </button>
       {controls && <div ref={panel} id={panelId} role={confirmClose ? 'alertdialog' : 'dialog'} aria-label={confirmClose ? '关闭宠物' : '宠物操作'} className="pet-panel" style={{ left: panelPosition.x, top: panelPosition.y }}>
-        {confirmClose ? <><strong>关闭宠物？</strong><p>可以在设置 → 通用 → 宠物中重新开启。</p><div className="pet-panel-actions"><button type="button" onClick={() => setConfirmClose(false)}>取消</button><button type="button" className="pet-danger" onClick={() => { setControls(false); props.onClose(); }}>关闭</button></div></> : <>
+        {confirmClose ? <><strong>关闭宠物？</strong><p>可以在设置 → 偏好设置 → 宠物中重新开启。</p><div className="pet-panel-actions"><button type="button" onClick={() => setConfirmClose(false)}>取消</button><button type="button" className="pet-danger" onClick={() => { setControls(false); props.onClose(); }}>关闭</button></div></> : <>
           <div className="pet-panel-heading"><strong>{props.name}</strong><button type="button" aria-label="收起宠物操作" onClick={() => { setControls(false); avatar.current?.focus(); }}><X size={14} /></button></div>
           <label className="pet-scale-label" htmlFor={`${panelId}-scale`}>宠物大小 <output>{Math.round(scale / 0.55 * 100)}%</output></label>
           <input ref={slider} id={`${panelId}-scale`} type="range" aria-label="宠物大小" min="0.25" max="1.25" step="0.01" value={scale}

@@ -12,6 +12,7 @@ const { registerGitEnvironmentIpc } = require('./git-environment.cjs')
 const { registerOnboardingIpc } = require('./onboarding.cjs')
 const { DesktopNativeOverlayManager } = require('./desktop-overlay.cjs')
 const { registerDesktopContextMenus } = require('./desktop-context-menu.cjs')
+const { registerDesktopExternalLinks } = require('./desktop-external-links.cjs')
 const { createDesktopTheme, registerDesktopThemeIpc } = require('./desktop-theme.cjs')
 const fs = require('fs')
 const net = require('net')
@@ -139,6 +140,21 @@ let desktopMessageWindow = null
 let desktopMessageWindowReady = false
 
 if (isWin) app.setAppUserModelId('com.loopra.desktop')
+
+registerDesktopExternalLinks({ app, shell, isAppUrl: isDesktopAppUrl })
+
+function isDesktopAppUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl)
+    if (url.protocol === 'file:') {
+      const relative = path.relative(path.resolve(__dirname, '../renderer'), fileURLToPath(url))
+      return !relative.startsWith('..') && !path.isAbsolute(relative)
+    }
+    if (isDev && DESKTOP_CHAT_DEV_RENDERER_ORIGINS.includes(url.origin)) return true
+    return url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
+      && (loopraWebWindows.has(Number(url.port)) || (currentPort > 0 && Number(url.port) === currentPort))
+  } catch { return false }
+}
 
 function parsePort(commandLine) {
   const match = String(commandLine || '').match(/--server\.port=(\d+)/i)
@@ -1146,7 +1162,6 @@ function openDesktopPetWindow() {
   desktopPetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   desktopPetWindow.setIgnoreMouseEvents(true, { forward: true })
   desktopPetWindow.on('closed', () => { desktopPetWindow = null })
-  desktopPetWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   desktopPetWindow.once('ready-to-show', () => desktopPetWindow?.showInactive())
   desktopPetWindow.webContents.on('did-finish-load', sendPendingDesktopPetReply)
 
@@ -2273,7 +2288,6 @@ function ensureDesktopMessageWindow() {
     desktopMessageWindowReady = false
     cancelDesktopMessageContextWaiters()
   })
-  messageWindow.webContents.setWindowOpenHandler(() => ({action: 'deny'}))
 
   if (isDev) {
     messageWindow.loadURL('http://127.0.0.1:3000/?desktopMessage=1')
@@ -2947,10 +2961,6 @@ async function getOrCreateDesktopChatTab(tabId, sessionName, workspaceHash, them
   }
   desktopChatTabs.set(tabId, tab)
   view.setVisible(false)
-  view.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
   view.webContents.on('did-start-loading', () => {
     tab.rendererReady = false
   })
@@ -3354,10 +3364,6 @@ function getOrCreateElementWebView() {
     }
   })
   elementWebView.setVisible(false)
-  elementWebView.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
   elementWebView.webContents.on('did-finish-load', () => {
     elementInspectorWindow?.webContents.send('element-webview-loaded', { url: elementWebView.webContents.getURL() })
   })

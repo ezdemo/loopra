@@ -43,7 +43,7 @@ async function sourceUrl(name, dependencies = {}) {
 }
 const ui = dataUrl(`
   import { createElement, forwardRef, useState } from ${JSON.stringify(reactUrl)};
-  export const Button = ({ children, onPress }) => createElement('button', { onClick: onPress }, children);
+  export const Button = ({ children, onPress, isDisabled, 'aria-label': label }) => createElement('button', { onClick: onPress, disabled: isDisabled, 'aria-label': label }, children);
   export const Select = forwardRef(({ onOpenChange, popoverProps, 'aria-label': label }, ref) => {
     const [open, setOpen] = useState(false);
     return createElement('div', { 'data-slot': 'base', 'data-popover-width': popoverProps?.style?.width },
@@ -55,7 +55,7 @@ const ui = dataUrl(`
     Tab = () => null, Tabs = () => null, Textarea = () => null;
 `);
 const motion = dataUrl('export const useAppMotion = () => ({ enabled: false });');
-const controlsUrl = await sourceUrl('components/SettingControls.tsx', { '@nextui-org/react': ui, './Motion': motion });
+const controlsUrl = await sourceUrl('components/SettingControls.tsx', { '@nextui-org/react': ui, './Motion': motion, '../composer': await sourceUrl('composer.ts') });
 const { SelectField } = await import(controlsUrl);
 const petsUrl = await sourceUrl('pets.ts');
 const spriteUrl = await sourceUrl('components/PetSprite.tsx', { '../pets': petsUrl, './Motion': motion });
@@ -123,5 +123,27 @@ test('opening pet settings uses the existing store, while explicit refresh remai
     assert.equal(refreshes, 0);
     await view.click([...view.container.querySelectorAll('button')].find(button => button.textContent === '刷新宠物列表'));
     assert.equal(refreshes, 1);
+  } finally { await view.close(); }
+});
+
+test('pet gallery keeps unavailable pets disabled and preserves selection, size and position actions', async () => {
+  const calls = [];
+  const pets = {
+    pets: [{ name: 'one', displayName: 'One', hasSpritesheet: true }, { name: 'two', displayName: 'Two', hasSpritesheet: true }, { name: 'broken', displayName: 'Broken', hasSpritesheet: false }],
+    active: { active: true, name: 'one', displayName: 'One', scale: .55 }, loading: false, imageUrl: '/one.png', imageUrlFor: name => `/${name}.png`,
+    select: async name => { calls.push(['select', name]); }, resize: async scale => { calls.push(['resize', scale]); }, move: async position => { calls.push(['move', position]); },
+  };
+  const view = await mount(PetSettings, { pets, enabled: true, onEnabled() {}, notify() {} });
+  try {
+    const button = label => view.container.querySelector(`button[aria-label="${label}"]`);
+    assert.equal(button('选择 One').getAttribute('aria-pressed'), 'true');
+    assert.equal(button('选择 Broken').disabled, true);
+    await view.click(button('选择 Broken'));
+    await view.click(button('选择 One'));
+    assert.deepEqual(calls, []);
+    await view.click(button('选择 Two'));
+    await view.click([...view.container.querySelectorAll('[role="radio"]')].find(item => item.textContent === '大'));
+    await view.click([...view.container.querySelectorAll('button')].find(item => item.textContent === '重置宠物位置'));
+    assert.deepEqual(calls, [['select', 'two'], ['resize', .75], ['move', { x: 0, y: 0 }]]);
   } finally { await view.close(); }
 });

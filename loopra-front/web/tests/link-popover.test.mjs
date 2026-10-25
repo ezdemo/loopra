@@ -4,8 +4,7 @@ import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
 
-// Legacy ChatMessage.vue revealed a floating toolbar when the pointer entered a
-// markdown link: "浏览器打开" always, "元素界面打开" only under Electron.
+// External links always offer the browser action, including under Electron.
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://test.invalid' });
 const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
 const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -114,7 +113,7 @@ test('workspace file links and unusable hrefs never show the toolbar', async () 
   await bare.close();
 });
 
-test('the Electron bridge adds 元素界面打开 and routes both buttons', async () => {
+test('Electron links use the default browser without the element window option', async () => {
   const calls = [];
   dom.window.electronAPI = {
     openExternal: async url => { calls.push(['external', url]); },
@@ -122,26 +121,26 @@ test('the Electron bridge adds 元素界面打开 and routes both buttons', asyn
   };
   const view = await mount({ href: 'https://example.com/panel' });
   await view.hover();
-  assert.deepEqual(view.buttons(), ['元素界面打开', '浏览器打开']);
-  await view.click('元素界面打开');
-  assert.equal(view.popovers().length, 0, '选择后浮层关闭');
-  await view.hover();
+  assert.deepEqual(view.buttons(), ['浏览器打开']);
   await view.click('浏览器打开');
-  assert.deepEqual(calls, [['element', 'https://example.com/panel'], ['external', 'https://example.com/panel']]);
+  assert.deepEqual(calls, [['external', 'https://example.com/panel']]);
   delete dom.window.electronAPI;
   await view.close();
 });
 
-test('without a desktop bridge 元素界面打开 falls back to the window event', async () => {
+test('without the browser bridge links use window.open and never dispatch an element-window event', async () => {
   const events = [];
+  const opened = [];
+  dom.window.open = url => { opened.push(url); return null; };
   const listener = event => events.push(event.detail);
   dom.window.addEventListener('loopra:open-in-element', listener);
   dom.window.electronAPI = { elementInspectorWindow: {} };
   const view = await mount({ href: 'https://example.com/event' });
   await view.hover();
-  await view.click('元素界面打开');
+  await view.click('浏览器打开');
   dom.window.removeEventListener('loopra:open-in-element', listener);
-  assert.deepEqual(events, [{ url: 'https://example.com/event' }]);
+  assert.deepEqual(events, []);
+  assert.deepEqual(opened, ['https://example.com/event']);
   delete dom.window.electronAPI;
   await view.close();
 });
