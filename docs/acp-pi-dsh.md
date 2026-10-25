@@ -27,6 +27,33 @@ Windows 通过 Node 直接运行适配器，再通过上游 `PI_ACP_PI_COMMAND` 
 避免工具被静默丢弃；请先停用工作台 MCP，再在 Pi 中配置所需扩展。
 思考流、权限及其他功能以适配器实际提供的 ACP 能力为准。
 
+### Pi 的配置与指令
+
+模型和思考强度来自 Agent 的 `configOptions`，已映射到输入框的模型、推理控件。
+Pi 的旧 `session.modes` 也是思考强度，不是文件访问权限或标准/极简工具模式。
+当前适配器没有暴露 `--tools`、`--no-extensions` 等 Pi CLI 参数；不能直接将这些参数
+附加到 `pi-acp`，它是另一个程序。
+
+在输入框输入 `/` 可选择 Pi 上报的指令：
+
+| 指令 | 作用 |
+|---|---|
+| `/compact [要求]` | 手动压缩上下文；可能调用模型 |
+| `/autocompact on`、`/autocompact off` | 开关自动压缩；不带参数会切换开关 |
+| `/steering all`、`/steering one-at-a-time` | 设置 Pi 对插入消息的投递方式 |
+| `/follow-up all`、`/follow-up one-at-a-time` | 设置 Pi 对后续消息的投递方式 |
+| `/session`、`/name 名称`、`/export` | 查看统计、命名、导出会话 |
+
+`/steering` 和 `/follow-up` 不带参数时只查询当前值。它们控制 Pi 自己的消息投递策略，
+不会改变 Loopra 工作台自己的消息队列。可用指令由当前安装的适配器上报，
+Loopra 通过现有 ACP 命令菜单发送并保存其结果。
+
+当前桥接器还会读取 `~/.pi/agent/settings.json` 与项目的 `.pi/settings.json`：
+`quietStartup: true` 可隐藏启动信息块（版本更新提示仍可能显示），
+`enableSkillCommands: true` 允许在 `/` 菜单显示 `/skill:技能名`，默认已开启。
+这些是 Pi/适配器自己的配置；Loopra 沿用它们，不另写一份互相覆盖的设置。
+`PI_CODING_AGENT_DIR` 可指定另一套 Pi Agent 配置目录，后端子进程会继承该环境变量。
+
 ## DeepSeek Harness
 
 使用 [官方 ACP profile](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)，
@@ -56,6 +83,28 @@ Loopra 根据协商能力恢复远端上下文，同时保留本地聊天历史�
 当前官方 ACP profile 只支持一个主工作目录，关联项目目录会明确报错；
 不提供会话分叉、计划、命令、结构化提问或专用子代理展示。
 
+### DSH 的标准 / 极简等预设
+
+DSH Web 的标准（`standard`）、极简（`minimal`）、PTC（`ptc`）、创造（`cordis`）
+是 Agent 组合预设，会影响工具、提示词和插件。官方 ACP 当前只上报模型与推理强度，
+没有预设选择接口，`dsh --profile acp --help` 也没有对应参数。
+`sdk-minimal` 是另一套 SDK 协议的运行 profile，不能用它替换 `acp` 后继续通过 ACP 通信。
+因此 Loopra 不在官方 ACP 会话里添加无法生效的标准/极简开关。
+参考 [官方预设界面说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-agent-preset/README.zh.md)
+及 [官方 ACP 能力范围](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)。
+
+## 从此回复继续到新会话
+
+当前 `svkozak/pi-acp` 0.0.34 和官方 DSH ACP 均未声明 `sessionCapabilities.fork`，
+因此这两个引擎不显示“从此回复继续到新会话”按钮。
+Pi CLI 自身的分叉能力没有被当前 ACP 适配器暴露，DSH 的其他界面/SDK 能力也不能
+直接视为 ACP 能力。
+
+另一个社区 Pi 适配器 `@victor-software-house/pi-acp` 提供整段会话的 fork，
+但当前实现没有解析“选定历史回复”的定位信息；不能用它来实现该按钮，
+否则新会话可能包含所选回复之后的内容。
+Loopra 没有自动替换已安装适配器或改用本地转录假装恢复了远端上下文。
+
 ## 验证
 
 `PiDshAcpProcessTest` 覆盖 npm bin 元数据、Windows / Unix 安装布局、显式入口、
@@ -72,3 +121,10 @@ mvn -pl loopra -am test -Dtest=DshAcpProtocolSmokeTest -Dloopra.test.dsh.protoco
 
 该测试验证真实插件加载、配置选项、新建和恢复会话。Windows PowerShell 请用单引号
 分别包住每个 `-D...` 参数。
+
+Pi 的真实协议测试读取已有 Pi 配置，验证模型/思考选项、斜杠菜单和不调用模型的
+`/steering`、`/follow-up` 查询，并核对当前适配器没有分叉能力：
+
+```sh
+mvn -pl loopra -am test -Dtest=PiAcpProtocolSmokeTest -Dloopra.test.pi.protocol=true -Dsurefire.failIfNoSpecifiedTests=false
+```

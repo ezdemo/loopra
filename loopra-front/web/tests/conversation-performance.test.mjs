@@ -110,6 +110,16 @@ test('cached bodies invoke the latest callbacks and optional controls follow ava
   } finally { await view.close(); }
 });
 
+for (const agentId of ['pi', 'dsh']) {
+  test(`${agentId} does not offer historical branching without adapter support`, async () => {
+    const view = await mount({ id: `${agentId}-session`, kind: 'remote', agentId, messages: [message('answer')] });
+    try {
+      assert.equal(view.container.querySelector('button[aria-label="继续到新会话"]'), null);
+      assert.ok(view.container.querySelector('button[aria-label="复制回复"]'));
+    } finally { await view.close(); }
+  });
+}
+
 test('a running duration ticks without rendering the message body again', async () => {
   const session = { id: 'session', kind: 'remote', messages: [{ ...message('live'), startedAt: Date.now() - 1000 }] };
   const view = await mount(session, { loading: true });
