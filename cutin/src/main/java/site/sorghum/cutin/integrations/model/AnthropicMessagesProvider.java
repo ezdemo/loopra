@@ -73,7 +73,7 @@ public final class AnthropicMessagesProvider
 
         StringBuilder system = new StringBuilder();
         List<ONode> messages = new ArrayList<>();
-        for (Message message : request.messages()) {
+        for (Message message : ToolImageReplay.expand(request.messages())) {
             if ("system".equals(message.role())) {
                 if (message.content() != null && !message.content().isEmpty()) {
                     if (system.length() > 0) {

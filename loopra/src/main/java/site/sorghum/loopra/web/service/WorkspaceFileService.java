@@ -34,6 +34,26 @@ public class WorkspaceFileService {
     @Inject
     private AgentService agentService;
 
+    public record ImageFile(byte[] bytes, String mimeType) {}
+
+    /** 工具卡片按已显示的路径读取图片；仅返回有位图签名且不超过 5 MiB 的文件。 */
+    public ImageFile image(String workspaceHash, String filePath) {
+        if (filePath == null || filePath.isBlank()) throw new ServiceException("图片路径不能为空");
+        try {
+            Path path = Path.of(filePath);
+            if (!path.isAbsolute()) path = resolveTarget(resolveWorkspace(workspaceHash), filePath);
+            if (!Files.isRegularFile(path) || Files.size(path) > 5L * 1024 * 1024) throw new ServiceException("图片不存在或超过 5 MiB");
+            try (var input = Files.newInputStream(path)) {
+                byte[] bytes = site.sorghum.loopra.bin.util.ImageBytes.readLimited(input);
+                String mime = site.sorghum.loopra.bin.util.ImageBytes.detectMimeType(bytes);
+                if (mime == null) throw new ServiceException("不支持的图片格式");
+                return new ImageFile(bytes, mime);
+            }
+        } catch (java.nio.file.InvalidPathException | IOException error) {
+            throw new ServiceException("图片不存在或不可读取");
+        }
+    }
+
     public List<WorkspaceFileEntryDTO> list(String workspaceHash, String relativePath) {
         Path workspace = resolveWorkspace(workspaceHash);
         Path directory = resolveDirectory(workspace, relativePath);

@@ -22,7 +22,7 @@ const settings = dataUrl(`import { createElement } from ${JSON.stringify(import.
 ${fieldStubs.replace('export const Field =', 'const BaseField =')}
 export const fieldRenders = [];
 export const Field = props => { fieldRenders.push({ label: props.label, value: props.value }); return createElement(BaseField, props); };
-export const ModelSelect = () => null;
+export const ModelSelect = ({label,value,onChange,models,optional}) => createElement('select', {'aria-label':label, value:value || '', onChange:event=>onChange(event.target.value)}, optional && createElement('option',{value:''},'继承 / 不启用'), models.map(model=>createElement('option',{key:model.id,value:model.id},model.displayName || model.name)));
 export const SettingSwitch = ({label,value,onChange}) => createElement('input',{type:'checkbox','aria-label':label,checked:value,onChange:event=>onChange(event.target.checked)});`);
 const { fieldRenders } = await import(settings);
 const { default: ModelProviderSettings } = await import(await moduleUrl('components/ModelProviderSettings.tsx', {
@@ -303,4 +303,40 @@ test('deleting one channel asynchronously cannot steal a newly selected channel'
     await act(async () => finish());
     assert.equal(ui.host.querySelector('.provider-channel.selected strong').textContent, 'C');
   } finally { await ui.close(); }
+});
+
+
+const { default: ModelUsageSettings } = await import(await moduleUrl('components/ModelUsageSettings.tsx', {
+  '../composer': await moduleUrl('composer.ts'), './SettingControls': settings,
+  '@nextui-org/react': dataUrl(`import {createElement} from ${JSON.stringify(import.meta.resolve('react'))}; export const Button=({children,onPress})=>createElement('button',{onClick:onPress},children);`),
+}));
+
+test('the model usage page preserves IDs and save boundaries for all five purposes', async () => {
+  const providers = [
+    { id: 'main', name: 'Main', models: [{ name: 'raw/model', displayName: 'Flash', imageInput: false }, { name: 'vision', imageInput: true }] },
+    { id: 'off', name: 'Disabled', enabled: false, models: [{ name: 'hidden', imageInput: true }] },
+  ];
+  const options = { modelId: 'main:raw/model', effort: 'max', fast: true, plan: false, mode: '按需审批' };
+  const config = { toolModel: '', validatorModel: 'main:raw/model', imageModel: 'main:vision', systemPrompt: 'keep this prompt' };
+  const defaults = [], chats = [], configs = []; let managed = false;
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => root.render(h(ModelUsageSettings, { providers, options, config, defaultModel: 'main:raw/model', onDefaultModel: value => defaults.push(value), onOptions: value => chats.push(value), onConfig: value => configs.push(value), onManageModels: () => { managed = true; } })));
+    const change = (label, value) => act(async () => {
+      const select = host.querySelector(`select[aria-label="${label}"]`); select.value = value; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+    assert.equal(host.querySelectorAll('select').length, 5);
+    assert.deepEqual([...host.querySelector('select[aria-label="工具模型"]').options].map(option => option.value), ['', 'main:raw/model', 'main:vision']);
+    assert.deepEqual([...host.querySelector('select[aria-label="图片理解模型"]').options].map(option => option.value), ['', 'main:vision']);
+    await change('新会话默认模型', 'main:vision');
+    await change('当前聊天模型', 'main:vision');
+    await change('工具模型', 'main:raw/model');
+    await change('命令校验模型', '');
+    await change('图片理解模型', '');
+    assert.deepEqual(defaults, ['main:vision']);
+    assert.deepEqual(chats, [{ ...options, modelId: 'main:vision' }]);
+    assert.deepEqual(configs, [{ ...config, toolModel: 'main:raw/model' }, { ...config, validatorModel: '' }, { ...config, imageModel: '' }]);
+    await act(async () => host.querySelector('button').click());
+    assert.equal(managed, true);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });

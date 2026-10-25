@@ -7,6 +7,7 @@ import site.sorghum.loopra.bin.agent.context.ConversationContext;
 import site.sorghum.loopra.bin.agent.context.MessageHealer;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.spi.SessionUsageSink;
+import site.sorghum.loopra.bin.model.ToolModelService;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -31,6 +32,8 @@ public class SessionService implements SessionUsageSink {
             "^```折叠块[ \\t]*\\r?\\n[\\s\\S]*?\\r?\\n```(?:\\r?\\n)*");
 
     private final ConversationContext ctx;
+    @Setter
+    private java.util.function.Function<String, String> titleGenerator = ToolModelService::generateTitle;
     /**
      * 按模型分别累计的 token 用量：model -> [prompt, completion, cacheHit, cacheMiss]
      */
@@ -241,19 +244,27 @@ public class SessionService implements SessionUsageSink {
         if (userMessage == null || userMessage.isEmpty()) {
             return "新会话";
         }
-        String messageWithoutCollapsedBlock = LEADING_COLLAPSIBLE_USER_BLOCK
-                .matcher(userMessage)
-                .replaceFirst("")
-                .trim();
+        String messageWithoutCollapsedBlock = titleSource(userMessage);
         if (messageWithoutCollapsedBlock.isEmpty()) {
             return "新会话";
         }
-        // 移除换行符，截取前30个字符
         String title = messageWithoutCollapsedBlock.replaceAll("\\s+", " ").trim();
-        if (title.length() > 30) {
-            title = title.substring(0, 30) + "...";
+        try {
+            String generated = titleGenerator == null ? null : titleGenerator.apply(messageWithoutCollapsedBlock);
+            if (generated != null && !generated.isBlank()) title = generated.replaceAll("\\s+", " ").trim();
+        } catch (RuntimeException error) {
+            log.warn("[session] 标题生成失败，保留消息摘要: {}", error.getMessage());
         }
-        return title;
+        return abbreviateTitle(title);
+    }
+
+    /** 标题只概括用户正文，排除自动附带的文件和技能上下文。 */
+    public static String titleSource(String message) {
+        return message == null ? "" : LEADING_COLLAPSIBLE_USER_BLOCK.matcher(message).replaceFirst("").trim();
+    }
+
+    private static String abbreviateTitle(String title) {
+        return title.length() > 30 ? title.substring(0, 30) + "..." : title;
     }
 
     /**
@@ -290,8 +301,21 @@ public class SessionService implements SessionUsageSink {
     public String beforeTurn(String userMessage) {
         if (!titleGenerated) {
             ensureSessionName();
-            updateCurrentSessionTitle(generateSessionTitle(userMessage));
+            String source = titleSource(userMessage);
+            String initialTitle = source.isBlank() ? "新会话" : abbreviateTitle(source.replaceAll("\\s+", " ").trim());
+            updateCurrentSessionTitle(initialTitle);
             titleGenerated = true;
+            SessionStore titleStore = store;
+            String name = store.currentName();
+            // 标题调用独立运行，不阻塞首轮回复；结果只写回最初的会话，且不覆盖手动重命名。
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                String generated = generateSessionTitle(userMessage);
+                try {
+                    if (!generated.equals(initialTitle) && initialTitle.equals(titleStore.getTitle(name))) {
+                        titleStore.updateTitle(name, generated);
+                    }
+                } catch (IOException error) { log.warn("[session] 保存生成标题失败: {}", error.getMessage()); }
+            });
         }
         return store.currentName();
     }

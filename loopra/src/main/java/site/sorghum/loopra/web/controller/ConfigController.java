@@ -119,6 +119,8 @@ public class ConfigController {
                 cfg.validationModelChannelId(),
                 cfg.imageUnderstandingModel(),
                 cfg.imageUnderstandingModelChannelId(),
+                cfg.toolModel(),
+                cfg.toolModelChannelId(),
                 cfg.proxy()
         );
         return ApiResponse.ok(data);

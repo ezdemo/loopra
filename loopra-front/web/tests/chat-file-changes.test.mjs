@@ -50,8 +50,12 @@ const diff = await compile('../src/diff.ts');
 const chat = await compile('../src/chat.ts');
 const toolParams = await compile('../src/tool-params.ts');
 const unifiedDiff = await compile('../src/components/UnifiedDiff.tsx', { '../diff': diff, '../highlight': highlightStub });
+const imagePreview = await compile('../src/components/ImagePreview.tsx', { 'react-dom': import.meta.resolve('react-dom') });
+const { ImagePreviewProvider } = await import(imagePreview);
+const toolImageResult = await compile('../src/components/ToolImageResult.tsx', { './ImagePreview': imagePreview });
+const { ToolImageSourceProvider } = await import(toolImageResult);
 const { default: BlockRenderer } = await import(await compile('../src/components/BlockRenderer.tsx', {
-  '../chat': chat, '../tool-params': toolParams, './Motion': motionStub, './ui': uiStub, './Markdown': markdownStub, './UnifiedDiff': unifiedDiff, '@nextui-org/react': nextuiStub,
+  '../chat': chat, '../tool-params': toolParams, './Motion': motionStub, './ui': uiStub, './Markdown': markdownStub, './UnifiedDiff': unifiedDiff, './ToolImageResult': toolImageResult, '@nextui-org/react': nextuiStub,
 }));
 
 const change = (path, diff, additions, deletions) => ({ path, additions, deletions, diff });
@@ -170,4 +174,47 @@ test('an edit landing after an undo brings the card back', async () => {
     // and it is the patch just written, not the one that was undone.
     assert.deepEqual(view.lines(), ['1-old', '1+new', '2+extra', '9-x', '10+y']);
   } finally { await view.close(); }
+});
+
+
+test('the exact View Image title from the screenshot renders its path as an image inside the tool detail', async () => {
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  const path = 'C:\\Users\\15614\\Downloads\\1792912429871.png';
+  const title = `View Image ${path}`;
+  const previousFetch = globalThis.fetch;
+  const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+  const requests = [], revoked = [];
+  globalThis.fetch = async url => { requests.push(String(url)); return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'Content-Type': 'image/png' } }); };
+  URL.createObjectURL = () => 'blob:test-image'; URL.revokeObjectURL = url => revoked.push(url);
+  const render = async status => act(async () => root.render(createElement(ImagePreviewProvider, null,
+    createElement(ToolImageSourceProvider, { value: source => `http://test.invalid/api/files/image?path=${encodeURIComponent(source)}` },
+      createElement(BlockRenderer, { notify() {}, blocks: [{ id: 'read', type: 'tool_call', name: title, status, args: { path } }] })))));
+  try {
+    await render('执行中');
+    assert.equal(host.querySelector('.tool-head').getAttribute('aria-expanded'), 'false');
+    assert.equal(requests.length, 0);
+    await render('成功');
+    assert.equal(host.querySelector('.tool-name').textContent, title, 'the existing tool header remains');
+    assert.equal(host.querySelector('.tool-head').getAttribute('aria-expanded'), 'true', 'successful image reads open automatically');
+    assert.equal(host.querySelector('.tool-image-heading'), null);
+    assert.equal(host.querySelector('.tool-detail pre'), null, 'the raw parameter JSON is replaced only for image readers');
+    assert.equal(host.querySelector('.tool-image-thumbnail img').getAttribute('src'), 'blob:test-image');
+    assert.equal(new URL(requests[0]).searchParams.get('path'), path);
+    await click(host.querySelector('.tool-image-thumbnail'));
+    assert.equal(document.querySelector('.image-preview-full').getAttribute('src'), 'blob:test-image');
+    await click(document.querySelector('[aria-label="关闭图片预览"]'));
+    await click(host.querySelector('.tool-head'));
+    assert.equal(host.querySelector('.tool-image-result'), null, 'an image read can still be collapsed manually');
+    await render('执行中');
+    await render('成功');
+    assert.equal(host.querySelector('.tool-image-result'), null, 'stream updates respect a manual collapse');
+    await click(host.querySelector('.tool-head'));
+    await render('失败');
+    assert.equal(host.querySelector('.tool-image-result'), null);
+    assert.ok(host.querySelector('.tool-detail pre'), 'failed reads keep their original diagnostic detail');
+  } finally {
+    await act(async () => root.unmount()); host.remove(); globalThis.fetch = previousFetch;
+    URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
+  }
+  assert.ok(revoked.includes('blob:test-image'));
 });

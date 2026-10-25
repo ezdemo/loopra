@@ -10,6 +10,8 @@ import com.agentclientprotocol.sdk.spec.AcpSchema.McpServer;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.loopra.bin.agent.model.UserMessage;
 import site.sorghum.loopra.bin.session.SessionStore;
+import site.sorghum.loopra.bin.session.SessionService;
+import site.sorghum.loopra.bin.model.ToolModelService;
 import site.sorghum.loopra.bin.session.SubAgentSessionStore;
 import site.sorghum.loopra.tool.AgentOutput;
 import site.sorghum.loopra.web.common.ServiceException;
@@ -104,7 +106,17 @@ final class ExternalAcpSessions implements AutoCloseable {
             ChatMessage user = message.getImages().isEmpty() ? ChatMessage.ofUser(message.getText())
                     : ChatMessage.ofUser(message.getText(), message.getImages());
             user.setSnapshotId(message.getSnapshotId()); user.setRollbackId(message.getRollbackId());
+            boolean firstMessage = !store.hasMessages(name);
             store.bindTo(name); store.append(user);
+            if (firstMessage && (store.getTitle(name) == null || store.getTitle(name).isBlank())) {
+                CompletableFuture.runAsync(() -> {
+                    String title = ToolModelService.generateTitle(SessionService.titleSource(message.getText()));
+                    if (title != null && (store.getTitle(name) == null || store.getTitle(name).isBlank())) {
+                        try { store.updateTitle(name, title); }
+                        catch (java.io.IOException error) { log.warn("[acp] 保存生成标题失败: session={}", name, error); }
+                    }
+                });
+            }
             // The linked-project context is turn-scoped. Inject it into what the Agent sees,
             // but keep the workbench transcript (and the stored user message) unchanged.
             String text = linkedProjectContext == null || linkedProjectContext.isBlank() ? message.getText()

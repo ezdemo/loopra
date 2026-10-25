@@ -29,6 +29,8 @@ public record ConfigDTO(
         String validationModelChannelId,
         String imageUnderstandingModel,
         String imageUnderstandingModelChannelId,
+        String toolModel,
+        String toolModelChannelId,
         String proxy
 ) {
     /** 不包含真实 API Key 的渠道配置。 */

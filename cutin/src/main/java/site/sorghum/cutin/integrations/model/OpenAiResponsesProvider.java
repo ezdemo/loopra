@@ -85,7 +85,7 @@ public final class OpenAiResponsesProvider
         StringBuilder instructions = new StringBuilder();
         ONode input = JsonSupport.array();
         body.set("input", input);
-        for (Message message : request.messages()) {
+        for (Message message : ToolImageReplay.expand(request.messages())) {
             if ("system".equals(message.role())) {
                 if (message.content() != null && !message.content().isEmpty()) {
                     if (instructions.length() > 0) {
@@ -153,6 +153,9 @@ public final class OpenAiResponsesProvider
                 ONode imagePart = JsonSupport.object();
                 imagePart.set("type", "input_image");
                 imagePart.set("image_url", String.valueOf(image));
+                if (message.metadata("image_detail") != null) {
+                    imagePart.set("detail", String.valueOf(message.metadata("image_detail")));
+                }
                 content.add(imagePart);
             }
             item.set("content", content);

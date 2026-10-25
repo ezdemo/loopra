@@ -73,7 +73,7 @@ public final class OpenAiChatCompletionsProvider
         }
         ONode messages = JsonSupport.array();
         body.set("messages", messages);
-        for (Message message : request.messages()) {
+        for (Message message : ToolImageReplay.expand(request.messages())) {
             messages.add(toOpenAiMessage(message));
         }
 
@@ -112,6 +112,9 @@ public final class OpenAiChatCompletionsProvider
                 part.set("type", "image_url");
                 ONode imageUrl = JsonSupport.object();
                 imageUrl.set("url", String.valueOf(image));
+                if (message.metadata("image_detail") != null) {
+                    imageUrl.set("detail", String.valueOf(message.metadata("image_detail")));
+                }
                 part.set("image_url", imageUrl);
                 content.add(part);
             }

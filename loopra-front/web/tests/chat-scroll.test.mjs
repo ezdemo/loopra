@@ -57,6 +57,7 @@ const { default: BlockRenderer } = await import(await sourceUrl('components/Bloc
   './ui': dataUrl('export const IconButton = () => null;'),
   './Markdown': dataUrl('export default () => null;'),
   './UnifiedDiff': dataUrl('export default () => null;'),
+  './ToolImageResult': dataUrl('export default () => null;'),
 }));
 
 const chatWindowUrl = await sourceUrl('chat-window.ts');

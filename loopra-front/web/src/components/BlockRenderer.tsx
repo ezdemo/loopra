@@ -4,10 +4,11 @@ import { Button } from '@nextui-org/react';
 import { Brain, Check, ChevronDown, Circle, FileCode2, FileDiff, ListTree, LoaderCircle, PanelRight, Undo2, X } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
 import { chainBlocks } from '../chat';
-import { toolParam } from '../tool-params';
+import { imageToolSources, toolParam } from '../tool-params';
 import { IconButton } from './ui';
 import Markdown from './Markdown';
 import UnifiedDiff from './UnifiedDiff';
+import ToolImageResult from './ToolImageResult';
 
 export type BlockActions = { notify: (message: string) => void; onOpenFile?: (path: string) => void; onDiff?: (path: string, diff?: string) => void; onRevert?: (changes: FileChange[]) => Promise<void> };
 function StatusIcon({ status }: { status: ToolStatus }) {
@@ -16,15 +17,17 @@ function StatusIcon({ status }: { status: ToolStatus }) {
 
 const ToolBlock = memo(function ToolBlock({ block, onOpenFile }: { block: Extract<ChatBlock, { type: 'tool_call' }>; onOpenFile?: (path: string) => void }) {
   const detailId = useId();
-  const [open, setOpen] = useState(false);
-  useCollapseAll(() => setOpen(false));
+  const [expanded, setExpanded] = useState<boolean | null>(null);
+  useCollapseAll(() => setExpanded(false));
+  const images = block.status === '成功' ? imageToolSources(block.name, block.args) : [];
+  const open = expanded ?? (images.length > 0);
   const param = toolParam(block.name, block.args);
   // The head is a <button>, so the clickable filename uses a span to avoid nesting interactive elements.
   const openFile = (event: { stopPropagation: () => void; preventDefault?: () => void }) => { event.stopPropagation(); if (param?.filePath) onOpenFile?.(param.filePath); };
   const paramNode = param?.filePath
     ? <span className="tool-file" role="button" tabIndex={0} title={param.title} onClick={openFile} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFile(event); } }}>{param.text}</span>
     : param ? <span className="tool-param" title={param.title}>{param.text}</span> : null;
-  return <div className="block-tool"><button type="button" className="tool-head" aria-expanded={open} aria-controls={detailId} onClick={() => setOpen(!open)}><StatusIcon status={block.status} /><code className="tool-name">{block.name}</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span>{paramNode}{block.duration && <span className="tool-duration">{block.duration}</span>}<ChevronDown size="0.875rem" className={open ? 'rotated' : ''} /></button><Collapse open={open} id={detailId} className="tool-detail">{block.args && <><span className="tool-detail-label">参数</span><pre><code>{JSON.stringify(block.args, null, 2)}</code></pre></>}{block.result && <><span className="tool-detail-label">结果</span><pre><code>{block.result}</code></pre></>}</Collapse></div>;
+  return <div className="block-tool"><button type="button" className="tool-head" aria-expanded={open} aria-controls={detailId} onClick={() => setExpanded(!open)}><StatusIcon status={block.status} /><code className="tool-name">{block.name}</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span>{paramNode}{block.duration && <span className="tool-duration">{block.duration}</span>}<ChevronDown size="0.875rem" className={open ? 'rotated' : ''} /></button><Collapse open={open} id={detailId} className="tool-detail">{images.length ? <ToolImageResult images={images} /> : <>{block.args && <><span className="tool-detail-label">参数</span><pre><code>{JSON.stringify(block.args, null, 2)}</code></pre></>}{block.result && <><span className="tool-detail-label">结果</span><pre><code>{block.result}</code></pre></>}</>}</Collapse></div>;
 });
 
 // One row of the file list: the name expands the diff in the transcript, the

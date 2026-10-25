@@ -7,7 +7,7 @@ import ts from 'typescript';
 // tools (read/edit/write) as clickable filenames that open the original file.
 const source = await readFile(new URL('../src/tool-params.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { toolParam, toolFileName } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { toolParam, toolFileName, imageToolSources } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('file tools expose the basename as a clickable path', () => {
   const param = toolParam('edit', { file_path: 'src/components/App.tsx' });
@@ -49,4 +49,16 @@ test('the tool card renders the clickable file button', async () => {
   // Tools inside a reasoning chain render through the same ToolBlock, and their
   // file path opens the original file rather than the Git diff.
   assert.match(blockRenderer, /<ToolBlock block=\{block\} onOpenFile=\{actions\.onOpenFile\} \/>/);
+});
+
+
+test('image-reader recognition accepts display titles with paths and excludes ordinary file tools', () => {
+  const path = 'C:\\Users\\15614\\Downloads\\1792912429871.png';
+  for (const name of [`View Image ${path}`, 'view_image', 'functions.view_image', 'Read', `Read ${path}`, 'read_image']) {
+    assert.deepEqual(imageToolSources(name, { path }), [path], name);
+  }
+  assert.deepEqual(imageToolSources(`View Image ${path}`), [path]);
+  assert.deepEqual(imageToolSources('Read', { file_path: 'src/app.ts' }), []);
+  assert.deepEqual(imageToolSources('write', { path }), []);
+  assert.deepEqual(imageToolSources('view_image', { path: 'secret.txt' }), []);
 });

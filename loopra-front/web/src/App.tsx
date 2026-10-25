@@ -1,3 +1,4 @@
+import { ToolImageSourceProvider } from './components/ToolImageResult';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Check } from 'lucide-react';
@@ -481,12 +482,12 @@ export default function App() {
   async function saveAgentSettings(next: AgentSettings) {
     if (next.serverUrl !== server) { setServer(serverAddress(next.serverUrl)); setActiveId(null); setWorkspace(''); return; }
     const changed = <K extends keyof AgentSettings>(key: K) => JSON.stringify(next[key]) !== JSON.stringify(agentSettings[key]);
-    const localOnly = !(['systemPrompt', 'tools', 'validatorModel', 'imageModel'] as const).some(changed);
+    const localOnly = !(['systemPrompt', 'tools', 'validatorModel', 'imageModel', 'toolModel'] as const).some(changed);
     if (localOnly) { setAgentSettings(next); return; }
     await mutation(async () => {
       const patch: Record<string, unknown> = {};
       if (changed('tools')) patch.disabledTools = next.tools.filter(tool => !tool.enabled).map(tool => tool.name);
-      for (const [key, modelKey, channelKey] of [['validatorModel', 'validationModel', 'validationModelChannelId'], ['imageModel', 'imageUnderstandingModel', 'imageUnderstandingModelChannelId']] as const) {
+      for (const [key, modelKey, channelKey] of [['validatorModel', 'validationModel', 'validationModelChannelId'], ['imageModel', 'imageUnderstandingModel', 'imageUnderstandingModelChannelId'], ['toolModel', 'toolModel', 'toolModelChannelId']] as const) {
         if (changed(key)) { const model = getModelCatalog(providers).find(item => item.id === next[key]); patch[modelKey] = model?.name || ''; patch[channelKey] = model?.providerId || ''; }
       }
       if (Object.keys(patch).length) await api.request('/config', 'PUT', patch);
@@ -1130,7 +1131,7 @@ export default function App() {
     setComposerOptions(current => session
       ? { ...current, mode: permissionLabel(config.hitl), fast: config.fastMode }
       : { ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode });
-    setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '' }));
+    setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '', toolModel: config.toolModel ? `${config.toolModelChannelId}:${config.toolModel}` : '' }));
     setWorkspace(current => backend.workspaces.some(item => item.hash === current) ? current : backend.workspaces.find(item => item.path === config.workspace)?.hash || backend.workspaces[0]?.hash || '');
   }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server, session?.id]);
   // The host is what actually launches these, and only it knows what exists there (Git Bash is
@@ -1166,10 +1167,10 @@ export default function App() {
   }, [providers, composerOptions.modelId, defaultModel, setComposerOptions, setDefaultModel]);
   useEffect(() => {
     const catalog = getModelCatalog(providers);
-    if ((agentSettings.validatorModel && !catalog.some(model => model.id === agentSettings.validatorModel)) || (agentSettings.imageModel && !catalog.some(model => model.id === agentSettings.imageModel && model.imageInput))) {
-      setAgentSettings(current => ({ ...current, validatorModel: catalog.some(model => model.id === current.validatorModel) ? current.validatorModel : '', imageModel: catalog.some(model => model.id === current.imageModel && model.imageInput) ? current.imageModel : '' }));
+    if ((agentSettings.toolModel && !catalog.some(model => model.id === agentSettings.toolModel)) || (agentSettings.validatorModel && !catalog.some(model => model.id === agentSettings.validatorModel)) || (agentSettings.imageModel && !catalog.some(model => model.id === agentSettings.imageModel && model.imageInput))) {
+      setAgentSettings(current => ({ ...current, toolModel: catalog.some(model => model.id === current.toolModel) ? current.toolModel : '', validatorModel: catalog.some(model => model.id === current.validatorModel) ? current.validatorModel : '', imageModel: catalog.some(model => model.id === current.imageModel && model.imageInput) ? current.imageModel : '' }));
     }
-  }, [providers, agentSettings.validatorModel, agentSettings.imageModel, setAgentSettings]);
+  }, [providers, agentSettings.validatorModel, agentSettings.imageModel, agentSettings.toolModel, setAgentSettings]);
   useEffect(() => {
     const names = ['编程助手', '通用助手', '代码审查助手', ...agentSettings.agents.filter(agent => agent.enabled).map(agent => agent.name)];
     if (!names.includes(agentSettings.agentName)) setAgentSettings(current => ({ ...current, agentName: '编程助手' }));
@@ -1226,7 +1227,8 @@ export default function App() {
   // header), so the shell has no empty title-bar strip of its own.
   const desktopShell = isDesktopWindow();
   const nativeWindowControls = desktopShell && usesNativeWindowControls(desktopPlatform());
-  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes && !chatMode ? 'open' : 'closed'}>
+  const toolImageUrl = useCallback((path: string) => api.assetUrl(`/files/image?${new URLSearchParams({ path, workspaceHash: workspace })}`), [api, workspace]);
+  return <ToolImageSourceProvider value={toolImageUrl}><AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes && !chatMode ? 'open' : 'closed'}>
     {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
@@ -1315,6 +1317,6 @@ export default function App() {
     <DesktopUpdateDialog controller={desktopUpdate} />
     <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>
-  </div></AppMotion>;
+  </div></AppMotion></ToolImageSourceProvider>;
 }
 

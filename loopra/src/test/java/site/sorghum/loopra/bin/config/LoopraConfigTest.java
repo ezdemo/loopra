@@ -520,6 +520,7 @@ class LoopraConfigTest {
         Files.createDirectories(configDir);
         Files.writeString(configDir.resolve("config.json"), """
                 {"validationModel":"guard-mini","validationModelChannelId":"guard",
+                 "toolModel":"guard-mini","toolModelChannelId":"guard",
                  "imageUnderstandingModel":"vision-mini","imageUnderstandingModelChannelId":"vision",
                  "modelChannels":[{"id":"guard","models":[{"name":"guard-mini"}]}]}
                 """);
@@ -528,8 +529,11 @@ class LoopraConfigTest {
         System.setProperty("user.home", tempDir.toString());
         try {
             LoopraConfig config = LoopraConfig.load();
+            assertEquals("guard-mini", config.toolModel());
+            assertEquals("guard", config.toolModelChannel().id());
             config.updateAndSave(Map.of(
                     "validationModel", "", "validationModelChannelId", "",
+                    "toolModel", "", "toolModelChannelId", "",
                     "imageUnderstandingModel", "", "imageUnderstandingModelChannelId", ""));
 
             LoopraConfig saved = LoopraConfig.load();
@@ -537,6 +541,8 @@ class LoopraConfigTest {
             assertEquals("", saved.validationModelChannelId());
             assertEquals("", saved.imageUnderstandingModel());
             assertEquals("", saved.imageUnderstandingModelChannelId());
+            assertEquals("", saved.toolModel());
+            assertEquals("", saved.toolModelChannelId());
         } finally {
             System.setProperty("user.home", originalUserHome);
         }

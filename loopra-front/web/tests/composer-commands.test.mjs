@@ -36,15 +36,19 @@ async function sourceUrl(name, dependencies = {}) {
   return dataUrl(outputText);
 }
 const composerSource = await readFile(new URL('../src/components/Composer.tsx', import.meta.url), 'utf8');
-const iconNames = composerSource.match(/import \{ ([^}]+) \} from 'lucide-react'/)[1].split(',').map(name => name.trim());
-const icons = dataUrl(iconNames.map(name => `export const ${name}=()=>null;`).join('\n'));
+const selectorSource = await readFile(new URL('../src/components/ModelReasoningSelector.tsx', import.meta.url), 'utf8');
+const iconNames = [...new Set([...[composerSource, selectorSource].join('\n').matchAll(/import \{ ([^}]+) \} from 'lucide-react'/g)].flatMap(match => match[1].split(',').map(name => name.trim())))];
+const icons = dataUrl([...iconNames, 'Brain'].map(name => `export const ${name}=()=>null;`).join('\n'));
 const nextui = dataUrl(`
-const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const Button = ({children, onPress, isDisabled, isIconOnly, variant, color, size, className, ...props}) =>
-  createElement('button', {type:'button', className, disabled:isDisabled, onClick:onPress, 'aria-label':props['aria-label']}, children);
+const { createElement, forwardRef } = await import(${JSON.stringify(reactUrl)});
+export const Button = forwardRef(({children, onPress, isDisabled, isIconOnly, variant, color, size, className, ...props}, ref) =>
+  createElement('button', {type:'button', ref, className, disabled:isDisabled, onClick:onPress, ...props}, children));
 export const Chip = ({children}) => createElement('span', null, children);
 export const Tooltip = ({children}) => children;
-export const Input = () => null, Textarea = () => null, Spinner = () => null, Switch = () => null;
+export const Input = ({value, onValueChange, 'aria-label':label, autoFocus, isDisabled}) => createElement('input', {value, autoFocus, disabled:isDisabled, 'aria-label':label, onChange:event=>onValueChange(event.target.value)});
+export const Slider = ({value, className}) => createElement('div', {className, 'data-value':value});
+export const Switch = ({isSelected, onValueChange, 'aria-label':label}) => createElement('input', {type:'checkbox', checked:isSelected, 'aria-label':label, onChange:event=>onValueChange(event.target.checked)});
+export const Textarea = () => null, Spinner = () => null;
 `);
 const lib = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
@@ -56,6 +60,13 @@ export const Popup = ({open, children, className}) => open ? createElement('div'
 export const Collapse = ({open, children}) => open ? children : null;
 `);
 const placeholder = dataUrl('export default () => null;');
+const selectorDependencies = {
+  '@nextui-org/react': nextui, 'lucide-react': icons, './Motion': motion,
+  '../composer': await sourceUrl('composer.ts'), '../agent-config': await sourceUrl('agent-config.ts'),
+  '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
+};
+const reasoning = await sourceUrl('components/ReasoningControl.tsx', selectorDependencies);
+const selector = await sourceUrl('components/ModelReasoningSelector.tsx', { ...selectorDependencies, './ReasoningControl': reasoning });
 const Composer = (await import(await sourceUrl('components/Composer.tsx', {
   '@nextui-org/react': nextui, 'lucide-react': icons, '../lib': lib, './Motion': motion,
   '../composer': await sourceUrl('composer.ts'), '../usage': await sourceUrl('usage.ts'),
@@ -64,7 +75,7 @@ const Composer = (await import(await sourceUrl('components/Composer.tsx', {
     export const LARGE_PASTE_THRESHOLD_CHARS=10000, MAX_DOC_FILE_SIZE=1000000, MAX_IMAGE_COUNT=10, MAX_TEXT_FILE_SIZE=1000000, MAX_UPLOAD_FILES=10;
     export const attachmentLimitReached=()=>false, fileKind=()=>null, extractDocumentText=()=>'', formatFileSize=()=>'';
   `),
-  './PetCompanion': placeholder, './ReasoningControl': placeholder, './AgentConfigControls': placeholder,
+  './PetCompanion': placeholder, './ModelReasoningSelector': selector, './AgentConfigControls': placeholder,
   '../pets': dataUrl('export const petScale=()=>1;'),
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
 }))).default;
@@ -127,7 +138,7 @@ test('initial configuration loading reserves toolbar controls with skeletons and
   const view = await mount({ draft: '', agentConfig });
   try {
     assert.equal(view.host.querySelector('.composer-bottom').getAttribute('aria-busy'), 'true');
-    assert.equal(view.host.querySelectorAll('.composer-skeleton').length, 8);
+    assert.equal(view.host.querySelectorAll('.composer-skeleton').length, 7);
     assert.match(view.host.querySelector('[role="status"]').textContent, /正在加载输入栏配置/);
     assert.equal(view.host.querySelector('.composer-bottom button'), null, 'initial placeholders cannot trigger unready controls');
     const options = [
@@ -163,6 +174,7 @@ test('configured display names render in the composer and choosing them retains 
   try {
     assert.equal(view.host.querySelector('.composer-model > span').textContent, 'DeepSeek Flash');
     await act(async () => view.host.querySelector('.composer-model').click());
+    await act(async () => view.host.querySelector('.model-reasoning-rows > button').click());
     const choice = view.host.querySelector('[role="radio"][aria-label="Custom / DeepSeek Flash"]');
     assert.ok(choice); assert.equal(choice.title, name);
     assert.equal(choice.querySelector('small').textContent, name);
@@ -178,6 +190,7 @@ test('Native ACP display names preserve the raw selection and default-model valu
   try {
     assert.equal(view.host.querySelector('.composer-model > span').textContent, 'Flash / 中文名');
     await act(async () => view.host.querySelector('.composer-model').click());
+    await act(async () => view.host.querySelector('.model-reasoning-rows > button').click());
     const choice = view.host.querySelector('[role="radio"][aria-label="Main / Flash / 中文名"]');
     assert.equal(choice.querySelector('small').textContent, 'namespace/raw-model');
     await act(async () => view.host.querySelector('.model-star').click());
@@ -307,5 +320,106 @@ test('pure chat filters project commands and skips skills; switching back restor
     await view.update({ chatMode: true, workspaceHash: '__loopra_chat__' });
     assert.equal(view.rows().includes('/plugin'), false);
     assert.equal(view.rows().some(row => row.startsWith('/skill:')), false);
+  } finally { await view.close(); }
+});
+
+
+test('combined model and reasoning menu supports overview, back, Escape and outside dismissal', async () => {
+  const options = { modelId: 'custom:flash', mode: '完全自动', effort: 'max', plan: false, fast: false };
+  const view = await mount({ agentId: 'native', draft: '', options, providers: [{ id: 'custom', name: 'Custom', models: [{ name: 'flash', displayName: 'DeepSeek V4.1 Flash' }] }] });
+  const click = selector => act(async () => view.host.querySelector(selector).click());
+  try {
+    assert.equal(view.host.querySelectorAll('.composer-model').length, 1);
+    assert.equal(view.host.querySelector('.composer-effort'), null);
+    assert.match(view.host.querySelector('.composer-model').textContent, /DeepSeek V4.1 Flash·Max/);
+    await click('.composer-model');
+    assert.deepEqual([...view.host.querySelectorAll('.model-reasoning-rows > button')].map(button => button.textContent), ['模型DeepSeek V4.1 Flash', '推理Max']);
+    await click('.model-reasoning-rows > button');
+    assert.ok(view.host.querySelector('[aria-label="搜索模型或供应商"]'));
+    await click('[aria-label="收起设置面板"]');
+    assert.ok(view.host.querySelector('.model-reasoning-rows'));
+    await click('.model-reasoning-rows > button:last-child');
+    await act(async () => Simulate.keyDown(view.host.querySelector('[role="dialog"]'), { key: 'Escape' }));
+    assert.ok(view.host.querySelector('.model-reasoning-rows'));
+    await act(async () => Simulate.keyDown(view.host.querySelector('[role="dialog"]'), { key: 'Escape' }));
+    assert.equal(view.host.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, view.host.querySelector('.composer-model'));
+    await click('.composer-model');
+    await act(async () => view.host.querySelector('textarea').dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+    assert.equal(view.host.querySelector('[role="dialog"]'), null);
+  } finally { await view.close(); }
+});
+
+test('combined selector saves Native reasoning and fast mode while preserving model options', async () => {
+  const changes = [];
+  const options = { modelId: 'custom:flash', mode: '完全自动', effort: 'max', plan: true, fast: false };
+  const view = await mount({ agentId: 'native', draft: '', options, onOptions: value => changes.push(value) });
+  try {
+    await act(async () => view.host.querySelector('.composer-model').click());
+    await act(async () => view.host.querySelector('.model-reasoning-rows > button:last-child').click());
+    await act(async () => view.host.querySelector('[aria-label="推理强度：低"]').click());
+    assert.deepEqual(changes[0], { ...options, effort: 'low' });
+    await view.update({ options: changes[0] });
+    await act(async () => Simulate.change(view.host.querySelector('[aria-label="快速模式"]'), { target: { checked: true } }));
+    assert.deepEqual(changes[1], { ...options, effort: 'low', fast: true });
+    await view.update({ options: changes[1] });
+    assert.equal(view.host.querySelector('.model-reasoning-effort').textContent, 'Low');
+    assert.ok(view.host.querySelector('.effort-body'), 'saving keeps the reasoning panel mounted');
+  } finally { await view.close(); }
+});
+
+test('external Agents expose only advertised reasoning choices and preserve custom option IDs', async () => {
+  const changes = [];
+  const view = await mount({ draft: '', agentConfig: { busy: false, onChange: (...args) => changes.push(args), options: [
+    { id: 'thinking', category: 'thought_level', name: 'Thinking', type: 'select', currentValue: 'deep', options: [{ value: 'quick', name: 'Quick' }, { value: 'deep', name: 'Deep' }] },
+  ] } });
+  try {
+    await act(async () => view.host.querySelector('.composer-model').click());
+    const rows = view.host.querySelectorAll('.model-reasoning-rows > button');
+    assert.equal(rows.length, 1); assert.equal(rows[0].textContent, '推理Deep');
+    await act(async () => rows[0].click());
+    assert.equal(view.host.querySelector('[aria-label="自定义推理强度"]'), null);
+    assert.equal(view.host.querySelector('[aria-label="快速模式"]'), null);
+    await act(async () => view.host.querySelector('[aria-label="推理强度：Quick"]').click());
+    assert.deepEqual(changes, [['thinking', 'quick']]);
+  } finally { await view.close(); }
+});
+
+test('combined selector still filters model aliases and raw IDs', async () => {
+  const view = await mount({ agentId: 'native', draft: '', providers: [{ id: 'custom', name: 'Custom', models: [{ name: 'namespace/first', displayName: 'Flash' }, { name: 'namespace/second', displayName: 'Pro' }] }] });
+  try {
+    await act(async () => view.host.querySelector('.composer-model').click());
+    await act(async () => view.host.querySelector('.model-reasoning-rows > button').click());
+    const search = view.host.querySelector('[aria-label="搜索模型或供应商"]');
+    await act(async () => Simulate.change(search, { target: { value: 'second' } }));
+    assert.deepEqual([...view.host.querySelectorAll('[role="radio"]')].map(row => row.getAttribute('aria-label')), ['Custom / Pro']);
+    await act(async () => Simulate.change(search, { target: { value: 'missing' } }));
+    assert.match(view.host.querySelector('.composer-empty').textContent, /没有找到匹配的模型/);
+  } finally { await view.close(); }
+});
+
+
+test('hover opens sibling flyouts and keeps the compact main menu visible', async () => {
+  const view = await mount({ agentId: 'native', draft: '', providers: [{ id: 'custom', name: 'Custom', models: [{ name: 'first', displayName: 'Flash' }] }] });
+  try {
+    await act(async () => view.host.querySelector('.composer-model').click());
+    const modelRow = view.host.querySelector('.model-reasoning-rows > button:first-child');
+    const effortRow = view.host.querySelector('.model-reasoning-rows > button:last-child');
+    await act(async () => Simulate.pointerEnter(modelRow, { pointerType: 'mouse' }));
+    assert.ok(view.host.querySelector('.model-reasoning-flyout [aria-label="搜索模型或供应商"]'));
+    assert.equal(view.host.querySelectorAll('.model-reasoning-rows > button').length, 2);
+    assert.equal(modelRow.getAttribute('aria-expanded'), 'true');
+    const search = view.host.querySelector('[aria-label="搜索模型或供应商"]');
+    await act(async () => Simulate.change(search, { target: { value: 'Flash' } }));
+    await act(async () => Simulate.pointerEnter(modelRow, { pointerType: 'mouse' }));
+    assert.equal(search.value, 'Flash', 'reentering the same row preserves the model search');
+    await act(async () => Simulate.pointerEnter(effortRow, { pointerType: 'mouse' }));
+    assert.ok(view.host.querySelector('.model-reasoning-flyout .effort-body'));
+    assert.equal(view.host.querySelector('[aria-label="搜索模型或供应商"]'), null);
+    assert.equal(modelRow.getAttribute('aria-expanded'), 'false');
+    assert.equal(effortRow.getAttribute('aria-expanded'), 'true');
+    assert.equal(view.host.querySelectorAll('.model-reasoning-rows > button').length, 2);
+    await act(async () => Simulate.pointerEnter(modelRow, { pointerType: 'touch' }));
+    assert.ok(view.host.querySelector('.effort-body'), 'touch opens a submenu only on tap');
   } finally { await view.close(); }
 });
