@@ -38,7 +38,6 @@ export type SidebarProps = {
   skillsOpen?: boolean;
   onSettings: () => void;
   profile: LocalProfile;
-  onEditProfile: () => void;
   onRefreshAll: () => void;
   onRefreshProject: (hash: string) => void;
   onRefreshSession: (session: Session) => void;
@@ -205,12 +204,12 @@ export default function Sidebar(props: SidebarProps) {
       })}
     </div>
     <footer className={`sidebar-footer${props.profile.nickname ? ' has-profile' : ''}`}>
-      {props.profile.nickname ? <>
-        <button type="button" className="sidebar-profile" onClick={props.onEditProfile} aria-label={english ? `Edit profile: ${props.profile.nickname}` : `编辑个人资料：${props.profile.nickname}`} title={english ? 'Edit profile' : '编辑个人资料'}>
+      {props.profile.nickname ?
+        <button type="button" className="sidebar-profile" onClick={props.onSettings} aria-label={english ? 'Settings' : '设置'} title={english ? 'Settings' : '设置'}>
           <ProfileAvatar profile={props.profile} /><span className="sidebar-profile-name">{props.profile.nickname}</span>
+          <SettingsIcon className="sidebar-profile-settings" size="1.125rem" aria-hidden="true" />
         </button>
-        <IconButton label={english ? 'Settings' : '设置'} className="sidebar-profile-settings" onClick={props.onSettings}><SettingsIcon size="1.125rem" /></IconButton>
-      </> : <button type="button" className="sidebar-settings" aria-label={english ? 'Settings' : '设置'} onClick={props.onSettings}><SettingsIcon /><span>{english ? 'Settings' : '设置'}</span></button>}
+        : <button type="button" className="sidebar-settings" aria-label={english ? 'Settings' : '设置'} onClick={props.onSettings}><SettingsIcon /><span>{english ? 'Settings' : '设置'}</span></button>}
     </footer>
   </SidebarSurface>;
 }
