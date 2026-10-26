@@ -10,7 +10,7 @@ import ts from 'typescript';
 const shellSource = await readFile(new URL('../src/desktop-shell.ts', import.meta.url), 'utf8');
 const shellJs = ts.transpileModule(shellSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const shellUrl = 'data:text/javascript;base64,' + Buffer.from(shellJs).toString('base64');
-const { desktopPlatform, desktopWindowApi, desktopThemeSource, isDesktopWindow, syncDesktopTheme, usesNativeWindowControls } = await import(shellUrl);
+const { desktopPlatform, desktopWindowApi, desktopThemeSource, isDesktopWindow, notifyDesktopWorkspaceAfterPaint, syncDesktopTheme, usesNativeWindowControls } = await import(shellUrl);
 
 const titleBar = await readFile(new URL('../src/components/DesktopTitleBar.tsx', import.meta.url), 'utf8');
 const header = await readFile(new URL('../src/layout/Header.tsx', import.meta.url), 'utf8');
@@ -41,6 +41,40 @@ test('platform defaults to win32 and only macOS uses native window controls', ()
   assert.equal(usesNativeWindowControls('darwin'), true);
   assert.equal(usesNativeWindowControls('win32'), false);
   assert.equal(usesNativeWindowControls('linux'), false);
+});
+
+test('workspace readiness waits for a paint and cancels on unmount or StrictMode cleanup', () => {
+  const pending = new Map();
+  let nextFrame = 0;
+  let readyCalls = 0;
+  const page = {
+    electronAPI: { window: { close() {}, ready: () => { readyCalls++; } } },
+    requestAnimationFrame(callback) { pending.set(++nextFrame, callback); return nextFrame; },
+    cancelAnimationFrame(frame) { pending.delete(frame); },
+  };
+  const advanceFrame = () => {
+    const callbacks = [...pending.values()];
+    pending.clear();
+    callbacks.forEach(callback => callback());
+  };
+  withWindow(page, () => {
+    const cancelFirstMount = notifyDesktopWorkspaceAfterPaint();
+    cancelFirstMount();
+    advanceFrame();
+    assert.equal(readyCalls, 0);
+    const cancel = notifyDesktopWorkspaceAfterPaint();
+    advanceFrame();
+    assert.equal(readyCalls, 0);
+    advanceFrame();
+    assert.equal(readyCalls, 1);
+    cancel();
+    const cancelBeforePaint = notifyDesktopWorkspaceAfterPaint();
+    advanceFrame();
+    cancelBeforePaint();
+    advanceFrame();
+    assert.equal(readyCalls, 1);
+  });
+  withWindow(undefined, () => notifyDesktopWorkspaceAfterPaint()());
 });
 
 test('renderer syncs the saved theme mode, preserving follow system instead of a resolved color', async () => {

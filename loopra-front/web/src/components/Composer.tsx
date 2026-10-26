@@ -17,6 +17,7 @@ import { agentOptionDescription, agentOptionLabel, configValue, findAgentOption,
 import { useMenuPlacement } from '../layout/menu-placement';
 
 type Props = {
+  loading?: boolean;
   agentId?: string; engines?: AgentEngine[];
   agentConfig?: AgentConfigState;
   acpCommands?: AcpCommand[];
@@ -111,7 +112,7 @@ export default function Composer(props: Props) {
   const planOn = agentPlan?.id === 'collaboration_mode' ? 'plan' : 'on';
   const planOff = agentPlan?.id === 'collaboration_mode' ? 'default' : 'off';
   const agentBusy = !!props.agentConfig?.busy;
-  const initialConfigLoading = agentBusy && !props.agentConfig?.error && !agentOptions?.length && !props.generating && !props.remoteRunning;
+  const initialConfigLoading = !!props.loading || (agentBusy && !props.agentConfig?.error && !agentOptions?.length && !props.generating && !props.remoteRunning);
   const sendDisabled = agentBusy || (!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy);
   function sendDraft() { if (!sendDisabled) props.onSend(); }
   const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
@@ -190,7 +191,7 @@ export default function Composer(props: Props) {
   useEffect(() => {
     const controller = new AbortController();
     setRemoteCommands([]); setRemoteSkills([]);
-    if (external) return () => controller.abort();
+    if (external || !props.connected) return () => controller.abort();
     void props.api.request<ServerCommand[]>('/agent/commands', 'GET', undefined, controller.signal)
       .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteCommands(list); }).catch(() => {});
     if (!chatMode) {
@@ -198,7 +199,7 @@ export default function Composer(props: Props) {
         .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteSkills(list); }).catch(() => {});
     }
     return () => controller.abort();
-  }, [props.api, external, chatMode]);
+  }, [props.api, external, chatMode, props.connected]);
   useEffect(() => { close(); setFileSuggestions([]); }, [props.workspaceHash, chatMode]);
   useEffect(() => {
     const controller = new AbortController();
@@ -219,11 +220,12 @@ export default function Composer(props: Props) {
   }, [props.api, external, commandScope, props.workspaceHash, props.sessionName, props.agentConfig?.options, props.generating, slash, commandRetry]);
   // Prompt presets are server-side config; the local cache is only a fallback.
   useEffect(() => {
+    if (!props.connected) return;
     const controller = new AbortController();
     void props.api.request<ServerPreset[]>('/prompt-presets', 'GET', undefined, controller.signal)
       .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setPresets(presetsFromServer(list)); }).catch(() => {});
     return () => controller.abort();
-  }, [props.api, setPresets]);
+  }, [props.api, setPresets, props.connected]);
   function persistPresets(next: PromptPreset[]) {
     void props.api.request('/prompt-presets', 'PUT', presetPayload(next))
       .catch((error: unknown) => notify(`常用要求同步失败：${error instanceof Error ? error.message : String(error)}`));

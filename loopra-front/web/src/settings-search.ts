@@ -12,7 +12,7 @@ const fields: Record<string, string[]> = {
   '系统提示词': ['系统提示词'],
 };
 const aliases: Record<string, string> = {
-  '工具模型': '标题 会话命名 记忆 整理 摘要 title memory summary',
+  '工具模型': '标题 会话命名 做梦 记忆 title dream memory',
   '外观': '主题 深色 浅色 跟随系统 theme',
   '界面缩放': '字体 大小 比例 font size zoom',
   '通知提示音': '声音 音效 sound',

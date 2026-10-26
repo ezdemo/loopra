@@ -2,6 +2,10 @@ import type { ReactNode } from 'react';
 import { Button, Tooltip } from '@nextui-org/react';
 import { SelectionIndicator } from './Motion';
 
+export function LoadingSkeleton({ className = '' }: { className?: string }) {
+  return <span aria-hidden="true" className={`loading-skeleton ${className}`} />;
+}
+
 export function IconButton({ label, children, onClick, className = '', active = false }: { label: string; children: ReactNode; onClick?: () => void; className?: string; active?: boolean }) {
   return <Tooltip content={label} delay={600} closeDelay={0} classNames={{ content: 'app-tooltip' }}><Button isIconOnly variant="light" aria-label={label} title={label} onPress={onClick} className={`icon-button ${active ? 'active' : ''} ${className}`}>{children}</Button></Tooltip>;
 }

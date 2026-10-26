@@ -86,7 +86,7 @@ public interface AgentConfig {
         return null;
     }
 
-    /** 标题生成和记忆整理使用的模型；空值保持原有处理方式。 */
+    /** 辅助任务模型，当前用于会话标题生成；“做梦”记忆整理尚未实现。 */
     default String toolModel() {
         return "";
     }

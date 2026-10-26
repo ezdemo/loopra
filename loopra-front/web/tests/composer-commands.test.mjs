@@ -103,7 +103,7 @@ async function mount(overrides = {}, requestCommands = () => Promise.resolve(adv
     return Promise.resolve([]);
   } };
   let props = {
-    agentId: 'codex', home: false, language: '中文', draft: '/', api, workspaceHash: 'workspace',
+    agentId: 'codex', connected: true, home: false, language: '中文', draft: '/', api, workspaceHash: 'workspace',
     sessionName: 'first', engines: [{ id: 'codex', name: 'Codex' }, { id: 'claude', name: 'Claude Code' }],
     options: { modelId: '', mode: '完全自动', effort: 'high', plan: false, fast: false },
     context: { projects: [], skills: [], files: [] }, providers: [], workspaces: [], history: [],
@@ -288,6 +288,18 @@ test('opening slash suggestions re-reads delayed command announcements', async (
     assert.equal(view.calls.filter(call => call.path.startsWith('/agent/acp-state?')).length, 2);
     await view.type('/missing');
     assert.match(view.host.querySelector('[role="status"]').textContent, /没有匹配/);
+  } finally { await view.close(); }
+});
+
+test('Native waits for the service connection before loading commands, skills and presets', async () => {
+  const view = await mount({ agentId: 'native', connected: false });
+  try {
+    assert.deepEqual(view.calls, []);
+    await view.update({ connected: true });
+    for (const path of ['/agent/commands', '/agent/skills', '/prompt-presets']) {
+      assert.ok(view.calls.some(call => call.path === path), `missing ${path}`);
+    }
+    assert.ok(view.rows().includes('/compact'));
   } finally { await view.close(); }
 });
 

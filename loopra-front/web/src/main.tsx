@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { notifyDesktopWorkspaceAfterPaint } from './desktop-shell';
 import { resolveInitialServer } from './runtime-config';
 import { installFocusAppearance } from './focus';
 import { ensureAccess, installAccessKeyProtocol, setAccessProxy } from '../../src/services/access-key.js';
@@ -26,6 +27,7 @@ import './dialogs.css';
 import './session-records.css';
 import './project-manager.css';
 import './focus.css';
+import './loading.css';
 
 document.documentElement.classList.add('workspace-theme');
 const removeFocusAppearance = installFocusAppearance();
@@ -33,13 +35,21 @@ if (import.meta.hot) import.meta.hot.dispose(removeFocusAppearance);
 installAccessKeyProtocol();
 if (import.meta.env.DEV && ['3000', '5173'].includes(window.location.port)) setAccessProxy(window.location.origin, 'http://127.0.0.1:4567');
 
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+function Workspace(props: React.ComponentProps<typeof App>) {
+  React.useEffect(notifyDesktopWorkspaceAfterPaint, []);
+  return <App {...props} />;
+}
+root.render(<React.StrictMode><Workspace startupPending /></React.StrictMode>);
+
 async function initialize() {
   let server = import.meta.env.DEV ? 'http://127.0.0.1:4567' : window.location.origin;
   // Keep explicit browser preferences; otherwise migrate the original console's
   // address and honor config.json without pinning packaged Web pages to port 4567.
   try {
     let desktopPort: number | undefined;
-    const desktopService = (window as Window & { electronAPI?: { loopraWebService?: { getCurrentPort?: () => Promise<number> } } }).electronAPI?.loopraWebService;
+    const desktopService = (window as Window & { electronAPI?: { loopraWebService?: { getCurrentPort?: () => Promise<number>; waitForReady?: () => Promise<number> } } }).electronAPI?.loopraWebService;
+    if (desktopService?.waitForReady) await desktopService.waitForReady();
     try { desktopPort = await desktopService?.getCurrentPort?.(); } catch { /* Use saved/default addresses if the bridge is unavailable. */ }
     let configured: unknown;
     if (!localStorage.getItem('loopra:backend-server') && !localStorage.getItem('loopra-api-base')) {
@@ -59,9 +69,9 @@ async function initialize() {
     localStorage.setItem('loopra:backend-server', JSON.stringify(server));
   } catch { /* Storage restrictions must not prevent mounting the application. */ }
   await ensureAccess(server, true);
-  ReactDOM.createRoot(document.getElementById('root')!).render(
+  root.render(
     <React.StrictMode>
-      <App />
+      <Workspace initialServer={server} />
     </React.StrictMode>,
   );
 }

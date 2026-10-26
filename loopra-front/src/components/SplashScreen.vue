@@ -19,7 +19,7 @@ import {mountStartupScreen} from '../../web/src/startup-screen'
 
 const { loopraWebService } = platform.implementation
 
-const emit = defineEmits(['ready', 'error'])
+const emit = defineEmits(['ready', 'error', 'attention'])
 
 const store = useAppStore()
 const colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)')
@@ -133,6 +133,9 @@ function maybeAutoEnter() {
 
 // 启动等待：窗口中央转圈，可取消
 const autoStarting = ref(false)
+watch(autoStarting, (value, previous) => {
+  if (previous && !value && !autoEntered && (!running.value || waitingForJava || errorMessage.value)) emit('attention')
+}, { flush: 'post' })
 const startingMsg = ref('')
 let startCancelled = false
 

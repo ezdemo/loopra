@@ -79,6 +79,7 @@ const { default: Header } = await import(await sourceUrl('layout/Header.tsx', {
   '../components/ui': dataUrl(`
     const { createElement } = await import(${JSON.stringify(reactUrl)});
     export const IconButton = ({ label, children, onClick }) => createElement('button', { 'aria-label': label, onClick }, children);
+    export const LoadingSkeleton = () => createElement('span', { className: 'loading-skeleton' });
   `),
   '../components/Motion': dataUrl('export const Popup = () => null;'),
 }));
@@ -510,7 +511,7 @@ test('copies the update command and switches the download source', async () => {
     assert.deepEqual(globalThis.__notify, ['已复制到剪贴板']);
     const select = view.container.querySelector('select[aria-label="更新源"]');
     await act(async () => { select.value = 'https://gh-proxy.org/'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
-    assert.match(view.container.querySelectorAll('.version-command')[0].textContent, /setup-mirror\.ps1/);
+    assert.match(view.container.querySelectorAll('.version-command')[0].textContent, /LOOPRA_MIRROR=.*setup\.ps1/);
     assert.equal(dom.window.localStorage.getItem('loopra.updateSource'), 'https://gh-proxy.org/');
   } finally { await view.close(); }
 });

@@ -73,7 +73,10 @@ registerDesktopContextMenus({
 })
 
 let mainWindow = null
+let desktopWorkspaceReady = false
 let splashWindow = null
+let desktopServiceReady = false
+const desktopStartupWaiters = new Set()
 let updateWindow = null
 let onboardingWindow = null
 let loopraWebProcess = null
@@ -822,13 +825,12 @@ function cleanupLoopraWeb() {
 
 // ==================== 窗口 ====================
 
-// 启动窗口：承载检测/安装/服务启动全流程，完成后关闭并创建主窗口。
+// Startup prepares the service in a hidden window; show management only when it needs attention.
 // force=true：即使主窗口已存在也打开（复用该窗口承载更新等场景）；from 标记打开场景（如 update）
 function createSplashWindow(options = {}) {
-  const { force = false, from = '' } = options || {}
+  const { force = false, from = '', background = false } = options || {}
   if (!force && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show()
-    mainWindow.focus()
+    showDesktopWorkspace()
     return
   }
   if (splashWindow && !splashWindow.isDestroyed()) {
@@ -838,6 +840,7 @@ function createSplashWindow(options = {}) {
   }
 
   splashWindow = new BrowserWindow({
+    show: !background,
     width: 920,
     height: 640,
     minWidth: 800,
@@ -967,7 +970,15 @@ function setTitleBarOverlayDimmed(dimmed) {
   applyTitleBarOverlayTheme(nativeTitleBarTheme)
 }
 
+function showDesktopWorkspace() {
+  if (!desktopWorkspaceReady || !mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
 function createWindow() {
+  desktopWorkspaceReady = false
   // macOS keeps its real traffic lights floating over the content
   // (`hiddenInset` implies frame: true — combining it with `frame: false` hides
   // the lights entirely). Everywhere else the window is frameless and React
@@ -976,6 +987,9 @@ function createWindow() {
     ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 12 } }
     : { frame: false }
   mainWindow = new BrowserWindow({
+    // Wait for React's first painted frame, independently of backend startup.
+    show: false,
+    paintWhenInitiallyHidden: true,
     width: 1200, height: 800,
     minWidth: 800, minHeight: 600,
     icon: appIconPath,
@@ -1020,6 +1034,7 @@ function createWindow() {
   mainWindow.on('restore', syncNativeOverlays)
 
   mainWindow.on('closed', () => {
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
     if (elementInspectorWindow && !elementInspectorWindow.isDestroyed()) elementInspectorWindow.close()
     if (desktopPetWindow && !desktopPetWindow.isDestroyed()) desktopPetWindow.close()
     if (onboardingWindow && !onboardingWindow.isDestroyed()) onboardingWindow.close()
@@ -1174,31 +1189,39 @@ function openDesktopPetWindow() {
 }
 
 async function openDesktopWorkspace() {
+  desktopServiceReady = false
+  createWindow()
   // A separately started development backend owns its runtime and version.
   // Reuse it before checking the desktop's bundled core or installed Java.
   if (isDev && await healthCheck(4567)) {
     currentPort = 4567
-    createWindow()
+    completeDesktopStartup()
     return
   }
   // Run bundled updates before reusing a healthy service as well.
   const bundledVersion = isLoopraCoreBundled() ? readBundledCoreVersion() : ''
   const installedVersion = readLoopraGuiVersion()
   if (bundledVersion && (!isLoopraGuiInstalled() || !installedVersion || compareVersions(bundledVersion, installedVersion) > 0)) {
-    createSplashWindow()
+    createSplashWindow({ force: true, background: true })
     return
   }
   const port = currentPort || (isDev ? 4567 : 0)
   if (port > 0 && await healthCheck(port)) {
     if (!(await detectJavaStatus()).usable) {
-      createSplashWindow()
+      createSplashWindow({ force: true, background: true })
       return
     }
     currentPort = port
-    createWindow()
+    completeDesktopStartup()
   } else {
-    createSplashWindow()
+    createSplashWindow({ force: true, background: true })
   }
+}
+
+function completeDesktopStartup() {
+  desktopServiceReady = true
+  for (const resolve of desktopStartupWaiters) resolve(currentPort)
+  desktopStartupWaiters.clear()
 }
 
 app.whenReady().then(async () => {
@@ -2020,14 +2043,34 @@ ipcMain.handle('desktop-tab-context-menu', (event, rawPayload = {}) => {
   })
 })
 
-// 启动窗口完成检测/安装/启动后：创建主窗口并关闭启动窗口
+// The workspace mounts before service startup; its renderer waits for the final port.
+ipcMain.handle('wait_loopra_web_ready', (event) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized startup request')
+  if (desktopServiceReady) return currentPort
+  return new Promise(resolve => {
+    desktopStartupWaiters.add(resolve)
+    event.sender.once('destroyed', () => desktopStartupWaiters.delete(resolve))
+  })
+})
+
+ipcMain.handle('splash_show', (event) => {
+  if (event.sender !== splashWindow?.webContents) throw new Error('Unauthorized startup window request')
+  splashWindow.show()
+  splashWindow.focus()
+})
+
+ipcMain.handle('window-workspace-ready', (event) => {
+  if (event.sender !== mainWindow?.webContents) throw new Error('Unauthorized workspace request')
+  if (desktopWorkspaceReady) return true
+  desktopWorkspaceReady = true
+  if (!splashWindow || splashWindow.isDestroyed() || !splashWindow.isVisible()) showDesktopWorkspace()
+  return true
+})
+
 ipcMain.handle('splash_ready', () => {
+  completeDesktopStartup()
   if (!mainWindow || mainWindow.isDestroyed()) createWindow()
-  else {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
-  }
+  else showDesktopWorkspace()
   if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
   return true
 })

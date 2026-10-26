@@ -109,9 +109,11 @@ final class ExternalAcpSessions implements AutoCloseable {
             boolean firstMessage = !store.hasMessages(name);
             store.bindTo(name); store.append(user);
             if (firstMessage && (store.getTitle(name) == null || store.getTitle(name).isBlank())) {
+                String initialTitle = SessionService.fallbackTitle(message.getText());
+                store.updateTitle(name, initialTitle);
                 CompletableFuture.runAsync(() -> {
                     String title = ToolModelService.generateTitle(SessionService.titleSource(message.getText()));
-                    if (title != null && (store.getTitle(name) == null || store.getTitle(name).isBlank())) {
+                    if (title != null && initialTitle.equals(store.getTitle(name))) {
                         try { store.updateTitle(name, title); }
                         catch (java.io.IOException error) { log.warn("[acp] 保存生成标题失败: session={}", name, error); }
                     }

@@ -101,10 +101,13 @@ export default function Settings(props: Props) {
         {!filtered.length && <p className="settings-nav-empty">没有匹配的设置</p>}
       </nav>
       <IconButton label="关闭设置" onClick={onClose} className="settings-close"><X size="1.25rem" /></IconButton>
+      <div className="settings-main">
+      <header className="settings-content-header">
+        <div className="settings-breadcrumb" aria-label="当前位置">{query.trim() ? <span>搜索设置</span> : <><span>{category.name}</span>{category.name !== currentSection.label && <><ChevronRight size="0.875rem" /><span>{currentSection.label}</span></>}</>}</div>
+      </header>
       <Enter key={query.trim() ? 'search' : tab} as="section" className={`settings-content rich-settings-content${!query.trim() && tab === '模型供应商' ? ' provider-settings-content' : ''}`}>
         <nav className="settings-mobile-categories" aria-label="设置分类快捷导航">{settingsCategories.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={!query.trim() && category.name === item.name} onPress={() => openCategory(item.name)}>{item.name}</Button>)}</nav>
         {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{settingsCategoryFor(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : <>
-        <div className="settings-breadcrumb" aria-label="当前位置"><span>{category.name}</span>{category.name !== currentSection.label && <><ChevronRight size="0.875rem" /><span>{currentSection.label}</span></>}</div>
         {category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
         {tab === '通用' && <>
           <PageActions title="通用" /><h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
@@ -148,6 +151,7 @@ export default function Settings(props: Props) {
         {tab === '已归档的会话' && <><PageActions title="已隐藏会话" />{sessions.some(session => session.archived) ? <div className="settings-card">{sessions.filter(session => session.archived).map(session => <SettingRow key={session.id} title={session.title} description={session.workspace}><Button variant="light" className="restore-button" onPress={() => onRestore(session.id)}>恢复会话</Button></SettingRow>)}</div> : <div className="empty-setting"><Archive size="1.75rem" strokeWidth={1.5} /><h3>暂无隐藏会话</h3><p>在本机隐藏的会话可以在这里恢复。</p></div>}</>}
         </>}
       </Enter>
+      </div>
     </div></AnimatePresence></ModalContent>
   </Modal>;
 }

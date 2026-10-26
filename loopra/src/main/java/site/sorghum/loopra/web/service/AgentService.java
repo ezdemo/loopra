@@ -313,7 +313,10 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
 
     /** 状态来自活动请求和 Agent 运行标志，不根据历史消息推断。 */
     public SessionStatusDTO getSessionStatus(String workspacePath, String sessionName) {
-        return sessionCache.status(generateSessionKey(workspacePath, sessionName));
+        SessionStatusDTO status = sessionCache.status(generateSessionKey(workspacePath, sessionName));
+        SessionStore store = sessionStoreFor(workspacePath);
+        return new SessionStatusDTO(status.running(), status.requestId(),
+                store == null ? null : store.getTitle(sessionName));
     }
 
     public ProjectCapabilitiesDTO getProjectCapabilities(String workspacePath) {

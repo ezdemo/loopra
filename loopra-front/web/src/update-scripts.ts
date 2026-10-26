@@ -51,7 +51,7 @@ const SCRIPT_BASE = 'https://raw.githubusercontent.com/ezdemo/loopra-release/mai
 
 export function updateScriptName(source: string, electron: boolean, ext: string) {
   const gui = electron ? '-gui' : '';
-  const mirror = isMirrorSource(source) ? '-mirror' : '';
+  const mirror = source === UPDATE_SOURCE_MIRROR ? '-mirror' : '';
   return `setup${gui}${mirror}.${ext}`;
 }
 
@@ -59,14 +59,13 @@ export function updateScriptName(source: string, electron: boolean, ext: string)
 export function buildUpdateCommand(source: string, electron = false) {
   const windowsScript = updateScriptName(source, electron, 'ps1');
   const unixScript = updateScriptName(source, electron, 'sh');
-  const mirrorUrl = isMirrorSource(source) && source !== UPDATE_SOURCE_MIRROR ? source.replace(/\/+$/, '') : '';
-  const scriptBase = isMirrorSource(source) ? `${mirrorUrl || 'https://gh-proxy.org'}/${SCRIPT_BASE}` : SCRIPT_BASE;
+  const mirrorUrl = isMirrorSource(source) && source !== UPDATE_SOURCE_MIRROR ? source.replace(/\/+$/, '') + '/' : '';
   const envWin = mirrorUrl ? `$env:LOOPRA_MIRROR='${mirrorUrl}'; ` : '';
   const envUnix = mirrorUrl ? `export LOOPRA_MIRROR='${mirrorUrl}'; ` : '';
   return {
-    windows: `${envWin}irm ${scriptBase}/${windowsScript} | iex`,
+    windows: `${envWin}irm ${SCRIPT_BASE}/${windowsScript} | iex`,
     windowsLabel: `${envWin ? '$env:LOOPRA_MIRROR=…; ' : ''}irm ...${windowsScript} | iex`,
-    unix: `${envUnix}curl -fsSL ${scriptBase}/${unixScript} | bash`,
+    unix: `${envUnix}curl -fsSL ${SCRIPT_BASE}/${unixScript} | bash`,
     unixLabel: `${envUnix ? 'export LOOPRA_MIRROR=…; ' : ''}curl ...${unixScript} | bash`,
   };
 }

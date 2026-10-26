@@ -8,6 +8,7 @@
 // lights (`titleBarStyle: 'hiddenInset'`) and React draws only the drag region.
 
 export type DesktopWindowApi = {
+  ready?: () => Promise<unknown> | unknown;
   minimize?: () => unknown;
   maximize?: () => unknown;
   close?: () => unknown;
@@ -51,6 +52,17 @@ export async function syncDesktopTheme(preference: string): Promise<void> {
 export function desktopWindowApi(): DesktopWindowApi | null {
   const api = electronApi()?.window;
   return api && (api.minimize || api.maximize || api.close) ? api : null;
+}
+
+export function notifyDesktopWorkspaceAfterPaint(): () => void {
+  const page = currentWindow();
+  const ready = desktopWindowApi()?.ready;
+  if (!page || !ready) return () => {};
+  // A frame callback runs before paint; the next frame confirms a paint opportunity.
+  let frame = page.requestAnimationFrame(() => {
+    frame = page.requestAnimationFrame(() => { void ready(); });
+  });
+  return () => page.cancelAnimationFrame(frame);
 }
 
 export function isDesktopWindow(): boolean {

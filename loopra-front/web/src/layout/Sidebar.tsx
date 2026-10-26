@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, MessageCircle, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
-import { IconButton, LoopraMark } from '../components/ui';
+import { IconButton, LoadingSkeleton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
 import type { Workspace } from '../backend';
@@ -10,12 +10,18 @@ import { DEFAULT_SIDEBAR_WIDTH, clampSidebarWidth, resizeSidebarWidth } from '..
 /** Sessions a project shows before the list folds behind "展开显示". */
 const SESSION_GROUP_LIMIT = 6;
 
+function SessionListSkeleton() {
+  return <div className="sidebar-loading-sessions" role="status" aria-label="正在加载会话">{[0, 1, 2, 3].map(row => <div className="sidebar-loading-row" key={row}><LoadingSkeleton className="skeleton-session-title" /><LoadingSkeleton className="skeleton-session-time" /></div>)}</div>;
+}
+
 export type SidebarProps = {
   /** Drives the slide; the element stays mounted while it closes (see `usePresence`). */
   open: boolean;
   english: boolean;
   workspaces: Workspace[];
   sessions: Session[];
+  workspacesLoading?: boolean;
+  sessionsLoading?: boolean;
   runningIds?: ReadonlySet<string>;
   unreadIds?: ReadonlySet<string>;
   activeId: string;
@@ -134,7 +140,7 @@ export default function Sidebar(props: SidebarProps) {
           <IconButton label="刷新项目列表" onClick={() => void props.onRefreshAll()}><RefreshCw size="0.875rem" /></IconButton>
         </div>
       </div>
-      {workspaces.map(item => {
+      {props.workspacesLoading ? <div className="sidebar-loading-workspaces" aria-label="正在加载工作区" aria-busy="true">{[0, 1, 2].map(group => <div className="sidebar-loading-group" key={group}><div className="sidebar-loading-heading"><LoadingSkeleton className="skeleton-workspace-icon" /><LoadingSkeleton className="skeleton-workspace-title" /></div><SessionListSkeleton /></div>)}</div> : workspaces.map(item => {
         const open = !collapsed.includes(item.hash);
         const own = sessions.filter(entry => entry.workspaceHash === item.hash);
         const expanded = expandedGroups.includes(item.hash);
@@ -153,7 +159,7 @@ export default function Sidebar(props: SidebarProps) {
             </span>
           </div>
           <Collapse open={open} className="workspace-sessions">
-            {!own.length && <p className="no-conversation">暂无对话</p>}
+            {!own.length && (props.sessionsLoading ? <SessionListSkeleton /> : <p className="no-conversation">暂无对话</p>)}
             {shown.map(entry => <div key={entry.id} data-session-key={entry.id} draggable
               onDragStart={event => {
                 // A session drag must not start the project drag on the parent row.

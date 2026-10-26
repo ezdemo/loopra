@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   // loopra-web 服务管理
   loopraWebService: {
+    waitForReady: () => ipcRenderer.invoke('wait_loopra_web_ready'),
     getStatus: () => ipcRenderer.invoke('get_loopra_web_status'),
     detectJavaStatus: () => ipcRenderer.invoke('detect_java_status'),
     getResourceDir: () => ipcRenderer.invoke('get_resource_dir'),
@@ -55,8 +56,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     set: (address) => ipcRenderer.invoke('proxy-set', address)
   },
 
-  // 启动窗口：检测/安装/启动完成后通知主进程创建主窗口
+  // Notify the already-open workspace when service startup completes.
   splash: {
+    show: () => ipcRenderer.invoke('splash_show'),
     ready: () => ipcRenderer.invoke('splash_ready')
   },
 
@@ -88,6 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // 窗口控制
   window: {
+    ready: () => ipcRenderer.invoke('window-workspace-ready'),
     minimize: () => ipcRenderer.invoke('window-minimize'),
     maximize: () => ipcRenderer.invoke('window-maximize'),
     close: () => ipcRenderer.invoke('window-close'),

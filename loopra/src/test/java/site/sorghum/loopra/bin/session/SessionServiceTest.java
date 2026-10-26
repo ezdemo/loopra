@@ -98,6 +98,44 @@ class SessionServiceTest {
     }
 
     @Test
+    void failedTitleGenerationKeepsTheFirstMessageTitleAndRunsOnlyOnce() throws Exception {
+        SessionService service = new SessionService(
+                new ConversationContext(new PromptPrefix("test", ONode.ofJson("[]"))), tempDir);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        service.setTitleGenerator(text -> {
+            calls.incrementAndGet();
+            throw new IllegalStateException("offline");
+        });
+        String name = service.beforeTurn("first message");
+        service.beforeTurn("second message");
+        assertTrue(java.util.concurrent.ForkJoinPool.commonPool().awaitQuiescence(3, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals("first message", service.getStore().getTitle(name));
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void pendingTitleGenerationDoesNotOverwriteManualRename() throws Exception {
+        SessionService service = new SessionService(
+                new ConversationContext(new PromptPrefix("test", ONode.ofJson("[]"))), tempDir);
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        service.setTitleGenerator(text -> {
+            started.countDown();
+            try { release.await(3, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            return "Generated title";
+        });
+        try {
+            String name = service.beforeTurn("first message");
+            assertTrue(started.await(1, java.util.concurrent.TimeUnit.SECONDS));
+            service.getStore().updateTitle(name, "Manual title");
+            release.countDown();
+            assertTrue(java.util.concurrent.ForkJoinPool.commonPool().awaitQuiescence(3, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals("Manual title", service.getStore().getTitle(name));
+        } finally { release.countDown(); }
+    }
+
+    @Test
     void rawEventsSurviveContextCompaction() throws Exception {
         ConversationContext ctx = new ConversationContext(new PromptPrefix("test", ONode.ofJson("[]")));
         SessionService service = new SessionService(ctx, new JsonlSessionStore(tempDir));

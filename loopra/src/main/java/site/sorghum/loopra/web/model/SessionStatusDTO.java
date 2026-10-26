@@ -5,6 +5,10 @@ package site.sorghum.loopra.web.model;
  */
 public record SessionStatusDTO(
         boolean running,
-        String requestId
+        String requestId,
+        String title
 ) {
+    public SessionStatusDTO(boolean running, String requestId) {
+        this(running, requestId, null);
+    }
 }
