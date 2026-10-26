@@ -84,7 +84,7 @@ test('a new conversation can enable isolation from the home switcher row', async
   ]);
   // The switch sits on the same row as the project and Agent switchers and acts
   // on the prepared draft, before the first message creates the worktree.
-  assert.match(home, /\{isolation\}/);
+  assert.match(home, /: isolation\}/);
   assert.match(app, /<IsolationSwitch api=\{api\} workspaceHash=\{workspace\}/);
   assert.match(app, /preparedNewSession\.current\?\.key === agentConfigKey \? preparedNewSession\.current\.target\.name : undefined/);
   assert.match(switcher, /\/sessions\/\$\{encodeURIComponent\(sessionName\)\}\/worktree\?workspaceHash=/);

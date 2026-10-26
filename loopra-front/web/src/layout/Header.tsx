@@ -1,5 +1,5 @@
 import { Archive, Check, ChevronDown, Copy, Download, FileCode2, FolderClosed, GitBranch, MessageCirclePlus, MoreHorizontal, PanelLeft, PanelRight, ScrollText, SquareTerminal, Trash2 } from 'lucide-react';
-import { IconButton } from '../components/ui';
+import { IconButton, LoadingSkeleton } from '../components/ui';
 import { Popup } from '../components/Motion';
 import type { Session } from '../lib';
 import type { DesktopUpdateState } from '../desktop-update';
@@ -86,14 +86,14 @@ export default function Header(p: HeaderProps) {
     <div className="header-drag" aria-hidden="true" />
     </div>
     <div className="header-actions">
-      <button type="button" className={`app-version${updateText ? ' has-update' : ''}`}
+      {!version && !desktop?.currentVersion && backend.status === 'connecting' ? <div className="header-version-loading" role="status" aria-label="正在加载版本"><LoadingSkeleton className="skeleton-version" /></div> : <button type="button" className={`app-version${updateText ? ' has-update' : ''}`}
         title={updateTitle}
         aria-label={updateTitle}
         onClick={p.onVersion}>
         {updateText
           ? <span className="app-version-update"><Download size="0.75rem" strokeWidth={1.8} aria-hidden="true" /><span>{updateText}</span></span>
           : <span className="app-version-number">{desktopVersion}</span>}
-      </button>
+      </button>}
       <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
       {!p.isHome && !p.chatMode && <>
         <div data-popover className="menu-anchor">

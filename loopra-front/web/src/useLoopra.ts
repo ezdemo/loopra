@@ -6,7 +6,7 @@ import type { VersionCheck } from './version';
 
 export const VERSION_CHECK_INTERVAL_MS = 5 * 60_000;
 
-export default function useLoopra(server: string) {
+export default function useLoopra(server: string, enabled = true) {
   const api = useMemo(() => new LoopraClient(server), [server]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -20,6 +20,7 @@ export default function useLoopra(server: string) {
   const [version, setVersion] = useState('');
   const [updateCheck, setUpdateCheck] = useState<VersionCheck>();
   const [ready, setReady] = useState(false);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
   const providersRevision = useRef(0);
   const refreshProviders = useCallback(async (signal?: AbortSignal) => {
     const revision = ++providersRevision.current;
@@ -32,6 +33,7 @@ export default function useLoopra(server: string) {
     const lists = await Promise.all(projects.map(async project => (await api.request<RemoteSession[]>(`/sessions?workspaceHash=${encodeURIComponent(project.hash)}`, 'GET', undefined, signal)).map(item => remoteSession(item, project))));
     if (signal?.aborted) return;
     setSessions(current => lists.flat().map(item => ({ ...item, messages: current.find(old => old.id === item.id)?.messages || [] })));
+    setSessionsLoading(false);
   }, [api]);
   const refreshWorkspaces = useCallback(async () => {
     const projects = await api.request<Workspace[]>('/workspaces');
@@ -41,6 +43,7 @@ export default function useLoopra(server: string) {
     return visible;
   }, [api, refreshSessions]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    if (!enabled) return;
     const revision = ++providersRevision.current;
     setStatus('connecting'); setError('');
     try {
@@ -70,10 +73,10 @@ export default function useLoopra(server: string) {
         if (resources[0].status === 'fulfilled') setTools(resources[0].value.map(tool => ({ ...tool, category: tool.readOnly ? '只读工具' : '写入工具' })));
         if (resources[1].status === 'fulfilled') setSkills(resources[1].value.map(skill => ({ ...skill, id: skill.name, enabled: true })));
         if (resources[2].status === 'fulfilled') setPrompt(resources[2].value);
-      } else { setSessions([]); setTools([]); setSkills([]); }
+      } else { setSessions([]); setSessionsLoading(false); setTools([]); setSkills([]); }
       setStatus('connected');
-    } catch (cause) { if (signal?.aborted) return; setStatus('error'); setReady(false); setError(cause instanceof Error ? cause.message : '连接失败'); }
-  }, [api, refreshSessions]);
+    } catch (cause) { if (signal?.aborted) return; setStatus('error'); setSessionsLoading(false); setReady(false); setError(cause instanceof Error ? cause.message : '连接失败'); }
+  }, [api, refreshSessions, enabled]);
   useEffect(() => { const controller = new AbortController(); void refresh(controller.signal); return () => controller.abort(); }, [refresh]);
   useEffect(() => {
     if (status !== 'connected') return;
@@ -98,5 +101,5 @@ export default function useLoopra(server: string) {
     const timer = setInterval(check, VERSION_CHECK_INTERVAL_MS);
     return () => { clearInterval(timer); controller.abort(); };
   }, [api, status, version]);
-  return { api, sessions, setSessions, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshProviders, refreshSessions, refreshWorkspaces };
+  return { api, sessions, setSessions, sessionsLoading, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshProviders, refreshSessions, refreshWorkspaces };
 }

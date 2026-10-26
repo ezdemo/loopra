@@ -1,12 +1,12 @@
 <template>
-  <SplashScreen @ready="onReady" @error="onError" />
+  <SplashScreen @ready="onReady" @error="onError" @attention="onAttention" />
 </template>
 
 <script setup>
 import SplashScreen from './components/SplashScreen.vue'
 
-// 启动窗口：承载检测 / 安装确认 / 在线安装 / 服务启动全流程。
-// 全部完成后通知主进程：关闭本启动窗口并创建主窗口。
+// Prepare the service in the background while the workspace shows placeholders.
+// Surface this window only for installation or startup errors.
 async function onReady() {
   try {
     await window.electronAPI?.splash?.ready()
@@ -18,5 +18,10 @@ async function onReady() {
 function onError(error) {
   // SplashScreen 内部已展示错误界面（重试 / 一键安装 / 退出），此处仅记录
   console.error('[DesktopSplash] startup failed:', error)
+  void onAttention()
+}
+
+async function onAttention() {
+  await window.electronAPI?.splash?.show()
 }
 </script>

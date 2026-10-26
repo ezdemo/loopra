@@ -58,9 +58,12 @@ import { closeSubAgentTab, closeWorkspaceFile, emptyWorkspaceTabs, ensureSubAgen
 import { useSubAgentTabs } from './useSubAgentTabs';
 import { SessionRuns, sessionRunKey, draftRunKey, isRunView } from './session-runs';
 
-export default function App() {
+export default function App({ startupPending = false, initialServer }: { startupPending?: boolean; initialServer?: string } = {}) {
   const [server, setServer] = useLocalState('backend-server', DEFAULT_SERVER);
-  const backend = useLoopra(server);
+  const [appliedInitialServer, setAppliedInitialServer] = useState<string>();
+  const backend = useLoopra(server, !startupPending && initialServer === appliedInitialServer);
+  useEffect(() => { if (initialServer) { setServer(initialServer); setAppliedInitialServer(initialServer); } }, [initialServer, setServer]);
+  const workspaceLoading = startupPending || (backend.status === 'connecting' && !backend.config);
   const { api, sessions, setSessions, providers, workspaces } = backend;
   const pets = usePets(api, backend.status === 'connected');
   const [hiddenSessions, setHiddenSessions] = useLocalState<string[]>(`hidden-sessions:${server}`, []);
@@ -124,6 +127,7 @@ export default function App() {
   // after the user installs a missing runtime outside the app.
   const [enginesRevision, setEnginesRevision] = useState(0);
   const [enginesError, setEnginesError] = useState('');
+  const [enginesLoading, setEnginesLoading] = useState(true);
   const [agentConfigs, setAgentConfigs] = useState<Record<string, AgentConfigOption[]>>({});
   // Home has no session yet, but its composer still advertises the selected
   // Agent's options. The prepared backend session is reused by the first send.
@@ -263,7 +267,9 @@ export default function App() {
     return () => controller.abort();
   }, [api, session?.id, backend.status, agentConfigRevision, generatingId]);
   useEffect(() => {
+    if (backend.status !== 'connected') return;
     const controller = new AbortController();
+    setEnginesLoading(true);
     setEnginesError('');
     void api.request<AgentEngine[]>('/agent-engines', 'GET', undefined, controller.signal)
       .then(result => { if (!controller.signal.aborted) { setEngines(result); setEnginesError(''); } })
@@ -271,7 +277,7 @@ export default function App() {
         if (controller.signal.aborted) return;
         setEngines([]);
         setEnginesError(`检测 Agent 运行环境失败：${error instanceof Error ? error.message : String(error)}`);
-      });
+      }).finally(() => { if (!controller.signal.aborted) setEnginesLoading(false); });
     return () => controller.abort();
   }, [api, backend.status, enginesRevision]);
   // Pending HITL/ask_choice cards drive the composer popup. Read from the live
@@ -1211,7 +1217,7 @@ export default function App() {
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
-    : <Composer home={isHome} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+    : <Composer home={isHome} loading={workspaceLoading} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
@@ -1239,7 +1245,7 @@ export default function App() {
     {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebarMounted && <Sidebar open={sidebar} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={skillsOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!skillsOpen && isHome} collapsed={collapsed} onCollapsed={setCollapsed}
+      {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={skillsOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!skillsOpen && isHome} collapsed={collapsed} onCollapsed={setCollapsed}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
         skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setChanges(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
@@ -1263,7 +1269,7 @@ export default function App() {
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
-          {isHome ? <HomeView workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
+          {isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={selectWorkspace} onManage={() => { setMenu(null); setProjectsOpen(true); }}
             engines={chatMode ? engines.filter(engine => engine.id === 'native') : engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy || chatMode} onAgent={switchAgent}
             onTaskToolbarMount={setHomeTaskToolbar}

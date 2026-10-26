@@ -44,7 +44,7 @@ const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Enter = ({ children }) => children;
 export const Popup = ({ open, children, className }) => open ? createElement('div', { className }, children) : null;
 `);
-const uiStub = dataUrl('export const LoopraMark = () => null;');
+const uiStub = dataUrl('export const LoopraMark = () => null; export const LoadingSkeleton = () => null;');
 const switcherStub = dataUrl('export default () => null;');
 
 const homeUrl = await sourceUrl('layout/HomeView.tsx', {

@@ -7,13 +7,18 @@ import { developmentElectron } from '../../scripts/electron-runtime.mjs';
 import versionHelpers from '../../electron/version.cjs';
 
 const main = await readFile(new URL('../../electron/main.cjs', import.meta.url), 'utf8');
-const defaults = { isDev: false, isLoopraCoreBundled: () => false, readBundledCoreVersion: () => '', readLoopraGuiVersion: () => '26.9.91', isLoopraGuiInstalled: () => true, compareVersions: versionHelpers.compareVersions, detectJavaStatus: async () => ({ usable: true }) };
+const defaults = { completeDesktopStartup: () => {}, isDev: false, isLoopraCoreBundled: () => false, readBundledCoreVersion: () => '', readLoopraGuiVersion: () => '26.9.91', isLoopraGuiInstalled: () => true, compareVersions: versionHelpers.compareVersions, detectJavaStatus: async () => ({ usable: true }) };
 const startup = main.match(/async function openDesktopWorkspace\(\) \{[\s\S]*?\n\}/)[0];
 const localInstall = main.match(/function installLoopraCoreLocal\(\) \{[\s\S]*?\n\}/)[0];
 const readyHandler = main.match(/ipcMain.handle\('splash_ready', \(\) => \{[\s\S]*?\n\}\)/)[0];
 const portHandler = main.match(/ipcMain.handle\('get_loopra_web_port', async \(\) => \{[\s\S]*?\n\}\)/)[0];
 const startHandler = main.match(/ipcMain.handle\('start_loopra_web', async \(\) => \{[\s\S]*?\n\}\)/)[0];
 const healthProbe = main.match(/async function healthCheck\(port\) \{[\s\S]*?\n\}/)[0];
+const completeStartup = main.match(/function completeDesktopStartup\(\) \{[\s\S]*?\n\}/)[0];
+const waitHandler = main.match(/ipcMain.handle\('wait_loopra_web_ready', \(event\) => \{[\s\S]*?\n\}\)/)[0];
+const showWorkspace = main.match(/function showDesktopWorkspace\(\) \{[\s\S]*?\n\}/)[0];
+const workspaceReadyHandler = main.match(/ipcMain.handle\('window-workspace-ready', \(event\) => \{[\s\S]*?\n\}\)/)[0];
+const createWorkspace = main.match(/function createWindow\(\) \{[\s\S]*?\n\}/)[0];
 
 test('finishing startup restores the existing workspace and closes setup', () => {
   const calls = [];
@@ -22,11 +27,117 @@ test('finishing startup restores the existing workspace and closes setup', () =>
     ipcMain: { handle: (_, handler) => { ready = handler; } },
     mainWindow: { isDestroyed: () => false, isMinimized: () => true, restore: () => calls.push('restore'), show: () => calls.push('show'), focus: () => calls.push('focus') },
     splashWindow: { isDestroyed: () => false, close: () => calls.push('close setup') },
+    completeDesktopStartup: () => calls.push('ready'),
     createWindow: () => calls.push('create workspace'),
+    desktopWorkspaceReady: true,
   });
-  vm.runInContext(readyHandler, context);
+  vm.runInContext(`${showWorkspace}; ${readyHandler}`, context);
   assert.equal(ready(), true);
-  assert.deepEqual(calls, ['restore', 'show', 'focus', 'close setup']);
+  assert.deepEqual(calls, ['ready', 'restore', 'show', 'focus', 'close setup']);
+});
+
+test('the native window stays hidden while the renderer loads', () => {
+  let options;
+  const context = vm.createContext({
+    process: { platform: 'win32' }, appIconPath: '/icon.png', path: { join }, __dirname: '/electron',
+    isDev: true, shouldOpenDevTools: false, desktopWorkspaceReady: true,
+    BrowserWindow: class {
+      constructor(value) { options = value; }
+      loadURL() {}
+      on() {}
+    },
+  });
+  vm.runInContext(`${createWorkspace}; createWindow()`, context);
+  assert.equal(options.show, false);
+  assert.equal(options.paintWhenInitiallyHidden, true);
+  assert.equal(context.desktopWorkspaceReady, false);
+});
+
+test('service readiness cannot reveal an unpainted workspace', () => {
+  const calls = [];
+  let ready;
+  const context = vm.createContext({
+    ipcMain: { handle: (_, handler) => { ready = handler; } },
+    desktopWorkspaceReady: false,
+    mainWindow: { isDestroyed: () => false, show: () => calls.push('show') },
+    splashWindow: { isDestroyed: () => false, close: () => calls.push('close setup') },
+    completeDesktopStartup: () => calls.push('service ready'),
+  });
+  vm.runInContext(`${showWorkspace}; ${readyHandler}`, context);
+  ready();
+  assert.deepEqual(calls, ['service ready', 'close setup']);
+});
+
+test('the first painted homepage reveals the window without waiting for the service', () => {
+  const calls = [];
+  let painted;
+  const sender = {};
+  const context = vm.createContext({
+    ipcMain: { handle: (_, handler) => { painted = handler; } },
+    desktopWorkspaceReady: false, desktopServiceReady: false,
+    mainWindow: { webContents: sender, isDestroyed: () => false, isMinimized: () => false, show: () => calls.push('show'), focus: () => calls.push('focus') },
+    splashWindow: { isDestroyed: () => false, isVisible: () => false },
+  });
+  vm.runInContext(`${showWorkspace}; ${workspaceReadyHandler}`, context);
+  assert.throws(() => painted({ sender: {} }), /Unauthorized/);
+  assert.equal(context.desktopWorkspaceReady, false);
+  painted({ sender });
+  assert.deepEqual(calls, ['show', 'focus']);
+  assert.equal(context.desktopServiceReady, false);
+  painted({ sender });
+  assert.deepEqual(calls, ['show', 'focus']);
+});
+
+test('painting the homepage does not cover a visible startup error window', () => {
+  let painted;
+  const sender = {};
+  const context = vm.createContext({
+    ipcMain: { handle: (_, handler) => { painted = handler; } },
+    desktopWorkspaceReady: false,
+    mainWindow: { webContents: sender },
+    splashWindow: { isDestroyed: () => false, isVisible: () => true },
+    showDesktopWorkspace: () => { throw new Error('Must preserve setup focus'); },
+  });
+  vm.runInContext(workspaceReadyHandler, context);
+  painted({ sender });
+  assert.equal(context.desktopWorkspaceReady, true);
+});
+
+test('home opens before the first health check finishes', async () => {
+  const calls = [];
+  let finishHealth;
+  const context = vm.createContext({
+    ...defaults, isDev: true, currentPort: 0,
+    healthCheck: () => new Promise(resolve => { finishHealth = resolve; }),
+    createWindow: () => calls.push('workspace'),
+    createSplashWindow: () => { throw new Error('Healthy development service needs no setup'); },
+  });
+  const opening = vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
+  assert.deepEqual(calls, ['workspace']);
+  finishHealth(true);
+  await opening;
+  assert.equal(context.currentPort, 4567);
+});
+
+test('the main renderer waits for service readiness and receives the final port', async () => {
+  let wait;
+  const sender = { once() {} };
+  const context = vm.createContext({
+    ipcMain: { handle: (_, handler) => { wait = handler; } },
+    mainWindow: { webContents: sender },
+    desktopServiceReady: false, desktopStartupWaiters: new Set(), currentPort: 0,
+  });
+  vm.runInContext(`${completeStartup}; ${waitHandler}`, context);
+  let resolved = false;
+  const ready = wait({ sender }).then(port => { resolved = true; return port; });
+  await Promise.resolve();
+  assert.equal(resolved, false);
+  context.currentPort = 51234;
+  context.completeDesktopStartup();
+  assert.equal(await ready, 51234);
+  assert.equal(wait({ sender }), 51234);
+  assert.equal(context.desktopStartupWaiters.size, 0);
+  assert.throws(() => wait({ sender: {} }), /Unauthorized/);
 });
 
 for (const isWin of [true, false]) {
@@ -43,25 +154,25 @@ for (const isWin of [true, false]) {
 
 test('development reuses the default service without blocking on setup', async () => {
   const calls = [];
-  const context = vm.createContext({ ...defaults, isDev: true, currentPort: 0, healthCheck: async port => { calls.push(port); return true; }, createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup') });
+  const context = vm.createContext({ ...defaults, isDev: true, currentPort: 0, healthCheck: async port => { calls.push(port); return true; }, createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup') });
   await vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
-  assert.deepEqual(calls, [4567, 'workspace']);
+  assert.deepEqual(calls, ['workspace', 4567]);
   assert.equal(context.currentPort, 4567);
 });
 
-test('packaged startup uses setup without probing the default service', async () => {
+test('packaged startup opens home and prepares the service in the background', async () => {
   const calls = [];
-  const context = vm.createContext({ ...defaults, currentPort: 0, healthCheck: async port => { calls.push(port); return true; }, createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup') });
+  const context = vm.createContext({ ...defaults, currentPort: 0, healthCheck: async port => { calls.push(port); return true; }, createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup') });
   await vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
-  assert.deepEqual(calls, ['setup']);
+  assert.deepEqual(calls, ['workspace', 'background setup']);
   assert.equal(context.currentPort, 0);
 });
 
 test('packaged startup can reopen the workspace on its own service port', async () => {
   const calls = [];
-  const context = vm.createContext({ ...defaults, currentPort: 51234, healthCheck: async port => { calls.push(port); return true; }, createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup') });
+  const context = vm.createContext({ ...defaults, currentPort: 51234, healthCheck: async port => { calls.push(port); return true; }, createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup') });
   await vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
-  assert.deepEqual(calls, [51234, 'workspace']);
+  assert.deepEqual(calls, ['workspace', 51234]);
   assert.equal(context.currentPort, 51234);
 });
 
@@ -104,26 +215,26 @@ for (const isDev of [false, true]) {
 
 test('a missing core keeps the installation and startup path available', async () => {
   const calls = [];
-  const context = vm.createContext({ ...defaults, currentPort: 0, healthCheck: async () => false, createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup') });
+  const context = vm.createContext({ ...defaults, currentPort: 0, healthCheck: async () => false, createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup') });
   await vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
-  assert.deepEqual(calls, ['setup']);
+  assert.deepEqual(calls, ['workspace', 'background setup']);
 });
 
 test('a packaged bundled update uses setup even when the old service is healthy', async () => {
   const calls = [];
   const context = vm.createContext({ ...defaults, isDev: false, currentPort: 4567,
     isLoopraCoreBundled: () => true, readBundledCoreVersion: () => '26.9.92',
-    healthCheck: async () => true, createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup'),
+    healthCheck: async () => true, createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup'),
   });
   await vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
-  assert.deepEqual(calls, ['setup']);
+  assert.deepEqual(calls, ['workspace', 'background setup']);
 });
 
 test('a separately running development service does not need the desktop Java runtime', async () => {
   const calls = [];
   const context = vm.createContext({ ...defaults, isDev: true, currentPort: 0,
     detectJavaStatus: async () => ({ usable: false }), healthCheck: async () => true,
-    createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup'),
+    createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup'),
   });
   await vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
   assert.deepEqual(calls, ['workspace']);
@@ -134,7 +245,7 @@ test('a running development backend takes precedence over a bundled runtime upda
   const context = vm.createContext({ ...defaults, isDev: true, currentPort: 0,
     isLoopraCoreBundled: () => true, readBundledCoreVersion: () => '99.0.0',
     detectJavaStatus: async () => { throw new Error('External dev backend owns its Java'); },
-    healthCheck: async () => true, createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup'),
+    healthCheck: async () => true, createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup'),
   });
   await vm.runInContext(`${startup}; openDesktopWorkspace()`, context);
   assert.equal(context.currentPort, 4567);
@@ -166,7 +277,7 @@ test('an authenticated development backend is reused without touching any servic
     serviceAccessHeaders: () => ({}), fetch: async () => Response.json({ reason: 'access_key_required' }, { status: 401 }),
     ipcMain: { handle: (_, callback) => { start = callback; } },
     listLoopraJavaProcesses: () => { throw new Error('Must not clean processes before reusing dev'); },
-    createWindow: () => calls.push('workspace'), createSplashWindow: () => calls.push('setup'),
+    createWindow: () => calls.push('workspace'), createSplashWindow: options => calls.push(options?.background ? 'background setup' : 'setup'),
     startLoopraWeb: () => { throw new Error('Must not launch a second backend'); },
   });
   vm.runInContext(`${healthProbe}; ${startup}; ${startHandler}`, context);
