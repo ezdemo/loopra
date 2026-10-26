@@ -5,6 +5,8 @@ import { Check } from 'lucide-react';
 import { getSessionMessages, useLocalState } from './lib';
 import type { Provider, Session } from './lib';
 import Sidebar from './layout/Sidebar';
+import ProfileEditor from './components/LocalProfile';
+import { useLocalProfile } from './local-profile';
 import Header from './layout/Header';
 import HomeView from './layout/HomeView';
 import IsolationSwitch from './layout/IsolationSwitch';
@@ -68,6 +70,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const pets = usePets(api, backend.status === 'connected');
   const [hiddenSessions, setHiddenSessions] = useLocalState<string[]>(`hidden-sessions:${server}`, []);
   const [preferences, setPreferences] = useLocalState<Preferences>('preferences', defaultPreferences);
+  const { profile, ready: profileReady, saveProfile } = useLocalProfile();
+  const [profileOpen, setProfileOpen] = useState(false);
   const [composerOptions, setComposerOptions] = useLocalState<ComposerOptions>('composer-options', defaultOptions);
   const [defaultModel, setDefaultModel] = useLocalState('default-model', defaultOptions.modelId);
   const [agentSettings, setAgentSettings] = useLocalState<AgentSettings>('agent-settings', defaultAgentSettings);
@@ -1246,6 +1250,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
       {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={skillsOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!skillsOpen && isHome} collapsed={collapsed} onCollapsed={setCollapsed}
+        profile={profile} onEditProfile={() => setProfileOpen(true)}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
         skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setChanges(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
@@ -1324,12 +1329,15 @@ export default function App({ startupPending = false, initialServer }: { startup
       initialTab={settingsTab}
       preferences={preferences}
       onPreferences={setPreferences}
+      profileReady={profileReady}
+      onEditProfile={() => setProfileOpen(true)}
       providers={providers}
       onProviders={saveProviders}
       sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))}
       onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }}
       notify={notify}
     />
+    {profileOpen && <ProfileEditor profile={profile} english={preferences.language === 'English'} onSave={saveProfile} onClose={() => setProfileOpen(false)} />}
     {!isDesktopWindow() && <CoreServiceUpdateDialog controller={coreUpdate} notify={notify} />}
     <DesktopUpdateDialog controller={desktopUpdate} />
     <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>

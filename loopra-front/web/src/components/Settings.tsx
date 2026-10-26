@@ -44,6 +44,7 @@ type Props = {
   /** Launcher ids the service host reports as usable; null/absent means unknown, so don't filter. */
   availableApplications?: string[] | null;
   preferences: Preferences; onPreferences: (value: Preferences) => void;
+  profileReady: boolean; onEditProfile: () => void;
   providers: Provider[]; onProviders: (value: Provider[]) => void | Promise<void>;
   sessions: Session[]; onRestore: (id: string) => void; notify: (message: string) => void;
   config: AgentSettings; onConfig: (value: AgentSettings) => void | Promise<void>;
@@ -110,7 +111,8 @@ export default function Settings(props: Props) {
         {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{settingsCategoryFor(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : <>
         {category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
         {tab === '通用' && <>
-          <PageActions title="通用" /><h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
+          <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，仅保存在本机"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
+          <h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
             <SettingRow title="外观" description="选择应用的明暗外观"><SettingSegments label="外观" options={['☼ 浅色', '◉ 深色', '跟随系统']} value={prefs.theme === '浅色' ? '☼ 浅色' : prefs.theme === '深色' ? '◉ 深色' : prefs.theme} onChange={value => update('theme', value.replace(/^[☼◉] /, ''))} /></SettingRow>
             <SettingRow title="语言" description="侧栏与输入框的显示语言"><SettingSegments label="语言" options={['English', '简体中文']} value={prefs.language} onChange={value => update('language', value)} /></SettingRow>
             <SettingRow title="界面缩放" description="同步调整文字、侧栏宽度、控件尺寸与间距"><div className="font-scale-control"><SettingSegments label="全局界面缩放" options={UI_SCALE_LEVELS.map(level => `${level}%`)} value={`${normalizeUiScale(prefs.fontScale)}%`} onChange={value => update('fontScale', Number(value.replace('%', '')))} /></div></SettingRow>

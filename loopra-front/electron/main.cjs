@@ -14,6 +14,7 @@ const { DesktopNativeOverlayManager } = require('./desktop-overlay.cjs')
 const { registerDesktopContextMenus } = require('./desktop-context-menu.cjs')
 const { registerDesktopExternalLinks } = require('./desktop-external-links.cjs')
 const { createDesktopTheme, registerDesktopThemeIpc } = require('./desktop-theme.cjs')
+const { registerLocalProfileIpc } = require('./local-profile.cjs')
 const fs = require('fs')
 const net = require('net')
 const { randomBytes } = require('crypto')
@@ -1274,6 +1275,8 @@ const isUiSettingsSender = (event) => {
     return false
   }
 }
+
+registerLocalProfileIpc(ipcMain, app, isUiSettingsSender)
 
 ipcMain.handle('proxy-get', (event) => {
   if (!isUiSettingsSender(event)) return { success: false, error: '未授权的代理请求' }

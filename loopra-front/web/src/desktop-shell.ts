@@ -23,6 +23,10 @@ export type DesktopProxyApi = {
 export type DesktopThemeSource = 'dark' | 'light' | 'system';
 
 type ElectronApi = {
+  localProfile?: {
+    get: () => Promise<import('./local-profile').LocalProfile | null>;
+    set: (profile: import('./local-profile').LocalProfile) => Promise<unknown>;
+  };
   desktopTheme?: { set?: (source: DesktopThemeSource) => Promise<unknown> | unknown };
   desktopUpdate?: import('./desktop-update').DesktopUpdateApi;
   isElectron?: boolean;
