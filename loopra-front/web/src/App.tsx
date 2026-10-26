@@ -1250,7 +1250,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
       {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={skillsOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!skillsOpen && isHome} collapsed={collapsed} onCollapsed={setCollapsed}
-        profile={profile} onEditProfile={() => setProfileOpen(true)}
+        profile={profile}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
         skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setChanges(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
