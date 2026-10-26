@@ -107,7 +107,7 @@ test('the shell first row is the drag region with no-drag controls', () => {
   assert.match(header, /className="header-drag" aria-hidden="true"/);
   assert.match(header, /<div className="header-leading">[\s\S]*className="breadcrumb"[\s\S]*className="header-drag" aria-hidden="true" \/>\s*<\/div>\s*<div className="header-actions">/);
   assert.doesNotMatch(styles, /\.conversation-header \{[^}]*-webkit-app-region: drag;/);
-  assert.match(styles, /\.desktop-app\.is-desktop-shell button,[\s\S]*?-webkit-app-region: no-drag;/);
+  assert.match(styles, /\.desktop-app\.is-desktop-shell :is\(\.sidebar-brand, \.panel-header, \.header-leading\) :is\(button, input, textarea, select, a, \.popup\) \{ -webkit-app-region: no-drag; \}/);
   assert.match(styles, /\.desktop-window-controls \{[^}]*-webkit-app-region: no-drag;/);
   // The controls float over the title row; when the panel is closed the header
   // reserves their width, and the overlay layout always does.

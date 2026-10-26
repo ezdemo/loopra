@@ -52,6 +52,7 @@ const switcherUrl = await sourceUrl('layout/AgentSwitcher.tsx', {
   'lucide-react': iconStub,
   '@nextui-org/react': nextuiStub,
   '../components/Motion': motionStub,
+  '../components/AgentIcon': await sourceUrl('components/AgentIcon.tsx'),
   '../agent-install': installUrl,
   './menu-placement': placementUrl,
 });
@@ -141,7 +142,8 @@ for (const engine of [
       const row = view.menu.querySelector('.agent-option > button:first-child');
       assert.equal(row.disabled, false);
       assert.equal(row.title, engine.detail);
-      assert.match(row.textContent, /点击查看安装说明/);
+      assert.equal(row.textContent, engine.name);
+      assert.equal(row.querySelector('small'), null);
       assert.equal(view.menu.querySelector('.agent-install').textContent, '安装说明');
       await act(async () => row.click());
       let dialog = view.container.querySelector('[role="dialog"]');

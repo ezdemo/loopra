@@ -47,9 +47,13 @@
 .rich-composer .composer-model:hover { background: var(--hover); color: var(--text); }
 .composer-model > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-name-tooltip { max-width: min(32rem, calc(100vw - 2rem)); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; line-height: 1.5; }
-.composer-model > svg { flex-shrink: 0; color: var(--muted); }
+.composer-model > svg:not(.composer-agent-icon) { flex-shrink: 0; color: var(--muted); }
 .model-reasoning-selector { position: relative; min-width: 0; max-width: min(24rem, calc(100cqw - 7rem)); }
 .rich-composer .composer-model-reasoning { max-width: min(24rem, 100%); gap: .375rem; color: var(--text); background: var(--soft); }
+.composer-agent-icon { flex: 0 0 1rem; width: 1rem; height: 1rem; color: var(--text); }
+.composer-agent-icon[data-agent="native"] { color: var(--blue); }
+.composer-agent-icon[data-agent="claude-code"] { color: #d97757; }
+.composer-agent-icon[data-agent="dsh"] { color: #4d6bfe; }
 .composer-model-reasoning > .model-reasoning-divider { flex-shrink: 0; color: var(--muted); }
 .composer-model-reasoning > .model-reasoning-effort { flex-shrink: 0; max-width: 6rem; }
 .model-reasoning-menus { position: absolute; right: 0; bottom: calc(100% + .4375rem); z-index: 90; width: min(16rem, calc(100vw - 2.5rem), calc(100cqw - 1.5rem)); }
@@ -267,7 +271,7 @@
 .composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-tool-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .composer-tool-list > button, .composer-tool-list > .agent-option > button:first-child, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
-.composer-tool-list > button > svg:first-child, .composer-tool-list > .agent-option > button:first-child > svg:first-child, .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
+.composer-tool-list > button > svg:first-child, .composer-tool-list > .agent-option > button:first-child > svg:first-child:not(.composer-agent-icon), .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
 .composer-tool-list > button > span:not(.keycap), .composer-tool-list > .agent-option > button:first-child > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }
 .composer-tool-list strong, .composer-selection-list strong, .composer-tool-plan strong { display: block; font-weight: 500; font-size: 0.8125rem; }
 .composer-tool-list small, .composer-selection-list small, .composer-tool-plan small { display: block; font-size: 0.6875rem; color: var(--muted); margin-top: 0.1875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -275,7 +279,6 @@
 /* Missing runtimes open installation help from either the row or its shortcut. */
 .agent-option { position: relative; }
 .agent-option:has(> .agent-install) > button:first-child { padding-right: 5rem; }
-.agent-option > button:first-child small { display: block; margin-top: .25rem; color: var(--muted); font-size: .6875rem; line-height: 1.4; white-space: normal; }
 .agent-option > .agent-install { position: absolute; right: 0.5rem; top: 50%; width: auto; min-height: 1.5rem; height: 1.5rem; padding: 0 0.5rem; transform: translateY(-50%); justify-content: center; background: var(--soft); color: var(--blue); font-size: 0.6875rem; font-weight: 500; }
 .agent-option > .agent-install:hover { background: var(--hover); color: var(--text); }
 .composer-tool-list em { font-size: 0.6875rem; font-style: normal; color: var(--blue); }
