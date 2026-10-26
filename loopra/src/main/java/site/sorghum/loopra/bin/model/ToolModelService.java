@@ -7,7 +7,7 @@ import site.sorghum.loopra.bin.config.ConfigService;
 
 import java.util.List;
 
-/** 为标题和记忆摘要创建独立 Provider，不修改聊天模型或它的运行状态。 */
+/** 为会话标题生成创建独立 Provider，不修改聊天模型或它的运行状态。 */
 @Slf4j
 public final class ToolModelService {
     private ToolModelService() {}
@@ -28,11 +28,6 @@ public final class ToolModelService {
         int maxTokens = Math.min(outputLimit, configuredLimit > 0 ? configuredLimit : AgentConfig.DEFAULT_MAX_TOKENS);
         return new LoopraModelProvider(channel.apiUrl(), channel.apiKey(), model, "none",
                 channel.id(), channel.apiProtocol(), channel.specialCompatibility(), maxTokens);
-    }
-
-    public static LoopraModelProvider providerOr(LoopraModelProvider fallback) {
-        LoopraModelProvider configured = configuredProvider(ConfigService.getConfig());
-        return configured == null ? fallback : configured;
     }
 
     public static String generateTitle(String text) {

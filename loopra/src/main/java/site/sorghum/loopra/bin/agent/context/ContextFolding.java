@@ -6,7 +6,6 @@ import site.sorghum.loopra.bin.agent.memory.ProjectMemoryStore;
 import site.sorghum.loopra.bin.agent.model.ChatMessage;
 import site.sorghum.cutin.core.model.ModelResponse;
 import site.sorghum.loopra.bin.model.LoopraModelProvider;
-import site.sorghum.loopra.bin.model.ToolModelService;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -327,8 +326,7 @@ public class ContextFolding {
         }
         msgs.add(ChatMessage.ofUser("请按格式总结上面的对话，产出会话摘要与长期记忆两部分。"));
 
-        LoopraModelProvider summaryProvider = ToolModelService.providerOr(modelProvider);
-        ModelResponse resp = summaryProvider.call(summaryProvider.buildRequest(msgs, null));
+        ModelResponse resp = modelProvider.call(modelProvider.buildRequest(msgs, null));
         String content = resp.message().content();
         Object reasoningMeta = resp.message().metadata("reasoning_content");
         String raw = (content != null && !content.isEmpty()) ? content

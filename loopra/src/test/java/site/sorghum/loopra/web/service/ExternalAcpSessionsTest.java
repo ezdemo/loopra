@@ -45,6 +45,64 @@ class ExternalAcpSessionsTest {
         return store;
     }
 
+    @ParameterizedTest @ValueSource(strings = {"generated", "empty", "failure", "manual"})
+    void firstPromptGeneratesTitleWithFallbackAndPreservesManualRename(String scenario) throws Exception {
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        var requested = new CountDownLatch(1);
+        var release = new CountDownLatch("manual".equals(scenario) ? 1 : 0);
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requests.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            requested.countDown();
+            try { release.await(5, TimeUnit.SECONDS); }
+            catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            String title = "empty".equals(scenario) ? "" : "Generated title";
+            byte[] body = org.noear.snack4.ONode.serialize(Map.of("choices", List.of(Map.of("message",
+                    Map.of("role", "assistant", "content", title))))).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders("failure".equals(scenario) ? 500 : 200, body.length);
+            try (var output = exchange.getResponseBody()) { output.write(body); }
+        });
+        server.start();
+        var configField = site.sorghum.loopra.bin.config.ConfigService.class.getDeclaredField("config");
+        configField.setAccessible(true);
+        Object previous = configField.get(null);
+        var store = store();
+        try (var runtime = runtime()) {
+            var constructor = site.sorghum.loopra.bin.config.LoopraConfig.class.getDeclaredConstructor(org.noear.snack4.ONode.class);
+            constructor.setAccessible(true);
+            configField.set(null, constructor.newInstance(org.noear.snack4.ONode.ofJson("""
+                    {"toolModel":"title-model","toolModelChannelId":"helper",
+                     "modelChannels":[{"id":"helper","baseUrl":"http://127.0.0.1:%d/v1","apiKey":"test",
+                       "models":[{"name":"title-model","maxTokens":512}]}]}
+                    """.formatted(server.getAddress().getPort()))));
+            prompt(runtime, store, "first message", AgentOutput.NOOP);
+            assertTrue(requested.await(3, TimeUnit.SECONDS));
+            if ("manual".equals(scenario)) {
+                assertEquals("first message", store.getTitle("chat"));
+                store.updateTitle("chat", "Manual title");
+                release.countDown();
+            }
+            assertTrue(ForkJoinPool.commonPool().awaitQuiescence(5, TimeUnit.SECONDS));
+            String expected = switch (scenario) {
+                case "generated" -> "Generated title";
+                case "manual" -> "Manual title";
+                default -> "first message";
+            };
+            assertEquals(expected, store.getTitle("chat"));
+            prompt(runtime, store, "second message", AgentOutput.NOOP);
+            assertEquals(expected, store.getTitle("chat"));
+            assertEquals(1, requests.get(), "Only the first prompt should generate a title");
+        } finally {
+            release.countDown();
+            ForkJoinPool.commonPool().awaitQuiescence(5, TimeUnit.SECONDS);
+            configField.set(null, previous);
+            server.stop(0);
+            store.shutdown();
+        }
+    }
+
     @ParameterizedTest @ValueSource(strings = {"claude-code", "codex", "pi", "dsh"})
     void configurationResumesWithoutReplayAndRestoresOptionsBeforeReusingConnectionForPrompt(String agentId) throws Exception {
         Path trace = home.resolve("requests.jsonl");

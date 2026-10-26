@@ -36,7 +36,7 @@ class ToolModelServiceTest {
     }
 
     @Test
-    void titlesAndMemoryUseTheIndependentModelAndChannel(@TempDir Path workspace) throws Exception {
+    void titlesUseToolModelWhileCompactionKeepsConversationModel(@TempDir Path workspace) throws Exception {
         var requests = new ArrayList<ONode>();
         var reply = new AtomicReference<>("“整理模型设置”");
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -64,9 +64,13 @@ class ToolModelServiceTest {
             assertEquals(512, requests.get(0).get("max_tokens").getInt());
 
             field.set(null, config);
-            reply.set("<摘要>完成配置拆分</摘要>\n<<<MEMORY>>>\n<记忆>- 模型用途配置独立保存</记忆>");
+            var summaryRequest = new AtomicReference<String>();
             var conversationProvider = TestLoopraProvider.builder().model("conversation-model")
-                    .call(request -> { throw new AssertionError("整理记忆不应调用聊天模型"); }).build();
+                    .call(request -> {
+                        summaryRequest.set(request.modelId());
+                        return TestLoopraProvider.response(
+                                "<摘要>完成配置拆分</摘要>\n<<<MEMORY>>>\n<记忆>- 模型用途配置独立保存</记忆>");
+                    }).build();
             var history = new ArrayList<ChatMessage>();
             history.add(ChatMessage.ofSystem("test"));
             for (int i = 0; i < 30; i++) {
@@ -76,8 +80,8 @@ class ToolModelServiceTest {
             var folded = ContextFolding.foldKeepLast(history, 2, conversationProvider, workspace);
             assertTrue(folded.size() < history.size());
             assertTrue(ProjectMemoryStore.load(workspace).contains("模型用途配置独立保存"));
-            assertEquals("utility/raw-model", requests.get(1).get("model").getString());
-            assertEquals(2048, requests.get(1).get("max_tokens").getInt());
+            assertEquals("conversation-model", summaryRequest.get());
+            assertEquals(1, requests.size(), "上下文压缩不应额外调用工具模型");
             assertEquals("conversation-model", conversationProvider.getModel());
 
             reply.set("");

@@ -226,20 +226,32 @@ test('a background Home creation cannot steal the newly selected session or clea
   h.streams.forEach(stream => stream.finish()); await Promise.all([a, b]);
 });
 
-test('a bound Home creation stays cancellable and cannot be sent twice while its title is being saved', async () => {
+test('a new Home send keeps its provisional title local and stays cancellable without allowing duplicate sends', async () => {
   const h = harness();
-  const title = deferred(); const request = h.shared.api.request;
-  h.shared.api.request = (path, ...args) => path.endsWith('/title') ? title.promise : request(path, ...args);
   const home = h.render(undefined);
   const send = home.sendMessage('new A');
-  await until(() => h.shared.runs.runningIds(h.shared.server).size === 1);
+  await until(() => h.streams.length === 1);
+  assert.equal(h.requests.some(item => item.path.endsWith('/title')), false, 'an initial title must not be saved as a manual rename');
   assert.equal(await home.sendMessage('duplicate'), false);
   assert.equal(h.shared.runs.count(h.shared.server), 1);
   await home.stopGeneration();
   assert.equal(h.requests.find(item => item.path === '/chat/abort').body.sessionName, original.name);
-  title.resolve(); await send;
-  assert.equal(h.streams.length, 0);
+  await send;
+  assert.equal(h.streams.length, 1);
   assert.equal(h.shared.runs.count(h.shared.server), 0);
+});
+
+test('sending a prepared Home conversation leaves title persistence to the backend', async () => {
+  const h = harness();
+  h.shared.preparedNewSession.current = { key: h.shared.agentConfigKey, target: original };
+  h.shared.newAgentConfigRef = { current: null };
+  h.shared.storeNewAgentConfig = () => {};
+  const send = h.render(undefined).sendMessage('prepared first message');
+  await until(() => h.streams.length === 1);
+  assert.equal(h.shared.sessionsRef.current[0].title, 'prepared first message');
+  assert.equal(h.requests.some(item => item.path === '/agent-engines/prepare' || item.path.endsWith('/title')), false);
+  h.streams[0].finish();
+  await send;
 });
 
 test('switching backends detaches old streams and ignores their late events and queued sends', async () => {
@@ -284,6 +296,43 @@ test('an in-flight remote status response cannot overwrite a newly started local
   assert.equal(h.shared.sessionsRef.current[0].messages.at(-1).text, 'local');
   assert.equal(h.shared.remoteRunRef.current, null);
   h.streams[0].finish(); await b;
+});
+
+test('status polling refreshes the generated title during a local stream without touching its messages', async () => {
+  const h = harness();
+  const target = { ...other, title: 'first message' };
+  h.shared.sessionsRef.current = [target];
+  const selected = h.render(target);
+  const sending = selected.sendMessage('B');
+  await until(() => h.streams.length === 1);
+  h.streams[0].emit({ type: 'content', content: 'local response' });
+  const request = h.shared.api.request;
+  h.shared.api.request = (path, ...args) => path.startsWith('/agent/session-status')
+    ? Promise.resolve({ running: true, title: 'Generated title' }) : request(path, ...args);
+  await selected.syncSessionRun(target, new AbortController(), { running: false });
+  assert.equal(h.shared.sessionsRef.current[0].title, 'Generated title');
+  assert.equal(h.shared.sessionsRef.current[0].messages.at(-1).text, 'local response');
+  assert.equal(h.shared.remoteRunRef.current, null);
+  assert.equal(h.requests.some(item => item.path.startsWith('/agent/history')), false);
+  h.streams[0].finish();
+  await sending;
+});
+
+test('a delayed title status cannot overwrite a manual rename or an aborted view', async () => {
+  for (const abort of [false, true]) {
+    const h = harness();
+    const target = { ...other, title: 'first message' };
+    h.shared.sessionsRef.current = [target];
+    const status = deferred();
+    h.shared.api.request = () => status.promise;
+    const controller = new AbortController();
+    const polling = h.render(target).syncSessionRun(target, controller, { running: false });
+    if (abort) controller.abort();
+    else h.shared.setSessions(current => current.map(item => ({ ...item, title: 'Manual title' })));
+    status.resolve({ running: false, title: 'Generated title' });
+    await polling;
+    assert.equal(h.shared.sessionsRef.current[0].title, abort ? 'first message' : 'Manual title');
+  }
 });
 
 test('interrupting the first reply waits for abort and backend idle, then keeps its session', async () => {

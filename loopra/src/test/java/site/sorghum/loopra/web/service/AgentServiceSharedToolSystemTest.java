@@ -119,6 +119,19 @@ class AgentServiceSharedToolSystemTest {
     }
 
     @Test
+    void sessionStatusIncludesTheStoredTitleWithoutCreatingAnAgent() throws Exception {
+        AgentService service = new AgentService();
+        String name = "generated-title";
+        service.newSession(workspaceA.toString(), name, false);
+        service.renameSession(workspaceA.toString(), name, "Generated title");
+        var status = service.getSessionStatus(workspaceA.toString(), name);
+        assertEquals("Generated title", status.title());
+        assertFalse(status.running());
+        assertNull(service.peekAgent(workspaceA.toString(), name));
+        assertNull(service.getSessionStatus(workspaceB.toString(), name).title());
+    }
+
+    @Test
     void sessionStatusDoesNotInferRunningFromHistory() throws Exception {
         AgentService service = new AgentService();
         String sessionName = "history-only";

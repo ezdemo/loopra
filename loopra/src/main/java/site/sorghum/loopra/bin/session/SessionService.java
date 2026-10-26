@@ -267,6 +267,11 @@ public class SessionService implements SessionUsageSink {
         return title.length() > 30 ? title.substring(0, 30) + "..." : title;
     }
 
+    public static String fallbackTitle(String userMessage) {
+        String source = titleSource(userMessage);
+        return source.isBlank() ? "新会话" : abbreviateTitle(source.replaceAll("\\s+", " ").trim());
+    }
+
     /**
      * 确保当前会话已分配名称。
      * <p>
@@ -301,8 +306,7 @@ public class SessionService implements SessionUsageSink {
     public String beforeTurn(String userMessage) {
         if (!titleGenerated) {
             ensureSessionName();
-            String source = titleSource(userMessage);
-            String initialTitle = source.isBlank() ? "新会话" : abbreviateTitle(source.replaceAll("\\s+", " ").trim());
+            String initialTitle = fallbackTitle(userMessage);
             updateCurrentSessionTitle(initialTitle);
             titleGenerated = true;
             SessionStore titleStore = store;

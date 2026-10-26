@@ -767,9 +767,12 @@ export default function App() {
   // Legacy Chat.vue polls /agent/session-status so a reply started elsewhere
   // (another window, or a reload mid-run) is visible and its history stays fresh.
   async function syncSessionRun(target: Session, controller: AbortController, observe: { running: boolean }) {
+    const previousTitle = sessionsRef.current.find(item => item.id === target.id)?.title;
+    const status = await api.request<{ running?: boolean; requestId?: string; title?: string }>(`/agent/session-status?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
+    if (controller.signal.aborted) return;
+    if (status?.title) setSessions(current => current.map(item =>
+      item.id === target.id && item.title === previousTitle && item.title !== status.title ? { ...item, title: status.title! } : item));
     if (runs.get(sessionRunKey(server, target.id))) return;
-    const status = await api.request<{ running?: boolean; requestId?: string }>(`/agent/session-status?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
-    if (controller.signal.aborted || runs.get(sessionRunKey(server, target.id))) return;
     const running = !!status?.running;
     remoteRunRef.current = running ? target.id : null;
     setRemoteRun(running ? { id: target.id, requestId: status?.requestId } : null);
@@ -821,8 +824,8 @@ export default function App() {
     return () => clearInterval(timer);
   }, [generatingId, activeId]);
   useEffect(() => {
-    // A local stream owns only its own session; other sessions may still be polled.
-    if (!session || generatingId || backend.status !== 'connected') { remoteRunRef.current = null; setRemoteRun(null); return; }
+    // Local streams own their messages; status polling still refreshes async titles.
+    if (!session || backend.status !== 'connected') { remoteRunRef.current = null; setRemoteRun(null); return; }
     const target = session;
     const controller = new AbortController();
     const observe = { running: false };
@@ -1004,7 +1007,7 @@ export default function App() {
           seededConfigAt.current[target.id] = Date.now();
         }
         if (controller.signal.aborted || !runs.bind(request, target)) throw new Error('会话创建已取消');
-        await api.request(sessionRoute(target, '/title'), 'PUT', { title: target.title }, controller.signal);
+        // Keep the optimistic title local so the backend can generate the first title.
         // The server lists newest first; mirror that optimistically instead of appending.
         if (sameServer()) setSessions(current => [target!, ...current.filter(item => item.id !== target!.id)]);
         if (visible()) setActiveId(target.id);
