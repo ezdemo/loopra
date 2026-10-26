@@ -12,6 +12,10 @@ function toPlainIpcValue(value) {
 
 // 暴露 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
+  localProfile: {
+    get: () => ipcRenderer.invoke('local-profile-get'),
+    set: (profile) => ipcRenderer.invoke('local-profile-set', toPlainIpcValue(profile))
+  },
   desktopTheme: {
     set: (source) => ipcRenderer.invoke('desktop-theme-set', source)
   },
