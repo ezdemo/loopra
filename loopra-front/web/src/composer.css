@@ -32,6 +32,11 @@
 .agent-option-toggle { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); color: var(--text); font-size: 0.8125rem; text-align: left; }
 .agent-option-toggle:disabled { opacity: 0.6; }
 .composer-selection-list > button.is-danger { color: var(--danger); }
+.composer-mcp-controls { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.composer-mcp-list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.composer-mcp-row { display: flex; align-items: center; gap: .625rem; padding: .625rem .75rem; }
+.composer-mcp-row strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8125rem; font-weight: 500; }
+.composer-mcp-controls .popover-footer > span { overflow-wrap: anywhere; }
 .composer-selection-list > button.is-danger:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .rich-composer .composer-icon { width: 1.75rem; height: 1.75rem; min-width: 1.75rem; padding: 0; border-radius: var(--radius-md); color: var(--muted); background: transparent; }
 .rich-composer .composer-icon:hover { background: var(--hover); color: var(--text); }

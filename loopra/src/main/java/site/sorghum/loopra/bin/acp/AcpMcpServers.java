@@ -18,14 +18,29 @@ public final class AcpMcpServers {
     }
 
     public static List<McpServer> managed(Path globalConfig, Path workspace) {
+        return managed(globalConfig, workspace, Map.of());
+    }
+
+    public static List<McpServer> managed(Path workspace, String agentId) {
+        if (ChatMode.isChatRoot(workspace)) return List.of();
+        return managed(Path.of(System.getProperty("user.home"), ".loopra", McpProjectConfig.CONFIG_FILE), workspace,
+                site.sorghum.loopra.bin.mcp.AgentMcpPreferences.choices(agentId));
+    }
+
+    public static Map<String, McpServerParameters> definitions(Path globalConfig, Path workspace) throws IOException {
+        Map<String, McpServerParameters> definitions = new LinkedHashMap<>(McpProjectConfig.read(globalConfig));
+        // A disabled project definition also masks a global server with the same name.
+        definitions.putAll(McpProjectConfig.read(McpProjectConfig.path(workspace)));
+        return definitions;
+    }
+
+    private static List<McpServer> managed(Path globalConfig, Path workspace, Map<String, Boolean> choices) {
         if (ChatMode.isChatRoot(workspace)) return List.of();
         try {
-            Map<String, McpServerParameters> definitions = new LinkedHashMap<>(McpProjectConfig.read(globalConfig));
-            // A disabled project definition also masks a global server with the same name.
-            definitions.putAll(McpProjectConfig.read(McpProjectConfig.path(workspace)));
+            Map<String, McpServerParameters> definitions = definitions(globalConfig, workspace);
             List<McpServer> result = new ArrayList<>();
             definitions.forEach((name, parameters) -> {
-                if (parameters != null && parameters.isEnabled()) result.add(toAcp(name, parameters));
+                if (parameters != null && choices.getOrDefault(name, parameters.isEnabled())) result.add(toAcp(name, parameters));
             });
             return List.copyOf(result);
         } catch (IOException | RuntimeException e) {

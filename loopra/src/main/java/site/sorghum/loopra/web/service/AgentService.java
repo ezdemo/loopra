@@ -975,7 +975,7 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
                         boolean opened = false;
                         try {
                             client.open(sessionKey.split("::", 2)[0], null, List.of(),
-                                    site.sorghum.loopra.bin.acp.AcpMcpServers.managed(Path.of(sessionKey.split("::", 2)[0])));
+                                    site.sorghum.loopra.bin.acp.AcpMcpServers.managed(Path.of(sessionKey.split("::", 2)[0]), "native"));
                             opened = true;
                             Map<String, Object> options = new LinkedHashMap<>();
                             options.put("model", requestedModel);

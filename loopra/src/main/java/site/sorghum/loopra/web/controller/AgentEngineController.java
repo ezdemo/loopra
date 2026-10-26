@@ -1,10 +1,17 @@
 package site.sorghum.loopra.web.controller;
 
 import org.noear.solon.annotation.*;
+import site.sorghum.loopra.bin.acp.AcpMcpServers;
+import site.sorghum.loopra.bin.agent.environment.ChatMode;
+import site.sorghum.loopra.bin.mcp.AgentMcpPreferences;
+import site.sorghum.loopra.bin.mcp.McpProjectConfig;
+import site.sorghum.loopra.web.common.ServiceException;
 import site.sorghum.loopra.web.model.ApiResponse;
 import site.sorghum.loopra.web.service.AgentService;
 import site.sorghum.loopra.web.service.AgentPreferencesService;
 import site.sorghum.loopra.web.service.ExternalAcpProviders;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +22,43 @@ import java.util.Map;
 public class AgentEngineController {
     @Inject private AgentService agents;
     @Inject private AgentPreferencesService preferences;
+
+    public record McpServerChoice(String name, String type, String source, boolean configuredEnabled, boolean enabled) {}
+    public record McpChange(String agentId, String workspaceHash, String name, Boolean enabled) {}
+
+    @Get @Mapping("/mcp")
+    public ApiResponse<List<McpServerChoice>> mcp(
+            @Param(value="agentId", required=true) String agentId,
+            @Param(value="workspaceHash", required=true) String hash) {
+        ExternalAcpProviders.isExternal(agentId);
+        Path workspace = Path.of(agents.resolveProjectHashOrThrow(hash));
+        if (ChatMode.isChatRoot(workspace)) return ApiResponse.ok(List.of());
+        try {
+            var global = Path.of(System.getProperty("user.home"), ".loopra", McpProjectConfig.CONFIG_FILE);
+            var project = McpProjectConfig.read(McpProjectConfig.path(workspace));
+            var choices = AgentMcpPreferences.choices(agentId);
+            List<McpServerChoice> result = new ArrayList<>();
+            AcpMcpServers.definitions(global, workspace).forEach((name, parameters) -> {
+                if (parameters != null) result.add(new McpServerChoice(name, parameters.getTypeOrTransport(),
+                        project.containsKey(name) ? "project" : "global", parameters.isEnabled(),
+                        choices.getOrDefault(name, parameters.isEnabled())));
+            });
+            return ApiResponse.ok(result);
+        } catch (IOException | RuntimeException e) {
+            throw new ServiceException("读取 Agent MCP 列表失败，请检查 MCP 配置");
+        }
+    }
+
+    @Put @Mapping("/mcp")
+    public ApiResponse<List<McpServerChoice>> configureMcp(@Body McpChange change) {
+        if (change == null || change.enabled() == null || change.name() == null || change.name().isBlank())
+            throw new ServiceException("需要 Agent、MCP 名称和启用状态");
+        var available = mcp(change.agentId(), change.workspaceHash()).getData();
+        if (available.stream().noneMatch(item -> item.name().equals(change.name())))
+            throw new ServiceException("MCP 配置不存在，请刷新后重试");
+        AgentMcpPreferences.set(AgentMcpPreferences.path(), change.agentId(), change.name(), change.enabled());
+        return mcp(change.agentId(), change.workspaceHash());
+    }
 
     @Get @Mapping("/preferences")
     public ApiResponse<AgentPreferencesService.Preferences> preferences() {
