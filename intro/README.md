@@ -12,6 +12,10 @@ python -m http.server 8769 --bind 127.0.0.1 --directory intro
 
 打开 `http://127.0.0.1:8769/`。发布时完整部署本目录的 HTML、JS、CSS 和 assets，无需 Node.js 服务。
 
+页面中的本地 CSS、JS 引用带有 `?v=20261026-2` 等版本参数。以后修改这些资源并发布时，需要同步更新 `index.html` 中对应引用的版本参数，避免浏览器或 CDN 继续使用旧文件。先上传资源，再上传 `index.html`。
+
+使用 Nginx / CDN 时，建议 HTML 设置 `Cache-Control: no-cache`，让浏览器每次验证页面是否更新；CDN 不应强制缓存 HTML，并应将查询参数纳入静态资源缓存键。若部署后只有新增区域缺少样式，可检查 `style.css` 的响应内容及 `CF-Cache-Status`、`Age`、`Last-Modified` 响应头，并清除 CDN 中对应旧资源的缓存；仅在浏览器强制刷新不一定能刷新 CDN 缓存。
+
 ## 最新版本与下载
 
 `release.js` 请求公开接口 `https://api.github.com/repos/ezdemo/loopra-release/releases/latest`，展示 `tag_name`、`published_at` 与实际存在的桌面安装包。下载地址直接使用资产的 `browser_download_url`，过滤更新清单、blockmap 和 CLI 分发包。不要把 GitHub token 放入前端。

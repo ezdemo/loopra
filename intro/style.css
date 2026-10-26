@@ -425,6 +425,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brand-blue); ou
 .extension-grid { margin-top: 24px; }
 #agents .table-wrap { overflow-x: auto; }
 #agents table { min-width: 660px; }
+#agents th, #agents td { white-space: nowrap; vertical-align: middle; }
 #agents th:first-child { width: 170px; }
 #agents th:last-child { width: 160px; }
 .table-wrap a, .arch-points a { color: var(--brand-blue); }

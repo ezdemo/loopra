@@ -19,7 +19,7 @@
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.8/index.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.6/index.css">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20261026-2">
 </head>
 <body>
 
@@ -255,11 +255,11 @@
         <table>
           <thead><tr><th data-i18n="agents.engine">引擎</th><th data-i18n="agents.setup">配置与能力范围</th><th data-i18n="agents.docs">接入文档</th></tr></thead>
           <tbody>
-            <tr><td>Loopra Native</td><td data-i18n="agents.native">内置 Java / Cutin Agent，使用 Loopra 模型渠道、工具、Skill、子代理、计划与审批规则。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-native.md" target="_blank" rel="noopener">Native ACP ↗</a></td></tr>
-            <tr><td>Claude Code</td><td data-i18n="agents.claude">安装 Claude Code 与 ACP 适配器，沿用本机登录、模型与项目配置；支持托管 MCP，权限由 Claude 提供。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-claude.md" target="_blank" rel="noopener">Claude Code ACP ↗</a></td></tr>
-            <tr><td>Codex</td><td data-i18n="agents.codex">安装 codex-acp 适配器，沿用 Codex 登录与配置；模型、推理和权限选项按 Agent 上报的能力展示。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-codex.md" target="_blank" rel="noopener">Codex ACP ↗</a></td></tr>
-            <tr><td>Pi</td><td data-i18n="agents.pi">安装 Pi CLI 与 pi-acp，沿用 Pi 的模型、思考强度和指令。当前适配器不转发工作台 MCP，需在 Pi 中配置扩展。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-pi-dsh.md#pi" target="_blank" rel="noopener">Pi ACP ↗</a></td></tr>
-            <tr><td>DeepSeek Harness</td><td data-i18n="agents.dsh">使用提供 ACP profile 的 DSH，沿用自己的登录与模型配置；支持 stdio / HTTP MCP，当前不支持 SSE MCP、多主目录或标准／极简预设切换。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-pi-dsh.md#deepseek-harness" target="_blank" rel="noopener">DSH ACP ↗</a></td></tr>
+            <tr><td>Loopra Native</td><td data-i18n="agents.native">内置 Java / Cutin 引擎，统一使用 Loopra 模型、工具、Skill、子代理、计划与审批。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-native.md" target="_blank" rel="noopener">Native ACP ↗</a></td></tr>
+            <tr><td>Claude Code</td><td data-i18n="agents.claude">Claude Code + ACP 适配器，沿用本机登录与配置，支持托管 MCP 和 Claude 权限。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-claude.md" target="_blank" rel="noopener">Claude Code ACP ↗</a></td></tr>
+            <tr><td>Codex</td><td data-i18n="agents.codex">codex-acp 接入，沿用 Codex 登录与配置，按引擎能力提供模型、推理和权限选项。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-codex.md" target="_blank" rel="noopener">Codex ACP ↗</a></td></tr>
+            <tr><td>Pi</td><td data-i18n="agents.pi">Pi CLI + pi-acp，沿用 Pi 模型、思考强度与指令；MCP 扩展需在 Pi 中配置。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-pi-dsh.md#pi" target="_blank" rel="noopener">Pi ACP ↗</a></td></tr>
+            <tr><td>DeepSeek Harness</td><td data-i18n="agents.dsh">DSH ACP profile 接入，沿用自身登录与模型，支持 stdio / HTTP MCP；限制见文档。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/acp-pi-dsh.md#deepseek-harness" target="_blank" rel="noopener">DSH ACP ↗</a></td></tr>
           </tbody>
         </table>
       </div>
@@ -756,9 +756,9 @@ pnpm dev:electron</pre>
   </div>
 </footer>
 
-<script src="i18n.js"></script>
-<script src="main.js"></script>
-<script src="release.js"></script>
-<script src="mirrors.js"></script>
+<script src="i18n.js?v=20261026-2"></script>
+<script src="main.js?v=20261026-1"></script>
+<script src="release.js?v=20261026-1"></script>
+<script src="mirrors.js?v=20261026-1"></script>
 </body>
 </html>
