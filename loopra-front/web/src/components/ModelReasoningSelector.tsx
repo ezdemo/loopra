@@ -6,11 +6,12 @@ import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDes
 import { useMenuPlacement } from '../layout/menu-placement';
 import { Collapse } from './Motion';
 import ReasoningControl from './ReasoningControl';
+import AgentIcon from './AgentIcon';
 
 type Props = {
   open: boolean; onOpenChange: () => void; onClose: () => void; onSelected: () => void;
   models: ModelOption[]; options: ComposerOptions; onOptions: (value: ComposerOptions) => void | Promise<void>;
-  agentConfig?: AgentConfigState; external: boolean; agentEngineName: string; busy: boolean; connected: boolean;
+  agentConfig?: AgentConfigState; agentId?: string; external: boolean; agentEngineName: string; busy: boolean; connected: boolean;
   defaultModel: string; onDefaultModel: (id: string) => void; onManage: () => void; notify: (text: string) => void;
 };
 
@@ -61,7 +62,7 @@ export default function ModelReasoningSelector(props: Props) {
   const reasoningName = reasoningValue === 'none' ? '无' : reasoningValue === 'xhigh' ? 'XHigh'
     : /^(minimal|low|medium|high|max|default)$/.test(reasoningValue) ? reasoningValue[0].toUpperCase() + reasoningValue.slice(1)
     : agentEffort ? agentOptionLabel(agentEffort) : reasoningValue;
-  const title = [hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : ''].filter(Boolean).join('\n');
+  const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
   const close = props.onClose;
@@ -102,8 +103,9 @@ export default function ModelReasoningSelector(props: Props) {
     }}>
     <Tooltip content={title} classNames={{ content: 'model-name-tooltip' }} delay={600}>
       <Button ref={trigger} isDisabled={agentBusy} variant="light" className={`composer-model composer-model-reasoning ${props.open ? 'is-active' : ''}`}
-        title={title} aria-label={`模型与推理设置：${[hasModel ? modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ')}`}
+        title={title} aria-label={`模型与推理设置：${[agentEngineName, hasModel ? modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ')}`}
         aria-haspopup="dialog" aria-expanded={props.open} aria-controls={props.open ? panelId : undefined} onPress={props.onOpenChange}>
+        <AgentIcon agentId={props.agentId} />
         {hasModel && <span className="model-reasoning-name">{modelName}</span>}
         {hasModel && hasReasoning && <span className="model-reasoning-divider" aria-hidden="true">·</span>}
         {hasReasoning && <span className="model-reasoning-effort">{reasoningName || '快速'}</span>}

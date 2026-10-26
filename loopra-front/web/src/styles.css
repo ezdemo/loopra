@@ -1202,12 +1202,10 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
 .desktop-app.is-desktop-shell .panel-header,
 .desktop-app.is-desktop-shell .header-leading { -webkit-app-region: drag; user-select: none; }
 .header-drag { flex: 1 1 auto; align-self: stretch; min-width: .5rem; }
-.desktop-app.is-desktop-shell button,
-.desktop-app.is-desktop-shell input,
-.desktop-app.is-desktop-shell textarea,
-.desktop-app.is-desktop-shell select,
-.desktop-app.is-desktop-shell a,
-.desktop-app.is-desktop-shell .popup { -webkit-app-region: no-drag; }
+/* Electron subtracts no-drag rectangles even when a scroller clips them.
+   Only controls inside a drag region need to opt out; chat controls must not
+   punch holes in the title bar as streaming content scrolls behind it. */
+.desktop-app.is-desktop-shell :is(.sidebar-brand, .panel-header, .header-leading) :is(button, input, textarea, select, a, .popup) { -webkit-app-region: no-drag; }
 /* Leave room for the drawn minimize/maximize/close buttons. The panel opens
    below the title row, so its own header/buttons keep their normal layout; the
    conversation header stays rightmost and keeps the original buttons clear. */

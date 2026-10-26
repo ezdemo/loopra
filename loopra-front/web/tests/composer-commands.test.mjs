@@ -66,7 +66,7 @@ const selectorDependencies = {
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
 };
 const reasoning = await sourceUrl('components/ReasoningControl.tsx', selectorDependencies);
-const selector = await sourceUrl('components/ModelReasoningSelector.tsx', { ...selectorDependencies, './ReasoningControl': reasoning });
+const selector = await sourceUrl('components/ModelReasoningSelector.tsx', { ...selectorDependencies, './ReasoningControl': reasoning, './AgentIcon': await sourceUrl('components/AgentIcon.tsx') });
 const Composer = (await import(await sourceUrl('components/Composer.tsx', {
   '@nextui-org/react': nextui, 'lucide-react': icons, '../lib': lib, './Motion': motion,
   '../composer': await sourceUrl('composer.ts'), '../usage': await sourceUrl('usage.ts'),

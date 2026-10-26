@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Popup } from '../components/Motion';
+import AgentIcon from '../components/AgentIcon';
 import type { AgentEngine } from '../backend';
 import { agentAcpInstallPrompt } from '../agent-install';
 import { useMenuPlacement } from './menu-placement';
@@ -70,7 +71,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
   return <div className="agent-selector menu-anchor" data-popover ref={root} data-placement={placement.side} style={placementStyle}>
     <button type="button" aria-label="选择 Agent" aria-expanded={open} disabled={disabled}
       title={disabled ? disabledReason || '任务运行中，结束后才能切换 Agent' : '选择 Agent'} onClick={toggle}>
-      <span className={`agent-dot ${agentId !== 'native' ? 'external' : ''}`} />
+      <AgentIcon agentId={agentId || 'native'} />
       {current?.name || (agentId === 'native' ? 'Loopra Native' : agentId)}
       <ChevronDown size="0.875rem" />
     </button>
@@ -86,7 +87,8 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
               if (installable) { openInstall(engine); return; }
               setOpen(false); onSelect(engine.id);
             }}>
-            <span><strong>{engine.name}</strong>{!engine.available && <small>{installable ? '未就绪 · 点击查看安装说明' : engine.detail || '暂不可用'}</small>}</span>
+            <AgentIcon agentId={engine.id} />
+            <span><strong>{engine.name}</strong></span>
             {selected && <Check size="1rem" />}
           </button>
           {installable && <button type="button" className="agent-install" aria-label={`安装 ${engine.name} ACP 依赖`}
