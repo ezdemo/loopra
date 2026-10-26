@@ -115,13 +115,17 @@ public class SkillMarketController {
     @Post
     @Mapping("/uninstall")
     public ApiResponse<Void> uninstall(
-            @ApiParam(value = "技能 slug", required = true) @Param(value = "slug", required = true) String slug) {
+            @ApiParam(value = "技能 slug", required = true) @Param(value = "slug", required = true) String slug,
+            @ApiParam(value = "技能来源标识（可选）") @Param(value = "scope", defaultValue = "") String scope) {
         if (slug == null || slug.isEmpty()) {
             return ApiResponse.fail("slug is required");
         }
 
-        slug = slug.replaceAll("[^a-zA-Z0-9._-]", "");
-        if (slug.isEmpty()) {
+        if (isBuiltinSkill(scope) || isBuiltinSkill(slug)) {
+            return ApiResponse.fail("内置技能不可卸载");
+        }
+
+        if (!slug.matches("[a-zA-Z0-9._-]+") || ".".equals(slug) || "..".equals(slug)) {
             return ApiResponse.fail("Invalid slug");
         }
 
@@ -136,6 +140,11 @@ public class SkillMarketController {
         LoopraSkillProvider.refreshAllSkillPools();
         log.info("技能卸载成功: {}", slug);
         return ApiResponse.ok(null);
+    }
+
+    private boolean isBuiltinSkill(String id) {
+        return id != null && (id.equals(LoopraSkillProvider.BUILTIN_SKILLS_ALIAS)
+                || id.startsWith(LoopraSkillProvider.BUILTIN_SKILLS_ALIAS + "/"));
     }
 
     @SneakyThrows

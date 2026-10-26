@@ -30,10 +30,9 @@ final class ExternalAcpSessions implements AutoCloseable {
     private final java.util.function.BiFunction<String, Path, List<McpServer>> mcpResolver;
     private final SharedAcpProcesses sharedProcesses;
 
-    ExternalAcpSessions() { this((id, cwd) -> ExternalAcpProviders.require(id).create(cwd),
-            (key, cwd) -> AcpMcpServers.managed(key.contains("::") ? Path.of(key.split("::", 2)[0]) : cwd), true); }
+    ExternalAcpSessions() { this((id, cwd) -> ExternalAcpProviders.require(id).create(cwd), null, true); }
     ExternalAcpSessions(java.util.function.Function<Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> factory) {
-        this(factory, (key, cwd) -> AcpMcpServers.managed(key.contains("::") ? Path.of(key.split("::", 2)[0]) : cwd));
+        this(factory, null);
     }
 
     ExternalAcpSessions(java.util.function.Function<Path, com.agentclientprotocol.sdk.spec.AcpClientTransport> factory,
@@ -302,7 +301,14 @@ final class ExternalAcpSessions implements AutoCloseable {
     }
 
     private void refreshMcp(Connection connection, String key, Path cwd) {
-        List<McpServer> desired = List.copyOf(mcpResolver.apply(key, cwd));
+        List<McpServer> desired;
+        if (mcpResolver == null) {
+            desired = AcpMcpServers.managed(key.contains("::") ? Path.of(key.split("::", 2)[0]) : cwd, connection.agentId);
+        } else {
+            Map<String, Boolean> choices = site.sorghum.loopra.bin.mcp.AgentMcpPreferences.choices(connection.agentId);
+            desired = mcpResolver.apply(key, cwd).stream()
+                    .filter(server -> choices.getOrDefault(AcpMcpServers.name(server), true)).toList();
+        }
         if ("pi".equals(connection.agentId) && !desired.isEmpty()) {
             throw new ServiceException("pi-acp 暂不转发工作台 MCP，请先在工作台停用这些 MCP，并在 Pi 中配置所需扩展");
         }

@@ -1227,9 +1227,10 @@ export const skillMarketAPI = {
   },
 
   // 卸载技能 - POST /api/skill-market/uninstall
-  uninstall: (slug) => {
+  uninstall: (slug, scope) => {
     const params = new URLSearchParams()
     params.append('slug', slug)
+    if (scope) params.append('scope', scope)
     return api.post('/skill-market/uninstall', params, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     })

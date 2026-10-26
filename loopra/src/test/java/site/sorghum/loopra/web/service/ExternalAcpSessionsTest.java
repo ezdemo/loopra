@@ -222,6 +222,35 @@ class ExternalAcpSessionsTest {
         } finally { assertEquals(agentId, store.getAcpBinding("chat").agentId()); store.shutdown(); }
     }
 
+    @Test void agentMcpChoiceRevokesNextTurnAndSurvivesReconnect() throws Exception {
+        String previousHome = System.getProperty("user.home");
+        System.setProperty("user.home", home.toString());
+        var store = store("codex");
+        Path config = home.resolve(".loopra/mcp-servers.json");
+        java.nio.file.Files.createDirectories(config.getParent());
+        java.nio.file.Files.writeString(config, "{\"mcpServers\":{\"one\":{\"command\":\"node\"}}}");
+        StringBuilder text = new StringBuilder();
+        AgentOutput output = new SseAgentOutput(new SseEmitter(new ContextEmpty())) {
+            @Override public void onContentDelta(String token) { text.append(token); }
+        };
+        try {
+            try (var runtime = runtime()) {
+                prompt(runtime, store, "echo-mcp", output);
+                assertTrue(text.toString().contains("\"name\":\"one\""));
+                site.sorghum.loopra.bin.mcp.AgentMcpPreferences.set(
+                        site.sorghum.loopra.bin.mcp.AgentMcpPreferences.path(), "codex", "one", false);
+                text.setLength(0);
+                prompt(runtime, store, "echo-mcp", output);
+                assertTrue(text.toString().startsWith("load:"), text.toString());
+                assertFalse(text.toString().contains("\"name\":\"one\""), text.toString());
+            }
+            text.setLength(0);
+            try (var runtime = runtime()) { prompt(runtime, store, "echo-mcp", output); }
+            assertFalse(text.toString().contains("\"name\":\"one\""), text.toString());
+            assertTrue(site.sorghum.loopra.bin.mcp.AgentMcpPreferences.choices("native").isEmpty());
+        } finally { store.shutdown(); System.setProperty("user.home", previousHome); }
+    }
+
     @ParameterizedTest @ValueSource(strings = {"claude-code", "codex", "pi", "dsh"})
     void preservesConnectionAndRestoresRemoteSessionWithoutDuplicateReplay(String agentId) throws Exception {
         var store = store(agentId);
