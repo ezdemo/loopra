@@ -79,7 +79,7 @@
       <template v-if="block.changes.length > 1">
       <button v-for="change in getVisibleFileChanges(block)" :key="change.path" type="button" class="file-change-row"
               :title="change.path" @click="$emit('openDiff', change)">
-        <span class="file-change-path">{{ change.path }}</span>
+        <span class="file-change-path">{{ change.path.replace(/\\/g, '/').split('/').pop() }}</span>
         <span class="file-change-stats">
           <b v-if="change.additions" class="file-change-add">+{{ change.additions }}</b>
           <b v-if="change.deletions" class="file-change-del">-{{ change.deletions }}</b>
