@@ -1561,19 +1561,21 @@ X-Custom-Header=value"
                 <div v-else class="skill-list">
                   <div
                     v-for="skill in installedSkillList"
-                    :key="skill.directoryName || skill.name"
+                    :key="skill.scope || skill.directoryName || skill.name"
                     class="skill-item"
                   >
                     <div class="skill-icon">{{ (skill.name || 'SK').substring(0, 2).toUpperCase() }}</div>
                     <div class="skill-info">
                       <div class="skill-name">
                         {{ skill.name }}
+                        <span v-if="isBuiltinSkill(skill)" class="skill-installed-badge">内置</span>
                         <span v-if="skill.directoryName && skill.directoryName !== skill.name" class="skill-installed-badge">{{ skill.directoryName }}</span>
                       </div>
                       <div v-if="skill.description" class="skill-desc">{{ skill.description.length > 80 ? skill.description.substring(0, 80) + '...' : skill.description }}</div>
                     </div>
                     <div class="skill-actions">
                       <button
+                        v-if="!isBuiltinSkill(skill)"
                         class="btn btn-ghost btn-sm"
                         :disabled="skillMarket.installing === (skill.directoryName || skill.name)"
                         @click="uninstallInstalledSkill(skill)"
@@ -2728,7 +2730,12 @@ function isSkillInstalled(slug) {
 }
 
 // 从「已安装技能」板块卸载技能
+function isBuiltinSkill(skill) {
+  return skill.scope === '@builtin-skills' || skill.scope?.startsWith('@builtin-skills/')
+}
+
 function uninstallInstalledSkill(skill) {
+  if (isBuiltinSkill(skill)) return
   const slug = skill.directoryName || skill.name
   if (!slug) return
   Modal.confirm({
@@ -2740,7 +2747,7 @@ function uninstallInstalledSkill(skill) {
     onOk: async () => {
       skillMarket.installing = slug
       try {
-        const res = await skillMarketAPI.uninstall(slug)
+        const res = await skillMarketAPI.uninstall(slug, skill.scope)
         if (res.success) {
           message.success(`技能「${skill.name || slug}」已卸载`)
           installedSkills.value.delete(skill.name)
