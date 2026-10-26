@@ -32,8 +32,8 @@ describe('updateScriptName', () => {
   })
 
   it('treats a concrete mirror URL as a mirror source', () => {
-    expect(updateScriptName(MIRROR_URL, false, 'ps1')).toBe('setup-mirror.ps1')
-    expect(updateScriptName(MIRROR_URL, true, 'sh')).toBe('setup-gui-mirror.sh')
+    expect(updateScriptName(MIRROR_URL, false, 'ps1')).toBe('setup.ps1')
+    expect(updateScriptName(MIRROR_URL, true, 'sh')).toBe('setup-gui.sh')
   })
 })
 
@@ -49,16 +49,25 @@ describe('buildUpdateCommand', () => {
   it('switches to mirror scripts when the mirror source is selected', () => {
     const cmd = buildUpdateCommand(UPDATE_SOURCE_MIRROR, true)
     expect(cmd.windows).toContain('setup-gui-mirror.ps1')
-    expect(cmd.windows).toContain('irm https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/')
+    expect(cmd.windows).toContain('irm https://raw.githubusercontent.com/ezdemo/loopra-release/')
     expect(cmd.unix).toContain('setup-gui-mirror.sh')
   })
 
   it('injects the chosen mirror via LOOPRA_MIRROR when a concrete mirror URL is selected', () => {
     const cmd = buildUpdateCommand(MIRROR_URL, true)
-    expect(cmd.windows).toContain(`$env:LOOPRA_MIRROR='${MIRROR_URL.replace(/\/+$/, '')}'; `)
-    expect(cmd.windows).toContain('setup-gui-mirror.ps1')
-    expect(cmd.unix).toContain(`export LOOPRA_MIRROR='${MIRROR_URL.replace(/\/+$/, '')}'; `)
-    expect(cmd.unix).toContain('setup-gui-mirror.sh')
+    expect(cmd.windows).toBe(`$env:LOOPRA_MIRROR='${MIRROR_URL}'; irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui.ps1 | iex`)
+    expect(cmd.unix).toBe(`export LOOPRA_MIRROR='${MIRROR_URL}'; curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui.sh | bash`)
+  })
+
+  it('uses the environment contract for every listed mirror', () => {
+    for (const source of MIRROR_SOURCES) {
+      for (const gui of [false, true]) {
+        const direct = buildUpdateCommand(UPDATE_SOURCE_NORMAL, gui)
+        const mirrored = buildUpdateCommand(source.value, gui)
+        expect(mirrored.windows).toBe(`$env:LOOPRA_MIRROR='${source.value}'; ` + direct.windows)
+        expect(mirrored.unix).toBe(`export LOOPRA_MIRROR='${source.value}'; ` + direct.unix)
+      }
+    }
   })
 
   it('does not inject LOOPRA_MIRROR for the direct or legacy mirror source', () => {

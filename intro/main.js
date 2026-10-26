@@ -36,6 +36,9 @@
 
   /* ---------- 语言切换 ---------- */
   var LANG_KEY = 'loopra-site-lang';
+  var originalTitle = document.title;
+  var description = document.querySelector('meta[name="description"]');
+  var originalDescription = description ? description.content : '';
   var i18nEls = document.querySelectorAll('[data-i18n]');
   var i18nLabelEls = document.querySelectorAll('[data-i18n-label]');
 
@@ -72,10 +75,16 @@
       if (el.hasAttribute('title')) el.setAttribute('title', text);
     });
     document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN');
-    document.title = lang === 'en' && en['doc.title'] ? en['doc.title'] : 'Loopra — 纯 Java 的 AI 编码代理';
+    document.title = lang === 'en' && en['doc.title'] ? en['doc.title'] : originalTitle;
+    if (description) {
+      description.content = lang === 'en'
+        ? 'Loopra is a Java-powered AI coding agent and workbench. Use Native, Claude Code, Codex, Pi and DeepSeek Harness through React Web and Electron Desktop for local codebase development and collaboration.'
+        : originalDescription;
+    }
     var toggle = document.querySelector('[data-lang-toggle]');
     if (toggle) toggle.textContent = lang === 'en' ? '中文' : 'EN';
     setYear();
+    document.dispatchEvent(new CustomEvent('loopra:languagechange', { detail: { lang: lang } }));
   }
 
   applyLang(getLang());

@@ -108,7 +108,7 @@ const props = defineProps({
 
 const emit = defineEmits(['check', 'download', 'core-update', 'desktop-update', 'auto-update'])
 
-// 更新命令随下载源切换（直连 setup / 镜像 setup-mirror）
+// 具体镜像通过 LOOPRA_MIRROR 传给官方 setup 脚本；兼容旧 mirror 默认源。
 const updateCommands = computed(() => buildUpdateCommand(props.updateSource, props.isElectron))
 
 function copyText(text) {

@@ -55,7 +55,9 @@ class VersionUpdateServiceTest {
         assertTrue(result.message().contains("正在准备"));
         assertNotNull(started.get());
         assertEquals("powershell.exe", started.get().command().get(0));
-        assertTrue(started.get().environment().get("LOOPRA_UPDATE_SETUP_URL").endsWith("/setup.ps1"));
+        assertEquals("https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1",
+                started.get().environment().get("LOOPRA_UPDATE_SETUP_URL"));
+        assertFalse(started.get().environment().containsKey("LOOPRA_MIRROR"));
 
         Path script = Path.of(started.get().command().get(started.get().command().size() - 1));
         byte[] scriptBytes = Files.readAllBytes(script);
@@ -82,12 +84,45 @@ class VersionUpdateServiceTest {
 
         assertEquals("核心服务", result.target());
         assertEquals("bash", started.get().command().get(0));
-        assertEquals("https://wget.la", started.get().environment().get("LOOPRA_MIRROR"));
-        assertTrue(started.get().environment().get("LOOPRA_UPDATE_SETUP_URL")
-                .startsWith("https://wget.la/https://raw.githubusercontent.com/"));
+        assertEquals("https://wget.la/", started.get().environment().get("LOOPRA_MIRROR"));
+        assertEquals("https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh",
+                started.get().environment().get("LOOPRA_UPDATE_SETUP_URL"));
         String content = Files.readString(Path.of(started.get().command().get(started.get().command().size() - 1)));
         assertTrue(content.contains("bash \"$setup_file\""));
         assertFalse(content.contains("kill \"$parent_pid\""));
+    }
+
+    @Test
+    void passesMirrorsThroughTheEnvironmentOnEveryPlatform() {
+        for (String os : new String[]{"Windows 11", "Linux", "Mac OS X"}) {
+            for (String source : new String[]{"mirror", "https://gh-proxy.org/", "https://ghfast.top"}) {
+                AtomicReference<ProcessBuilder> started = new AtomicReference<>();
+                VersionUpdateService service = new VersionUpdateService(builder -> {
+                    started.set(builder);
+                    return new TestProcess();
+                }, os, tempDir, null);
+
+                service.start(source);
+
+                String expectedMirror = source.equals("https://ghfast.top")
+                        ? "https://ghfast.top/" : "https://gh-proxy.org/";
+                assertEquals(expectedMirror, started.get().environment().get("LOOPRA_MIRROR"));
+                String extension = os.startsWith("Windows") ? "ps1" : "sh";
+                assertEquals("https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup." + extension,
+                        started.get().environment().get("LOOPRA_UPDATE_SETUP_URL"));
+                assertFalse(started.get().environment().containsKey("LOOPRA_UPDATE_MIRROR"));
+            }
+        }
+    }
+
+    @Test
+    void normalizesMirrorRootsAndRejectsInvalidMirrorRoutes() {
+        assertEquals("https://gh-proxy.org/", VersionUpdateService.normalizeMirror("mirror"));
+        assertEquals("https://ghfast.top/", VersionUpdateService.normalizeMirror("https://GHFAST.TOP"));
+        for (String source : new String[]{"https://ghfast.top/other", "https://ghfast.top/?query=1",
+                "https://ghfast.top/#fragment", "https://ghfast.top:444/", "http://ghfast.top/"}) {
+            assertThrows(ServiceException.class, () -> VersionUpdateService.normalizeMirror(source));
+        }
     }
 
     @Test

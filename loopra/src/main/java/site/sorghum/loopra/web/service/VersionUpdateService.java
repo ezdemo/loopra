@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 public class VersionUpdateService {
     private static final String RELEASE_BASE =
             "https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/";
-    private static final String DEFAULT_MIRROR = "https://gh-proxy.org";
+    private static final String DEFAULT_MIRROR = "https://gh-proxy.org/";
     private static final Set<String> MIRROR_HOSTS = Set.of(
             "gh-proxy.org",
             "github.boki.moe",
@@ -93,9 +93,9 @@ public class VersionUpdateService {
 
             String mirror = normalizeMirror(source);
             String setupName = "setup" + (windows ? ".ps1" : ".sh");
-            String setupUrl = mirror.isEmpty()
-                    ? RELEASE_BASE + setupName
-                    : mirror + "/" + RELEASE_BASE + setupName;
+            // All installers accept LOOPRA_MIRROR. Fetch the official script
+            // directly and let that script choose the package download route.
+            String setupUrl = RELEASE_BASE + setupName;
 
             Path updateDir = userHome.resolve(".loopra").resolve("updates");
             Files.createDirectories(updateDir);
@@ -125,10 +125,8 @@ public class VersionUpdateService {
             builder.environment().put("LOOPRA_UPDATE_STATUS", statusFile.toString());
             if (!mirror.isEmpty()) {
                 builder.environment().put("LOOPRA_MIRROR", mirror);
-                builder.environment().put("LOOPRA_UPDATE_MIRROR", mirror);
             } else {
                 builder.environment().remove("LOOPRA_MIRROR");
-                builder.environment().remove("LOOPRA_UPDATE_MIRROR");
             }
             process = starter.start(builder);
             if (process == null) throw new IOException("更新进程未能启动");
@@ -177,10 +175,12 @@ public class VersionUpdateService {
             URI uri = URI.create(value);
             String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
             if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null
-                    || !MIRROR_HOSTS.contains(host)) {
+                    || !MIRROR_HOSTS.contains(host) || uri.getPort() != -1
+                    || uri.getQuery() != null || uri.getFragment() != null
+                    || !(uri.getPath().isEmpty() || "/".equals(uri.getPath()))) {
                 throw new ServiceException("不支持该更新镜像");
             }
-            return value.replaceAll("/+$", "");
+            return "https://" + host + "/";
         } catch (IllegalArgumentException error) {
             throw new ServiceException("更新镜像地址无效");
         }
@@ -217,22 +217,19 @@ public class VersionUpdateService {
                 Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 更新器已启动，当前服务保持运行。"
 
                 try {
-                    if ($env:LOOPRA_UPDATE_MIRROR) {
-                        $env:LOOPRA_MIRROR = $env:LOOPRA_UPDATE_MIRROR
-                }
-                Set-UpdateState 'running' '正在下载并安装新版本'
-                Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 正在下载更新脚本: $env:LOOPRA_UPDATE_SETUP_URL"
+                    Set-UpdateState 'running' '正在下载并安装新版本'
+                    Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 正在下载更新脚本: $env:LOOPRA_UPDATE_SETUP_URL"
                     $setupFile = Join-Path (Split-Path -Parent $logFile) 'download-setup.ps1'
                     Invoke-WebRequest -UseBasicParsing -Uri $env:LOOPRA_UPDATE_SETUP_URL -OutFile $setupFile
                     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $setupFile
                     if ($LASTEXITCODE -ne 0) {
                         throw "安装脚本退出码: $LASTEXITCODE"
-                }
-                Set-UpdateState 'success' '核心服务更新完成'
-                Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 核心服务更新完成。"
-            } catch {
-                Set-UpdateState 'failed' $_.Exception.Message
-                Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 更新失败: $($_.Exception.Message)"
+                    }
+                    Set-UpdateState 'success' '核心服务更新完成'
+                    Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 核心服务更新完成。"
+                } catch {
+                    Set-UpdateState 'failed' $_.Exception.Message
+                    Add-Content -LiteralPath $logFile -Encoding UTF8 -Value "[Loopra] 更新失败: $($_.Exception.Message)"
                     exit 1
                 }
                 """;
@@ -254,9 +251,6 @@ public class VersionUpdateService {
                 write_state 'starting' '正在准备核心更新'
                 echo "[Loopra] 更新器已启动，当前服务保持运行。" >> "$log_file"
 
-                if [ -n "${LOOPRA_UPDATE_MIRROR:-}" ]; then
-                  export LOOPRA_MIRROR="$LOOPRA_UPDATE_MIRROR"
-                fi
                 write_state 'running' '正在下载并安装新版本'
                 echo "[Loopra] 正在下载更新脚本: $LOOPRA_UPDATE_SETUP_URL" >> "$log_file"
                 if command -v curl >/dev/null 2>&1; then

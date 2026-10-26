@@ -13,7 +13,7 @@ globalThis.localStorage = {
 
 const source = await readFile(new URL('../src/update-scripts.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { buildUpdateCommand, buildUpdatePrompt, compareVersions, updateScriptName, loadUpdateSource, saveUpdateSource, UPDATE_SOURCE_NORMAL, MIRROR_SOURCES } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { buildUpdateCommand, buildUpdatePrompt, compareVersions, updateScriptName, loadUpdateSource, saveUpdateSource, UPDATE_SOURCE_NORMAL, UPDATE_SOURCE_MIRROR, MIRROR_SOURCES } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 test('builds direct and mirror update commands per platform', () => {
   const direct = buildUpdateCommand(UPDATE_SOURCE_NORMAL);
@@ -21,11 +21,22 @@ test('builds direct and mirror update commands per platform', () => {
   assert.equal(direct.windows, 'irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex');
   assert.match(direct.unix, /setup\.sh \| bash$/);
   const mirror = buildUpdateCommand('https://gh-proxy.org/');
-  assert.match(mirror.windows, /setup-mirror\.ps1 \| iex$/);
-  assert.match(mirror.windows, /irm https:\/\/gh-proxy\.org\/https:\/\/raw\.githubusercontent\.com\/ezdemo\/loopra-release\//);
-  assert.match(mirror.windows, /LOOPRA_MIRROR='https:\/\/gh-proxy\.org'/);
-  assert.match(mirror.unix, /export LOOPRA_MIRROR='https:\/\/gh-proxy\.org'; curl/);
+  assert.equal(mirror.windows, "$env:LOOPRA_MIRROR='https://gh-proxy.org/'; " + direct.windows);
+  assert.equal(mirror.unix, "export LOOPRA_MIRROR='https://gh-proxy.org/'; " + direct.unix);
   assert.equal(updateScriptName(UPDATE_SOURCE_NORMAL, true, 'ps1'), 'setup-gui.ps1');
+});
+
+test('all explicit mirrors use the same official scripts, including GUI variants', () => {
+  for (const source of MIRROR_SOURCES) {
+    for (const gui of [false, true]) {
+      const direct = buildUpdateCommand(UPDATE_SOURCE_NORMAL, gui);
+      const mirrored = buildUpdateCommand(source.value, gui);
+      assert.equal(mirrored.windows, `$env:LOOPRA_MIRROR='${source.value}'; ` + direct.windows);
+      assert.equal(mirrored.unix, `export LOOPRA_MIRROR='${source.value}'; ` + direct.unix);
+    }
+  }
+  assert.equal(buildUpdateCommand(UPDATE_SOURCE_MIRROR).windows, 'irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-mirror.ps1 | iex');
+  assert.equal(buildUpdateCommand(UPDATE_SOURCE_MIRROR, true).unix, 'curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui-mirror.sh | bash');
 });
 
 test('the update prompt names the source and both platforms', () => {
