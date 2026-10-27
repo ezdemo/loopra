@@ -47,8 +47,9 @@ export const Chip = ({children}) => createElement('span', null, children);
 export const Tooltip = ({children}) => children;
 export const Input = ({value, onValueChange, 'aria-label':label, autoFocus, isDisabled}) => createElement('input', {value, autoFocus, disabled:isDisabled, 'aria-label':label, onChange:event=>onValueChange(event.target.value)});
 export const Slider = ({value, className}) => createElement('div', {className, 'data-value':value});
-export const Switch = ({isSelected, onValueChange, 'aria-label':label}) => createElement('input', {type:'checkbox', checked:isSelected, 'aria-label':label, onChange:event=>onValueChange(event.target.checked)});
+export const Switch = ({isSelected, isDisabled, onValueChange, 'aria-label':label}) => createElement('input', {type:'checkbox', checked:isSelected, disabled:isDisabled, 'aria-label':label, onChange:event=>onValueChange(event.target.checked)});
 export const Textarea = () => null, Spinner = () => null;
+export const Modal = () => null, ModalBody = () => null, ModalContent = () => null, ModalFooter = () => null, ModalHeader = () => null;
 `);
 const lib = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
@@ -67,6 +68,11 @@ const selectorDependencies = {
 };
 const reasoning = await sourceUrl('components/ReasoningControl.tsx', selectorDependencies);
 const selector = await sourceUrl('components/ModelReasoningSelector.tsx', { ...selectorDependencies, './ReasoningControl': reasoning, './AgentIcon': await sourceUrl('components/AgentIcon.tsx') });
+const mcpControls = await sourceUrl('components/AgentMcpControls.tsx', {
+  '@nextui-org/react': nextui, 'lucide-react': icons,
+  './RemoteControls': await sourceUrl('components/RemoteControls.tsx', { '@nextui-org/react': nextui }),
+  '../capabilities': await sourceUrl('capabilities.ts'),
+});
 const Composer = (await import(await sourceUrl('components/Composer.tsx', {
   '@nextui-org/react': nextui, 'lucide-react': icons, '../lib': lib, './Motion': motion,
   '../composer': await sourceUrl('composer.ts'), '../usage': await sourceUrl('usage.ts'),
@@ -75,7 +81,7 @@ const Composer = (await import(await sourceUrl('components/Composer.tsx', {
     export const LARGE_PASTE_THRESHOLD_CHARS=10000, MAX_DOC_FILE_SIZE=1000000, MAX_IMAGE_COUNT=10, MAX_TEXT_FILE_SIZE=1000000, MAX_UPLOAD_FILES=10;
     export const attachmentLimitReached=()=>false, fileKind=()=>null, extractDocumentText=()=>'', formatFileSize=()=>'';
   `),
-  './PetCompanion': placeholder, './ModelReasoningSelector': selector, './AgentConfigControls': placeholder,
+  './PetCompanion': placeholder, './ModelReasoningSelector': selector, './AgentConfigControls': placeholder, './AgentMcpControls': mcpControls,
   '../pets': dataUrl('export const petScale=()=>1;'),
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
 }))).default;
@@ -138,7 +144,7 @@ test('initial configuration loading reserves toolbar controls with skeletons and
   const view = await mount({ draft: '', agentConfig });
   try {
     assert.equal(view.host.querySelector('.composer-bottom').getAttribute('aria-busy'), 'true');
-    assert.equal(view.host.querySelectorAll('.composer-skeleton').length, 7);
+    assert.equal(view.host.querySelectorAll('.composer-skeleton').length, 8);
     assert.match(view.host.querySelector('[role="status"]').textContent, /正在加载输入栏配置/);
     assert.equal(view.host.querySelector('.composer-bottom button'), null, 'initial placeholders cannot trigger unready controls');
     const options = [
@@ -433,5 +439,51 @@ test('hover opens sibling flyouts and keeps the compact main menu visible', asyn
     assert.equal(view.host.querySelectorAll('.model-reasoning-rows > button').length, 2);
     await act(async () => Simulate.pointerEnter(modelRow, { pointerType: 'touch' }));
     assert.ok(view.host.querySelector('.effort-body'), 'touch opens a submenu only on tap');
+  } finally { await view.close(); }
+});
+
+test('MCP toolbar manages the current Agent, persists changes, and retains state on save failure', async () => {
+  let servers = [
+    { name: 'docs', type: 'stdio', source: 'global', configuredEnabled: true, enabled: true },
+    { name: 'project', type: 'http', source: 'project', configuredEnabled: false, enabled: false },
+  ];
+  const writes = []; let failure = false;
+  const api = { async request(path, method, body) {
+    if (!path.startsWith('/agent-engines/mcp')) return [];
+    if (method === 'PUT') {
+      writes.push(body);
+      if (failure) throw new Error('保存失败');
+      servers = servers.map(server => server.name === body.name ? { ...server, enabled: body.enabled } : server);
+    }
+    return servers;
+  } };
+  const view = await mount({ draft: '', api });
+  try {
+    const button = view.host.querySelector('[aria-label="管理 MCP 透传"]');
+    assert.ok(button);
+    await act(async () => button.click());
+    assert.equal(button.getAttribute('aria-expanded'), 'true');
+    assert.equal(view.host.querySelector('.composer-mcp-controls .composer-note'), null);
+    assert.equal(view.host.querySelector('.composer-mcp-list small'), null);
+    const projectToggle = () => view.host.querySelector('[aria-label="透传 MCP：project"]');
+    assert.equal(projectToggle().disabled, false);
+    assert.equal(projectToggle().checked, false);
+    const toggle = () => view.host.querySelector('[aria-label="透传 MCP：docs"]');
+    assert.equal(toggle().checked, true);
+    await act(async () => Simulate.change(toggle(), { target: { checked: false } }));
+    assert.deepEqual(writes, [{ agentId: 'codex', workspaceHash: 'workspace', name: 'docs', enabled: false }]);
+    assert.equal(toggle().checked, false);
+    assert.match(view.host.querySelector('.popover-footer').textContent, /下一轮生效/);
+    await act(async () => Simulate.change(projectToggle(), { target: { checked: true } }));
+    assert.deepEqual(writes.at(-1), { agentId: 'codex', workspaceHash: 'workspace', name: 'project', enabled: true });
+    assert.equal(projectToggle().checked, true);
+    failure = true;
+    await act(async () => Simulate.change(toggle(), { target: { checked: true } }));
+    assert.equal(toggle().checked, false);
+    assert.match(view.host.querySelector('[role="alert"]').textContent, /保存失败/);
+    await view.update({ agentId: 'native' });
+    assert.equal(view.host.querySelector('.composer-mcp-controls'), null, 'Agent switch closes stale controls');
+    await view.update({ chatMode: true });
+    assert.equal(view.host.querySelector('[aria-label="管理 MCP 透传"]'), null);
   } finally { await view.close(); }
 });

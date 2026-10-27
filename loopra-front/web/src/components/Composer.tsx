@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
-import { ArrowLeft, ArrowUp, BookOpen, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, BookOpen, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
 import { acpSlashCommands, appendPreset, attachmentViews, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
 import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
 import { contextFromUsage, contextPartPercent, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
@@ -13,6 +13,7 @@ import { petScale, type PetAnimation, type PetReply } from '../pets';
 import type { PetStore } from '../usePets';
 import ModelReasoningSelector from './ModelReasoningSelector';
 import AgentConfigControls from './AgentConfigControls';
+import AgentMcpControls from './AgentMcpControls';
 import { agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
 import { useMenuPlacement } from '../layout/menu-placement';
 
@@ -39,16 +40,16 @@ type Props = {
   onExport: () => void; onSessions: () => void;
   onClear: () => void;
 };
-type Menu = 'model-settings' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more';
+type Menu = 'model-settings' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more' | 'mcp';
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
   return <Switch size="sm" aria-label={label} isSelected={value} onValueChange={onChange} classNames={{ label: 'sr-only' }}>{label}</Switch>;
 }
 
-function ComposerToolbarSkeleton() {
+function ComposerToolbarSkeleton({ showMcp }: { showMcp: boolean }) {
   return <>
     <span className="sr-only" role="status">正在加载输入栏配置…</span>
-    <div className="composer-left" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-permission" /><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-icon" /></div>
+    <div className="composer-left" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-permission" /><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-icon" />{showMcp && <span className="composer-skeleton skeleton-icon" />}</div>
     <div className="composer-right" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-model" /><span className="composer-skeleton skeleton-send" /></div>
   </>;
 }
@@ -200,7 +201,7 @@ export default function Composer(props: Props) {
     }
     return () => controller.abort();
   }, [props.api, external, chatMode, props.connected]);
-  useEffect(() => { close(); setFileSuggestions([]); }, [props.workspaceHash, chatMode]);
+  useEffect(() => { close(); setFileSuggestions([]); }, [props.workspaceHash, props.agentId, chatMode]);
   useEffect(() => {
     const controller = new AbortController();
     if (!external || !props.workspaceHash || !props.sessionName) { setCommandDiscovery(undefined); return () => controller.abort(); }
@@ -306,7 +307,7 @@ export default function Composer(props: Props) {
     setPresets(next); persistPresets(next);
     setEditing(null); notify('常用要求已保存');
   }
-  const menuTitles: Record<Menu, string> = { 'model-settings': '模型与推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置' };
+  const menuTitles: Record<Menu, string> = { 'model-settings': '模型与推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置', mcp: 'MCP 透传' };
   // Legacy ChatInput split context into image thumbnails and file chips with sizes.
   const { images: contextImages, files: contextFiles } = attachmentViews(context, pasteChars);
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
@@ -354,7 +355,7 @@ export default function Composer(props: Props) {
         if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendDraft(); }
       }} />
     <div className={`composer-bottom${initialConfigLoading ? ' composer-toolbar-loading' : ''}`} aria-busy={initialConfigLoading || undefined}>
-      {initialConfigLoading ? <ComposerToolbarSkeleton /> : <>
+      {initialConfigLoading ? <ComposerToolbarSkeleton showMcp={!chatMode} /> : <>
       <div className="composer-left">
         <Tooltip content="附件、项目、技能和计划模式" delay={600}><Button isIconOnly variant="light" aria-label="添加附件或工具" aria-expanded={menu === 'tools'} className={`composer-icon ${menu === 'tools' ? 'is-active' : ''}`} onPress={() => open('tools')}><Plus size="1.125rem" strokeWidth={1.75} /></Button></Tooltip>
         {agentMode ? <Tooltip content={agentOptionDescription(agentMode)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-permission ${isDangerousAgentMode(agentMode) ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
@@ -364,6 +365,7 @@ export default function Composer(props: Props) {
         </Button>}
         <Tooltip content="常用要求" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'presets' ? 'is-active' : ''}`} aria-label="常用要求" aria-expanded={menu === 'presets'} onPress={() => open('presets')}><BookOpen size="1rem" /></Button></Tooltip>
         {props.history.length > 0 && <Tooltip content={draft.trim() ? '先发送或清空草稿' : '继续生成'} delay={600}><Button isIconOnly variant="light" className="composer-icon continue-button" aria-label="继续生成" isDisabled={agentBusy || props.busy || !!draft.trim()} onPress={props.onContinue}><Play size="1rem" /></Button></Tooltip>}
+        {!chatMode && <Tooltip content="管理当前 Agent 的 MCP 透传" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'mcp' ? 'is-active' : ''}`} aria-label="管理 MCP 透传" aria-expanded={menu === 'mcp'} onPress={() => open('mcp')}><Plug size="1rem" /></Button></Tooltip>}
       </div>
       <div className={`composer-right ${agentOptions ? 'has-agent-config' : ''}`}>
         <Tooltip content={`上下文 ${usagePercent}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${usage.windowKnown === false ? 0 : Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
@@ -380,7 +382,7 @@ export default function Composer(props: Props) {
     </div>
     <input ref={fileInput} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.properties,.cfg,.conf,.env,.vue,.svelte" onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />
 
-    <Popup open={!!menu && menu !== 'model-settings'} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
+    <Popup open={!!menu && menu !== 'model-settings'} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets', 'mcp'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
       {menu && <section role="dialog" aria-label={menuTitles[menu]}>
         <div className="composer-popover-header">
           <div>{['projects', 'skills', 'permission'].includes(menu) && <Button isIconOnly size="sm" variant="light" aria-label="返回输入工具" onPress={() => open('tools')}><ArrowLeft size="1rem" /></Button>}<strong>{menuTitles[menu]}</strong></div>
@@ -423,6 +425,7 @@ export default function Composer(props: Props) {
         </div> : <div className="composer-selection-list">{[['完全自动', '跳过审核，直接执行工具与修改'], ['按需审批', '普通读写直接执行，其余等待人工确认'], ['自动审批', '普通读写直接执行，其余由 AI 审核']].map(([name, description]) => <button key={name} role="radio" aria-checked={options.mode === name} onClick={() => { update('mode', name); close(); }}><ShieldCheck size="1.125rem" /><span><strong>{name}</strong><small>{description}</small></span>{options.mode === name && <Check size="1rem" />}</button>)}<p className="composer-note">权限同步到 Loopra，作用于真实工具执行。</p></div>)}
 
         {menu === 'more' && props.agentConfig && <AgentConfigControls state={props.agentConfig} options={otherAgentOptions} />}
+        {menu === 'mcp' && <AgentMcpControls key={`${props.agentId || 'native'}:${props.workspaceHash}`} api={props.api} agentId={props.agentId || 'native'} workspaceHash={props.workspaceHash} connected={props.connected} />}
 
         {menu === 'presets' && <>
           {editing ? <form className="preset-form" onSubmit={event => { event.preventDefault(); savePreset(); }}><Input autoFocus size="sm" variant="bordered" label="名称" aria-label="常用要求名称" maxLength={24} value={editing.name} onValueChange={name => setEditing({ ...editing, name })} /><Textarea variant="bordered" size="sm" label="要求内容" aria-label="常用要求内容" minRows={3} maxRows={5} maxLength={500} value={editing.text} onValueChange={text => setEditing({ ...editing, text })} /><div><Button size="sm" variant="light" onPress={() => setEditing(null)}>取消</Button><Button size="sm" color="primary" type="submit" isDisabled={!editing.name.trim() || !editing.text.trim()}>保存</Button></div></form>

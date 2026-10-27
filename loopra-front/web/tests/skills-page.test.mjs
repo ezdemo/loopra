@@ -34,9 +34,9 @@ const { default: SkillsPage } = await import(await sourceUrl('SkillsPage', { '@n
 const button = (element, text) => [...element.querySelectorAll('button')].find(item => item.textContent.trim() === text);
 async function click(element) { assert.ok(element); await act(async () => element.click()); }
 async function input(element, value) { await act(async () => { Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(element, value); element.dispatchEvent(new dom.window.Event('input', { bubbles: true })); }); }
-async function mount({ failInstall = false, marketUrl = 'https://skillhub.cn/skills/author/code-review' } = {}) {
+async function mount({ failInstall = false, marketUrl = 'https://skillhub.cn/skills/author/code-review', extraSkills = [] } = {}) {
   const calls = []; let refreshes = 0, backs = 0;
-  let installed = [{ name: 'self-skill', description: '内置技能完整说明' }, { name: 'ego-browser', description: '浏览器自动化' }];
+  let installed = [{ name: 'self-skill', description: '内置技能完整说明', scope: '@builtin-skills/self-skill' }, { name: 'ego-browser', description: '浏览器自动化' }, ...extraSkills];
   const api = { request: async (path, method = 'GET') => {
     calls.push({ path, method }); const url = new URL(path, 'http://test.invalid');
     if (url.pathname === '/agent/skills') return installed;
@@ -44,7 +44,7 @@ async function mount({ failInstall = false, marketUrl = 'https://skillhub.cn/ski
     if (url.pathname === '/skill-market/proxy') return [{ slug: 'author/code-review', displayName: '代码审查', summary: '检查代码质量', url: marketUrl }];
     if (url.pathname === '/skill-market/detail') return { slug: 'author/code-review', installSlug: 'code-review', displayName: '代码审查', description: '完整技能文档' };
     if (url.pathname === '/skill-market/install') { if (failInstall) throw new Error('安装失败，请重试'); installed = [...installed, { name: url.searchParams.get('slug'), description: '新技能' }]; return 'ok'; }
-    if (url.pathname === '/skill-market/uninstall') { installed = installed.filter(skill => skill.name !== url.searchParams.get('slug')); return null; }
+    if (url.pathname === '/skill-market/uninstall') { installed = installed.filter(skill => url.searchParams.has('scope') ? skill.scope !== url.searchParams.get('scope') : (skill.directoryName || skill.name) !== url.searchParams.get('slug')); return null; }
     throw new Error(`Unexpected ${path}`);
   }};
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
@@ -91,11 +91,42 @@ test('market search and detail install preserve the market and canonical install
 test('uninstall requires confirmation and refreshes installed skills', async () => {
   const view = await mount();
   try {
-    await click(button(view.container.querySelector('.skills-hub-card'), '卸载'));
+    await click(button(view.container.querySelectorAll('.skills-hub-card')[1], '卸载'));
     assert.ok(!view.calls.some(call => call.method === 'POST'));
     await click(button(view.container.querySelector('[role="dialog"]'), '确认'));
-    assert.ok(view.calls.some(call => call.path === '/skill-market/uninstall?slug=self-skill' && call.method === 'POST'));
+    assert.ok(view.calls.some(call => call.path === '/skill-market/uninstall?slug=ego-browser' && call.method === 'POST'));
     assert.equal(view.container.querySelectorAll('.skills-hub-card').length, 1); assert.equal(view.refreshes, 1);
+    assert.match(view.container.querySelector('.skills-hub-card').textContent, /self-skill/);
+  } finally { await view.close(); }
+});
+
+test('built-in skills show their source and offer details without uninstalling', async () => {
+  const view = await mount();
+  try {
+    const card = view.container.querySelector('.skills-hub-card');
+    assert.equal(card.querySelector('.skills-hub-badge').textContent, '内置');
+    assert.equal(button(card, '卸载'), undefined);
+    await click(button(card, '查看详情'));
+    assert.equal(view.container.querySelector('[role="dialog"] .skills-hub-badge').textContent, '内置');
+    assert.equal(view.container.querySelector('[role="dialog"] .skills-detail-description').textContent, '内置技能完整说明');
+    assert.ok(!view.calls.some(call => call.method === 'POST'));
+  } finally { await view.close(); }
+});
+
+test('a user skill sharing a built-in name remains removable using its directory and scope', async () => {
+  const scope = '@user-skills/author-self-skill';
+  const view = await mount({ extraSkills: [{ name: 'self-skill', directoryName: 'author-self-skill', scope }] });
+  try {
+    const cards = view.container.querySelectorAll('.skills-hub-card');
+    assert.equal(button(cards[0], '卸载'), undefined);
+    assert.equal(cards[2].querySelector('.skills-hub-badge').textContent, '已安装');
+    await click(button(cards[2], '卸载'));
+    await click(button(view.container.querySelector('[role="dialog"]'), '确认'));
+    const request = new URL(view.calls.find(call => call.method === 'POST').path, 'http://test.invalid');
+    assert.equal(request.searchParams.get('slug'), 'author-self-skill');
+    assert.equal(request.searchParams.get('scope'), scope);
+    assert.equal(view.container.querySelectorAll('.skills-hub-card').length, 2);
+    assert.equal(view.container.querySelector('.skills-hub-badge').textContent, '内置');
   } finally { await view.close(); }
 });
 test('failed installs display the server error and leave installed skills unchanged', async () => {

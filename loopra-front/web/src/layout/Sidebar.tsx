@@ -6,6 +6,8 @@ import { useLocalState, type Session } from '../lib';
 import type { Workspace } from '../backend';
 import { sessionDate } from '../session-order';
 import { DEFAULT_SIDEBAR_WIDTH, clampSidebarWidth, resizeSidebarWidth } from '../panel-resize';
+import { ProfileAvatar } from '../components/LocalProfile';
+import type { LocalProfile } from '../local-profile';
 
 /** Sessions a project shows before the list folds behind "展开显示". */
 const SESSION_GROUP_LIMIT = 6;
@@ -35,6 +37,7 @@ export type SidebarProps = {
   onSkills: () => void;
   skillsOpen?: boolean;
   onSettings: () => void;
+  profile: LocalProfile;
   onRefreshAll: () => void;
   onRefreshProject: (hash: string) => void;
   onRefreshSession: (session: Session) => void;
@@ -200,8 +203,13 @@ export default function Sidebar(props: SidebarProps) {
         </div>;
       })}
     </div>
-    <footer className="sidebar-footer">
-      <button type="button" className="sidebar-settings" aria-label="设置" onClick={props.onSettings}><SettingsIcon /><span>{english ? 'Settings' : '设置'}</span></button>
+    <footer className={`sidebar-footer${props.profile.nickname ? ' has-profile' : ''}`}>
+      {props.profile.nickname ?
+        <button type="button" className="sidebar-profile" onClick={props.onSettings} aria-label={english ? 'Settings' : '设置'} title={english ? 'Settings' : '设置'}>
+          <ProfileAvatar profile={props.profile} /><span className="sidebar-profile-name">{props.profile.nickname}</span>
+          <SettingsIcon className="sidebar-profile-settings" size="1.125rem" aria-hidden="true" />
+        </button>
+        : <button type="button" className="sidebar-settings" aria-label={english ? 'Settings' : '设置'} onClick={props.onSettings}><SettingsIcon /><span>{english ? 'Settings' : '设置'}</span></button>}
     </footer>
   </SidebarSurface>;
 }
