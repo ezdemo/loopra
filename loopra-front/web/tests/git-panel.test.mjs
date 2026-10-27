@@ -19,11 +19,10 @@ test('git init can create the initial commit like the legacy panel', () => {
   assert.match(gitTools, /useState\(true\)/);
 });
 
-test('the git tab opens a main workspace tab using the shared single-column diff', () => {
+test('the git tab opens a main workspace tab with original code and inline Git changes', () => {
   assert.match(panels, /onFile=\{path => onOpenFile\(\{ path, mode: 'diff' \}\)\}/);
-  assert.match(workspaceTabs, /import UnifiedDiff from '\.\/UnifiedDiff';/);
-  // The pane hands the diff its file path, which is what Monaco reads the language from.
-  assert.match(workspaceTabs, /<UnifiedDiff diff=\{data\?\.diff\} path=\{file\.path\} nav emptyText="[^"]+" \/>/);
+  assert.match(workspaceTabs, /<CodeViewer path=\{file\.path\} content=\{content\} gitDiff=\{gitDiff\} active=\{active\} \/>/);
+  assert.doesNotMatch(workspaceTabs, /<UnifiedDiff/);
 });
 
 test('git commit models group by channel with a round-tripping option value', () => {
@@ -68,16 +67,15 @@ test('the git author config offers a reset to Loopra defaults', () => {
   assert.match(gitTools, /async function resetAuthor\(\) \{ setAuthor\(DEFAULT_GIT_AUTHOR\); await act\('config', DEFAULT_GIT_AUTHOR\); \}/);
   assert.match(gitTools, /onPress=\{\(\) => void resetAuthor\(\)\}>恢复默认<\/Button>/);
 });
-// Legacy Chat.vue `openStoredDiff`: a message's file list shows the diff saved
-// with that turn instead of re-reading the live working tree.
-test('message file changes reuse the stored diff while the live diff stays the fallback', async () => {
+test('message cards keep saved patches while workspace tabs use live file contents', async () => {
   const blockRenderer = await readFile(new URL('../src/components/BlockRenderer.tsx', import.meta.url), 'utf8');
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
   assert.match(blockRenderer, /onDiff\?: \(path: string, diff\?: string\) => void/);
-  // The card expands the saved patch in place and offers the pane as the alternative.
+  // Saved patches stay in the message card; the file tab always shows the live original.
   assert.match(blockRenderer, /<UnifiedDiff diff=\{change\.diff\} path=\{change\.path\} \/>/);
   assert.match(blockRenderer, /onDiff\(change\.path, change\.diff\)/);
   assert.match(app, /function openDiff\(path: string, storedDiff\?: string\)/);
   assert.match(app, /openFile\(\{ path, mode: 'diff', diff: storedDiff \}\)/);
-  assert.match(workspaceTabs, /file.mode === 'diff' && file.diff !== undefined/);
+  assert.doesNotMatch(workspaceTabs, /file\.mode|file\.diff/);
+  assert.match(workspaceTabs, /\/git\/working-file-content/);
 });

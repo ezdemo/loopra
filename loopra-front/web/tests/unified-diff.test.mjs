@@ -4,8 +4,8 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 import { JSDOM } from 'jsdom';
 
-// UnifiedDiff is the single-column diff the workspace pane and the chat
-// file-change card both render. Monaco cannot run under jsdom (it needs canvas
+// UnifiedDiff renders stored patches in chat file-change cards.
+// Monaco cannot run under jsdom (it needs canvas
 // measuring, ResizeObserver and Range.getClientRects), so the highlighting
 // boundary is stubbed and the assertions cover the rows plus the plain-text
 // fallback the stub forces.
@@ -178,10 +178,9 @@ test('the stylesheet tints the whole row and keeps the gutter in view', () => {
   assert.doesNotMatch(workbenchCss, /\.diff-sbs/);
 });
 
-test('both hosts size the diff they embed', () => {
-  // The pane and the chat card each own the sizing of the shared component, in
-  // their own stylesheet, so each has to keep its rule.
-  assert.match(paneCss, /\.workspace-file-body \.unified-diff \{ flex: 1 1 0;/);
+test('chat cards size stored patches while workspace files host the code editor', () => {
+  assert.match(paneCss, /\.workspace-code-editor \{ flex: 1 1 0;/);
+  assert.doesNotMatch(paneCss, /\.workspace-file-body \.unified-diff/);
   assert.doesNotMatch(paneCss, /\.diff-sbs/);
   assert.match(chatCss, /\.file-change-diff \.unified-diff \{ max-height: 22rem;/);
 });

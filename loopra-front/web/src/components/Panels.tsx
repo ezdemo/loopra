@@ -1,8 +1,7 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { Button } from '@nextui-org/react';
-import { Check, ChevronDown, FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, X, type LucideIcon } from 'lucide-react';
+import { FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, X, type LucideIcon } from 'lucide-react';
 import { IconButton } from './ui';
-import { Popup } from './Motion';
 import type { LoopraClient } from '../backend';
 import type { Session } from '../lib';
 import { useLocalState } from '../lib';
@@ -17,23 +16,13 @@ import { useBashSessions, type BashSessionsState } from '../useBashSessions';
 import { watchWorkspaceChanges } from '../workspace-events';
 
 type TabDef = [id: string, label: string, icon: LucideIcon];
-const PRIMARY_TABS: TabDef[] = [['files', '文件', FolderTree], ['git', 'Git', GitBranch]];
-const MORE_TABS: TabDef[] = [['capabilities', '能力', Puzzle]];
+const PRIMARY_TABS: TabDef[] = [['files', '文件', FolderTree], ['git', 'Git', GitBranch], ['capabilities', '能力', Puzzle]];
 
 type PanelProps = { api: LoopraClient; workspaceHash: string; onClose: () => void };
-type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
-export default function ChangesPanel({ open, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'git', sessionName, sessions, onAdd }: WorkbenchProps) {
-  const requestedTab = [...PRIMARY_TABS, ...MORE_TABS].some(([id]) => id === initialTab) ? initialTab : 'git';
+type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; onTabChange?: (tab: string) => void; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
+export default function ChangesPanel({ open, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'files', onTabChange, sessionName, sessions, onAdd }: WorkbenchProps) {
+  const requestedTab = PRIMARY_TABS.some(([id]) => id === initialTab) ? initialTab : 'files';
   const [tab, setTab] = useState(requestedTab); const [revision, setRevision] = useState(0);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreActive = MORE_TABS.find(([id]) => id === tab);
-  useEffect(() => {
-    if (!moreOpen) return undefined;
-    const close = (event: Event) => { if (!(event.target as Element | null)?.closest?.('[data-popover]')) setMoreOpen(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMoreOpen(false); };
-    document.addEventListener('pointerdown', close); window.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', close); window.removeEventListener('keydown', escape); };
-  }, [moreOpen]);
   useEffect(() => watchWorkspaceChanges(workspaceHash, () => setRevision(value => value + 1)), [workspaceHash]);
   const [panelWidth, setPanelWidth] = useLocalState<number>('right-panel-width', DEFAULT_PANEL_WIDTH);
   const [dragging, setDragging] = useState(false);
@@ -51,11 +40,7 @@ export default function ChangesPanel({ open, api, workspaceHash, onClose, notify
     {docked && <div className="panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="拖动调整右侧面板宽度" title="拖动调整右侧面板宽度" onMouseDown={startResize} />}
     <header className="panel-header">
       <div className="workbench-tabs" role="tablist" aria-label="工作区工具">
-        {PRIMARY_TABS.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={14} />{label}</button>)}
-        <div data-popover className="menu-anchor">
-          <button role="tab" aria-selected={!!moreActive} aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen(open => !open)}>{moreActive ? moreActive[1] : '更多'}<ChevronDown size={13} /></button>
-          <Popup open={moreOpen} className="popup panel-more-menu" role="menu">{MORE_TABS.map(([id, label, Icon]) => <button key={id} role="menuitem" className={tab === id ? 'chosen' : ''} onClick={() => { setTab(id); setMoreOpen(false); }}><Icon size={15} />{label}{tab === id && <Check size={14} />}</button>)}</Popup>
-        </div>
+        {PRIMARY_TABS.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><Icon size={14} />{label}</button>)}
       </div>
       <div className="panel-actions"><IconButton label="刷新工作区面板" onClick={refresh}><RefreshCw size={15} /></IconButton><IconButton label="展开工作区面板" onClick={() => setPanelWidth(wide ? DEFAULT_PANEL_WIDTH : WIDE_PANEL_WIDTH)}><Maximize size={15} /></IconButton><IconButton label="收起工作区面板" onClick={onClose}><X size={16} /></IconButton></div>
     </header>

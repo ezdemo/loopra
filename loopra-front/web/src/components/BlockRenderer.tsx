@@ -1,7 +1,7 @@
 import { Collapse, Disclosure, useCollapseAll } from './Motion';
 import { memo, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { Brain, Check, ChevronDown, Circle, FileCode2, FileDiff, ListTree, LoaderCircle, PanelRight, Undo2, X } from 'lucide-react';
+import { Brain, Check, ChevronDown, Circle, FileDiff, FileSymlink, ListTree, LoaderCircle, Undo2, X } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
 import { chainBlocks } from '../chat';
 import { imageToolSources, toolParam } from '../tool-params';
@@ -9,6 +9,7 @@ import { IconButton } from './ui';
 import Markdown from './Markdown';
 import UnifiedDiff from './UnifiedDiff';
 import ToolImageResult from './ToolImageResult';
+import FileGlyph from './FileGlyph';
 
 export type BlockActions = { notify: (message: string) => void; onOpenFile?: (path: string) => void; onDiff?: (path: string, diff?: string) => void; onRevert?: (changes: FileChange[]) => Promise<void> };
 function StatusIcon({ status }: { status: ToolStatus }) {
@@ -31,19 +32,18 @@ const ToolBlock = memo(function ToolBlock({ block, onOpenFile }: { block: Extrac
 });
 
 // One row of the file list: the name expands the diff in the transcript, the
-// trailing button hands the same patch to the workspace pane instead.
+// trailing button opens the complete file in the workspace.
 function ChangeRow({ change, open, disabled, onToggle, onDiff }: { change: FileChange; open: boolean; disabled: boolean; onToggle: () => void; onDiff?: BlockActions['onDiff'] }) {
   const detailId = useId();
   return <>
     <div className={`file-change-row${open ? ' open' : ''}`}>
       <button type="button" className="file-change-main" aria-expanded={change.diff ? open : undefined} aria-controls={change.diff ? detailId : undefined} disabled={disabled || !change.diff} onClick={onToggle}>
-        <FileCode2 size="0.875rem" />
+        <FileGlyph name={change.path} size="0.875rem" className="file-change-type-icon" />
         <span className="file-change-path">{change.path.split(/[\\/]/).pop()}</span>
         <span className="file-change-stats"><b className="file-change-add">+{change.additions}</b><b className="file-change-del">−{change.deletions}</b></span>
         {change.diff && <ChevronDown size="0.875rem" className={open ? 'rotated' : ''} />}
       </button>
-      {/* The pane opens even without a saved patch: it then shows the file's live Git diff. */}
-      {onDiff && <IconButton label={`在面板中打开 ${change.path.split(/[\\/]/).pop()}`} onClick={() => onDiff(change.path, change.diff)}><PanelRight size="0.9375rem" /></IconButton>}
+      {onDiff && <IconButton label={`打开文件 ${change.path.split(/[\\/]/).pop()}`} onClick={() => onDiff(change.path, change.diff)}><FileSymlink size="0.9375rem" /></IconButton>}
     </div>
     {change.diff && <Collapse open={open} id={detailId}><div className="file-change-diff"><UnifiedDiff diff={change.diff} path={change.path} /></div></Collapse>}
   </>;
@@ -75,7 +75,7 @@ const FileChanges = memo(function FileChanges({ changes, onDiff, onRevert, notif
     const patch = patchOf();
     void onRevert?.(changes).then(() => { setUndonePatch(patch); notify('文件改动已撤销'); }).catch(error => notify(error instanceof Error ? error.message : '撤销失败'));
   };
-  return <section className={`block-file-changes ${undone ? 'undone' : ''}`} aria-label="文件改动"><div className="file-changes-head"><button type="button" className="file-changes-main" aria-expanded={onlyFile?.diff ? headOpen : undefined} aria-controls={onlyFile?.diff ? headId : undefined} onClick={openHead} disabled={!onlyFile || undone || !onlyFile.diff}><span className="file-changes-icon"><FileDiff size="1.3125rem" /></span><span className="file-changes-summary"><strong>{undone ? '文件改动已撤销' : onlyFile ? onlyFile.path.split(/[\\/]/).pop() : `${changes.length} 个文件已修改`}</strong><span className="file-changes-total"><b className="file-change-add">+{total.additions}</b><b className="file-change-del">−{total.deletions}</b>{onlyFile && <span>{onlyFile.created ? '新增文件' : '文件已修改'}</span>}</span></span>{onlyFile?.diff && <ChevronDown size="0.875rem" className={headOpen ? 'rotated' : ''} />}</button>{onlyFile && onDiff && !undone && <IconButton label="在面板中打开" onClick={() => onDiff(onlyFile.path, onlyFile.diff)}><PanelRight size="0.9375rem" /></IconButton>}<Button size="sm" variant="light" className="file-changes-undo" endContent={<Undo2 size="0.875rem" />} isDisabled={undone || !onRevert || changes.some(change => !change.diff)} onPress={revert}>{undone ? '已撤销' : '撤销'}</Button></div>{onlyFile?.diff && <Collapse open={headOpen} id={headId}><div className="file-change-diff"><UnifiedDiff diff={onlyFile.diff} path={onlyFile.path} /></div></Collapse>}<Collapse open={!undone && !onlyFile}>{changes.slice(0, 3).map(change => <ChangeRow key={change.path} change={change} open={expanded === change.path} disabled={undone} onToggle={() => toggle(change.path)} onDiff={onDiff} />)}<Collapse open={showAll}>{changes.slice(3).map(change => <ChangeRow key={change.path} change={change} open={expanded === change.path} disabled={undone} onToggle={() => toggle(change.path)} onDiff={onDiff} />)}</Collapse></Collapse>{!undone && changes.length > 3 && <button type="button" className="file-changes-expand" onClick={() => setShowAll(!showAll)}>{showAll ? '收起文件' : `再显示 ${changes.length - 3} 个文件`}<ChevronDown size="0.875rem" className={showAll ? 'rotated' : ''} /></button>}</section>;
+  return <section className={`block-file-changes ${undone ? 'undone' : ''}`} aria-label="文件改动"><div className="file-changes-head"><button type="button" className="file-changes-main" aria-expanded={onlyFile?.diff ? headOpen : undefined} aria-controls={onlyFile?.diff ? headId : undefined} onClick={openHead} disabled={!onlyFile || undone || !onlyFile.diff}><span className="file-changes-icon">{onlyFile ? <FileGlyph name={onlyFile.path} size="1.3125rem" className="file-change-type-icon" /> : <FileDiff size="1.3125rem" />}</span><span className="file-changes-summary"><strong>{undone ? '文件改动已撤销' : onlyFile ? onlyFile.path.split(/[\\/]/).pop() : `${changes.length} 个文件已修改`}</strong><span className="file-changes-total"><b className="file-change-add">+{total.additions}</b><b className="file-change-del">−{total.deletions}</b>{onlyFile && <span>{onlyFile.created ? '新增文件' : '文件已修改'}</span>}</span></span>{onlyFile?.diff && <ChevronDown size="0.875rem" className={headOpen ? 'rotated' : ''} />}</button>{onlyFile && onDiff && !undone && <IconButton label="打开文件" onClick={() => onDiff(onlyFile.path, onlyFile.diff)}><FileSymlink size="0.9375rem" /></IconButton>}<Button size="sm" variant="light" className="file-changes-undo" endContent={<Undo2 size="0.875rem" />} isDisabled={undone || !onRevert || changes.some(change => !change.diff)} onPress={revert}>{undone ? '已撤销' : '撤销'}</Button></div>{onlyFile?.diff && <Collapse open={headOpen} id={headId}><div className="file-change-diff"><UnifiedDiff diff={onlyFile.diff} path={onlyFile.path} /></div></Collapse>}<Collapse open={!undone && !onlyFile}>{changes.slice(0, 3).map(change => <ChangeRow key={change.path} change={change} open={expanded === change.path} disabled={undone} onToggle={() => toggle(change.path)} onDiff={onDiff} />)}<Collapse open={showAll}>{changes.slice(3).map(change => <ChangeRow key={change.path} change={change} open={expanded === change.path} disabled={undone} onToggle={() => toggle(change.path)} onDiff={onDiff} />)}</Collapse></Collapse>{!undone && changes.length > 3 && <button type="button" className="file-changes-expand" onClick={() => setShowAll(!showAll)}>{showAll ? '收起文件' : `再显示 ${changes.length - 3} 个文件`}<ChevronDown size="0.875rem" className={showAll ? 'rotated' : ''} /></button>}</section>;
 });
 
 type StepProps = { block: ChatBlock; streaming?: boolean } & BlockActions;

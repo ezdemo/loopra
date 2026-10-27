@@ -21,26 +21,26 @@ async function compile(path, aliases = {}) {
 const modelUrl = await compile('../src/workspace-tabs.ts');
 const model = await import(modelUrl);
 const { emptyWorkspaceTabs, openWorkspaceFile, closeWorkspaceFile, updateWorkspaceFilePath, ensureSubAgentTab, openSubAgentTab, closeSubAgentTab, subAgentTabKey } = model;
-const { highlightStub, codeViewerStub } = await import('./helpers/highlight.mjs');
-const diff = await compile('../src/diff.ts');
-const unifiedDiff = await compile('../src/components/UnifiedDiff.tsx', { '../diff': diff, '../highlight': highlightStub });
+const { codeViewerStub } = await import('./helpers/highlight.mjs');
 const events = await compile('../src/workspace-events.ts');
 const controls = dataUrl(`export const errorText = cause => cause.message; export const query = values => new URLSearchParams(values).toString();`);
 const subAgentView = dataUrl(`
 const { createElement } = await import(${JSON.stringify(import.meta.resolve('react'))});
 export default ({ subSessionId, label }) => createElement('div', { className: 'subagent-view-stub' }, label + ':' + subSessionId);
 `);
-const { default: WorkspaceTabs } = await import(await compile('../src/components/WorkspaceTabs.tsx', { './RemoteControls': controls, './UnifiedDiff': unifiedDiff, './CodeViewer': codeViewerStub, './SubAgentView': subAgentView, '../workspace-tabs': modelUrl, '../highlight': highlightStub, '../workspace-events': events }));
+const { default: WorkspaceTabs } = await import(await compile('../src/components/WorkspaceTabs.tsx', { './RemoteControls': controls, './CodeViewer': codeViewerStub, './SubAgentView': subAgentView, '../workspace-tabs': modelUrl, '../workspace-events': events }));
 const click = async element => act(async () => element.click());
 const tab = name => [...document.querySelectorAll('.workspace-tabs [role="tab"]')].find(element => element.textContent === name);
 
-async function mount({ failRead = false } = {}) {
-  const calls = [], references = [];
+async function mount({ failRead = false, gitRead, fileRead } = {}) {
+  const calls = [];
   let update;
   const api = { async request(path) {
     calls.push(path);
     if (failRead) { failRead = false; throw new Error('读取失败'); }
-    return path.startsWith('/git/diff-content') ? { diff: '@@ -1 +1 @@\n-old live\n+new live' } : { exists: true, content: `content ${new URLSearchParams(path.split('?')[1]).get('path')}\nsecond line` };
+    if (path.includes('/diff-content')) return gitRead ? gitRead(path) : { diff: '@@ -1 +1 @@\n-old live\n+new live' };
+    if (fileRead) return fileRead(path);
+    return { exists: true, content: `content ${new URLSearchParams(path.split('?')[1]).get('path')}\nsecond line` };
   } };
   function Wrapper() {
     const [state, setState] = useState(emptyWorkspaceTabs); update = setState;
@@ -49,12 +49,11 @@ async function mount({ failRead = false } = {}) {
       onClose: path => setState(current => closeWorkspaceFile(current, path)),
       onCloseSubAgent: id => setState(current => closeSubAgentTab(current, id)),
       onOpen: file => setState(current => openWorkspaceFile(current, file)),
-      onAdd: (path, text) => { references.push({ path, text }); setState(current => ({ ...current, active: null })); },
     }, createElement('textarea', { 'aria-label': '消息草稿', defaultValue: 'draft' }));
   }
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(createElement(Wrapper)));
-  return { calls, references,
+  return { calls,
     async open(file) { await act(async () => update(current => openWorkspaceFile(current, file))); },
     async openAgent(tab, select = false) { await act(async () => update(current => select ? openSubAgentTab(current, tab) : ensureSubAgentTab(current, tab))); },
     async close() { await act(async () => root.unmount()); container.remove(); } };
@@ -93,36 +92,164 @@ test('reopening a file selects its existing tab and preserves mounted file and c
   } finally { await view.close(); }
 });
 
-test('historical diffs keep the saved content while opening the live Git entry replaces it', async () => {
+test('file, Git and historical change links share the original file with inline Git changes', async () => {
   const view = await mount();
   try {
     await view.open({ path: 'a.md', mode: 'diff', diff: '@@ -1 +1 @@\n-old saved\n+new saved' });
-    assert.equal(view.calls.length, 0);
-    assert.match(document.querySelector('.unified-diff').textContent, /new saved/);
-    await click([...document.querySelectorAll('.workspace-view-modes button')].find(button => button.textContent === '原文件'));
-    assert.match(document.querySelector('.workspace-code-editor').textContent, /content a.md/);
-    await click([...document.querySelectorAll('.workspace-view-modes button')].find(button => button.textContent === '本次改动'));
-    assert.match(document.querySelector('.unified-diff').textContent, /new saved/);
-    assert.equal(view.calls.filter(path => path.startsWith('/git/diff-content')).length, 0);
+    const editor = document.querySelector('.workspace-code-editor');
+    assert.match(editor.textContent, /content a.md/);
+    assert.match(editor.getAttribute('data-git-diff'), /old live/);
+    assert.equal(document.querySelector('.unified-diff'), null);
+    assert.equal(document.querySelector('.workspace-view-modes'), null);
+    assert.equal(document.querySelectorAll('.workspace-file-toolbar button').length, 0);
+    assert.equal(document.querySelector('.workspace-file-tab small'), null);
+    await view.open({ path: 'a.md', mode: 'content' });
     await view.open({ path: 'a.md', mode: 'diff' });
-    assert.match(document.querySelector('.unified-diff').textContent, /new live/);
+    assert.equal(document.querySelector('.workspace-code-editor'), editor);
+    assert.match(editor.getAttribute('data-git-diff'), /old live/);
     assert.equal(document.querySelectorAll('.workspace-file-tab').length, 1);
   } finally { await view.close(); }
 });
 
-test('file read failures can retry and a reference returns to the existing conversation', async () => {
+const mouse = async (element, type, button) => {
+  let event;
+  await act(async () => {
+    event = new window.MouseEvent(type, { bubbles: true, cancelable: true, button });
+    element.dispatchEvent(event);
+  });
+  return event;
+};
+
+test('middle click closes inactive and active file tabs without selecting the inactive file', async () => {
+  const view = await mount();
+  try {
+    await view.open({ path: 'first.ts', mode: 'content' });
+    await view.open({ path: 'second.ts', mode: 'content' });
+    const first = tab('first.ts');
+    assert.equal((await mouse(first, 'mousedown', 1)).defaultPrevented, true);
+    assert.equal(document.querySelectorAll('.workspace-file-tab').length, 2);
+    assert.equal((await mouse(first.querySelector('svg'), 'auxclick', 1)).defaultPrevented, true);
+    assert.equal(tab('first.ts'), undefined);
+    assert.equal(tab('second.ts').getAttribute('aria-selected'), 'true');
+    await mouse(tab('second.ts'), 'auxclick', 2);
+    assert.ok(tab('second.ts'), 'right click does not close the tab');
+    await mouse(tab('会话'), 'auxclick', 1);
+    assert.equal(tab('会话').getAttribute('aria-selected'), 'false');
+    await mouse(document.querySelector('.workspace-tab-close'), 'auxclick', 1);
+    assert.equal(document.querySelector('.workspace-tabs'), null);
+    assert.equal(document.querySelector('.workspace-chat-view').hidden, false);
+  } finally { await view.close(); }
+});
+
+test('middle click closes a sub-agent tab and leaves the selected file open', async () => {
+  const view = await mount();
+  try {
+    await view.open({ path: 'first.ts', mode: 'content' });
+    await view.openAgent({ subSessionId: 'run-1', sessionName: 'chat-1', label: '测试代理' });
+    await mouse(tab('测试代理'), 'auxclick', 1);
+    assert.equal(document.querySelector('.workspace-subagent-tab'), null);
+    assert.equal(tab('first.ts').getAttribute('aria-selected'), 'true');
+  } finally { await view.close(); }
+});
+
+test('original preview receives live Git changes from the matching environment', async () => {
+  const view = await mount();
+  try {
+    await view.open({ path: 'src/demo.java', mode: 'content', environment: 'isolated-session' });
+    const request = view.calls.find(path => path.startsWith('/git/environment/diff-content?'));
+    assert.ok(request);
+    const params = new URLSearchParams(request.split('?')[1]);
+    assert.equal(params.get('sessionName'), 'isolated-session');
+    assert.equal(params.get('path'), 'src/demo.java');
+    assert.match(document.querySelector('.workspace-code-editor').getAttribute('data-git-diff'), /old live/);
+    assert.equal(view.calls.some(path => path.startsWith('/git/diff-content?')), false);
+  } finally { await view.close(); }
+});
+
+test('a pending Git read does not delay the file and a late result cannot update another environment', async () => {
+  const pending = [];
+  const view = await mount({ gitRead: () => new Promise(resolve => pending.push(resolve)) });
+  try {
+    await view.open({ path: 'first.ts', mode: 'content' });
+    assert.match(document.querySelector('.workspace-code-editor').textContent, /content first.ts/);
+    await view.open({ path: 'first.ts', mode: 'diff', environment: 'other-session' });
+    await act(async () => pending[1]({ diff: 'new environment diff' }));
+    await act(async () => pending[0]({ diff: 'stale environment diff' }));
+    assert.equal(document.querySelector('.workspace-code-editor').getAttribute('data-git-diff'), 'new environment diff');
+  } finally { await view.close(); }
+});
+
+test('files remain readable when Git is unavailable', async () => {
+  const view = await mount({ gitRead: async () => { throw new Error('not a git repository'); } });
+  try {
+    await view.open({ path: 'first.ts', mode: 'content' });
+    assert.match(document.querySelector('.workspace-code-editor').textContent, /content first.ts/);
+    assert.equal(document.querySelector('[role="alert"]'), null);
+  } finally { await view.close(); }
+});
+
+test('file read failures can retry and the conversation draft stays mounted', async () => {
   const view = await mount({ failRead: true });
   try {
     await view.open({ path: 'a.md', mode: 'content' });
     assert.match(document.querySelector('[role="alert"]').textContent, /读取失败/);
     await click(document.querySelector('[role="alert"] button'));
     assert.match(document.querySelector('.workspace-code-editor').textContent, /content a.md/);
-    await click([...document.querySelectorAll('.workspace-file-actions button')].find(button => button.textContent === '引用文件'));
-    assert.deepEqual(view.references, [{ path: 'a.md', text: undefined }]);
+    await click(tab('会话'));
     assert.equal(document.querySelector('.workspace-chat-view').hidden, false);
+    assert.equal(document.querySelector('textarea').value, 'draft');
   } finally { await view.close(); }
 });
 
+test('workspace notifications refresh the original content and inline Git changes automatically', async () => {
+  let content = 'before refresh', diff = 'first diff';
+  const view = await mount({ fileRead: () => ({ exists: true, content }), gitRead: () => ({ diff }) });
+  try {
+    await view.open({ path: 'first.ts', mode: 'content' });
+    const editor = document.querySelector('.workspace-code-editor');
+    content = 'after refresh'; diff = 'updated diff';
+    await act(async () => window.dispatchEvent(new window.CustomEvent('loopra:workspace-changed', { detail: { workspaceHash: 'project' } })));
+    assert.equal(document.querySelector('.workspace-code-editor'), editor);
+    assert.equal(editor.textContent, 'after refresh');
+    assert.equal(editor.getAttribute('data-git-diff'), 'updated diff');
+  } finally { await view.close(); }
+});
+
+test('the tab refresh button reloads only its file and Git changes without selecting it', async () => {
+  let version = 1;
+  const view = await mount({
+    fileRead: path => ({ exists: true, content: `${new URLSearchParams(path.split('?')[1]).get('path')} version ${version}` }),
+    gitRead: () => ({ diff: `diff version ${version}` }),
+  });
+  try {
+    await view.open({ path: 'first.ts', mode: 'content' });
+    const editor = document.querySelector('.workspace-code-editor');
+    await view.open({ path: 'second.ts', mode: 'content' });
+    const before = view.calls.length;
+    version = 2;
+    await click(document.querySelector('[aria-label="刷新 first.ts"]'));
+    assert.equal(tab('second.ts').getAttribute('aria-selected'), 'true');
+    assert.equal(document.querySelectorAll('.workspace-file-tab').length, 2);
+    assert.equal(document.querySelector('.workspace-code-editor'), editor);
+    assert.equal(editor.textContent, 'first.ts version 2');
+    assert.equal(editor.getAttribute('data-git-diff'), 'diff version 2');
+    const requests = view.calls.slice(before);
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(path => new URLSearchParams(path.split('?')[1]).get('path') === 'first.ts'));
+  } finally { await view.close(); }
+});
+
+test('deleted Git files remain inspectable through the inline preview on an empty original', async () => {
+  const diff = '@@ -1,2 +0,0 @@\n-deleted first\n-deleted second';
+  const view = await mount({ fileRead: () => ({ exists: false, content: null }), gitRead: () => ({ diff }) });
+  try {
+    await view.open({ path: 'removed.ts', mode: 'diff' });
+    const editor = document.querySelector('.workspace-code-editor');
+    assert.ok(editor);
+    assert.equal(editor.textContent, '');
+    assert.equal(editor.getAttribute('data-git-diff'), diff);
+  } finally { await view.close(); }
+});
 test('sub-agent runs open in the tab bar next to the conversation without stealing focus', async () => {
   const view = await mount();
   try {

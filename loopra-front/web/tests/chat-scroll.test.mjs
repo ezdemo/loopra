@@ -58,6 +58,10 @@ const { default: BlockRenderer } = await import(await sourceUrl('components/Bloc
   './Markdown': dataUrl('export default () => null;'),
   './UnifiedDiff': dataUrl('export default () => null;'),
   './ToolImageResult': dataUrl('export default () => null;'),
+  './FileGlyph': await sourceUrl('components/FileGlyph.tsx', {
+    'lucide-react': import.meta.resolve('lucide-react'),
+    '../file-icons': await sourceUrl('file-icons.ts'),
+  }),
 }));
 
 const chatWindowUrl = await sourceUrl('chat-window.ts');

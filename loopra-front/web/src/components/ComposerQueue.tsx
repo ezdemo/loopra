@@ -94,10 +94,10 @@ export default function ComposerQueue({ queue, onRemove, onGuide, onEdit, onMove
             onDrop={event => drop(event, item.id)}>
             <div className="composer-queue-row">
               <ListEnd size="0.9375rem" className="composer-queue-item-icon" aria-hidden="true" />
-              <button type="button" className="composer-queue-preview" title="恢复到输入框编辑" onClick={() => startEdit(item)}>
+              <div className="composer-queue-preview">
                 <span className="composer-queue-text">{item.text ? item.text.slice(0, 160) : '仅附件消息'}</span>
                 {files.length > 0 && <span className="composer-queue-attachments" title={files.join('\n')}><Paperclip size="0.75rem" />{files.length}</span>}
-              </button>
+              </div>
               <div className="composer-queue-actions">
                 <button type="button" className="composer-queue-guide" title="停止当前生成，优先发送这条消息" onClick={() => onGuide(item.id)}><CornerDownRight size="0.9375rem" />引导</button>
                 <button type="button" className="composer-queue-action composer-queue-remove" title="撤回，不再发送" aria-label={`撤回第 ${index + 1} 条消息`} onClick={() => onRemove(item.id)}><Trash2 size="0.9375rem" /></button>

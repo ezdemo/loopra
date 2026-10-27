@@ -1,28 +1,12 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
-import { ChevronRight, ChevronsDownUp, Coffee, Container, Database, ExternalLink, FileArchive, FileCode, FileImage, FileJson, FileText, FolderClosed, FolderOpen, GitBranch, ListTree, Package, Palette, Pencil, RefreshCw, Search, Settings, Terminal, Trash2, X } from 'lucide-react';
+import { ChevronRight, ChevronsDownUp, ExternalLink, FileText, FolderClosed, FolderOpen, Pencil, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { baseName, canRenameFiles, canRevealFiles, desktopFileBridge, invalidFileName, renamedPath } from '../desktop-files';
 import { buildDecorations, type GitStatus } from '../git-decorations';
-import { fileIconFor } from '../file-icons';
+import FileGlyph from './FileGlyph';
 import { ConfirmAction, errorText, query, useRemote } from './RemoteControls';
 
 type Entry = { name: string; path: string; directory: boolean };
-
-// Legacy FileExplorerNode.vue picked a per-extension codicon; map its kinds onto lucide glyphs.
-const FILE_GLYPHS: Record<string, typeof FileText> = {
-  default: FileText, vue: FileCode, javascript: FileCode, react: FileCode, typescript: FileCode,
-  java: Coffee, kotlin: FileCode, json: FileJson, markdown: FileText, css: Palette, sass: Palette,
-  html: FileCode, xml: FileCode, yaml: ListTree, python: FileCode, go: FileCode, rust: Settings,
-  php: FileCode, shell: Terminal, powershell: Terminal, database: Database, image: FileImage,
-  svg: Palette, pdf: FileText, archive: FileArchive, config: Settings, git: GitBranch,
-  npm: Package, docker: Container, maven: Package, gradle: Package,
-};
-
-function FileGlyph({ name }: { name: string }) {
-  const { kind, color } = fileIconFor(name);
-  const Glyph = FILE_GLYPHS[kind] || FileText;
-  return <Glyph size={14} className="tree-file" data-icon={kind} style={{ color }} />;
-}
 
 // 目录树与递归搜索负责导航，文件内容统一在主页面标签中打开。
 // 重命名 / 在文件管理器中显示沿用旧 FileExplorer.vue 的 Electron IPC，按能力探测显示。

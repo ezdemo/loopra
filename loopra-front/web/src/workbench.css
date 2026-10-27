@@ -3,7 +3,6 @@
 .workbench-tabs button[role="tab"] { display: inline-flex; align-items: center; gap: .375rem; height: 1.75rem; padding: 0 .625rem; border-radius: var(--radius-md); color: var(--muted); font-size: .8125rem; white-space: nowrap; transition: background .12s, color .12s; }
 .workbench-tabs button[role="tab"]:hover { background: var(--hover); color: var(--text); }
 .workbench-tabs button[role="tab"][aria-selected="true"] { background: var(--selected); color: var(--text); font-weight: 500; }
-.panel-more-menu { top: calc(100% + .25rem); left: 0; min-width: 8.5rem; }
 .workbench-body { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .workspace-files { padding: .75rem; }
 .workspace-files input, .workbench-form input, .workbench-form textarea, .workbench-form select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-md); padding: .4375rem .625rem; background: var(--surface); font-size: .8125rem; color: var(--text); transition: border-color .12s, box-shadow .12s; }
@@ -27,6 +26,7 @@
 .workbench-card p { color: var(--secondary); margin: .375rem 0; }
 .workbench-card pre { overflow: auto; max-height: 22rem; font-size: .75rem; white-space: pre-wrap; }
 .changes-panel { display: flex; flex-direction: column; }
+.changes-panel > .panel-header { border-bottom: 0; }
 .panel-resize-handle { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; flex: none; cursor: ew-resize; z-index: 2; border-radius: var(--radius-sm); }
 .panel-resize-handle:hover, .changes-panel.resizing .panel-resize-handle { background: color-mix(in srgb, var(--accent, #2563eb) 30%, transparent); }
 .workbench-panel-heading { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }

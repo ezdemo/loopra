@@ -54,8 +54,9 @@ const imagePreview = await compile('../src/components/ImagePreview.tsx', { 'reac
 const { ImagePreviewProvider } = await import(imagePreview);
 const toolImageResult = await compile('../src/components/ToolImageResult.tsx', { './ImagePreview': imagePreview });
 const { ToolImageSourceProvider } = await import(toolImageResult);
+const fileGlyph = await compile('../src/components/FileGlyph.tsx', { '../file-icons': await compile('../src/file-icons.ts') });
 const { default: BlockRenderer } = await import(await compile('../src/components/BlockRenderer.tsx', {
-  '../chat': chat, '../tool-params': toolParams, './Motion': motionStub, './ui': uiStub, './Markdown': markdownStub, './UnifiedDiff': unifiedDiff, './ToolImageResult': toolImageResult, '@nextui-org/react': nextuiStub,
+  '../chat': chat, '../tool-params': toolParams, './Motion': motionStub, './ui': uiStub, './Markdown': markdownStub, './UnifiedDiff': unifiedDiff, './ToolImageResult': toolImageResult, './FileGlyph': fileGlyph, '@nextui-org/react': nextuiStub,
 }));
 
 const change = (path, diff, additions, deletions) => ({ path, additions, deletions, diff });
@@ -84,6 +85,7 @@ test('a single changed file expands its diff inside the message', async () => {
   try {
     assert.equal(view.container.querySelector('.unified-diff'), null);
     const head = view.container.querySelector('.file-changes-main');
+    assert.equal(head.querySelector('[data-icon]').getAttribute('data-icon'), 'typescript');
     assert.equal(head.getAttribute('aria-expanded'), 'false');
     await click(head);
     // The same rows the workspace pane renders: numbered, signed, one column.
@@ -132,8 +134,24 @@ test('each row of a multi-file change expands its own diff and can still open th
     await click(view.rows()[0].querySelector('.file-change-main'));
     assert.deepEqual(view.lines(), ['1-old', '1+new', '2+extra']);
     // The trailing button hands the stored patch to the workspace pane instead.
+    assert.equal(view.rows()[1].querySelector('.icon-button').getAttribute('aria-label'), '打开文件 b.ts');
+    assert.ok(view.rows()[1].querySelector('.icon-button .lucide-file-symlink'));
     await click(view.rows()[1].querySelector('.icon-button'));
     assert.deepEqual(opened, [['src/b.ts', '@@ -5,0 +5,1 @@\n+added\n']]);
+  } finally { await view.close(); }
+});
+
+test('file change rows share the file tree glyphs for Java, YAML and special file names', async () => {
+  const view = await mount([
+    change('src/Main.java', PATCH, 2, 1),
+    change('config/app.yml', PATCH, 2, 1),
+    change('C:\\workspace\\pom.xml', PATCH, 2, 1),
+  ]);
+  try {
+    assert.deepEqual(view.rows().map(row => row.querySelector('[data-icon]').getAttribute('data-icon')), ['java', 'yaml', 'maven']);
+    assert.ok(view.rows()[0].querySelector('.lucide-coffee'));
+    assert.ok(view.rows()[1].querySelector('.lucide-list-tree'));
+    assert.ok(view.rows()[2].querySelector('.lucide-package'));
   } finally { await view.close(); }
 });
 
