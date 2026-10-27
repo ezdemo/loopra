@@ -4,6 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.ArrayList;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,6 +46,7 @@ public class ScheduleService {
 
     private final ScheduleStore store;
     private final TaskExecutor taskExecutor;
+    private final Path workspaceDirectory;
 
     /** 按项目索引的任务 Map：workspaceHash → (taskId → ScheduledTask) */
     private volatile Map<String, Map<String, ScheduledTask>> tasksIndex = new ConcurrentHashMap<>();
@@ -60,8 +64,13 @@ public class ScheduleService {
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     public ScheduleService(ScheduleStore store, TaskExecutor taskExecutor) {
+        this(store, taskExecutor, Paths.get(System.getProperty("user.home"), ".loopra", "workspace"));
+    }
+
+    ScheduleService(ScheduleStore store, TaskExecutor taskExecutor, Path workspaceDirectory) {
         this.store = store;
         this.taskExecutor = taskExecutor;
+        this.workspaceDirectory = workspaceDirectory;
     }
 
     // ==================== 生命周期 ====================
@@ -149,7 +158,7 @@ public class ScheduleService {
     /**
      * 创建定时任务。
      */
-    public ScheduledTask create(String workspaceHash, ScheduledTask task) {
+    public synchronized ScheduledTask create(String workspaceHash, ScheduledTask task) {
         if (task.getId() == null || task.getId().isBlank()) {
             task.setId(UUID.randomUUID().toString().replace("-", ""));
         }
@@ -158,9 +167,10 @@ public class ScheduleService {
         task.setUpdatedAt(now);
         task.setRunCount(0);
         task.setLastRunAt(0);
+        task.setRuns(new ArrayList<>());
 
         // 计算首次执行时间
-        task.setNextRunAt(task.computeNextRunAt());
+        task.setNextRunAt(task.isEnabled() ? task.computeNextRunAt(now) : 0);
 
         store.put(workspaceHash, task);
         rebuildIndex();
@@ -170,7 +180,7 @@ public class ScheduleService {
     /**
      * 更新定时任务。
      */
-    public ScheduledTask update(String workspaceHash, String taskId, ScheduledTask update) {
+    public synchronized ScheduledTask update(String workspaceHash, String taskId, ScheduledTask update) {
         Map<String, ScheduledTask> tasks = tasksIndex.get(workspaceHash);
         if (tasks == null) return null;
 
@@ -180,6 +190,7 @@ public class ScheduleService {
         // 合并字段
         if (update.getName() != null) existing.setName(update.getName());
         if (update.getSessionName() != null) existing.setSessionName(update.getSessionName());
+        if (update.getSessionMode() != null) existing.setSessionMode(update.getSessionMode());
         if (update.getCronExpr() != null) existing.setCronExpr(update.getCronExpr());
         if (update.getIntervalSec() != null) existing.setIntervalSec(update.getIntervalSec());
         if (update.getMessage() != null) existing.setMessage(update.getMessage());
@@ -187,7 +198,7 @@ public class ScheduleService {
         existing.setUpdatedAt(System.currentTimeMillis());
 
         // 重新计算下次执行时间
-        existing.setNextRunAt(existing.computeNextRunAt());
+        existing.setNextRunAt(existing.isEnabled() ? existing.computeNextRunAt(System.currentTimeMillis()) : 0);
 
         store.put(workspaceHash, existing);
         rebuildIndex();
@@ -197,7 +208,7 @@ public class ScheduleService {
     /**
      * 启用/禁用定时任务。
      */
-    public ScheduledTask toggle(String workspaceHash, String taskId) {
+    public synchronized ScheduledTask toggle(String workspaceHash, String taskId) {
         Map<String, ScheduledTask> tasks = tasksIndex.get(workspaceHash);
         if (tasks == null) return null;
 
@@ -208,7 +219,7 @@ public class ScheduleService {
         existing.setUpdatedAt(System.currentTimeMillis());
         if (existing.isEnabled()) {
             // 启用时重新计算下次执行时间
-            existing.setNextRunAt(existing.computeNextRunAt());
+            existing.setNextRunAt(existing.computeNextRunAt(System.currentTimeMillis()));
         } else {
             existing.setNextRunAt(0);
         }
@@ -221,7 +232,7 @@ public class ScheduleService {
     /**
      * 删除定时任务。
      */
-    public void delete(String workspaceHash, String taskId) {
+    public synchronized void delete(String workspaceHash, String taskId) {
         store.remove(workspaceHash, taskId);
         rebuildIndex();
     }
@@ -238,9 +249,13 @@ public class ScheduleService {
         ScheduledTask task = tasks.get(taskId);
         if (task == null) return null;
 
-        String result = executeTask(workspaceHash, task);
-        // 区分项目不存在和正常返回：executeTask 内部已处理
-        return result != null ? result : "";
+        String runningKey = workspaceHash + ":" + taskId;
+        if (!runningTaskIds.add(runningKey)) throw new IllegalStateException("定时任务正在执行");
+        try {
+            return executeTask(workspaceHash, task);
+        } finally {
+            runningTaskIds.remove(runningKey);
+        }
     }
 
     /**
@@ -281,17 +296,17 @@ public class ScheduleService {
                     if (task.getNextRunAt() > now) continue;
 
                     // 防止重复提交：如果任务正在执行则跳过
-                    if (!runningTaskIds.add(task.getId())) continue;
+                    String runningKey = workspaceHash + ":" + task.getId();
+                    if (!runningTaskIds.add(runningKey)) continue;
 
                     // 到期任务提交到工作线程池
-                    String taskId = task.getId();
                     workerPool.submit(() -> {
                         try {
                             executeTask(workspaceHash, task);
                         } catch (Exception e) {
                             log.warn("[schedule] 任务执行异常: {} - {}", task.getName(), e.getMessage());
                         } finally {
-                            runningTaskIds.remove(taskId);
+                            runningTaskIds.remove(runningKey);
                         }
                     });
                 }
@@ -304,50 +319,48 @@ public class ScheduleService {
     /**
      * 执行单个定时任务。
      *
-     * @return 执行结果，空字符串表示项目不存在
+     * @return 执行结果
      */
     private String executeTask(String workspaceHash, ScheduledTask task) {
-        // 获取项目实际路径
-        String workspacePath = resolveProjectPath(workspaceHash);
-        if (workspacePath == null) {
-            log.warn("[schedule] 找不到项目: {}", workspaceHash);
-            return "";
-        }
-
-        log.info("[schedule] 执行定时任务: {} → 项目={}, 会话={}, 消息={}",
-                task.getName(), workspaceHash, task.getSessionName(),
-                task.getMessage() != null ? task.getMessage().substring(0, Math.min(50, task.getMessage().length())) : "");
-
+        ScheduleRun run = new ScheduleRun();
+        run.setId(UUID.randomUUID().toString());
+        run.setStartedAt(System.currentTimeMillis());
+        run.setMessage(task.getMessage());
+        String sessionName = "independent".equals(task.getSessionMode())
+                ? "automation-" + run.getId().replace("-", "") : task.getSessionName();
+        run.setSessionName(sessionName);
         try {
-            String result = taskExecutor.execute(workspacePath, task.getSessionName(), task.getMessage());
-
-            // 更新任务状态
-            long now = System.currentTimeMillis();
-            task.setLastRunAt(now);
-            task.setRunCount(task.getRunCount() + 1);
-            task.setLastResult(result != null ? result.substring(0, Math.min(200, result.length())) : "");
-            task.setLastError(null);
-            task.setUpdatedAt(now);
-            task.setNextRunAt(task.computeNextRunAt());
-
-            store.put(workspaceHash, task);
-            rebuildIndex();
-
-            log.info("[schedule] 任务执行完成: {} (执行次数: {})", task.getName(), task.getRunCount());
-            return result;
+            String workspacePath = resolveProjectPath(workspaceHash);
+            if (workspacePath == null) throw new IllegalStateException("项目不存在: " + workspaceHash);
+            String result = taskExecutor.execute(workspacePath, sessionName, task.getMessage());
+            run.setStatus("success");
+            run.setResult(result == null ? "" : result);
+            return run.getResult();
         } catch (Exception e) {
             log.warn("[schedule] 任务执行失败: {} - {}", task.getName(), e.getMessage());
-
-            long now = System.currentTimeMillis();
-            task.setLastRunAt(now);
-            task.setLastError(e.getMessage());
-            task.setUpdatedAt(now);
-            task.setNextRunAt(task.computeNextRunAt());
-
-            store.put(workspaceHash, task);
-            rebuildIndex();
-            return null;
+            run.setStatus("error");
+            run.setError(e.getMessage() == null ? "执行失败" : e.getMessage());
+            throw new IllegalStateException(run.getError(), e);
+        } finally {
+            run.setFinishedAt(System.currentTimeMillis());
+            saveRun(workspaceHash, task.getId(), run);
         }
+    }
+
+    private synchronized void saveRun(String workspaceHash, String taskId, ScheduleRun run) {
+        ScheduledTask current = get(workspaceHash, taskId);
+        if (current == null) return;
+        List<ScheduleRun> runs = new ArrayList<>(current.getRuns() == null ? List.of() : current.getRuns());
+        runs.add(0, run);
+        current.setRuns(runs);
+        current.setLastRunAt(run.getFinishedAt());
+        current.setRunCount(current.getRunCount() + 1);
+        current.setLastResult(run.getResult() == null ? null : run.getResult().substring(0, Math.min(200, run.getResult().length())));
+        current.setLastError(run.getError());
+        current.setUpdatedAt(run.getFinishedAt());
+        current.setNextRunAt(current.isEnabled() ? current.computeNextRunAt() : 0);
+        store.put(workspaceHash, current);
+        rebuildIndex();
     }
 
     /**
@@ -356,9 +369,7 @@ public class ScheduleService {
      */
     private String resolveProjectPath(String workspaceHash) {
         try {
-            java.nio.file.Path configPath = java.nio.file.Paths.get(
-                    System.getProperty("user.home"), ".loopra", "workspace",
-                    workspaceHash, "workspace.json");
+            java.nio.file.Path configPath = workspaceDirectory.resolve(workspaceHash).resolve("workspace.json");
             if (java.nio.file.Files.exists(configPath)) {
                 String json = java.nio.file.Files.readString(configPath);
                 return org.noear.snack4.ONode.ofJson(json).get("path").getString();

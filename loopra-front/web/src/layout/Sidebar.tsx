@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, MessageCircle, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, MessageCircle, MessageCirclePlus, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
@@ -36,6 +36,8 @@ export type SidebarProps = {
   onSearch: () => void;
   onSkills: () => void;
   skillsOpen?: boolean;
+  onSchedules: () => void;
+  schedulesOpen?: boolean;
   onSettings: () => void;
   profile: LocalProfile;
   onRefreshAll: () => void;
@@ -134,6 +136,7 @@ export default function Sidebar(props: SidebarProps) {
       <button onClick={() => props.onNewSession()}><MessageCirclePlus />{english ? 'New chat' : '新建会话'}</button>
       <button onClick={props.onSearch}><SearchIcon />{english ? 'Search' : '搜索'}</button>
       <button className={props.skillsOpen ? 'selected' : undefined} aria-current={props.skillsOpen ? 'page' : undefined} onClick={props.onSkills}><Sparkles />{english ? 'Skills' : '技能'}</button>
+      <button className={props.schedulesOpen ? 'selected' : undefined} aria-current={props.schedulesOpen ? 'page' : undefined} onClick={props.onSchedules}><CalendarClock />{english ? 'Scheduled tasks' : '定时任务'}</button>
     </div>
     <div className="session-section">
       <div className="section-label">

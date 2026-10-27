@@ -232,9 +232,9 @@ class AgentServiceTurnTest {
     }
 
     @Test
-    void scheduledCleanupFailureReturnsAnErrorWithoutLeakingThreadContext() throws Exception {
+    void scheduledCleanupFailureIsReportedWithoutLeakingThreadContext() throws Exception {
         store.failFlush = true;
-        assertTrue(service.executeScheduledTask(null, null, "scheduled").startsWith("错误："));
+        assertThrows(ServiceException.class, () -> service.executeScheduledTask(null, null, "scheduled"));
         assertTrue(store.saveAttempted);
         assertTurnReleased();
     }

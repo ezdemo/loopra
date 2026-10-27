@@ -10,6 +10,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -31,14 +33,23 @@ public class ScheduleStore {
     private static final Path BASE_DIR = Paths.get(
             System.getProperty("user.home"), ".loopra", "workspace");
 
+    private final Path baseDir;
     private final Map<String, Map<String, ScheduledTask>> workspaceTasks = new ConcurrentHashMap<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    public ScheduleStore() {
+        this(BASE_DIR);
+    }
+
+    ScheduleStore(Path baseDir) {
+        this.baseDir = baseDir;
+    }
 
     /**
      * 获取指定项目的调度文件路径。
      */
     private Path getScheduleFile(String workspaceHash) {
-        return BASE_DIR.resolve(workspaceHash).resolve("schedules").resolve("schedules.json");
+        return baseDir.resolve(workspaceHash).resolve("schedules").resolve("schedules.json");
     }
 
     /**
@@ -162,8 +173,8 @@ public class ScheduleStore {
         lock.writeLock().lock();
         try {
             workspaceTasks.clear();
-            if (Files.isDirectory(BASE_DIR)) {
-                try (java.nio.file.DirectoryStream<Path> ds = Files.newDirectoryStream(BASE_DIR)) {
+            if (Files.isDirectory(baseDir)) {
+                try (java.nio.file.DirectoryStream<Path> ds = Files.newDirectoryStream(baseDir)) {
                     for (Path dir : ds) {
                         if (Files.isDirectory(dir)) {
                             String hash = dir.getFileName().toString();
@@ -189,6 +200,7 @@ public class ScheduleStore {
         if (task.getId() != null) node.set("id", task.getId());
         if (task.getName() != null) node.set("name", task.getName());
         if (task.getSessionName() != null) node.set("sessionName", task.getSessionName());
+        if (task.getSessionMode() != null) node.set("sessionMode", task.getSessionMode());
         if (task.getCronExpr() != null) node.set("cronExpr", task.getCronExpr());
         if (task.getIntervalSec() != null) node.set("intervalSec", task.getIntervalSec());
         if (task.getMessage() != null) node.set("message", task.getMessage());
@@ -198,6 +210,22 @@ public class ScheduleStore {
         node.set("runCount", task.getRunCount());
         if (task.getLastResult() != null) node.set("lastResult", task.getLastResult());
         if (task.getLastError() != null) node.set("lastError", task.getLastError());
+        ONode runs = ONode.ofJson("[]").asArray();
+        if (task.getRuns() != null) {
+            for (ScheduleRun run : task.getRuns()) {
+                ONode item = ONode.ofJson("{}");
+                item.set("id", run.getId());
+                item.set("startedAt", run.getStartedAt());
+                item.set("finishedAt", run.getFinishedAt());
+                item.set("status", run.getStatus());
+                if (run.getMessage() != null) item.set("message", run.getMessage());
+                if (run.getSessionName() != null) item.set("sessionName", run.getSessionName());
+                if (run.getResult() != null) item.set("result", run.getResult());
+                if (run.getError() != null) item.set("error", run.getError());
+                runs.add(item);
+            }
+        }
+        node.set("runs", runs);
         node.set("createdAt", task.getCreatedAt());
         node.set("updatedAt", task.getUpdatedAt());
         return node;
@@ -209,6 +237,7 @@ public class ScheduleStore {
             task.setId(node.get("id").getString());
             task.setName(node.get("name").getString());
             task.setSessionName(node.get("sessionName").getString());
+            task.setSessionMode(node.get("sessionMode").getString());
             task.setCronExpr(node.get("cronExpr").getString());
             ONode intervalNode = node.get("intervalSec");
             task.setIntervalSec(intervalNode.isNull() ? null : intervalNode.getLong());
@@ -219,6 +248,23 @@ public class ScheduleStore {
             task.setRunCount(node.get("runCount").getLong().intValue());
             task.setLastResult(node.get("lastResult").getString());
             task.setLastError(node.get("lastError").getString());
+            List<ScheduleRun> runs = new ArrayList<>();
+            ONode runNodes = node.get("runs");
+            if (runNodes.isArray()) {
+                for (ONode item : runNodes.getArray()) {
+                    ScheduleRun run = new ScheduleRun();
+                    run.setId(item.get("id").getString());
+                    run.setStartedAt(item.get("startedAt").getLong());
+                    run.setFinishedAt(item.get("finishedAt").getLong());
+                    run.setStatus(item.get("status").getString());
+                    run.setMessage(item.get("message").getString());
+                    run.setSessionName(item.get("sessionName").getString());
+                    run.setResult(item.get("result").getString());
+                    run.setError(item.get("error").getString());
+                    runs.add(run);
+                }
+            }
+            task.setRuns(runs);
             task.setCreatedAt(node.get("createdAt").getLong());
             task.setUpdatedAt(node.get("updatedAt").getLong());
             return task;

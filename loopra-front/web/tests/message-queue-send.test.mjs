@@ -9,7 +9,7 @@ import { SessionRuns, sessionRunKey, draftRunKey, isRunView } from './helpers/se
 const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const app = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
-const names = ['isSessionOccupied', 'recordSessionOccupancy', 'replaceQueue', 'queueMessage', 'sendQueuedMessage', 'guideQueuedMessage', 'sendMessage', 'stopGeneration', 'stopRemoteRun', 'submitChoices', 'answerElicitation', 'syncSessionRun'];
+const names = ['isSessionOccupied', 'recordSessionOccupancy', 'replaceQueue', 'queueMessage', 'removeQueuedMessage', 'editQueuedMessage', 'moveQueuedMessage', 'sendQueuedMessage', 'guideQueuedMessage', 'sendMessage', 'stopGeneration', 'stopRemoteRun', 'submitChoices', 'answerElicitation', 'syncSessionRun'];
 const functions = app.body.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast)).join('\n');
 const compiled = ts.transpileModule(functions, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const renderFunctions = new Function('env', `with (env) { ${compiled}; return { ${names.join(', ')} }; }`);
@@ -18,7 +18,7 @@ const queueJs = ts.transpileModule(queueSource, { compilerOptions: { target: ts.
 const queue = await import('data:text/javascript;base64,' + Buffer.from(queueJs).toString('base64'));
 const composerSource = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
 const composerJs = ts.transpileModule(composerSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-const { composeOutgoing, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(composerJs).toString('base64'));
+const { composeOutgoing, largeInputReference, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(composerJs).toString('base64'));
 
 function deferred() {
   let resolve, reject;
@@ -37,7 +37,7 @@ const other = { id: 'b/other', name: 'other', workspaceHash: 'b', workspace: 'B'
 const context = { projects: [], skills: [], files: [], attachments: [] };
 
 function harness() {
-  const streams = [], requests = [], notices = [], drafts = [];
+  const streams = [], requests = [], notices = [], drafts = [], contexts = [];
   const running = new Set();
   const state = { options: {}, plan: undefined, inputs: {}, configs: {}, editors: {}, logs: [], selections: [] };
   let abortGate;
@@ -54,12 +54,12 @@ function harness() {
     LARGE_PASTE_THRESHOLD_CHARS: 10000, preparedNewSession: { current: null },
     seededConfigAt: { current: {} }, setAgentConfigs: update => { state.configs = update(state.configs); },
     userScrolledAway: { current: false }, scrollArea: { current: null }, agentConfigKey: 'a::external',
-    notify: text => notices.push(text), composeOutgoing: text => text, withoutWorkspaceContext,
+    notify: text => notices.push(text), composeOutgoing: text => text, largeInputReference, withoutWorkspaceContext,
     sessionQuery: target => `workspaceHash=${target.workspaceHash}&sessionName=${target.name}`,
     sessionRoute: (target, suffix = '') => `/sessions/${target.name}${suffix}`, remoteSession: () => ({ ...original, messages: [] }),
     setSessions: update => { shared.sessionsRef.current = update(shared.sessionsRef.current); },
     setQueuedMessages: () => {}, setActiveId: id => { state.selections.push(id); shared.composerViewRef.current.activeId = id; },
-    setDraft: text => drafts.push(text), setComposerContext: () => {}, setMenu: () => {}, setShowScrollBtn: () => {},
+    setDraft: text => drafts.push(text), setComposerContext: value => contexts.push(value), setMenu: () => {}, setShowScrollBtn: () => {},
     setPendingInputs: update => { state.inputs = update(state.inputs); }, notifyWorkspaceChanged: () => {}, setPetReply: () => {},
     setComposerOptions: update => { state.options = update(state.options); }, setPendingPlan: value => { state.plan = value; },
     setAcpPlans: () => {}, setAcpCommands: () => {}, setRemoteRun: () => {},
@@ -88,16 +88,16 @@ function harness() {
       },
     },
   };
-  function render(session) {
+  function render(session, draft = 'unrelated draft') {
     const homeRunKey = draftRunKey(shared.server, session?.workspaceHash || 'a', session?.agentId || 'external', 0);
-    shared.composerViewRef.current = { server: shared.server, activeId: session?.id || null, draft: 'unrelated draft', draftKey: homeRunKey };
-    const env = { ...shared, homeRunKey, session, currentWorkspace: shared.workspaces.find(item => item.hash === (session?.workspaceHash || 'a')), workspace: session?.workspaceHash || 'a', agentId: session?.agentId || 'external', draft: 'unrelated draft', remoteRun: session ? { id: session.id, requestId: 'remote-request' } : null };
+    shared.composerViewRef.current = { server: shared.server, activeId: session?.id || null, draft, draftKey: homeRunKey };
+    const env = { ...shared, homeRunKey, session, currentWorkspace: shared.workspaces.find(item => item.hash === (session?.workspaceHash || 'a')), workspace: session?.workspaceHash || 'a', agentId: session?.agentId || 'external', draft, remoteRun: session ? { id: session.id, requestId: 'remote-request' } : null };
     const functions = renderFunctions(env);
     shared.sendMessageRef.current = functions.sendMessage;
     return functions;
   }
   function enqueue(id, text) { shared.queuedRef.current = queue.enqueue(shared.queuedRef.current, original.id, { id, text, context }); }
-  return { shared, state, streams, requests, notices, drafts, render, enqueue,
+  return { shared, state, streams, requests, notices, drafts, contexts, render, enqueue,
     setRunning: value => { if (value) running.add(original.name); else running.clear(); }, delayAbort: () => (abortGate = deferred()) };
 }
 
@@ -469,3 +469,81 @@ test('a queued pure-chat send strips old project context and preserves uploaded 
   await sending;
   assert.deepEqual(h.shared.queuedRef.current[chat.id], []);
 });
+
+test('editing during idle polling restores only that entry to the composer and leaves the rest queued', async () => {
+  const h = harness();
+  h.shared.sessionsRef.current = [original];
+  h.enqueue('first', 'original'); h.enqueue('second', 'later');
+  const status = deferred();
+  const request = h.shared.api.request;
+  h.shared.api.request = async (path, ...args) => {
+    if (path.startsWith('/agent/session-status')) await status.promise;
+    return request(path, ...args);
+  };
+  const view = h.render(original, '');
+  const sending = view.sendQueuedMessage(original.id);
+  assert.equal(view.editQueuedMessage('second'), true);
+  assert.deepEqual(h.drafts, ['later']);
+  assert.deepEqual(h.shared.queuedRef.current[original.id].map(item => item.id), ['first']);
+  status.resolve();
+  await until(() => h.streams.length === 1);
+  assert.equal(h.streams[0].body.message, 'original');
+  h.streams[0].finish();
+  await sending;
+  assert.equal(h.streams.length, 1);
+  assert.deepEqual(h.shared.queuedRef.current[original.id], []);
+});
+
+test('editing restores text, images and documents; resubmitting queues them together once', () => {
+  const h = harness();
+  h.shared.sessionsRef.current = [original];
+  const attached = { files: ['photo.png', 'report.pdf'], projects: ['A'], skills: ['review'], attachments: [
+    { name: 'photo.png', image: 'data:image/png;base64,abc', size: 123 },
+    { name: 'report.pdf', text: 'document content', size: 456 },
+  ] };
+  h.shared.queuedRef.current = queue.enqueue({}, original.id, { id: 'first', text: 'original\ntext', context: attached });
+  const view = h.render(original, '');
+  assert.equal(view.editQueuedMessage('first'), true);
+  assert.deepEqual(h.shared.queuedRef.current[original.id], []);
+  assert.equal(h.drafts.at(-1), 'original\ntext');
+  assert.deepEqual(h.contexts.at(-1), attached);
+  assert.equal(view.editQueuedMessage('first'), false, 'stale clicks cannot restore the same entry twice');
+  h.shared.composerContext = h.contexts.at(-1);
+  assert.equal(h.render(original, 'revised text').queueMessage(), true);
+  assert.equal(h.shared.queuedRef.current[original.id].length, 1);
+  assert.equal(h.shared.queuedRef.current[original.id][0].text, 'revised text');
+  assert.deepEqual(h.shared.queuedRef.current[original.id][0].context, attached);
+});
+
+for (const mutation of ['withdraw', 'edit', 'reorder']) {
+  test(`${mutation} during large-input preparation never sends the stale queued content`, async () => {
+    const h = harness();
+    h.shared.sessionsRef.current = [original];
+    h.enqueue('first', 'x'.repeat(10001)); h.enqueue('second', 'later');
+    const paste = deferred();
+    let preparing = false;
+    const request = h.shared.api.request;
+    h.shared.api.request = async (path, ...args) => {
+      if (path === '/files/paste') { preparing = true; await paste.promise; return { path: '.loopra/paste/input.txt', chars: 10001 }; }
+      return request(path, ...args);
+    };
+    const view = h.render(original);
+    const sending = view.sendQueuedMessage(original.id);
+    await until(() => preparing);
+    if (mutation === 'withdraw') view.removeQueuedMessage('first');
+    if (mutation === 'edit') view.editQueuedMessage('first');
+    if (mutation === 'reorder') view.moveQueuedMessage('second', 'first');
+    paste.resolve();
+    await sending;
+    await until(() => h.streams.length === 1);
+    assert.equal(h.streams[0].body.message, 'later');
+    h.streams[0].finish();
+    if (mutation === 'reorder') {
+      await until(() => h.streams.length === 2);
+      assert.equal(h.streams[1].body.message, '');
+      h.streams[1].finish();
+    }
+    await until(() => !h.shared.runs.hasActive(h.shared.server));
+    assert.deepEqual(h.shared.queuedRef.current[original.id], []);
+  });
+}

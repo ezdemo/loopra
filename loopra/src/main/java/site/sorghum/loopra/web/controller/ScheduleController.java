@@ -15,6 +15,7 @@ import org.noear.solon.annotation.Path;
 import org.noear.solon.annotation.Post;
 import org.noear.solon.annotation.Put;
 import site.sorghum.loopra.bin.schedule.ScheduledTask;
+import site.sorghum.loopra.bin.schedule.CronParser;
 import site.sorghum.loopra.web.model.ApiResponse;
 import site.sorghum.loopra.web.service.AgentService;
 import site.sorghum.loopra.web.service.ScheduleManager;
@@ -77,12 +78,10 @@ public class ScheduleController {
         if (task.getMessage() == null || task.getMessage().isBlank()) {
             return ApiResponse.fail("消息内容不能为空");
         }
-        if (task.getSessionName() == null || task.getSessionName().isBlank()) {
-            return ApiResponse.fail("目标会话名称不能为空");
-        }
-        if (task.getCronExpr() == null && task.getIntervalSec() == null) {
-            return ApiResponse.fail("cronExpr 和 intervalSec 必须至少填一个");
-        }
+        String sessionError = validateSession(task, true);
+        if (sessionError != null) return ApiResponse.fail(sessionError);
+        String scheduleError = validateSchedule(task, true);
+        if (scheduleError != null) return ApiResponse.fail(scheduleError);
 
         ScheduledTask created = scheduleManager.create(workspaceHash, task);
         log.info("[schedule] 创建定时任务: {} (项目={})", created.getName(), workspaceHash);
@@ -100,6 +99,10 @@ public class ScheduleController {
         if (update == null) {
             return ApiResponse.fail("请求体不能为空");
         }
+        String sessionError = validateSession(update, false);
+        if (sessionError != null) return ApiResponse.fail(sessionError);
+        String scheduleError = validateSchedule(update, false);
+        if (scheduleError != null) return ApiResponse.fail(scheduleError);
         ScheduledTask updated = scheduleManager.update(workspaceHash, id, update);
         if (updated == null) {
             return ApiResponse.fail("定时任务不存在: " + id);
@@ -135,9 +138,6 @@ public class ScheduleController {
         if (result == null) {
             return ApiResponse.fail("定时任务不存在: " + id);
         }
-        if (result.isEmpty()) {
-            return ApiResponse.fail("项目不存在: " + workspaceHash);
-        }
         log.info("[schedule] 手动触发执行定时任务: {} (项目={})", id, workspaceHash);
         return ApiResponse.ok(result);
     }
@@ -152,5 +152,27 @@ public class ScheduleController {
         scheduleManager.delete(workspaceHash, id);
         log.info("[schedule] 删除定时任务: {} (项目={})", id, workspaceHash);
         return ApiResponse.ok("已删除");
+    }
+
+    private String validateSchedule(ScheduledTask task, boolean required) {
+        String cron = task.getCronExpr();
+        Long interval = task.getIntervalSec();
+        if (cron != null && !cron.isBlank()) {
+            return CronParser.nextTime(cron, System.currentTimeMillis()) > 0 ? null : "Cron 表达式无效";
+        }
+        if (interval != null) return interval > 0 ? null : "执行间隔必须大于 0 秒";
+        return required || cron != null ? "请选择有效的执行时间" : null;
+    }
+
+    private String validateSession(ScheduledTask task, boolean required) {
+        String mode = task.getSessionMode();
+        if (mode != null && !mode.isBlank() && !"independent".equals(mode) && !"existing".equals(mode)) {
+            return "无效的会话方式";
+        }
+        if ("independent".equals(mode)) return null;
+        if (required || "existing".equals(mode) || task.getSessionName() != null) {
+            if (task.getSessionName() == null || task.getSessionName().isBlank()) return "目标会话名称不能为空";
+        }
+        return null;
     }
 }

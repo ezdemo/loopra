@@ -2083,7 +2083,7 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
 
     // ==================== 定时任务与需求执行 ====================
 
-    /** 在指定会话执行定时任务，失败说明作为任务结果返回。 */
+    /** 在指定会话执行定时任务，失败时交由调度器记录。 */
     public String executeScheduledTask(String workspacePath, String sessionName, String message) {
         String sessionKey = generateSessionKey(workspacePath, sessionName);
         try (SessionTurn turn = openTurn(sessionKey)) {
@@ -2093,7 +2093,7 @@ public class AgentService implements ProjectRuntimeAccess, AutoCloseable {
             return agent.chat(UserMessage.of(message));
         } catch (Exception e) {
             log.warn("[schedule] 定时任务执行异常: session={}", sessionName, e);
-            return "错误：" + e.getMessage();
+            throw new ServiceException("定时任务执行失败：" + e.getMessage());
         }
     }
 

@@ -18,7 +18,7 @@ function environment() {
   const env = {
     sessions: state.sessions, narrow: false, generatingId: null, server: 'http://loopra.test', runs: new SessionRuns(), sessionRunKey,
     historyRequest: { current: undefined }, userScrolledAway: { current: true }, lastScrollTop: { current: 50 }, emptyContext: {},
-    selectMainTab() {}, setWorkspace() {}, setMenu() {}, setDraft() {}, setComposerContext() {}, setShowScrollBtn() {}, setLiveSpeed() {}, setSkillsOpen() {},
+    selectMainTab() {}, setWorkspace() {}, setMenu() {}, setDraft() {}, setComposerContext() {}, setShowScrollBtn() {}, setLiveSpeed() {}, setSkillsOpen() {}, setSchedulesOpen() {},
     setActiveId: value => { state.active = value; },
     setHistoryState: value => { state.history = value; },
     setSessions: update => { state.sessions = update(state.sessions); },

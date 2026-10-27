@@ -145,6 +145,7 @@ function sendEnvironment() {
     setDraft: value => { state.draft = value; env.composerViewRef.current.draft = value; },
     setComposerContext: value => { state.context = value; },
     emptyContext: { projects: [], skills: [], files: [], attachments: [] },
+    nextQueued: (queue, key) => queue[key]?.[0],
     removeQueued: (queue, key, id) => ({ ...queue, [key]: (queue[key] || []).filter(item => item.id !== id) }),
     replaceQueue: value => { env.queuedRef.current = value; },
     api: { async request() { return []; }, async stream() { throw conflict(); } },

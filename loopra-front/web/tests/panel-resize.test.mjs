@@ -20,7 +20,7 @@ test('skills open in the main area from the sidebar instead of settings', async 
   assert.match(sidebar, /onClick=\{props.onSkills\}/);
   assert.ok(sidebar.indexOf('onClick={props.onSearch}') < sidebar.indexOf('onClick={props.onSkills}'));
   assert.match(app, /skillsOpen && <SkillsPage/);
-  assert.match(app, /className="app-chat-workspace" hidden=\{skillsOpen\}/);
+  assert.match(app, /className="app-chat-workspace" hidden=\{skillsOpen \|\| schedulesOpen\}/);
 });
 
 test('the sidebar keeps refresh and fold-all but drops locate and sort controls', () => {
