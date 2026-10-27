@@ -6,7 +6,7 @@ import ts from 'typescript';
 // Legacy Chat.vue queued messages: per-session FIFO with promote/remove.
 const source = await readFile(new URL('../src/message-queue.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { enqueue, nextQueued, promoteQueued, queueFor, removeQueued } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { enqueue, moveQueued, nextQueued, promoteQueued, queueFor, removeQueued, restoreQueuedDraft } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const message = (id, text = id) => ({ id, text, context: { files: [], projects: [], skills: [] } });
 
@@ -49,4 +49,46 @@ test('draining the queue returns messages in order', () => {
   }
   assert.deepEqual(sent, ['one', 'two']);
   assert.equal(nextQueued(queue, 'a/1'), undefined);
+});
+
+test('restoring a queued draft retains full text, images, documents and referenced context', () => {
+  const attached = { ...message('second', 'original\nprompt'), context: {
+    files: ['report.pdf', 'src/main.ts'], projects: ['project'], skills: ['review'],
+    attachments: [{ name: 'report.pdf', text: 'full report', size: 123 }, { name: 'image.png', image: 'data:image/png;base64,abc', size: 456 }],
+  } };
+  const restored = restoreQueuedDraft(attached, '', { files: [], projects: [], skills: [] });
+  assert.equal(restored.draft, attached.text);
+  assert.deepEqual(restored.context.attachments, attached.context.attachments);
+  assert.deepEqual(restored.context.projects, ['project']);
+  assert.deepEqual(restored.context.skills, ['review']);
+  assert.deepEqual(restored.context.files, ['report.pdf', 'src/main.ts', 'image.png']);
+  assert.deepEqual(attached.context.files, ['report.pdf', 'src/main.ts']);
+});
+
+test('restoring preserves an existing draft and keeps distinct same-name images', () => {
+  const queued = { ...message('image', ''), context: { files: ['image.png'], projects: ['one'], skills: ['review'], attachments: [{ name: 'image.png', image: 'queued image' }] } };
+  const current = { files: ['image.png', 'notes.md'], projects: ['two'], skills: ['review'], attachments: [{ name: 'image.png', image: 'draft image' }] };
+  const restored = restoreQueuedDraft(queued, 'unsent text', current);
+  assert.equal(restored.draft, 'unsent text');
+  assert.deepEqual(restored.context.files, ['image.png', 'notes.md', 'image (2).png']);
+  assert.deepEqual(restored.context.attachments.map(file => file.image), ['queued image', 'draft image']);
+  assert.deepEqual(restored.context.projects, ['one', 'two']);
+  assert.deepEqual(restored.context.skills, ['review']);
+  assert.equal(current.attachments[0].name, 'image.png');
+  assert.equal(restoreQueuedDraft({ ...queued, text: 'queued text' }, 'draft text', current).draft, 'queued text\n\ndraft text');
+  const duplicate = restoreQueuedDraft(queued, '', queued.context);
+  assert.equal(duplicate.context.attachments.length, 1);
+});
+
+test('moving messages inserts in both directions and leaves other sessions untouched', () => {
+  const queue = { a: [message('one'), message('two'), message('three'), message('four')], b: [message('other')] };
+  const down = moveQueued(queue, 'a', 'one', 'three');
+  assert.deepEqual(down.a.map(item => item.id), ['two', 'three', 'one', 'four']);
+  const up = moveQueued(down, 'a', 'four', 'two');
+  assert.deepEqual(up.a.map(item => item.id), ['four', 'two', 'three', 'one']);
+  assert.equal(up.b, queue.b);
+  assert.deepEqual(queue.a.map(item => item.id), ['one', 'two', 'three', 'four']);
+  assert.equal(moveQueued(queue, 'a', 'one', 'one'), queue);
+  assert.equal(moveQueued(queue, 'a', 'missing', 'one'), queue);
+  assert.equal(moveQueued(queue, 'a', 'one', 'missing'), queue);
 });

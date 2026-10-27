@@ -216,7 +216,7 @@ test('new conversation discards an earlier prepared draft after session settings
     lastScrollTop: { current: 10 }, setTimeout: () => {}, setAgentDraftRevision: () => {},
   });
   for (const name of ['selectMainTab', 'setActiveId', 'setWorkspace', 'setChanges', 'setDraft',
-    'setComposerContext', 'setLiveSpeed', 'setMenu', 'setShowScrollBtn', 'setSkillsOpen', 'setPendingPlan']) env[name] = () => {};
+    'setComposerContext', 'setLiveSpeed', 'setMenu', 'setShowScrollBtn', 'setSkillsOpen', 'setSchedulesOpen', 'setPendingPlan']) env[name] = () => {};
   callback('newSession', env)();
   assert.equal(env.preparedNewSession.current, null);
   assert.equal(env.newAgentConfigRef.current, null);

@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { Button } from '@nextui-org/react';
-import { CalendarClock, Check, ChevronDown, FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, X, type LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, X, type LucideIcon } from 'lucide-react';
 import { IconButton } from './ui';
 import { Popup } from './Motion';
 import type { LoopraClient } from '../backend';
@@ -10,7 +10,6 @@ import { DEFAULT_PANEL_WIDTH, WIDE_PANEL_WIDTH, resizePanelWidth } from '../pane
 import FilesPanel from './FilesPanel';
 import GitTools from './GitTools';
 import type { WorkspaceFile } from '../workspace-tabs';
-import SchedulePanel from './SchedulePanel';
 import ProjectCapabilities from './ProjectCapabilities';
 import EnvironmentPanel, { EnvironmentBar, useEnvironmentController } from './EnvironmentPanel';
 import { bashSessionState, bashSessionSummary, formatBashUptime } from '../bash-sessions';
@@ -19,7 +18,7 @@ import { watchWorkspaceChanges } from '../workspace-events';
 
 type TabDef = [id: string, label: string, icon: LucideIcon];
 const PRIMARY_TABS: TabDef[] = [['files', '文件', FolderTree], ['git', 'Git', GitBranch]];
-const MORE_TABS: TabDef[] = [['schedules', '定时', CalendarClock], ['capabilities', '能力', Puzzle]];
+const MORE_TABS: TabDef[] = [['capabilities', '能力', Puzzle]];
 
 type PanelProps = { api: LoopraClient; workspaceHash: string; onClose: () => void };
 type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
@@ -60,7 +59,7 @@ export default function ChangesPanel({ open, api, workspaceHash, onClose, notify
       </div>
       <div className="panel-actions"><IconButton label="刷新工作区面板" onClick={refresh}><RefreshCw size={15} /></IconButton><IconButton label="展开工作区面板" onClick={() => setPanelWidth(wide ? DEFAULT_PANEL_WIDTH : WIDE_PANEL_WIDTH)}><Maximize size={15} /></IconButton><IconButton label="收起工作区面板" onClick={onClose}><X size={16} /></IconButton></div>
     </header>
-    <div className="workbench-body" data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitWorkspace key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} onOpenFile={onOpenFile} /> : tab === 'schedules' ? <SchedulePanel key={workspaceHash} {...{ api, workspaceHash, sessionName, sessions, revision }} onRefresh={refresh} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, revision, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <p className="panel-empty">未知的工作区工具。</p>}</div></aside>;
+    <div className="workbench-body" data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitWorkspace key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} onOpenFile={onOpenFile} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, revision, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <p className="panel-empty">未知的工作区工具。</p>}</div></aside>;
 }
 // Git and the session environment share one tab: the environment strip states
 // which checkout is active, and isolation mode swaps the main-project Git tools

@@ -81,7 +81,7 @@ const Composer = (await import(await sourceUrl('components/Composer.tsx', {
     export const LARGE_PASTE_THRESHOLD_CHARS=10000, MAX_DOC_FILE_SIZE=1000000, MAX_IMAGE_COUNT=10, MAX_TEXT_FILE_SIZE=1000000, MAX_UPLOAD_FILES=10;
     export const attachmentLimitReached=()=>false, fileKind=()=>null, extractDocumentText=()=>'', formatFileSize=()=>'';
   `),
-  './PetCompanion': placeholder, './ModelReasoningSelector': selector, './AgentConfigControls': placeholder, './AgentMcpControls': mcpControls,
+  './PetCompanion': placeholder, './ModelReasoningSelector': selector, './AgentConfigControls': placeholder, './AgentMcpControls': mcpControls, './ComposerQueue': placeholder,
   '../pets': dataUrl('export const petScale=()=>1;'),
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
 }))).default;

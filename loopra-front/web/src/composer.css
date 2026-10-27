@@ -87,16 +87,39 @@
 .composer-context-chips .context-chip { background: var(--soft); color: var(--secondary); border: 1px solid var(--line); height: 1.625rem; max-width: 14.375rem; }
 .composer-context-chips [data-slot="content"] { text-overflow: ellipsis; overflow: hidden; }
 .composer-context-chips .chip-skills { color: #8b70c7; }
-/* 排队消息（对齐 ChatInput.vue 的 composer-queue） */
-.composer-queue { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); padding: 0.375rem 0.5rem 0.4375rem; margin-bottom: 0.4375rem; }
-.composer-queue-summary { display: flex; align-items: center; gap: 0.3125rem; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
-.composer-queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1875rem; }
-.composer-queue-list > li { display: flex; align-items: center; gap: 0.375rem; font-size: 0.8125rem; }
-.composer-queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary); }
-.composer-queue-guide { flex-shrink: 0; font-size: 0.75rem; padding: 0.0625rem 0.4375rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--blue); }
-.composer-queue-guide:hover { border-color: var(--blue); }
-.composer-queue-remove { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 1.125rem; height: 1.125rem; border-radius: 50%; color: var(--muted); }
-.composer-queue-remove:hover { color: var(--red, var(--danger)); background: var(--line); }
+/* The queue tucks behind the composer, with one quiet row per pending message. */
+.composer-queue { position: relative; min-width: 0; width: calc(100% - 2rem); margin: 0 auto -1rem; padding: .125rem .375rem 1rem; border: 1px solid var(--line); border-bottom: 0; border-radius: 1.125rem 1.125rem 0 0; background: var(--surface); container-type: inline-size; }
+.composer-queue-list { list-style: none; max-height: min(20rem, 36dvh); overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 0; }
+.composer-queue-list > li { min-width: 0; border-radius: var(--radius-md); font-size: .8125rem; }
+.composer-queue-list > li:hover { background: var(--surface); }
+.composer-queue-list > li.dragging { opacity: .45; }
+.composer-queue-list > li.drag-over { background: var(--selected); }
+.composer-queue-row { display: flex; align-items: center; gap: .375rem; min-width: 0; min-height: 2.5625rem; padding: .1875rem .25rem; }
+.composer-queue-item-icon { flex-shrink: 0; width: 1rem; color: var(--muted); }
+.composer-queue-preview { display: flex; flex: 1; align-items: center; gap: .375rem; min-width: 0; padding: .25rem; text-align: left; }
+.composer-queue-text { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.composer-queue-attachments { display: inline-flex; flex-shrink: 0; align-items: center; gap: .125rem; color: var(--muted); font-size: .6875rem; }
+.composer-queue-actions { display: flex; flex-shrink: 0; align-items: center; gap: .25rem; }
+.composer-queue-action { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 1.875rem; height: 1.875rem; border-radius: .625rem; color: var(--muted); }
+.composer-queue-action:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+.composer-queue button:disabled { opacity: .35; cursor: default; }
+.composer-queue button:focus-visible, .composer-queue-menu button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.composer-queue-guide { display: inline-flex; flex-shrink: 0; align-items: center; gap: .375rem; min-height: 1.875rem; padding: .125rem .5rem; border-radius: .625rem; color: var(--muted); font-size: .8125rem; }
+.composer-queue-guide:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.composer-queue-more[aria-expanded="true"] { background: var(--soft); color: var(--text); }
+.composer-queue-remove:hover:not(:disabled) { color: var(--danger); }
+.composer-queue-menu { position: fixed; z-index: 150; display: flex; flex-direction: column; width: 11.5rem; padding: .3125rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); color: var(--text); box-shadow: var(--shadow-pop); }
+.composer-queue-menu[data-above="true"] { transform: translateY(-100%); }
+.composer-queue-menu > button { display: flex; align-items: center; gap: .625rem; width: 100%; min-height: 2.25rem; padding: .375rem .625rem; text-align: left; border-radius: .6875rem; font-size: .8125rem; }
+.composer-queue-menu > button:hover:not(:disabled), .composer-queue-menu > button:focus-visible { background: var(--hover); }
+.composer-queue-menu > button:disabled { opacity: .35; cursor: default; }
+.composer-queue-menu > button > svg { color: var(--secondary); }
+@container (max-width: 30rem) {
+  .composer-queue-row { gap: .125rem; }
+  .composer-queue-actions { gap: 0; }
+  .composer-queue-action { width: 2rem; height: 2rem; }
+  .composer-queue-guide { gap: .25rem; padding-inline: .25rem; }
+}
 .rich-composer .send-button.queueing { opacity: 0.75; }
 .composer-run-status { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.375rem; }
 .composer-run-status i { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite; }

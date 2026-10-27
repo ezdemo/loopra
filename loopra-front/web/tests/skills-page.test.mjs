@@ -34,14 +34,14 @@ const { default: SkillsPage } = await import(await sourceUrl('SkillsPage', { '@n
 const button = (element, text) => [...element.querySelectorAll('button')].find(item => item.textContent.trim() === text);
 async function click(element) { assert.ok(element); await act(async () => element.click()); }
 async function input(element, value) { await act(async () => { Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(element, value); element.dispatchEvent(new dom.window.Event('input', { bubbles: true })); }); }
-async function mount({ failInstall = false, marketUrl = 'https://skillhub.cn/skills/author/code-review', extraSkills = [] } = {}) {
+async function mount({ failInstall = false, marketUrl = 'https://skillhub.cn/skills/author/code-review', extraSkills = [], marketSkills } = {}) {
   const calls = []; let refreshes = 0, backs = 0;
   let installed = [{ name: 'self-skill', description: '内置技能完整说明', scope: '@builtin-skills/self-skill' }, { name: 'ego-browser', description: '浏览器自动化' }, ...extraSkills];
   const api = { request: async (path, method = 'GET') => {
     calls.push({ path, method }); const url = new URL(path, 'http://test.invalid');
     if (url.pathname === '/agent/skills') return installed;
     if (url.pathname === '/skill-market/markets') return [{ name: 'community' }];
-    if (url.pathname === '/skill-market/proxy') return [{ slug: 'author/code-review', displayName: '代码审查', summary: '检查代码质量', url: marketUrl }];
+    if (url.pathname === '/skill-market/proxy') return marketSkills ?? [{ slug: 'author/code-review', displayName: '代码审查', summary: '检查代码质量', url: marketUrl }];
     if (url.pathname === '/skill-market/detail') return { slug: 'author/code-review', installSlug: 'code-review', displayName: '代码审查', description: '完整技能文档' };
     if (url.pathname === '/skill-market/install') { if (failInstall) throw new Error('安装失败，请重试'); installed = [...installed, { name: url.searchParams.get('slug'), description: '新技能' }]; return 'ok'; }
     if (url.pathname === '/skill-market/uninstall') { installed = installed.filter(skill => url.searchParams.has('scope') ? skill.scope !== url.searchParams.get('scope') : (skill.directoryName || skill.name) !== url.searchParams.get('slug')); return null; }
@@ -146,5 +146,22 @@ test('skill details hide invalid source links', async () => {
     await click(button(view.container, '技能市场'));
     await click(button(view.container.querySelector('.skills-hub-card'), '查看详情'));
     assert.equal(view.container.querySelector('[role="dialog"] a'), null);
+  } finally { await view.close(); }
+});
+
+test('repeated tab switches remove duplicate market cards from the installed list', async () => {
+  const browser = { slug: 'agent-browser', displayName: 'Agent Browser', summary: '市场浏览器技能' };
+  const writer = { slug: 'writer', displayName: '李白.Skill', summary: '市场写作技能' };
+  const view = await mount({ marketSkills: [browser, writer, browser, writer, browser, writer] });
+  try {
+    for (let round = 0; round < 3; round++) {
+      await click(button(view.container, '技能市场'));
+      await click(button(view.container, '已安装2'));
+      const cards = [...view.container.querySelectorAll('.skills-hub-card')];
+      assert.deepEqual(cards.map(card => card.querySelector('h2').textContent), ['self-skill', 'ego-browser']);
+      assert.ok(cards.every(card => !button(card, '安装')));
+    }
+    await click(button(view.container, '技能市场'));
+    assert.deepEqual([...view.container.querySelectorAll('.skills-hub-card h2')].map(item => item.textContent), ['Agent Browser', '李白.Skill']);
   } finally { await view.close(); }
 });

@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 定时任务数据模型。
@@ -30,6 +31,9 @@ public class ScheduledTask implements Serializable {
 
     /** 目标会话名称 */
     private volatile String sessionName;
+
+    /** "independent" creates a new session per run; missing means legacy existing-session mode. */
+    private volatile String sessionMode;
 
     /**
      * Cron 表达式（如 "0 0 9 * * ?" 表示每天 9:00）。
@@ -64,6 +68,9 @@ public class ScheduledTask implements Serializable {
     /** 上次错误信息 */
     private volatile String lastError;
 
+    /** Completed executions; older tasks may not have history. */
+    private volatile List<ScheduleRun> runs;
+
     /** 创建时间 */
     private volatile long createdAt;
 
@@ -78,7 +85,10 @@ public class ScheduledTask implements Serializable {
     public long computeNextRunAt() {
         long now = System.currentTimeMillis();
         long base = lastRunAt > 0 ? lastRunAt : now;
+        return computeNextRunAt(base);
+    }
 
+    public long computeNextRunAt(long base) {
         if (cronExpr != null && !cronExpr.isBlank()) {
             // 使用简化的 cron 解析
             return CronParser.nextTime(cronExpr, base);

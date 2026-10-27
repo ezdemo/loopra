@@ -119,6 +119,7 @@ public class CronParser {
         if (stepMatcher.matches()) {
             int start = stepMatcher.group(1).equals("*") ? min : Integer.parseInt(stepMatcher.group(1));
             int step = Integer.parseInt(stepMatcher.group(2));
+            if (step <= 0) throw new IllegalArgumentException("Cron step must be positive");
             for (int i = start; i <= max; i += step) {
                 result.add(i);
             }
@@ -165,6 +166,7 @@ public class CronParser {
                 String[] stepParts = part.split("/");
                 int start = stepParts[0].equals("*") ? 0 : Integer.parseInt(stepParts[0]);
                 int step = Integer.parseInt(stepParts[1]);
+                if (step <= 0) throw new IllegalArgumentException("Cron step must be positive");
                 for (int i = start; i <= 7; i += step) {
                     result.add(cronDowToIso(i));
                 }

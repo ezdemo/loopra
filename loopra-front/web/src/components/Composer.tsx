@@ -16,6 +16,7 @@ import AgentConfigControls from './AgentConfigControls';
 import AgentMcpControls from './AgentMcpControls';
 import { agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
 import { useMenuPlacement } from '../layout/menu-placement';
+import ComposerQueue from './ComposerQueue';
 
 type Props = {
   loading?: boolean;
@@ -34,6 +35,8 @@ type Props = {
   defaultModel: string; onDefaultModel: (id: string) => void; history: string[];
   busy: boolean; generating: boolean; onSend: () => void; onStop: () => void; onContinue: () => void;
   queue: QueuedMessage[]; onRemoveQueued: (id: string) => void; onGuideQueued: (id: string) => void;
+  onEditQueued: (id: string) => boolean;
+  onMoveQueued: (id: string, targetId: string) => void;
   remoteRunning: boolean; onStopRemote: () => void;
   liveSpeed?: LiveSpeed;
   onNew: () => void; onTerminal: () => void; onManage: () => void; onOpen: () => void; notify: (text: string) => void;
@@ -313,7 +316,10 @@ export default function Composer(props: Props) {
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
   const hasContext = contextImages.length > 0 || context.projects.length > 0 || context.skills.length > 0 || contextFiles.length > 0;
 
-  return <div ref={root} data-popover data-placement={menuPlacement.side} data-suggestions-placement={suggestionPlacement.side} style={menuPlacementStyle} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
+  return <>
+    <ComposerQueue key={`${props.workspaceHash}/${props.sessionName || ''}`} queue={props.queue} onRemove={props.onRemoveQueued} onGuide={props.onGuideQueued}
+      onEdit={id => { if (props.onEditQueued(id)) { close(); focusInput(); } }} onMove={props.onMoveQueued} />
+    <div ref={root} data-popover data-placement={menuPlacement.side} data-suggestions-placement={suggestionPlacement.side} style={menuPlacementStyle} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
     onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
@@ -337,10 +343,6 @@ export default function Composer(props: Props) {
       {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>清除</button>}
     </div>
     {props.remoteRunning && <div className="composer-run-status" role="status"><i /><span>该会话正在后台执行，输入的内容会加入队列</span></div>}
-    {props.queue.length > 0 && <section className="composer-queue" aria-label={`排队消息 ${props.queue.length} 条`}>
-      <div className="composer-queue-summary"><ListChecks size="0.875rem" /><span>排队 {props.queue.length} 条 · 当前回复结束后自动发送</span></div>
-      <ul className="composer-queue-list">{props.queue.map(item => <li key={item.id}><span className="composer-queue-text" title={item.text}>{item.text || '（仅附件）'}</span><button type="button" className="composer-queue-guide" title="停止当前生成，优先发送这条消息" onClick={() => props.onGuideQueued(item.id)}>引导</button><button type="button" className="composer-queue-remove" title="移出队列" aria-label="移出队列" onClick={() => props.onRemoveQueued(item.id)}><X size="0.75rem" /></button></li>)}</ul>
-    </section>}
     <textarea ref={inputRef} aria-label="输入消息" placeholder={chatMode ? (props.language === 'English' ? 'Message… / commands' : '输入消息，/ 调用指令…') : props.language === 'English' ? 'Message… / commands, @ context' : '输入消息，/ 调用指令，@ 引用文件…'} value={draft}
       onChange={event => { onDraft(event.target.value); setSuggestionIndex(0); setDismissedDraft(null); }}
       onPaste={event => { void handlePaste(event); }}
@@ -486,5 +488,5 @@ export default function Composer(props: Props) {
       </section>
     </Popup>
     {dragging && <div className="composer-drop-hint"><Paperclip size="1.5rem" /><span>松开以添加附件</span></div>}
-  </div>;
+  </div></>;
 }
