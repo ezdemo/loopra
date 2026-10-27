@@ -11,7 +11,8 @@ export const subAgentTabKey = (subSessionId: string) => `subagent:${subSessionId
 export function openWorkspaceFile(state: WorkspaceTabs, file: WorkspaceFile): WorkspaceTabs {
   const path = file.path.replaceAll('\\', '/').replace(/^\.\//, '');
   const existing = state.files.find(item => item.path === path);
-  const next = { ...file, path };
+  // File tree, Git and historical change links all open the same live preview.
+  const next: WorkspaceFile = { path, mode: 'content', ...(file.environment ? { environment: file.environment } : {}) };
   return { ...state, files: existing ? state.files.map(item => item.path === path ? next : item) : [...state.files, next], active: path };
 }
 

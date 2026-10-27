@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { codeFontSize, highlightThemeName, initHighlight, isDarkTheme, useHighlightRevision } from '../highlight';
+import { parseDirtyDiff } from '../dirty-diff';
+import { attachDirtyDiff } from '../editor-dirty-diff';
 
 const CODE_FONT_FAMILY = '"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", Consolas, "Microsoft YaHei", monospace';
 
@@ -13,19 +15,18 @@ function rootFontSize(): number {
  * Monaco chunk and the file itself is asynchronous, so the pane stays empty
  * until the editor exists; the caller keeps showing its own status text.
  */
-export default function CodeViewer({ path, content, active, onSelect }: {
-  path: string; content: string; active: boolean; onSelect: (text: string) => void;
+export default function CodeViewer({ path, content, gitDiff, active }: {
+  path: string; content: string; gitDiff?: string; active: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const dirtyDiff = useRef<Monaco.IDisposable>();
   const [ready, setReady] = useState(false);
-  // Selection lives in Monaco's own model, so `window.getSelection()` cannot see it.
-  const report = useRef(onSelect);
-  report.current = onSelect;
   const revision = useHighlightRevision();
 
   useEffect(() => {
     let disposed = false;
+    setReady(false);
     const owned: Monaco.IDisposable[] = [];
     void (async () => {
       await initHighlight();
@@ -61,17 +62,14 @@ export default function CodeViewer({ path, content, active, onSelect }: {
       });
       editor.current = instance;
       owned.push(instance);
-      owned.push(instance.onDidChangeCursorSelection(() => {
-        const selection = instance.getSelection();
-        const text = instance.getModel();
-        report.current(text && selection ? text.getValueInRange(selection).trim() : '');
-      }));
       setReady(true);
     })();
     return () => {
       disposed = true;
+      dirtyDiff.current?.dispose();
+      dirtyDiff.current = undefined;
       editor.current = null;
-      for (const item of owned) item.dispose();
+      for (const item of owned.reverse()) item.dispose();
     };
   }, [path]);
 
@@ -92,6 +90,24 @@ export default function CodeViewer({ path, content, active, onSelect }: {
   useEffect(() => {
     editor.current?.updateOptions({ fontSize: codeFontSize(rootFontSize()) });
   }, [revision]);
+
+  useEffect(() => {
+    let disposed = false;
+    let decorations: Monaco.IDisposable | undefined;
+    const instance = editor.current;
+    if (!ready || !instance || !active) return;
+    void import('../monaco').then(({ default: monaco }) => {
+      if (!disposed) {
+        decorations = attachDirtyDiff(monaco, instance, parseDirtyDiff(gitDiff));
+        dirtyDiff.current = decorations;
+      }
+    });
+    return () => {
+      disposed = true;
+      decorations?.dispose();
+      if (dirtyDiff.current === decorations) dirtyDiff.current = undefined;
+    };
+  }, [ready, active, content, gitDiff, revision]);
 
   return <div className="workspace-code-editor" ref={host} />;
 }

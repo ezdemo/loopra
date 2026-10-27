@@ -105,7 +105,7 @@ test('the shell first row is the drag region with no-drag controls', () => {
   // The header's drag area is the empty stretch only: a drag region under the
   // fixed window controls would swallow their clicks (Electron behaviour).
   assert.match(header, /className="header-drag" aria-hidden="true"/);
-  assert.match(header, /<div className="header-leading">[\s\S]*className="breadcrumb"[\s\S]*className="header-drag" aria-hidden="true" \/>\s*<\/div>\s*<div className="header-actions">/);
+  assert.match(header, /<div className="header-leading">[\s\S]*className="breadcrumb"[\s\S]*className="header-drag" aria-hidden="true" \/>\s*<\/div>\s*<DesktopHeaderActions>/);
   assert.doesNotMatch(styles, /\.conversation-header \{[^}]*-webkit-app-region: drag;/);
   assert.match(styles, /\.desktop-app\.is-desktop-shell :is\(\.sidebar-brand, \.panel-header, \.header-leading\) :is\(button, input, textarea, select, a, \.popup\) \{ -webkit-app-region: no-drag; \}/);
   assert.match(styles, /\.desktop-window-controls \{[^}]*-webkit-app-region: no-drag;/);

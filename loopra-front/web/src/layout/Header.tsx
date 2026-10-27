@@ -4,6 +4,7 @@ import { Popup } from '../components/Motion';
 import type { Session } from '../lib';
 import type { DesktopUpdateState } from '../desktop-update';
 import { compareVersions } from '../update-scripts';
+import { DesktopHeaderActions } from '../components/DesktopTitleBar';
 
 export type HeaderProps = {
   sidebarOpen: boolean;
@@ -85,7 +86,7 @@ export default function Header(p: HeaderProps) {
     {/* Keep the flexible space inside the title's drag region, away from the right-hand controls. */}
     <div className="header-drag" aria-hidden="true" />
     </div>
-    <div className="header-actions">
+    <DesktopHeaderActions>
       {!version && !desktop?.currentVersion && backend.status === 'connecting' ? <div className="header-version-loading" role="status" aria-label="正在加载版本"><LoadingSkeleton className="skeleton-version" /></div> : <button type="button" className={`app-version${updateText ? ' has-update' : ''}`}
         title={updateTitle}
         aria-label={updateTitle}
@@ -107,12 +108,12 @@ export default function Header(p: HeaderProps) {
             <button role="menuitem" onClick={p.onCopyPath}><Copy size="1rem" />复制路径</button>
           </Popup>
         </div>
-        {!p.changesOpen && <div data-popover className="menu-anchor">
+        <div data-popover className="menu-anchor">
           <button className="branch-button" onClick={() => p.onToggleMenu('branch')}><GitBranch />{p.gitBranch}</button>
           <Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
-        </div>}
+        </div>
       </>}
       {!p.chatMode && <IconButton label={p.changesOpen ? '关闭改动面板' : '打开改动面板'} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>}
-    </div>
+    </DesktopHeaderActions>
   </header>;
 }

@@ -1211,6 +1211,11 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
    reserved above the app. */
 .desktop-titlebar { position: fixed; top: 0; right: 0; z-index: 80; display: flex; align-items: stretch; height: 2.25rem; background: var(--surface); user-select: none; -webkit-app-region: no-drag; }
 .desktop-titlebar.is-native-controls { display: none; }
+.desktop-app.is-desktop-shell:not(.is-native-controls) .conversation-header::after { content: ''; position: absolute; top: calc(2.25rem - 1px); left: 0; width: 100vw; border-bottom: 1px solid var(--line); pointer-events: none; }
+.desktop-titlebar:not(.is-native-controls)::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; border-bottom: 1px solid var(--line); pointer-events: none; }
+.desktop-header-actions { display: flex; align-items: center; padding: 0 .75rem; -webkit-app-region: no-drag; }
+.desktop-header-drag-gap { position: fixed; top: 0; height: 2.25rem; -webkit-app-region: drag; }
+.header-actions-placeholder { flex-shrink: 0; margin-left: auto; }
 .desktop-window-controls { display: flex; align-items: stretch; height: 100%; -webkit-app-region: no-drag; }
 .dw-btn { width: 2.75rem; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 0; color: var(--text); cursor: default; }
 .dw-btn:hover { background: var(--soft); }
@@ -1242,6 +1247,9 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 1
   /* The overlay panel floats over the main area but starts below this row, so
      the header row still reaches the window edge. */
   .desktop-app.is-desktop-shell:not(.is-native-controls) .conversation-header { padding-right: 8.25rem; }
+}
+@media (max-width: 760px) {
+  .desktop-header-actions .app-version { display: none; }
 }
 /* macOS draws the real traffic lights itself at a fixed device-pixel position
    (~64px wide, 12px tall), while `rem` follows the 界面缩放 setting on :root.

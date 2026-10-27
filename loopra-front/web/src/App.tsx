@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Check } from 'lucide-react';
 import { getSessionMessages, useLocalState } from './lib';
+import { useSessionPanel } from './useSessionPanel';
 import type { Provider, Session } from './lib';
 import Sidebar from './layout/Sidebar';
 import ProfileEditor from './components/LocalProfile';
@@ -55,7 +56,7 @@ import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
 import { desktopPlatform, isDesktopWindow, syncDesktopTheme, usesNativeWindowControls } from './desktop-shell';
 import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
-import { notifyWorkspaceChanged } from './workspace-events';
+import { notifyWorkspaceChanged, watchWorkspaceChanges } from './workspace-events';
 import WorkspaceTabs from './components/WorkspaceTabs';
 import { closeSubAgentTab, closeWorkspaceFile, emptyWorkspaceTabs, ensureSubAgentTab, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
 import { useSubAgentTabs } from './useSubAgentTabs';
@@ -84,10 +85,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [sidebar, setSidebar] = useState(() => window.innerWidth > 760);
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [collapsed, setCollapsed] = useState<string[]>([]);
-  const [changes, setChanges] = useState(false);
   // Both sidebars slide both ways, so they stay mounted until their exit slide ends.
   const sidebarMounted = usePresence(sidebar);
-  const changesMounted = usePresence(changes);
   const [sessionDetails, setSessionDetails] = useState(false);
   const [sessionDetailsTab, setSessionDetailsTab] = useState('events');
   const [deleteSession, setDeleteSession] = useState<Session>();
@@ -201,6 +200,9 @@ export default function App({ startupPending = false, initialServer }: { startup
   const composerHistory = useMemo(() => session ? getSessionMessages(session).map(message => message.text) : [], [session?.messages, session?.kind]);
   const isHome = !session;
   const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
+  const [panelOpen, setChanges, changesTab, setChangesTab] = useSessionPanel(server, session?.id, workspace);
+  const changes = panelOpen && !chatMode && !skillsOpen && !schedulesOpen;
+  const changesMounted = usePresence(changes);
   const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
   // External ACP engines own their own toolset, so pure chat stays on Native.
   const agentId = chatMode ? 'native' : requestedAgentId;
@@ -295,7 +297,6 @@ export default function App({ startupPending = false, initialServer }: { startup
   const workspaceName = currentWorkspace?.name || '选择工作区';
   useEffect(() => {
     if (!chatMode) return;
-    setChanges(false);
     setTerminal(false);
   }, [chatMode]);
   const isDark = preferences.theme === '深色' || (preferences.theme === '跟随系统' && systemDark);
@@ -540,7 +541,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     historyRequest.current?.abort();
     if (getModelCatalog(providers).some(model => model.id === defaultModel))
       setComposerOptions(value => ({ ...value, modelId: defaultModel }));
-    setActiveId(null); setWorkspace(nextWorkspace); setChanges(false); setDraft('');
+    setActiveId(null); setWorkspace(nextWorkspace); setDraft('');
     setComposerContext(emptyContext); setPendingPlan(undefined); setMenu(null);
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
@@ -1171,11 +1172,21 @@ export default function App({ startupPending = false, initialServer }: { startup
   }
 
   useEffect(() => {
-    setGitBranch('工作区'); if (!workspace || workspace === CHAT_WORKSPACE.hash) return;
+    setGitBranch('工作区');
+  }, [api, workspace]);
+  useEffect(() => {
+    if (backend.status !== 'connected' || !workspace || workspace === CHAT_WORKSPACE.hash) return;
     const controller = new AbortController();
-    void api.request<{ branch: string; initialized: boolean }>(`/git/status?workspaceHash=${encodeURIComponent(workspace)}`, 'GET', undefined, controller.signal).then(data => { if (!controller.signal.aborted) setGitBranch(data.initialized ? data.branch || 'HEAD' : '未初始化'); }).catch(() => {});
-    return () => controller.abort();
-  }, [api, workspace, changes]);
+    let request = 0;
+    const refresh = () => {
+      const current = ++request;
+      void api.request<{ branch: string; initialized: boolean }>(`/git/status?workspaceHash=${encodeURIComponent(workspace)}`, 'GET', undefined, controller.signal)
+        .then(data => { if (!controller.signal.aborted && current === request) setGitBranch(data.initialized ? data.branch || 'HEAD' : '未初始化'); }).catch(() => {});
+    };
+    refresh();
+    const unwatch = watchWorkspaceChanges(workspace, refresh);
+    return () => { controller.abort(); unwatch(); };
+  }, [api, workspace, backend.status]);
   useEffect(() => {
     const config = backend.config; if (!config) return;
     const modelId = `${config.modelChannelId}:${config.model}`;
@@ -1294,8 +1305,8 @@ export default function App({ startupPending = false, initialServer }: { startup
       {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={skillsOpen || schedulesOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!skillsOpen && !schedulesOpen && isHome} collapsed={collapsed} onCollapsed={setCollapsed}
         profile={profile}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
-        skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setSchedulesOpen(false); setChanges(false); setMenu(null); if (narrow) setSidebar(false); }}
-        schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setChanges(false); setMenu(null); if (narrow) setSidebar(false); }}
+        skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setSchedulesOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
+        schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
       <main className={`main-area ${changes && !chatMode ? 'has-changes' : ''}`}>
@@ -1304,7 +1315,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
-          gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChanges(true); setMenu(null); }}
+          gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChangesTab('git'); setChanges(true); setMenu(null); }}
           applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onCopyPath={copyPath}
           onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
           onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
@@ -1315,7 +1326,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         {skillsOpen && <SkillsPage api={api} onRefresh={() => backend.refresh()} onBack={() => setSkillsOpen(false)} />}
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
         <div className="app-chat-workspace" hidden={skillsOpen || schedulesOpen}>
-        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} onAdd={addFileContext} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
+        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
           {isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
@@ -1333,7 +1344,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         </div>
       </main>
       {!chatMode && changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {!chatMode && changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={workspace} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {!chatMode && changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={`${server}/${session?.id || `draft:${workspace}`}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}

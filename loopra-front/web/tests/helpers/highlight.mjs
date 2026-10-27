@@ -32,5 +32,5 @@ export const initHighlight = () => Promise.resolve();
  *  editor would show, so the preview assertions keep testing the wiring. */
 export const codeViewerStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
-export default ({ content }) => createElement('pre', { className: 'workspace-code-editor' }, content);
+export default ({ content, gitDiff }) => createElement('pre', { className: 'workspace-code-editor', 'data-git-diff': gitDiff }, content);
 `);

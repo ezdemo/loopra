@@ -82,6 +82,10 @@ const { default: Header } = await import(await sourceUrl('layout/Header.tsx', {
     export const LoadingSkeleton = () => createElement('span', { className: 'loading-skeleton' });
   `),
   '../components/Motion': dataUrl('export const Popup = () => null;'),
+  '../components/DesktopTitleBar': dataUrl(`
+    const { createElement } = await import(${JSON.stringify(reactUrl)});
+    export const DesktopHeaderActions = ({ children }) => createElement('div', { className: 'header-actions' }, children);
+  `),
 }));
 const { DesktopUpdateDialog, useDesktopUpdate } = await import(await sourceUrl('components/DesktopUpdate.tsx', {
   ...sharedDependencies,

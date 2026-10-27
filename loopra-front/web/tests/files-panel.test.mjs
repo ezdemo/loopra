@@ -75,8 +75,11 @@ const Panel = (await import(await sourceUrl('components/FilesPanel.tsx', {
   '../desktop-files': await sourceUrl('desktop-files.ts'),
   // 真实 git 装饰映射：文件树用它渲染 M/A/D/U 徽标。
   '../git-decorations': await sourceUrl('git-decorations.ts'),
-  // 真实文件类型图标映射：文件行按扩展名选图标与颜色。
-  '../file-icons': await sourceUrl('file-icons.ts'),
+  // 文件树与变更列表复用同一个文件类型图标组件。
+  './FileGlyph': await sourceUrl('components/FileGlyph.tsx', {
+    'lucide-react': iconsStub,
+    '../file-icons': await sourceUrl('file-icons.ts'),
+  }),
 }))).default;
 
 const roots = [

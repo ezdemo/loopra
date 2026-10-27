@@ -94,15 +94,21 @@ test('menu editing withdraws the selected entry for the main composer with all i
   } finally { view.unmount(); }
 });
 
-test('clicking an attachment-only preview also restores its entry for editing', () => {
+test('clicking message text or attachments keeps entries queued until menu editing is selected', () => {
   const attached = { ...message('a', ''), context: { files: [], projects: [], skills: [], attachments: [{ name: 'image.png', image: 'image content' }] } };
-  const view = render([attached]);
+  const text = message('b', 'queued prompt');
+  const view = render([attached, text]);
   try {
-  assert.match(view.container.textContent, /仅附件消息/);
-  view.click('.composer-queue-preview');
-  assert.deepEqual(view.edits, [attached]);
-  assert.deepEqual(view.queue(), []);
-  assert.equal(view.container.querySelector('.composer-queue'), null);
+    assert.match(view.container.textContent, /仅附件消息/);
+    view.click('.composer-queue-preview');
+    view.click('.composer-queue-attachments');
+    view.click('[data-queue-id="b"] .composer-queue-text');
+    assert.deepEqual(view.edits, []);
+    assert.deepEqual(view.queue(), [attached, text]);
+    view.click('[aria-label="第 1 条消息的更多操作"]');
+    view.click('[role="menuitem"]');
+    assert.deepEqual(view.edits, [attached]);
+    assert.deepEqual(view.queue(), [text]);
   } finally { view.unmount(); }
 });
 
