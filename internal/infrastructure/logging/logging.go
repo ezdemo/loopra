@@ -85,7 +85,7 @@ func logger() *glog.Logger {
 }
 
 // UseWriter 把本包和 GoFrame 默认日志改写到 w，并关闭 stdout。
-// `looprax acp` 必须这样，避免日志混进协议输出。
+// `loopra acp` 必须这样，避免日志混进协议输出。
 func UseWriter(w io.Writer) {
 	logger()
 	instance.SetStdoutPrint(false)
@@ -145,7 +145,7 @@ func PrintLine(text string) {
 	_, _ = io.WriteString(lineOut, text+"\n")
 }
 
-// OnlyTags 只保留列出的标签。looprax acp 用它把对话、HTTP 和配置日志留在进程里，
+// OnlyTags 只保留列出的标签。loopra acp 用它把对话、HTTP 和配置日志留在进程里，
 // 标准错误只看见 ACP 本身。
 func OnlyTags(tags ...string) {
 	logger()

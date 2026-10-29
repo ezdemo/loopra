@@ -4,7 +4,7 @@
 #
 # Desktop builds are windows, linux, and darwin on amd64 and arm64.
 # Web also builds windows/386, linux/armv7 (GOARM=7), and linux/s390x.
-# windows/amd64 also gets the short names looprax.exe and looprax-desktop.exe.
+# windows/amd64 also gets the short names loopra.exe and looprax-desktop.exe.
 # darwin desktop builds are LoopraX .app bundles, plus a .zip that keeps
 # the executable bit when the archive is copied from Windows.
 #
@@ -184,7 +184,7 @@ alias_name() {
   goos=$2
   arch=$3
   if [ "$goos" = windows ] && [ "$arch" = amd64 ] && [ "$product" = web ]; then
-    printf '%s\n' looprax.exe
+    printf '%s\n' loopra.exe
     return
   fi
   if [ "$goos" = windows ] && [ "$arch" = amd64 ] && [ "$product" = desktop ]; then

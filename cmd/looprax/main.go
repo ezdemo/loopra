@@ -1,12 +1,12 @@
-// Command looprax 启动 Loopra 兼容的 GoFrame 后端。
+// Command loopra 启动 Loopra 兼容的 GoFrame 后端。
 //
 // 用法与 Spring Boot 的可执行 jar 对齐：命令行参数 > 环境变量 > manifest/config/config.yaml。
 // 不写子命令时默认启动 web。
 //
-//	looprax
-//	looprax [web] [port] [flags]
-//	looprax acp [flags]
-//	looprax --config manifest/config/config.yaml --port 4567
+//	loopra
+//	loopra [web] [port] [flags]
+//	loopra acp [flags]
+//	loopra --config manifest/config/config.yaml --port 4567
 package main
 
 import (
@@ -77,11 +77,11 @@ func main() {
 // acp 在标准输入输出上提供 ACP 服务，不使用端口。
 func parseArgs(args []string, output io.Writer) (invocation, error) {
 	var options config.Options
-	fs := flag.NewFlagSet("looprax", flag.ContinueOnError)
+	fs := flag.NewFlagSet("loopra", flag.ContinueOnError)
 	fs.SetOutput(output)
 	fs.Usage = func() {
-		fmt.Fprintln(output, "usage: looprax [web] [port] [flags]")
-		fmt.Fprintln(output, "       looprax acp [flags]")
+		fmt.Fprintln(output, "usage: loopra [web] [port] [flags]")
+		fmt.Fprintln(output, "       loopra acp [flags]")
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&options.ConfigFile, "config", "", "配置文件路径（默认 manifest/config/config.yaml）")
@@ -92,8 +92,8 @@ func parseArgs(args []string, output io.Writer) (invocation, error) {
 	fs.StringVar(&options.PetsDir, "pets-dir", "", "宠物精灵图目录（默认 ~/.petdex/pets）")
 	fs.DurationVar(&options.ShutdownTimeout, "shutdown-timeout", 0, "优雅停机超时（默认 10s）")
 
-	// std flag 在第一个非选项参数处停止解析，因此允许 `looprax web --port 4567`
-	// 与 `looprax --port 4567 web` 两种写法：先摘掉开头的子命令，再交给 flag 解析。
+	// std flag 在第一个非选项参数处停止解析，因此允许 `loopra web --port 4567`
+	// 与 `loopra --port 4567 web` 两种写法：先摘掉开头的子命令，再交给 flag 解析。
 	command := ""
 	if len(args) > 0 && (args[0] == commandWeb || args[0] == commandACP) {
 		command = args[0]

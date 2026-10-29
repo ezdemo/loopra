@@ -236,7 +236,7 @@ func (s *Controller) listedAgentID(name string, meta map[string]any) string {
 }
 
 // migrateRetiredAgent 把工作台里已停用的 looprax 引擎折回 Loopra Native。
-// `looprax acp` 仍留给外部客户端；这里只改工作台会话绑定。
+// `loopra acp` 仍留给外部客户端；这里只改工作台会话绑定。
 func (s *Controller) migrateRetiredAgent(name string) string {
 	id := strOr(s.sessionMetaRead(name), "agentId", "")
 	if id != "looprax" {

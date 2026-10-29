@@ -9,8 +9,8 @@
   桌面端只有 windows、linux、darwin 的 amd64 和 arm64。
   Web 另外包含 windows/386、linux/armv7（GOARM=7）和 linux/s390x。
 
-  windows/amd64 会额外做两个硬链接，沿用 bin 里原来的文件名：
-    looprax.exe
+  windows/amd64 会额外做硬链接，沿用 bin 里原来的文件名：
+    loopra.exe
     looprax-desktop.exe
 
   darwin 桌面端打成 .app（访达里的名字是 LoopraX），并另写同名 .zip。
@@ -225,7 +225,7 @@ function Get-AliasName {
     if ($Row.OS -ne 'windows' -or $Row.Arch -ne 'amd64') {
         return ''
     }
-    if ($Row.Product -eq 'web') { return 'looprax.exe' }
+    if ($Row.Product -eq 'web') { return 'loopra.exe' }
     if ($Row.Product -eq 'desktop') { return 'looprax-desktop.exe' }
     return ''
 }

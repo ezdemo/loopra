@@ -1,5 +1,5 @@
 // Package acpserver 用 coder/acp-go-sdk 把 Loopra 原生智能体暴露成 ACP Agent。
-// 外部编辑器通过 stdio 调用 `looprax acp`。工作台内部会话走 Loopra Native，不拉起这条命令。
+// 外部编辑器通过 stdio 调用 `loopra acp`。工作台内部会话走 Loopra Native，不拉起这条命令。
 package acpserver
 
 import (

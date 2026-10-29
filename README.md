@@ -47,9 +47,101 @@ LoopraX 将用户任务、模型推理与受控工具调用组织成持续执行
 
 ## 快速开始
 
-当前从源码运行。需要 Go 1.27.3（以 `go.mod` 为准）、Node.js `^20.19.0` 或 `>=22.12.0`，以及 pnpm 8+。
+安装包见 [Releases](https://github.com/ezdemo/loopra-release/releases/latest)。命令行与桌面端可以分别安装。
 
-### 1. 构建工作台并启动服务
+### 1. 安装
+
+命令行安装后，启动命令是 `loopra`。
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
+```
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
+```
+
+国内网络可选用 Github 镜像脚本（脚本与安装包仍从 Github 下载，速度更快）：
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-mirror.ps1 | iex
+```
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-mirror.sh | bash
+```
+
+桌面端：
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui.ps1 | iex
+```
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui.sh | bash
+```
+
+桌面端镜像：
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui-mirror.ps1 | iex
+```
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui-mirror.sh | bash
+```
+
+所有安装脚本（`setup.ps1` / `setup.sh` 及其 `-mirror`、`-gui` 变体）都支持通过 `LOOPRA_MIRROR` 环境变量指定具体镜像（镜像列表可在桌面端下载源选择中自动测速排序后挑选）：
+
+Windows PowerShell：
+
+```powershell
+$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
+```
+
+macOS / Linux：
+
+```bash
+export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
+```
+
+未设置 `LOOPRA_MIRROR` 时：直连脚本走 GitHub 官方源，镜像脚本（`-mirror` 变体）默认使用 `gh-proxy.org`。
+
+`LOOPRA_VERSION=v26.10.2901` 可安装指定版本，不设置时安装最新正式版。命令行装到 `~/.looprax/bin`（Windows 为 `%LOCALAPPDATA%\LoopraX\bin`）。macOS 桌面端解压到 `~/Applications/LoopraX.app`。
+
+### 2. 启动
+
+```bash
+loopra
+loopra web
+loopra web 0
+loopra web 4567
+loopra acp
+```
+
+`loopra` 与 `loopra web` 相同。不写端口或写成 `0` 时，由系统分配空闲端口。`loopra acp` 在标准输入输出上提供 ACP，不启动网页。
+
+控制台会输出本地访问地址和本次启动的访问密钥。首次启动会在 `~/.loopra/config.json` 创建默认配置；目录里已有 Loopra 配置时直接沿用。`LOOPRA_HOME` 可改到其他数据目录。
+
+### 3. 从源码运行
+
+需要 Go 1.27.3（以 `go.mod` 为准）、Node.js `^20.19.0` 或 `>=22.12.0`，以及 pnpm 8+。
 
 ```bash
 git clone https://github.com/ezdemo/looprax.git
@@ -58,17 +150,13 @@ cd web && pnpm install && pnpm build && cd ..
 go run ./cmd/looprax
 ```
 
-使用 `0` 或不写端口时，服务自动选择可用端口。需要固定端口时再写，例如 `go run ./cmd/looprax 4567`。
-
-控制台会输出本地访问地址和本次启动的访问密钥。首次启动会在 `~/.loopra/config.json` 创建默认配置；目录里已有 Loopra 配置时直接沿用。`LOOPRA_HOME` 可改到其他数据目录。
-
-桌面窗口与 API 使用同一地址：
+使用 `0` 或不写端口时，服务自动选择可用端口。需要固定端口时再写，例如 `go run ./cmd/looprax 4567`。桌面窗口与 API 使用同一地址：
 
 ```bash
 go run ./cmd/looprax-desktop
 ```
 
-### 2. 配置模型渠道
+### 4. 配置模型渠道
 
 使用 Loopra Native 时，在设置页维护模型渠道并保存。直接编辑 `~/.loopra/config.json` 后需重启服务以重新加载。每个渠道独立维护 API 地址、密钥、协议、特殊兼容与模型能力。`apiProtocol` 支持 `chat_completions`、`responses` 和 `anthropic`；`specialCompatibility` 默认为空，可选 `opencode`，由兼容逻辑携带稳定的 `x-opencode-session` 会话路由头。
 
@@ -239,7 +327,7 @@ LoopraX 也可以在设置页「MCP 服务器 → 发布 Loopra 工具」中作�
 
 ### Web 与桌面
 
-`looprax` 不写子命令时启动 Web，`looprax web [port]` 等价。控制台输出带有本次启动密钥的访问地址。从该链接进入会验证密钥；页面上的 API 请求使用 `X-Loopra-Key`。静态页面无需密钥。服务重启会更换密钥，除非设置了 `LOOPRA_ACCESS_KEY`。
+`loopra` 不写子命令时启动 Web，`loopra web [port]` 等价。控制台输出带有本次启动密钥的访问地址。从该链接进入会验证密钥；页面上的 API 请求使用 `X-Loopra-Key`。静态页面无需密钥。服务重启会更换密钥，除非设置了 `LOOPRA_ACCESS_KEY`。
 
 `looprax-desktop` 启动同一服务并打开工作台窗口，地址里自动带上密钥。文件、命令与系统目录操作发生在后端所在机器。
 
@@ -273,7 +361,7 @@ Loopra Native 的常用命令如下。完整列表以界面命令菜单和 `/hel
 LoopraX 可以作为 ACP Agent 供外部编辑器连接。这条命令只占用标准输入输出，不启动 HTTP 服务，日志写到 stderr：
 
 ```bash
-looprax acp
+loopra acp
 ```
 
 工作台里的 Loopra Native 会话不会拉起这条命令。协议由 `coder/acp-go-sdk` 实现。
