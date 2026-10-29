@@ -108,6 +108,7 @@ func Serve(ctx context.Context, runtime *Runtime) error {
 // ServeStreams 在给定的读写流上接入 ACP 客户端。
 func ServeStreams(ctx context.Context, runtime *Runtime, toClient io.Writer, fromClient io.Reader) error {
 	conn := acpsdk.NewAgentSideConnection(runtime, toClient, fromClient)
+	conn.SetLogger(logging.LibraryLogger())
 	runtime.bind(conn)
 	select {
 	case <-ctx.Done():

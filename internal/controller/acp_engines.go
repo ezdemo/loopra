@@ -103,8 +103,17 @@ func (s *Controller) applyAgentPreferences(ctx context.Context, name, agentID st
 	prefs := s.enginePreferencesRead()
 	agents, _ := prefs["agents"].(map[string]any)
 	values, _ := agents[agentID].(map[string]any)
+	if len(values) == 0 {
+		return
+	}
+	current := map[string]string{}
+	if options, err := s.acpConfigOptions(ctx, name); err == nil {
+		for _, option := range options {
+			current[option.ID] = fmt.Sprint(option.CurrentValue)
+		}
+	}
 	for id, value := range values {
-		if id == "plan" {
+		if id == "plan" || current[id] == fmt.Sprint(value) {
 			continue
 		}
 		if _, err := s.setACPConfigOption(ctx, name, id, value); err != nil {

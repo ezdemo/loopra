@@ -48,6 +48,10 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	quietWeb := parsed.Command != commandACP && !logging.DebugEnabled()
+	if quietWeb {
+		logging.Suppress()
+	}
 	var runErr error
 	if parsed.Command == commandACP {
 		runErr = runACP(ctx, parsed.Options)
@@ -55,11 +59,15 @@ func main() {
 		runErr = bootstrap.Run(ctx, parsed.Options)
 	}
 	if runErr != nil {
-		tag := "server"
-		if parsed.Command == commandACP {
-			tag = "acp"
+		if quietWeb {
+			fmt.Fprintf(os.Stderr, "%v\n", runErr)
+		} else {
+			tag := "server"
+			if parsed.Command == commandACP {
+				tag = "acp"
+			}
+			logging.Errorf(tag, "%v", runErr)
 		}
-		logging.Errorf(tag, "%v", runErr)
 		os.Exit(1)
 	}
 }

@@ -122,6 +122,7 @@ func NewClient(launch Launch, cwd string, handler Handler, perm PermissionFunc) 
 	}
 	client := &Client{proc: proc, handler: handler, perm: perm, children: map[string]bool{}}
 	client.conn = acpsdk.NewClientSideConnection(client, proc.stdin, proc.stdout)
+	client.conn.SetLogger(logging.LibraryLogger())
 	return client, nil
 }
 
