@@ -1,1 +1,0 @@
-import{a as e,i as s,n as o,o as n,r as t,t as a}from"./ts.worker-C2zKmjCn.js";globalThis.MonacoEnvironment={getWorker(p,r){return r==="json"?new o:r==="css"||r==="scss"||r==="less"?new s:r==="html"||r==="handlebars"||r==="razor"?new t:r==="typescript"||r==="javascript"?new a:new e}};var i=n;export{i as default};

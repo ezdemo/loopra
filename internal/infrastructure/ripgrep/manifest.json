@@ -1,0 +1,96 @@
+{
+  "version": "15.2.0",
+  "repository": "BurntSushi/ripgrep",
+  "platforms": [
+    {
+      "goos": "windows",
+      "goarch": "amd64",
+      "target": "x86_64-pc-windows-msvc",
+      "asset_id": 478119643,
+      "archive_sha256": "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5",
+      "binary_sha256": "14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680",
+      "archive": "ripgrep-15.2.0-x86_64-pc-windows-msvc.zip",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip"
+    },
+    {
+      "goos": "windows",
+      "goarch": "arm64",
+      "target": "aarch64-pc-windows-msvc",
+      "asset_id": 478119680,
+      "archive_sha256": "e4abca10c3a64ebea742667dd7009449d49403db5460dd6873e389fa2945360f",
+      "binary_sha256": "d33a29a9ef03c9f4c03be9e8d88498e6e2d2e566d64cdbdef97f9afc8f13120c",
+      "archive": "ripgrep-15.2.0-aarch64-pc-windows-msvc.zip",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-pc-windows-msvc.zip"
+    },
+    {
+      "goos": "windows",
+      "goarch": "386",
+      "target": "i686-pc-windows-msvc",
+      "asset_id": 478119911,
+      "archive_sha256": "9bf73bdb3fda9ad4b0235e1295b02c717031c986afa4d7c05dd0af8b74010a95",
+      "binary_sha256": "e475c8f9dde38ec69aa3734448e670262333af8186d76efeb524b529ccd8d6f6",
+      "archive": "ripgrep-15.2.0-i686-pc-windows-msvc.zip",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-i686-pc-windows-msvc.zip"
+    },
+    {
+      "goos": "darwin",
+      "goarch": "amd64",
+      "target": "x86_64-apple-darwin",
+      "asset_id": 478119585,
+      "archive_sha256": "af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1",
+      "binary_sha256": "0c9a0066db0d26b640777db88045b0ccdd58509a746700e43e1c4ff8707a5ed0",
+      "archive": "ripgrep-15.2.0-x86_64-apple-darwin.tar.gz",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-apple-darwin.tar.gz"
+    },
+    {
+      "goos": "darwin",
+      "goarch": "arm64",
+      "target": "aarch64-apple-darwin",
+      "asset_id": 478118851,
+      "archive_sha256": "3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4",
+      "binary_sha256": "a326a1fb48074202e9ad41e4cd1e389eeea372c8c6f7d7e80da81176d5d9430e",
+      "archive": "ripgrep-15.2.0-aarch64-apple-darwin.tar.gz",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz"
+    },
+    {
+      "goos": "linux",
+      "goarch": "amd64",
+      "target": "x86_64-unknown-linux-musl",
+      "asset_id": 478120097,
+      "archive_sha256": "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c",
+      "archive": "ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
+      "binary_sha256": "e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849"
+    },
+    {
+      "goos": "linux",
+      "goarch": "arm64",
+      "target": "aarch64-unknown-linux-musl",
+      "asset_id": 478120060,
+      "archive_sha256": "800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915",
+      "binary_sha256": "c14cdb389f34e504d69e386cfc67d5c5d9a730a990de03ca6910b2a15e30386a",
+      "archive": "ripgrep-15.2.0-aarch64-unknown-linux-musl.tar.gz",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-unknown-linux-musl.tar.gz"
+    },
+    {
+      "goos": "linux",
+      "goarch": "arm",
+      "target": "armv7-unknown-linux-musleabihf",
+      "asset_id": 478119683,
+      "archive_sha256": "0332b481aa007969a54d5c19e793208e73405c48d38f226bdee56b9ed085cdde",
+      "archive": "ripgrep-15.2.0-armv7-unknown-linux-musleabihf.tar.gz",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-armv7-unknown-linux-musleabihf.tar.gz",
+      "binary_sha256": "962f1304afacf0c3d5cb8e91ce5ff4a61430a78f6edf02d3020c7e1743893a4f"
+    },
+    {
+      "goos": "linux",
+      "goarch": "s390x",
+      "target": "s390x-unknown-linux-gnu",
+      "asset_id": 478119761,
+      "archive_sha256": "b61a442344f0591321960def6adb8c828b68a448301d1ed93959656fcd3b79c2",
+      "binary_sha256": "ab91af7f674fc03c69b0c79019acc7e61d5e1c490c332d1fe09d417cce40bc02",
+      "archive": "ripgrep-15.2.0-s390x-unknown-linux-gnu.tar.gz",
+      "source": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-s390x-unknown-linux-gnu.tar.gz"
+    }
+  ]
+}

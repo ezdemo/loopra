@@ -1,0 +1,46 @@
+name: Looprax Backend
+on:
+  push:
+    paths:
+      - 'adk/**'
+      - 'agent/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'platform/**'
+      - 'tools/**'
+      - 'go.*'
+      - 'docs/API_PARITY_AUDIT.csv'
+      - '.github/workflows/backend.yml'
+  pull_request:
+    paths:
+      - 'adk/**'
+      - 'agent/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'platform/**'
+      - 'tools/**'
+      - 'go.*'
+      - 'docs/API_PARITY_AUDIT.csv'
+      - '.github/workflows/backend.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: go build ./cmd/looprax
+  bundled-rg:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./internal/infrastructure/ripgrep ./internal/service/tools
