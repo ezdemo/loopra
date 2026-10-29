@@ -136,6 +136,8 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 		writeFail(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	conn.PrepareSetup()
+	defer conn.FinishSetup("", nil)
 	dirs := append([]string(nil), s.linkedProjectRoots...)
 	forked, err := conn.Client().ForkSession(r.Context(), remote, conn.Dir(), dirs, point.meta)
 	if err != nil && !forkUnavailable(err) {
@@ -152,6 +154,9 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 		for id, value := range values {
 			_, _ = conn.Client().SetConfigOption(r.Context(), id, value)
 		}
+		conn.BindSession(forked, conn.Client().ConfigOptions())
+	} else {
+		conn.BindSession(forked, conn.Client().ConfigOptions())
 	}
 	if _, err := s.agent.Sessions.Create(r.Context(), createReq(s.agent, newName)); err != nil {
 		s.acp.Drop(s.acpKey(newName))

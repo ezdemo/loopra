@@ -19,6 +19,8 @@ func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotificat
 	c.mu.Lock()
 	replaying := c.replaying
 	current := c.sessionID
+	accepting := c.accepting
+	owner := c.owner
 	c.mu.Unlock()
 	if replaying {
 		c.captureReplay(update)
@@ -26,7 +28,7 @@ func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotificat
 	}
 	child := ""
 	sessionID := string(params.SessionId)
-	if current != "" && sessionID != current {
+	if !accepting && current != "" && sessionID != current {
 		c.mu.Lock()
 		known := c.children[sessionID]
 		c.mu.Unlock()
@@ -48,6 +50,10 @@ func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotificat
 	}
 	if child != "" {
 		event.SubSession = child
+	}
+	if owner != nil {
+		owner.handleEvent(event)
+		return nil
 	}
 	if c.handler != nil {
 		c.handler(event)
@@ -82,10 +88,20 @@ func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPer
 	cancelled := acpsdk.RequestPermissionResponse{Outcome: acpsdk.RequestPermissionOutcome{
 		Cancelled: &acpsdk.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 	}}
-	if c.perm == nil {
+	c.mu.Lock()
+	owner := c.owner
+	perm := c.perm
+	c.mu.Unlock()
+	var option string
+	var ok bool
+	switch {
+	case owner != nil:
+		option, ok = owner.requestPermission(ctx, request)
+	case perm != nil:
+		option, ok = perm(ctx, request)
+	default:
 		return cancelled, nil
 	}
-	option, ok := c.perm(ctx, request)
 	if !ok || option == "" {
 		logging.Infof("acp", "permission cancelled tool=%q", request.ToolCall.Title)
 		return cancelled, nil
@@ -104,18 +120,25 @@ func (c *Client) UnstableCreateElicitation(ctx context.Context, params acpsdk.Un
 		return cancel, nil
 	}
 	c.mu.Lock()
+	owner := c.owner
 	handler := c.elicit
 	c.mu.Unlock()
-	if handler == nil {
-		return cancel, nil
-	}
 	schema := map[string]any{"type": "object", "properties": params.Form.RequestedSchema.Properties}
 	if len(params.Form.RequestedSchema.Required) > 0 {
 		schema["required"] = params.Form.RequestedSchema.Required
 	}
-	result := handler(ctx, ElicitationRequest{
+	request := ElicitationRequest{
 		Message: params.Form.Message, Mode: "form", RequestedSchema: schema, Meta: params.Form.Meta,
-	})
+	}
+	var result ElicitationResult
+	switch {
+	case owner != nil:
+		result = owner.requestElicitation(ctx, request)
+	case handler != nil:
+		result = handler(ctx, request)
+	default:
+		return cancel, nil
+	}
 	switch result.Action {
 	case "accept":
 		accepted := acpsdk.NewUnstableCreateElicitationResponseAccept()
