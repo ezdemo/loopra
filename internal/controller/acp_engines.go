@@ -34,7 +34,9 @@ func (s *Controller) prepareExternalEngine(w http.ResponseWriter, r *http.Reques
 	if fresh {
 		s.applyAgentPreferences(r.Context(), name, agentID)
 	}
-	if latest := conn.Client().ConfigOptions(); len(latest) > 0 {
+	if latest := conn.ConfigOptions(); len(latest) > 0 {
+		options = latest
+	} else if latest := conn.Client().ConfigOptions(); len(latest) > 0 {
 		options = latest
 	}
 	writeOK(w, http.StatusOK, map[string]any{
@@ -52,8 +54,9 @@ func (s *Controller) acpConfigOptions(ctx context.Context, name string) ([]acp.C
 	if err != nil {
 		return nil, err
 	}
-	if conn.Client().SessionID() != "" {
-		return conn.Client().ConfigOptions(), nil
+	conn.Use()
+	if conn.SessionID() != "" {
+		return conn.ConfigOptions(), nil
 	}
 	return s.openACPSession(ctx, name, conn, false)
 }
@@ -69,7 +72,8 @@ func (s *Controller) setACPConfigOption(ctx context.Context, name, id string, va
 	if err != nil {
 		return nil, err
 	}
-	if conn.Client().SessionID() == "" {
+	conn.Use()
+	if conn.SessionID() == "" {
 		if _, err := s.openACPSession(ctx, name, conn, false); err != nil {
 			return nil, err
 		}
@@ -88,12 +92,14 @@ func (s *Controller) setACPConfigOption(ctx context.Context, name, id string, va
 			return nil, fmt.Errorf("Agent 不支持此配置: %s", id)
 		}
 		s.sessionMetaSet(name, map[string]any{"agentConfig": map[string]any{id: fmt.Sprint(value)}})
-		return conn.Client().ConfigOptions(), nil
+		conn.BindSession(conn.SessionID(), conn.Client().ConfigOptions())
+		return conn.ConfigOptions(), nil
 	}
 	options, err := conn.Client().SetConfigOption(ctx, id, value)
 	if err != nil {
 		return nil, err
 	}
+	conn.BindSession(conn.SessionID(), options)
 	s.sessionMetaSet(name, map[string]any{"agentConfig": acp.ConfigValues(options)})
 	return options, nil
 }
@@ -103,8 +109,17 @@ func (s *Controller) applyAgentPreferences(ctx context.Context, name, agentID st
 	prefs := s.enginePreferencesRead()
 	agents, _ := prefs["agents"].(map[string]any)
 	values, _ := agents[agentID].(map[string]any)
+	if len(values) == 0 {
+		return
+	}
+	current := map[string]string{}
+	if options, err := s.acpConfigOptions(ctx, name); err == nil {
+		for _, option := range options {
+			current[option.ID] = fmt.Sprint(option.CurrentValue)
+		}
+	}
 	for id, value := range values {
-		if id == "plan" {
+		if id == "plan" || current[id] == fmt.Sprint(value) {
 			continue
 		}
 		if _, err := s.setACPConfigOption(ctx, name, id, value); err != nil {

@@ -357,7 +357,6 @@ export default function App({ startupPending = false, initialServer }: { startup
     settingsQueue.current = result.catch(error => { notify(`保存失败：${error instanceof Error ? error.message : error}`); });
     return result;
   }
-  function newConfigKey(agent: string) { return `${server}::${agent}`; }
   function isSessionOccupied(id: string) { return occupiedSessionsRef.current.has(`${server}::${id}`); }
   function recordSessionOccupancy(id: string, occupied: boolean) {
     const key = `${server}::${id}`;
@@ -366,9 +365,23 @@ export default function App({ startupPending = false, initialServer }: { startup
     occupiedSessionsRef.current = next;
     setOccupiedSessions(next);
   }
-  function cacheAgentConfig(agent: string, options: AgentConfigOption[]) {
-    setAgentConfigCache(current => ({ ...current, [newConfigKey(agent)]: options }));
+  // 端口每次启动都会变，缓存不能带 origin，否则刷新后工具栏只能干等 ACP 握手。
+  function cachedAgentOptions(agent: string) {
+    const id = agent || 'native';
+    const exact = agentConfigCache[id];
+    if (exact?.length) return exact;
+    const suffix = `::${id}`;
+    for (const [key, options] of Object.entries(agentConfigCache)) {
+      if (key.endsWith(suffix) && options.length) return options;
+    }
+    return undefined;
   }
+  function cacheAgentConfig(agent: string, options: AgentConfigOption[]) {
+    setAgentConfigCache(current => ({ ...current, [agent || 'native']: options }));
+  }
+  const composerAgentOptions = session
+    ? (Object.prototype.hasOwnProperty.call(agentConfigs, session.id) ? agentConfigs[session.id] : cachedAgentOptions(session.agentId || 'native'))
+    : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : cachedAgentOptions(agentId);
   function saveOptions(next: ComposerOptions) {
     if (externalAgent) { setComposerOptions(next); return Promise.resolve(); }
     // Leaving plan mode discards any submitted plan, so confirm first (legacy togglePlan).
@@ -1298,7 +1311,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
     : <Composer home={isHome} loading={workspaceLoading} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
-    agentConfig={{ options: session ? agentConfigs[session.id] : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : agentConfigCache[newConfigKey(agentId)], busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
+    agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}

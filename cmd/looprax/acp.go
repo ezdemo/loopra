@@ -14,6 +14,7 @@ func runACP(ctx context.Context, options config.Options) error {
 	// 协议走 stdout。默认标准错误只留 ACP；LOOPRA_DEBUG=1 时恢复全部日志。
 	if !logging.DebugEnabled() {
 		logging.OnlyTags("acp")
+		logging.DiscardLibraries()
 	}
 	settings, err := config.Load(ctx, options)
 	if err != nil {

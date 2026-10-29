@@ -3,6 +3,8 @@ package logging
 import (
 	"bytes"
 	"context"
+	"log"
+	"log/slog"
 	"os"
 	"runtime"
 	"strings"
@@ -185,6 +187,8 @@ func TestPrintLineIsPlainAndSilenceDropsIt(t *testing.T) {
 }
 
 func TestOnlyTagsKeepsACPAndSilenceDropsTheRest(t *testing.T) {
+	previousLog := log.Default().Writer()
+	previousSlog := slog.Default()
 	t.Cleanup(func() {
 		tagFilter = nil
 		logger()
@@ -192,6 +196,9 @@ func TestOnlyTagsKeepsACPAndSilenceDropsTheRest(t *testing.T) {
 		instance.SetWriter(os.Stdout)
 		glog.SetStdoutPrint(true)
 		glog.SetWriter(os.Stdout)
+		log.SetOutput(previousLog)
+		slog.SetDefault(previousSlog)
+		suppressed = false
 	})
 	var buf bytes.Buffer
 	UseWriter(&buf)
@@ -207,6 +214,45 @@ func TestOnlyTagsKeepsACPAndSilenceDropsTheRest(t *testing.T) {
 	Infof("acp", "hidden")
 	if buf.Len() != 0 {
 		t.Fatalf("silence leaked %q", buf.String())
+	}
+}
+
+func TestSuppressKeepsURLAndDropsStructuredLogs(t *testing.T) {
+	previous := lineOut
+	wasSilent := silenced
+	previousLog := log.Default().Writer()
+	previousSlog := slog.Default()
+	t.Cleanup(func() {
+		lineOut = previous
+		silenced = wasSilent
+		tagFilter = nil
+		logger()
+		instance.SetStdoutPrint(true)
+		instance.SetWriter(os.Stdout)
+		glog.SetStdoutPrint(true)
+		glog.SetWriter(os.Stdout)
+		log.SetOutput(previousLog)
+		slog.SetDefault(previousSlog)
+		suppressed = false
+	})
+	var lines bytes.Buffer
+	var structured bytes.Buffer
+	lineOut = &lines
+	silenced = false
+	logger()
+	instance.SetStdoutPrint(false)
+	instance.SetWriter(&structured)
+	slog.SetDefault(slog.New(slog.NewTextHandler(&structured, nil)))
+	Suppress()
+	PrintLine("[Web Interface]:  http://127.0.0.1:1/index.html?rk=key")
+	Infof("acp", "started pid=1")
+	Errorf("http", "GET /api/agent-engines/config 503")
+	slog.Info("connection closed", "cause", "peer connection closed")
+	if lines.String() != "[Web Interface]:  http://127.0.0.1:1/index.html?rk=key\n" {
+		t.Fatalf("line=%q", lines.String())
+	}
+	if structured.Len() != 0 {
+		t.Fatalf("structured log leaked %q", structured.String())
 	}
 }
 

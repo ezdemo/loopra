@@ -10,6 +10,8 @@ package logging
 import (
 	"context"
 	"io"
+	"log"
+	"log/slog"
 	"os"
 	"runtime"
 	"strconv"
@@ -46,9 +48,10 @@ var (
 	instance   *glog.Logger
 	processPID = os.Getpid()
 	// tagFilter 非空时只输出这些标签。nil 表示全部输出。
-	tagFilter map[string]struct{}
-	silenced  bool
-	lineOut   io.Writer = os.Stdout
+	tagFilter  map[string]struct{}
+	silenced   bool
+	suppressed bool
+	lineOut    io.Writer = os.Stdout
 )
 
 func initialize() {
@@ -99,6 +102,38 @@ func Silence() {
 	instance.SetWriter(io.Discard)
 	glog.SetStdoutPrint(false)
 	glog.SetWriter(io.Discard)
+	suppressed = true
+	DiscardLibraries()
+}
+
+// Suppress 丢掉结构化日志，但保留 PrintLine。
+// `looprax` 默认只打访问地址；LOOPRA_DEBUG=1 时不要调用。
+func Suppress() {
+	logger()
+	tagFilter = map[string]struct{}{}
+	instance.SetStdoutPrint(false)
+	instance.SetWriter(io.Discard)
+	glog.SetStdoutPrint(false)
+	glog.SetWriter(io.Discard)
+	suppressed = true
+	DiscardLibraries()
+}
+
+// DiscardLibraries 丢掉标准库 log 和 slog 的默认输出。
+// ACP SDK 未设置 logger 时会走 slog.Default()，连接断开会打出
+// "connection closed"。
+func DiscardLibraries() {
+	log.SetOutput(io.Discard)
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+}
+
+// LibraryLogger 给会自己打 slog 的库用。调试关闭时丢掉连接关闭这类诊断。
+func LibraryLogger() *slog.Logger {
+	once.Do(initialize)
+	if verbose {
+		return slog.Default()
+	}
+	return slog.New(slog.DiscardHandler)
 }
 
 // PrintLine 写一行原文，不套启动日志的时间、级别和标签。Silence 之后不再输出。
@@ -137,6 +172,10 @@ func QuietLogger(logger *glog.Logger) {
 	}
 	logger.SetLevel(glog.LEVEL_ERRO)
 	logger.SetStack(false)
+	if suppressed {
+		logger.SetStdoutPrint(false)
+		logger.SetWriter(io.Discard)
+	}
 }
 
 // DebugEnabled 报告调试日志是否开启。

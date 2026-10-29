@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service/acp"
 	"github.com/ezdemo/looprax/internal/service/hitl"
@@ -232,6 +233,15 @@ func (s *Controller) enginePrepare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(body.SessionName)
+	if name == "" && s.acp != nil && body.AgentID != "" && body.AgentID != "native" && acp.IsExternal(body.AgentID) {
+		for _, candidate := range s.acp.IdleSessions(s.acpHost(), body.AgentID, s.workspaceRoot()) {
+			if len(s.sessionMessages(r.Context(), candidate)) == 0 {
+				logging.Debugf("acp", "reuse idle draft session=%s agent=%s", candidate, body.AgentID)
+				name = candidate
+				break
+			}
+		}
+	}
 	if name == "" {
 		name = "loopra-" + newUUIDv4()
 	}

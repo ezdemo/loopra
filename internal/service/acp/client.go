@@ -87,6 +87,11 @@ type Client struct {
 	handler Handler
 	perm    PermissionFunc
 	elicit  ElicitationFunc
+	// owner 是当前占用这条连接的 Loopra 会话。同一工作区的多个会话
+	// 可以共用一个进程；事件和权限请求交给 owner，而不是创建连接时的回调。
+	owner *Conn
+	// accepting 为 true 时，会话建立过程中的更新不再按旧 session id 丢弃。
+	accepting bool
 
 	mu              sync.Mutex
 	initialized     AgentCapabilities
@@ -122,6 +127,7 @@ func NewClient(launch Launch, cwd string, handler Handler, perm PermissionFunc) 
 	}
 	client := &Client{proc: proc, handler: handler, perm: perm, children: map[string]bool{}}
 	client.conn = acpsdk.NewClientSideConnection(client, proc.stdin, proc.stdout)
+	client.conn.SetLogger(logging.LibraryLogger())
 	return client, nil
 }
 
@@ -130,6 +136,69 @@ func (c *Client) SetElicitationHandler(fn ElicitationFunc) {
 	c.mu.Lock()
 	c.elicit = fn
 	c.mu.Unlock()
+}
+
+// focus 把后续协议调用和事件切到指定 Loopra 会话。
+func (c *Client) focus(owner *Conn, sessionID string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.owner = owner
+	if sessionID != "" {
+		c.sessionID = sessionID
+	}
+	c.mu.Unlock()
+}
+
+// beginAccept 在 session/new、load、resume、fork 期间接收任意会话的更新。
+func (c *Client) beginAccept(owner *Conn) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.owner = owner
+	c.accepting = true
+	c.mu.Unlock()
+}
+
+// endAccept 结束会话建立，并记下该 Loopra 会话对应的 ACP session id。
+func (c *Client) endAccept(sessionID string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.accepting = false
+	if sessionID != "" {
+		c.sessionID = sessionID
+	}
+	c.mu.Unlock()
+}
+
+func (c *Client) clearOwner(owner *Conn) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.owner == owner {
+		c.owner = nil
+	}
+	c.mu.Unlock()
+}
+
+// bindOwnerOptions 把进程上最近的配置抄到当前 Loopra 会话。
+// 共用进程时，客户端自己的配置项只反映最后一次操作的会话。
+func (c *Client) bindOwnerOptions(options []ConfigOption) {
+	if c == nil || options == nil {
+		return
+	}
+	c.mu.Lock()
+	owner := c.owner
+	id := c.sessionID
+	c.mu.Unlock()
+	if owner != nil {
+		owner.BindSession(id, options)
+	}
 }
 
 // EnableChildSessions 在 initialize 时声明 subagents 客户端能力，
@@ -369,13 +438,15 @@ func (c *Client) ForkSession(ctx context.Context, sourceID, cwd string, dirs []s
 // modes，这里合成为同形状的配置项供前端渲染。
 func (c *Client) applySetup(result *SessionSetupResult) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if len(result.ConfigOptions) > 0 {
 		c.configOptions = result.ConfigOptions
 		c.configSupported = true
-		return
+	} else {
+		c.configOptions = legacyConfigOptions(result.Modes, result.Models)
 	}
-	c.configOptions = legacyConfigOptions(result.Modes, result.Models)
+	options := append([]ConfigOption(nil), c.configOptions...)
+	c.mu.Unlock()
+	c.bindOwnerOptions(options)
 }
 
 // legacyConfigOptions 把 ACP 旧版的 modes/models 转成配置项。
@@ -493,6 +564,7 @@ func (c *Client) SetConfigOption(ctx context.Context, id string, value any) ([]C
 	}
 	options := append([]ConfigOption(nil), c.configOptions...)
 	c.mu.Unlock()
+	c.bindOwnerOptions(options)
 	return options, nil
 }
 
@@ -508,6 +580,7 @@ func (c *Client) SetMode(ctx context.Context, mode string) error {
 		return c.fail(err)
 	}
 	c.updateValue("mode", mode)
+	c.bindOwnerOptions(c.ConfigOptions())
 	return nil
 }
 
