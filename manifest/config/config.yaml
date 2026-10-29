@@ -1,0 +1,26 @@
+# Looprax 进程配置（等价于 Spring Boot 的 application.yml）。
+#
+# 优先级：命令行参数 > 环境变量 > 本文件 > 内置默认值。
+# 环境变量：LOOPRA_HOME、LOOPRA_PORT、LOOPRA_ACCESS_KEY、LOOPRA_STATIC_DIR、
+#           LOOPRA_PETS_DIR、LOOPRA_CONFIG、LOOPRA_DEBUG。
+server:
+  address: "127.0.0.1"
+  # 0 或不写表示不指定端口，启动时由系统分配空闲端口。
+  # 需要固定端口时再写，例如 port: 4567；命令行和 LOOPRA_PORT 优先。
+  port: 0
+  readHeaderTimeout: 10s
+  idleTimeout: 2m
+  shutdownTimeout: 10s
+  # 0 表示不限制请求体大小（与旧版行为一致）。
+  clientMaxBodySize: 0
+
+loopra:
+  # 留空时使用 ~/.loopra。
+  home: ""
+  # 留空时启动日志中自动生成 rk 密钥。
+  accessKey: ""
+  # 留空时使用自行编译的 web/dist（与桌面同一套页面），再是嵌进二进制的产物。
+  # <home>/static 只在这两处都没有页面时才用。
+  staticDir: ""
+  # 留空时使用 ~/.petdex/pets。
+  petsDir: ""

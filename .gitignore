@@ -1,88 +1,13 @@
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-dependency-reduced-pom.xml
-.kotlin
-
-### IntelliJ IDEA ###
+# Go
+bin/
+*.test
+coverage.out
+bin/looprax.exe
+# Editors
 .idea/
-*.iws
-*.iml
-*.ipr
-
-### Eclipse ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-.eclipse/
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
 .vscode/
-
-### Mac OS ###
 .DS_Store
-*.log
-/presentation/**
 
-### Dependency directories ###
-node_modules/
-jspm_packages/
-.pnp
-.pnp.js
-
-### Build cache / output ###
-out/
-dist/
-.coverage
-.cache/
-
-### Other VCS ###
-.svn/
-.hg/
-
-### Python ###
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-.mypy_cache/
-venv/
-.venv/
-
-### Frontend build tools ###
-.next/
-.nuxt/
-.turbo/
-.vercel/"_script_*.bat"
-"_script_*"
-
-/.codegraph/
-/.loopra
-/.codex/config.toml
-
-/.commandcode/
-/loopra/.loopra/
-/.release/npm/loopra-dist/loopra-dist.tar.gz
-
-# local build/error logs
-compile-errors.txt
-*.log
-.tmp/
-
-/.codex
-/.codegraph
+# Workbench
+web/node_modules/
+web/dist/
