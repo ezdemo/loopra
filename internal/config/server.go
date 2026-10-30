@@ -40,6 +40,8 @@ type Options struct {
 	OnListen func(baseURL, accessKey string)
 	// OnUITheme 在界面偏好保存后调用，参数为 light、dark 或 system。
 	OnUITheme func(theme string)
+	// PetDesktop 是本进程的原生宠物窗口。具体类型由桌面壳和 loopra web 注入。
+	PetDesktop any
 }
 
 type Server struct {
@@ -52,6 +54,7 @@ type Server struct {
 	PetsDir           string
 	OnListen          func(baseURL, accessKey string)
 	OnUITheme         func(theme string)
+	PetDesktop        any
 	ShutdownTimeout   time.Duration
 	ReadHeaderTimeout time.Duration
 	IdleTimeout       time.Duration
@@ -158,6 +161,7 @@ func Load(ctx context.Context, options Options) (*Server, error) {
 	settings.StaticDir = firstNonEmpty(options.StaticDir, os.Getenv("LOOPRA_STATIC_DIR"), get("loopra.staticDir"))
 	settings.OnListen = options.OnListen
 	settings.OnUITheme = options.OnUITheme
+	settings.PetDesktop = options.PetDesktop
 	settings.PetsDir = firstNonEmpty(options.PetsDir, os.Getenv("LOOPRA_PETS_DIR"), get("loopra.petsDir"))
 	if configErr != nil {
 		return nil, configErr

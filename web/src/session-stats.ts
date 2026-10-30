@@ -4,7 +4,7 @@
 
 export type ManagedSession = {
   id: string; title: string; workspace?: string; workspaceHash?: string; name?: string;
-  messageCount?: number; mtime?: number; worktreeMode?: boolean; archived?: boolean;
+  messageCount?: number; mtime?: number; worktreeMode?: boolean;
 };
 
 export type SessionMetrics = { sessionCount: number; totalMessages: number; totalToolCalls: number; averageSessionLength: string };

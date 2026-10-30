@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { RotateCcw, X } from 'lucide-react';
-import { clampPetOffset, petAnimations, placePetPanel, type PetAnimation, type PetPoint, type PetReply, type PetSize } from '../pets';
+import { clampPetOffset, petAnimations, petSpriteSize, placePetPanel, type PetAnimation, type PetPoint, type PetReply, type PetSize } from '../pets';
 import PetSprite from './PetSprite';
 
 type Props = {
@@ -42,7 +42,7 @@ export default function PetCompanion(props: Props) {
   const savedScale = useRef(props.scale);
   const scaleEditing = useRef(false);
   const saveVersion = useRef(0);
-  const size = { width: 192 * scale * 0.75, height: 208 * scale * 0.75 };
+  const size = petSpriteSize(scale);
   const offset = layout ? clampPetOffset(position, layout.origin, size, layout.viewport) : position;
   positionRef.current = offset;
 

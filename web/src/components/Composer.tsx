@@ -25,7 +25,7 @@ type Props = {
   acpCommands?: AcpCommand[];
   home: boolean; language: string; draft: string; onDraft: (text: string) => void;
   inputRef: RefObject<HTMLTextAreaElement>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void | Promise<void>;
-  skillOptions: { name: string; description: string }[]; systemPrompt: string; petEnabled: boolean; pets: PetStore; petActivity: PetAnimation;
+  skillOptions: { name: string; description: string }[]; systemPrompt: string; petEnabled: boolean; desktopPet?: boolean; pets: PetStore; petActivity: PetAnimation;
   petReply: PetReply | null; latestPetReply: string; onPetClose: () => void;
   context: ComposerContext; onContext: (value: ComposerContext) => void; providers: Provider[];
   workspaces: Workspace[]; connected: boolean;
@@ -324,7 +324,7 @@ export default function Composer(props: Props) {
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
     onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); addFiles(event.dataTransfer.files); }}>
-    {props.petEnabled && props.pets.active && <PetCompanion key={props.pets.active.name} src={props.pets.imageUrl} name={props.pets.active.displayName || props.pets.active.name} scale={petScale(props.pets.active)} position={props.pets.active.position}
+    {props.petEnabled && props.pets.active && !props.desktopPet && <PetCompanion key={props.pets.active.name} src={props.pets.imageUrl} name={props.pets.active.displayName || props.pets.active.name} scale={petScale(props.pets.active)} position={props.pets.active.position}
       activity={props.petActivity} reply={props.petReply} latestReply={props.latestPetReply} hidden={!!menu || !!suggestions.length} onMove={props.pets.move} onResize={props.pets.resize} onClose={props.onPetClose} onError={props.notify} />}
     <div className="composer-context-chips">
       {contextImages.map(image => <div className="composer-image-thumb" key={`image:${image.name}`} title={image.name}>

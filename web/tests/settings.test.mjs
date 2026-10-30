@@ -84,7 +84,7 @@ test('Markdown fences inside system prompts cannot escape folded context', () =>
   assert.deepEqual(chat.splitUserContext('```折叠块\n旧上下文\n```\n正文'), { context: '旧上下文', text: '正文' });
 });
 
-test('usage counts saved local messages and excludes archived sessions from active count', () => {
-  const usage = settings.usageSummary([{ archived: false, messages: [{ role: 'user', text: '你好' }, { role: 'assistant', text: 'hello', finishedAt: 1 }] }, { archived: true, messages: [] }]);
-  assert.deepEqual(usage, { sessions: 1, messages: 2, input: 1, output: 3, completed: 1 });
+test('usage counts saved local messages', () => {
+  const usage = settings.usageSummary([{ messages: [{ role: 'user', text: '你好' }, { role: 'assistant', text: 'hello', finishedAt: 1 }] }, { messages: [] }]);
+  assert.deepEqual(usage, { sessions: 2, messages: 2, input: 1, output: 3, completed: 1 });
 });

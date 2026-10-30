@@ -21,7 +21,6 @@ export const settingsCategories = [
   ] },
   { name: '工作区与数据', sections: [
     { name: '项目', label: '工作区', keywords: '路径 工作区 目录' },
-    { name: '已归档的会话', label: '已隐藏会话', keywords: '恢复 历史 归档' },
     { name: '数据面板', label: '用量', keywords: '统计 token 用量 费用' },
   ] },
   { name: '连接与帮助', sections: [
@@ -36,6 +35,7 @@ export function normalizeSettingsSection(name: string): string {
   if (name === '实验室') return '通用';
   if (name === '账户') return '关于';
   if (name === '拓展包') return '插件';
+  if (name === '已归档的会话' || name === '已隐藏会话') return '项目';
   const category = settingsCategories.find(item => item.name === name);
   if (category) return category.sections[0].name;
   return settingsCategories.some(item => item.sections.some(section => section.name === name)) ? name : '通用';

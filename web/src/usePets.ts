@@ -40,24 +40,30 @@ export default function usePets(api: LoopraClient, connected: boolean) {
     catch (cause) { setError(cause instanceof Error ? cause.message : '删除宠物失败'); throw cause; }
     finally { setLoading(false); }
   }
-  function saveAppearance(change: { scale?: number } & Partial<PetPoint>) {
+  function saveAppearance(change: { scale?: number; desktopX?: number | null; desktopY?: number | null } & Partial<PetPoint>) {
     // The legacy endpoint merges a JSON file. Serialize move/resize writes so
     // a resize cannot discard a position saved at the same time.
     const result = appearanceQueue.current.then(async () => {
       await api.request('/pets/position', 'PUT', change);
-      setSnapshot(current => ({ ...current, active: current.active ? {
-        ...current.active,
-        ...(change.scale !== undefined ? { scale: change.scale } : {}),
-        ...(change.x !== undefined && change.y !== undefined ? { position: { x: change.x, y: change.y } } : {}),
-      } : null }));
+      setSnapshot(current => {
+        if (!current.active) return current;
+        const active = { ...current.active };
+        if (change.scale !== undefined) active.scale = change.scale;
+        if (change.x !== undefined && change.y !== undefined) active.position = { x: change.x, y: change.y };
+        if (change.desktopX === null || change.desktopY === null) delete active.desktop;
+        else if (typeof change.desktopX === 'number' && typeof change.desktopY === 'number') active.desktop = { x: change.desktopX, y: change.desktopY };
+        return { ...current, active };
+      });
     });
     appearanceQueue.current = result.catch(() => {});
     return result;
   }
   const resize = (scale: number) => saveAppearance({ scale });
   const move = (position: PetPoint) => saveAppearance({ x: Math.round(position.x), y: Math.round(position.y) });
+  const moveDesktop = (anchor: PetPoint) => saveAppearance({ desktopX: Math.round(anchor.x), desktopY: Math.round(anchor.y) });
+  const clearDesktop = () => saveAppearance({ desktopX: null, desktopY: null });
   const imageUrl = snapshot.active ? petImageUrl(api, snapshot.active.name, revision) : '';
   const imageUrlFor = (name: string) => petImageUrl(api, name, revision);
-  return { ...snapshot, loading, error, refresh, select, remove, resize, move, imageUrl, imageUrlFor };
+  return { ...snapshot, loading, error, refresh, select, remove, resize, move, moveDesktop, clearDesktop, imageUrl, imageUrlFor };
 }
 export type PetStore = ReturnType<typeof usePets>;

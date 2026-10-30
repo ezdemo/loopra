@@ -12,7 +12,7 @@ export default function Search({ open, onClose, sessions, activeId, onSession, o
   const resultsRef = useRef<HTMLDivElement>(null);
   const groups = useMemo(() => {
     const match = query.trim().toLowerCase();
-    return { workspaces: workspaces.filter(item => `${item.name} ${item.path}`.toLowerCase().includes(match)), sessions: sessions.filter(item => !item.archived && `${item.title} ${item.workspace}`.toLowerCase().includes(match)) };
+    return { workspaces: workspaces.filter(item => `${item.name} ${item.path}`.toLowerCase().includes(match)), sessions: sessions.filter(item => `${item.title} ${item.workspace}`.toLowerCase().includes(match)) };
   }, [query, sessions, workspaces]);
   const options = useMemo(() => [...groups.workspaces.map(item => ({ id: item.hash, type: 'workspace' })), ...groups.sessions.map(item => ({ id: item.id, type: 'session' }))], [groups]);
   function choose(index: number) { const item = options[index]; if (!item) return; if (item.type === 'workspace') onWorkspace(item.id); else onSession(item.id); onClose(); }

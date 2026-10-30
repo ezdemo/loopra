@@ -19,7 +19,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ezdemo/looprax/internal/bootstrap"
 	"github.com/ezdemo/looprax/internal/config"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 )
@@ -56,7 +55,7 @@ func main() {
 	if parsed.Command == commandACP {
 		runErr = runACP(ctx, parsed.Options)
 	} else {
-		runErr = bootstrap.Run(ctx, parsed.Options)
+		runErr = runWeb(ctx, stop, parsed.Options)
 	}
 	if runErr != nil {
 		if quietWeb {

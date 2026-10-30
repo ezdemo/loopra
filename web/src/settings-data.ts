@@ -116,5 +116,5 @@ export function validateIntegration(item: Integration) {
 export function usageSummary(sessions: Session[]) {
   const messages = sessions.flatMap(session => session.messages);
   const tokens = (role: string) => messages.filter(message => message.role === role).reduce((sum, message) => sum + Math.ceil(Array.from(message.text).length / 2), 0);
-  return { sessions: sessions.filter(session => !session.archived).length, messages: messages.length, input: tokens('user'), output: tokens('assistant'), completed: messages.filter(message => message.role === 'assistant' && message.finishedAt).length };
+  return { sessions: sessions.length, messages: messages.length, input: tokens('user'), output: tokens('assistant'), completed: messages.filter(message => message.role === 'assistant' && message.finishedAt).length };
 }

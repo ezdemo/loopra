@@ -19,6 +19,7 @@ import (
 	"github.com/ezdemo/looprax/internal/controller"
 	"github.com/ezdemo/looprax/internal/frontend"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	"github.com/ezdemo/looprax/internal/petdesk"
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service"
 	"github.com/ezdemo/looprax/internal/service/agent"
@@ -97,11 +98,15 @@ func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registr
 	if label != "embedded" && !frontend.HasIndex(dir) {
 		logging.Warnf("server", "frontend not found; run pnpm build in web/ or pass --static-dir")
 	}
+	var desk petdesk.Surface
+	if surface, ok := settings.PetDesktop.(petdesk.Surface); ok {
+		desk = surface
+	}
 	api, key, err := controller.New(a, controller.Options{
 		Home: settings.Home, AccessKey: settings.AccessKey,
 		StaticDir: dir, StaticFS: bundle, PetsDir: settings.PetsDir,
 		Registry: registry, Configuration: configuration, Files: files,
-		OnUITheme: settings.OnUITheme,
+		OnUITheme: settings.OnUITheme, PetDesktop: desk,
 	})
 	if err != nil {
 		return nil, err

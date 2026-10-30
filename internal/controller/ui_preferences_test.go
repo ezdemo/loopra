@@ -86,14 +86,22 @@ func TestUIPreferencesRouteRequiresSavedFile(t *testing.T) {
 	}
 }
 
-func TestUIPreferencesKeepsProfilePetAndHiddenSessions(t *testing.T) {
-	s := &Controller{home: t.TempDir()}
+func TestUIPreferencesKeepsProfileAndPet(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, uiPreferencesFile), []byte(`{"theme":"light","hiddenSessions":["old/session"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Controller{home: home}
 	saved := callUIPreferences(t, s, http.MethodPut, []byte(`{"theme":"dark","petEnabled":true,"hiddenSessions":["d0ab4c2fbf56/loopra-1","d0ab4c2fbf56/loopra-1"],"profile":{"nickname":" 小环 ","avatar":"","color":"rose"}}`))
 	if saved.StatusCode != http.StatusOK || saved.prefs.Profile == nil || saved.prefs.Profile.Nickname != "小环" || saved.prefs.Profile.Color != "rose" || saved.prefs.PetEnabled == nil || !*saved.prefs.PetEnabled {
 		t.Fatalf("save = %d %+v", saved.StatusCode, saved.prefs)
 	}
-	if saved.prefs.HiddenSessions == nil || len(*saved.prefs.HiddenSessions) != 1 || (*saved.prefs.HiddenSessions)[0] != "d0ab4c2fbf56/loopra-1" {
-		t.Fatalf("hidden = %#v", saved.prefs.HiddenSessions)
+	disk, err := os.ReadFile(filepath.Join(home, uiPreferencesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(disk), "hiddenSessions") {
+		t.Fatalf("hidden sessions were stored: %s", disk)
 	}
 	kept := callUIPreferences(t, s, http.MethodPut, []byte(`{"theme":"light"}`))
 	if kept.prefs.Theme != "light" || kept.prefs.Profile == nil || kept.prefs.Profile.Nickname != "小环" || kept.prefs.PetEnabled == nil || !*kept.prefs.PetEnabled {

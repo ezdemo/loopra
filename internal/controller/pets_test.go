@@ -5,11 +5,29 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ezdemo/looprax/internal/model/config"
+	"github.com/ezdemo/looprax/internal/petdesk"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 )
+
+type fakePet struct {
+	ready     bool
+	shown     bool
+	resets    int
+	dismissed uint64
+	state     petdesk.State
+	closed    func()
+}
+
+func (f *fakePet) Ready() bool                 { return f.ready }
+func (f *fakePet) Present(state petdesk.State) { f.shown, f.state = true, state }
+func (f *fakePet) Hide()                       { f.shown = false }
+func (f *fakePet) Reset()                      { f.resets++ }
+func (f *fakePet) Dismissed() uint64           { return f.dismissed }
+func (f *fakePet) WhenDismissed(fn func())     { f.closed = fn }
 
 func petsTestServer(t *testing.T) (*httptest.Server, string, string) {
 	t.Helper()
@@ -108,5 +126,67 @@ func TestPetsDelete(t *testing.T) {
 	_, env = call(t, ts, http.MethodGet, "/api/pets", key, nil)
 	if got := len(env["data"].([]any)); got != 0 {
 		t.Fatalf("after delete = %d", got)
+	}
+}
+
+func TestPetsDesktopWindow(t *testing.T) {
+	ts, key, _ := petsTestServer(t)
+	_, env := call(t, ts, http.MethodGet, "/api/pets/desktop", key, nil)
+	if env["data"].(map[string]any)["native"] != false {
+		t.Fatalf("page pet host = %v", env["data"])
+	}
+
+	home := t.TempDir()
+	ws := filepath.Join(home, "defaultWorkSpace")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.WorkspaceDir = ws
+	agent, err := agentpkg.New(home, "petdesk001", &cfg, agentpkg.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk := &fakePet{ready: true}
+	srv, key, err := New(agent, Options{Home: home, PetDesktop: desk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desktop := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() { srv.Close(); desktop.Close() })
+
+	_, env = call(t, desktop, http.MethodPut, "/api/pets/desktop", key, map[string]any{
+		"shown": true, "name": "cat", "label": "小猫", "activity": "running",
+		"reply": "好了", "replyId": "m1", "replyActivity": "waving", "latest": "好了",
+		"scale": 0.75, "seen": 0,
+	})
+	if !desk.shown || desk.state.Name != "cat" || desk.state.Label != "小猫" || desk.state.Scale != 0.75 || desk.state.Latest != "好了" {
+		t.Fatalf("present = %+v shown=%v", desk.state, desk.shown)
+	}
+	if env["data"].(map[string]any)["native"] != true {
+		t.Fatalf("status = %v", env["data"])
+	}
+
+	_, env = call(t, desktop, http.MethodPut, "/api/pets/desktop", key, map[string]any{
+		"shown": true, "seen": 0, "reset": true, "scale": 0.75,
+	})
+	if desk.resets != 1 {
+		t.Fatalf("resets = %d", desk.resets)
+	}
+
+	desk.dismissed = 1
+	if desk.closed != nil {
+		desk.closed()
+	}
+	saved, err := os.ReadFile(filepath.Join(home, "ui-preferences.json"))
+	if err != nil || !strings.Contains(string(saved), `"petEnabled": false`) {
+		t.Fatalf("preferences = %s (%v)", saved, err)
+	}
+	_, env = call(t, desktop, http.MethodPut, "/api/pets/desktop", key, map[string]any{"shown": true, "seen": 0, "scale": 0.75})
+	if desk.shown {
+		t.Fatal("stale client reopened the pet")
+	}
+	if env["data"].(map[string]any)["dismissed"] != float64(1) {
+		t.Fatalf("dismissed = %v", env["data"])
 	}
 }

@@ -17,21 +17,20 @@ import (
 const uiPreferencesFile = "ui-preferences.json"
 
 // uiPreferences 是还没有单独接口的工作台设置。主题用 light、dark、system，
-// 语言用 zh、en。个人资料、宠物开关和隐藏会话缺省时不写出，便于区分
+// 语言用 zh、en。个人资料和宠物开关缺省时不写出，便于区分
 // 「还没保存过」和「保存成空」。persisted 只出现在响应里，表示文件是否已经写过。
 type uiPreferences struct {
-	Theme          string     `json:"theme"`
-	Language       string     `json:"language"`
-	FontScale      int        `json:"fontScale"`
-	Notifications  bool       `json:"notifications"`
-	Sound          bool       `json:"sound"`
-	OpenWith       string     `json:"openWith"`
-	AutoContext    bool       `json:"autoContext"`
-	Animations     bool       `json:"animations"`
-	PetEnabled     *bool      `json:"petEnabled,omitempty"`
-	HiddenSessions *[]string  `json:"hiddenSessions,omitempty"`
-	Profile        *uiProfile `json:"profile,omitempty"`
-	Persisted      bool       `json:"persisted"`
+	Theme         string     `json:"theme"`
+	Language      string     `json:"language"`
+	FontScale     int        `json:"fontScale"`
+	Notifications bool       `json:"notifications"`
+	Sound         bool       `json:"sound"`
+	OpenWith      string     `json:"openWith"`
+	AutoContext   bool       `json:"autoContext"`
+	Animations    bool       `json:"animations"`
+	PetEnabled    *bool      `json:"petEnabled,omitempty"`
+	Profile       *uiProfile `json:"profile,omitempty"`
+	Persisted     bool       `json:"persisted"`
 }
 
 type uiProfile struct {
@@ -46,6 +45,18 @@ func defaultUIPreferences() uiPreferences {
 		Notifications: true, Sound: true, OpenWith: "File Explorer",
 		AutoContext: true, Animations: true,
 	}
+}
+
+// notePetDismissed records that the native pet window was closed, so the
+// workbench toggle matches the window the next time preferences are read.
+func (s *Controller) notePetDismissed() {
+	s.uiPreferencesMu.Lock()
+	defer s.uiPreferencesMu.Unlock()
+	current, _ := loadUIPreferences(s.uiPreferencesPath())
+	off := false
+	current.PetEnabled = &off
+	current.Persisted = false
+	_ = repository.WriteJSON(s.uiPreferencesPath(), current)
 }
 
 func (s *Controller) uiPreferencesPath() string {
@@ -188,17 +199,6 @@ func (p *uiPreferences) apply(patch map[string]json.RawMessage) error {
 		}
 		p.PetEnabled = &value
 	}
-	if raw, ok := patch["hiddenSessions"]; ok {
-		var ids []string
-		if json.Unmarshal(raw, &ids) != nil {
-			return errors.New("无效的隐藏会话")
-		}
-		normalized, ok := normalizeHiddenSessions(ids)
-		if !ok {
-			return errors.New("无效的隐藏会话")
-		}
-		p.HiddenSessions = &normalized
-	}
 	if raw, ok := patch["profile"]; ok {
 		var profile uiProfile
 		if json.Unmarshal(raw, &profile) != nil || !validProfile(&profile) {
@@ -227,26 +227,6 @@ func validProfile(profile *uiProfile) bool {
 		return true
 	}
 	return len(profile.Avatar) <= 400_000 && profileAvatar.MatchString(profile.Avatar)
-}
-
-func normalizeHiddenSessions(ids []string) ([]string, bool) {
-	if len(ids) > 500 {
-		return nil, false
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		id = strings.TrimSpace(id)
-		if id == "" || utf8.RuneCountInString(id) > 240 || strings.ContainsAny(id, "\r\n\x00") {
-			return nil, false
-		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	return out, true
 }
 
 func canonicalTheme(value string) string {

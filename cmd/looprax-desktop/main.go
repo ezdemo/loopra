@@ -26,6 +26,7 @@ import (
 	"github.com/ezdemo/looprax/internal/config"
 	"github.com/ezdemo/looprax/internal/controller"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	"github.com/ezdemo/looprax/internal/petwin"
 )
 
 func desktopBackground(theme string) string {
@@ -88,9 +89,12 @@ func main() {
 	defer stop()
 	options.OnUITheme = applyDesktopTheme
 	theme := ""
+	var host *petwin.Host
 	if settings, err := config.Load(ctx, options); err == nil {
 		theme = controller.SavedUITheme(settings.Home)
 		applyDesktopTheme(theme)
+		host = petwin.New(settings.Home, settings.PetsDir)
+		options.PetDesktop = host
 	}
 
 	type listened struct{ base, key string }
@@ -152,6 +156,9 @@ func main() {
 		})
 		if err := win.SetIcon(appicon.PNG); err != nil {
 			logging.Debugf("desktop", "window icon: %v", err)
+		}
+		if host != nil {
+			host.Attach(win)
 		}
 		win.OnClosed(func() { stop() })
 	})

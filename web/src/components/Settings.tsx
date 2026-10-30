@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Modal, ModalContent } from '@nextui-org/react';
 import { AnimatePresence } from 'framer-motion';
-import { Archive, ArrowUpRight, BookOpen, Bot, ChevronDown, ChevronRight, Database, FolderClosed, Monitor, Plug, Search, Server, SlidersHorizontal, X, Zap } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Bot, ChevronDown, ChevronRight, Database, FolderClosed, Monitor, Plug, Search, Server, SlidersHorizontal, X, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Enter, SelectionIndicator } from './Motion';
 import { normalizeUiScale, UI_SCALE_LEVELS, type Provider, type Session } from '../lib';
@@ -40,6 +40,9 @@ type Props = {
   onOpenRequirements?: () => void;
   onOpenHelp?: () => void;
   pets: PetStore;
+  /** Desktop mygo shows the pet in its own window, so position reset has to reach that window. */
+  standalonePet?: boolean;
+  onResetPetPosition?: () => void | Promise<void>;
   /** Opens a fresh session with the petdex install command for a new pet. */
   onInitPet?: () => void;
   open: boolean; onClose: () => void; initialTab: string; server: string; workspaces: Workspace[]; onRefresh: () => Promise<void>;
@@ -48,7 +51,7 @@ type Props = {
   preferences: Preferences; onPreferences: (value: Preferences) => void;
   profileReady: boolean; onEditProfile: () => void;
   providers: Provider[]; onProviders: (value: Provider[]) => void | Promise<void>;
-  sessions: Session[]; onRestore: (id: string) => void; notify: (message: string) => void;
+  sessions: Session[]; notify: (message: string) => void;
   config: AgentSettings; onConfig: (value: AgentSettings) => void | Promise<void>;
   options: ComposerOptions; onOptions: (value: ComposerOptions) => void;
   defaultModel: string; onDefaultModel: (id: string) => void;
@@ -60,7 +63,7 @@ type Props = {
 
 export default function Settings(props: Props) {
   const api = useMemo(() => new LoopraClient(props.server), [props.server]);
-  const { open, onClose, preferences: prefs, onPreferences, providers, onProviders, sessions, onRestore, notify, config, onConfig: saveConfig, coreUpdate } = props;
+  const { open, onClose, preferences: prefs, onPreferences, providers, onProviders, sessions, notify, config, onConfig: saveConfig, coreUpdate } = props;
   const onConfig = (next: AgentSettings) => Promise.resolve(saveConfig(next)).catch(error => notify(error instanceof Error ? error.message : '保存配置失败'));
   const [tab, setTab] = useState(() => normalizeSettingsSection(props.initialTab));
   const [expandedCategory, setExpandedCategory] = useState(() => settingsCategoryFor(props.initialTab).name);
@@ -171,7 +174,7 @@ export default function Settings(props: Props) {
           <h3 className="settings-section-title">回复通知</h3><div className="settings-card"><SettingRow title="系统通知" description="回答完成时显示应用内通知"><SettingSwitch label="系统通知" value={prefs.notifications} onChange={value => update('notifications', value)} /></SettingRow><SettingRow title="通知提示音" description="回答完成时播放简短提示音"><SettingSwitch label="通知提示音" value={prefs.sound} onChange={value => update('sound', value)} /></SettingRow></div>
           <h3 className="settings-section-title">使用体验</h3><div className="settings-card"><SettingRow title="默认打开应用" description="顶栏文件夹按钮在项目目录启动的系统应用"><SelectField compact label="默认打开应用" value={prefs.openWith} onChange={value => update('openWith', value)} options={openWithOptions} startContent={<FolderClosed size="1.0625rem" />} /></SettingRow><SettingRow title="界面动画" description="弹窗与控件的过渡效果"><SettingSwitch label="界面动画" value={prefs.animations} onChange={value => update('animations', value)} /></SettingRow></div>
         </>}
-        {tab === '宠物' && <PetSettings pets={props.pets} enabled={config.petEnabled} onEnabled={petEnabled => onConfig({ ...config, petEnabled })} onInitPet={props.onInitPet} notify={notify} />}
+        {tab === '宠物' && <PetSettings pets={props.pets} enabled={config.petEnabled} standalone={props.standalonePet} onResetPosition={props.onResetPetPosition} onEnabled={petEnabled => onConfig({ ...config, petEnabled })} onInitPet={props.onInitPet} notify={notify} />}
         {tab === '模型供应商' && <ModelProviderSettings providers={providers} server={props.server} onProviders={onProviders} onNestedDialog={setNestedDialog} />}
         {tab === '模型用途' && <ModelUsageSettings {...pageProps} defaultModel={props.defaultModel} onDefaultModel={props.onDefaultModel} onManageModels={() => openCategory('模型供应商')} />}
         {tab === '智能体与会话' && <><PageActions title="会话默认" /><AgentDefaults {...pageProps} /><h2>会话上下文</h2><div className="settings-card"><SettingRow title="自动工作区上下文" description="在新消息中包含当前工作区信息"><SettingSwitch label="自动工作区上下文" value={prefs.autoContext} onChange={value => update('autoContext', value)} /></SettingRow></div></>}
@@ -201,7 +204,6 @@ export default function Settings(props: Props) {
           </section>
           <footer className="about-footer"><button type="button" onClick={props.onOpenHelp}><BookOpen size="1rem" aria-hidden="true" />帮助中心<ArrowUpRight size=".875rem" aria-hidden="true" /></button><div><span>开源主页</span><a href={GITEE_HOME_URL} target="_blank" rel="noreferrer">Gitee<ArrowUpRight size=".875rem" aria-hidden="true" /></a><a href={GITHUB_HOME_URL} target="_blank" rel="noreferrer">GitHub<ArrowUpRight size=".875rem" aria-hidden="true" /></a></div></footer>
         </div>}
-        {tab === '已归档的会话' && <><PageActions title="已隐藏会话" />{sessions.some(session => session.archived) ? <div className="settings-card">{sessions.filter(session => session.archived).map(session => <SettingRow key={session.id} title={session.title} description={session.workspace}><Button variant="light" className="restore-button" onPress={() => onRestore(session.id)}>恢复会话</Button></SettingRow>)}</div> : <div className="empty-setting"><Archive size="1.75rem" strokeWidth={1.5} /><h3>暂无隐藏会话</h3><p>隐藏的会话会记在服务端，可以在这里恢复。</p></div>}</>}
         </>}
       </Enter>
       </div>

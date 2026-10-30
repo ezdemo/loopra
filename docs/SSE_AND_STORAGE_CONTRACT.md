@@ -112,7 +112,7 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 
 ### 5.2 其它
 - `~/.loopra/agent-preferences.json`：`{selectedAgent:null, agents:{agentId:{optionId: string|boolean}}}`（排除 plan 选项）。
-- `~/.loopra/ui-preferences.json`：尚未单独成接口的工作台设置 `{theme:light|dark|system, language:zh|en, fontScale, notifications, sound, openWith, autoContext, animations, petEnabled, hiddenSessions, profile:{nickname,avatar,color}}`。不存在时 GET 不创建。若已有 `desktop.json`，保存时同步其 `theme` 字段。服务地址仍只存在客户端。
+- `~/.loopra/ui-preferences.json`：尚未单独成接口的工作台设置 `{theme:light|dark|system, language:zh|en, fontScale, notifications, sound, openWith, autoContext, animations, petEnabled, profile:{nickname,avatar,color}}`。不存在时 GET 不创建。若已有 `desktop.json`，保存时同步其 `theme` 字段。服务地址仍只存在客户端。旧的 `hiddenSessions` 不再读取，下次保存时从文件中去掉。
 - `~/.loopra/agent-mcp.json`：`{agents:{agentId:{serverName: boolean}}}`。
 - `mcp-servers.json`（用户级 ~/.loopra/ 与项目级 .loopra/）：Loopra 格式 `{"servers":[McpServerDTO]}` 或标准 `{"mcpServers":{name:{...}}}`（也接受裸映射；mcpServers 优先）。McpServerDTO：`{name, type:"stdio"|"sse"|"streamable"("http"/"streamable-http"→streamable; 空→有 url 无 command 即 streamable), enabled:true, command?, args?, env?, url?, headers?, timeout?("30s"/"500ms"/"2m")}`。
 - `~/.loopra/mcp-server.json`：`{enabled:false, name:"loopra", version:"1.0.0", channel:"streamable"|"streamable_stateless"|"sse", endpoint:"/mcp", allowedTools:null|[string]}`（null=全部已启用，[]=不发布）。

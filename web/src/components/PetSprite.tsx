@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { petAnimations, petFrame, petIdleActions, type PetAnimation } from '../pets';
+import { petAnimations, petFrame, petIdleActions, petSpriteSize, type PetAnimation } from '../pets';
 import { useAppMotion } from './Motion';
 
 // Match legacy PetSprite.vue, using the actual aspect ratio for 8×9/8×11 atlases.
@@ -64,7 +64,7 @@ export default function PetSprite({ src, name, scale = 0.55, activity = 'idle', 
     tick();
     return () => clearTimeout(timer);
   }, [animation, enabled, visible, inView, loaded, src]);
-  const width = 192 * scale * 0.75, height = 208 * scale * 0.75;
+  const { width, height } = petSpriteSize(scale);
   return <div ref={host} className={`pet-sprite ${className} ${loaded ? 'is-loaded' : ''}`} role="img" aria-label={`宠物：${name}`} title={failed ? '宠物图片加载失败，请在设置中重新加载' : name}
     style={{ width, height }} data-pet-animation={animation}>
     {requested && <img key={src} src={src} alt="" draggable={false} decoding="async" onLoad={event => {

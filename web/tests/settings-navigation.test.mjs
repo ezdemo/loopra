@@ -41,6 +41,8 @@ test('aliases used by deep links resolve to a real section', () => {
   assert.equal(normalizeSettingsSection('智能体'), '智能体与会话');
   assert.equal(normalizeSettingsSection('工具与集成'), '工具');
   assert.equal(normalizeSettingsSection('工作区与数据'), '项目');
+  assert.equal(normalizeSettingsSection('已归档的会话'), '项目');
+  assert.equal(normalizeSettingsSection('已隐藏会话'), '项目');
   assert.equal(normalizeSettingsSection('连接与帮助'), '服务器');
   // Unknown names fall back to 通用 instead of rendering nothing.
   assert.equal(normalizeSettingsSection('不存在的分类'), '通用');

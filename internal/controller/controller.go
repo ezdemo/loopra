@@ -21,6 +21,7 @@ import (
 	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	internalmodel "github.com/ezdemo/looprax/internal/model"
 	"github.com/ezdemo/looprax/internal/model/config"
+	"github.com/ezdemo/looprax/internal/petdesk"
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service"
 	"github.com/ezdemo/looprax/internal/service/acp"
@@ -80,6 +81,7 @@ type Controller struct {
 	plugins            *plugin.Host
 	uiPreferencesMu    sync.Mutex
 	onUITheme          func(theme string)
+	petDesktop         petdesk.Surface
 }
 
 // Options 配置服务端。
@@ -94,6 +96,8 @@ type Options struct {
 	Files         FileService
 	// OnUITheme 在界面偏好写入成功后调用，参数为 light、dark 或 system。
 	OnUITheme func(theme string)
+	// PetDesktop 在本进程里绘制原生宠物窗口。为空时页面仍把宠物画在输入框旁。
+	PetDesktop petdesk.Surface
 }
 
 // New 为指定的智能体构建服务端。
@@ -101,6 +105,7 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s := &Controller{
 		agent: a, key: ParseAccessKey(opts.AccessKey), registry: opts.Registry, home: opts.Home,
 		onUITheme:    opts.OnUITheme,
+		petDesktop:   opts.PetDesktop,
 		snapshots:    newSnapshotRegistry(),
 		permissions:  hitl.NewRegistry(),
 		elicitations: hitl.NewElicitationRegistry(),
@@ -176,6 +181,9 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	}
 	if os.Getenv("LOOPRA_JAVA_BACKEND_URL") == "" {
 		s.startScheduleTicker(scheduleInterval)
+	}
+	if hook, ok := opts.PetDesktop.(interface{ WhenDismissed(func()) }); ok {
+		hook.WhenDismissed(func() { s.notePetDismissed() })
 	}
 	return s, s.key.value, nil
 }

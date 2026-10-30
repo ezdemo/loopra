@@ -2,7 +2,12 @@ import type { LoopraClient } from './backend';
 import type { ChatBlock, Message } from './chat';
 
 export type Pet = { name: string; displayName?: string; description?: string; hasSpritesheet: boolean };
-export type ActivePet = { active: true; name: string; displayName?: string; description?: string; position?: { x: number; y: number }; sizeIndex?: number; scale?: number };
+export type ActivePet = {
+  active: true; name: string; displayName?: string; description?: string;
+  position?: { x: number; y: number }; sizeIndex?: number; scale?: number;
+  /** Bottom-right of the desktop pet window, in screen coordinates. */
+  desktop?: PetPoint;
+};
 export type PetSnapshot = { pets: Pet[]; active: ActivePet | null };
 export type PetPoint = { x: number; y: number };
 export type PetSize = { width: number; height: number };
@@ -50,6 +55,32 @@ export function placePetPanel(anchor: PetPoint & PetSize, panel: PetSize, viewpo
 export function petScale(pet: Pick<ActivePet, 'scale' | 'sizeIndex'>) {
   return typeof pet.scale === 'number' && Number.isFinite(pet.scale)
     ? Math.max(0.25, Math.min(1.25, pet.scale)) : petSizes[pet.sizeIndex ?? 1] ?? 0.55;
+}
+export function petSpriteSize(scale: number): PetSize {
+  const safe = typeof scale === 'number' && Number.isFinite(scale) ? Math.max(0.25, Math.min(1.25, scale)) : 0.55;
+  return { width: 192 * safe * 0.75, height: 208 * safe * 0.75 };
+}
+/** Page size of the desktop pet window. The sprite sits at the bottom-right; extra is the panel above it. */
+export function petWindowSize(pet: PetSize, extra: PetSize): PetSize {
+  return {
+    width: Math.max(48, Math.ceil(Math.max(pet.width, extra.width))),
+    height: Math.max(48, Math.ceil(pet.height + Math.max(0, extra.height))),
+  };
+}
+/** Top-left of a window whose bottom-right stays on `anchor`. */
+export function petWindowOrigin(anchor: PetPoint, frame: PetSize): PetPoint {
+  return { x: Math.round(anchor.x - frame.width), y: Math.round(anchor.y - frame.height) };
+}
+export function petAnchor(bounds: PetPoint & PetSize): PetPoint {
+  return { x: bounds.x + bounds.width, y: bounds.y + bounds.height };
+}
+export type PetWindowFrame = { x: number; y: number; width: number; height: number; hasPosition: boolean };
+/** `anchor` is the pet's bottom-right. Without one, the desktop host chooses the default corner. */
+export function petShowFrame(anchor: PetPoint | undefined, scale: number): PetWindowFrame {
+  const size = petWindowSize(petSpriteSize(scale), { width: 0, height: 0 });
+  if (!anchor || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) return { x: 0, y: 0, width: size.width, height: size.height, hasPosition: false };
+  const origin = petWindowOrigin(anchor, size);
+  return { x: origin.x, y: origin.y, width: size.width, height: size.height, hasPosition: true };
 }
 export function petActivity(generating: boolean, blocks: ChatBlock[] = []): PetAnimation {
   if (blocks.some(block => block.type === 'choice' && !block.selected)) return 'waiting';

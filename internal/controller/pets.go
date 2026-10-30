@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ezdemo/looprax/internal/petdesk"
 	"github.com/ezdemo/looprax/internal/repository"
 )
 
@@ -54,6 +55,8 @@ func (s *Controller) petsController(w http.ResponseWriter, r *http.Request) {
 		s.petsList(w)
 	case rest == "active":
 		s.petsActive(w, r)
+	case rest == "desktop":
+		s.petsDesktop(w, r)
 	case rest == "position" && r.Method == http.MethodPut:
 		var body map[string]any
 		if json.NewDecoder(r.Body).Decode(&body) != nil || body == nil {
@@ -73,6 +76,7 @@ func (s *Controller) petsController(w http.ResponseWriter, r *http.Request) {
 				position["scale"] = scale
 			}
 		}
+		applyDesktopPosition(position, body)
 		err := repository.WriteJSON(path, position)
 		s.state.files.Unlock()
 		if err != nil {
@@ -181,6 +185,11 @@ func (s *Controller) petsActive(w http.ResponseWriter, r *http.Request) {
 		if scale, ok := petScale(position["scale"]); ok {
 			view["scale"] = scale
 		}
+		if x, xOK := position["desktopX"]; xOK {
+			if y, yOK := position["desktopY"]; yOK {
+				view["desktop"] = map[string]any{"x": number(x), "y": number(y)}
+			}
+		}
 		writeOK(w, http.StatusOK, view)
 	}
 }
@@ -200,6 +209,77 @@ func (s *Controller) petSpritesheet(w http.ResponseWriter, r *http.Request, name
 	w.Header().Set("Content-Type", "image/webp")
 	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFile(w, r, path)
+}
+
+// applyDesktopPosition stores the desktop window's bottom-right in screen
+// coordinates. Null on either axis clears it; the in-page offset stays.
+func applyDesktopPosition(position, body map[string]any) {
+	xRaw, xOK := body["desktopX"]
+	yRaw, yOK := body["desktopY"]
+	if !xOK && !yOK {
+		return
+	}
+	if (xOK && xRaw == nil) || (yOK && yRaw == nil) {
+		delete(position, "desktopX")
+		delete(position, "desktopY")
+		return
+	}
+	if !xOK || !yOK {
+		return
+	}
+	position["desktopX"] = number(xRaw)
+	position["desktopY"] = number(yRaw)
+}
+
+func (s *Controller) petsDesktop(w http.ResponseWriter, r *http.Request) {
+	native := s.petDesktop != nil && s.petDesktop.Ready()
+	dismissed := uint64(0)
+	if s.petDesktop != nil {
+		dismissed = s.petDesktop.Dismissed()
+	}
+	if r.Method != http.MethodPut {
+		writeOK(w, http.StatusOK, map[string]any{"native": native, "dismissed": dismissed})
+		return
+	}
+	if s.petDesktop == nil {
+		writeOK(w, http.StatusOK, map[string]any{"native": false, "dismissed": uint64(0)})
+		return
+	}
+	var body struct {
+		Shown         bool    `json:"shown"`
+		Name          string  `json:"name"`
+		Label         string  `json:"label"`
+		Activity      string  `json:"activity"`
+		Reply         string  `json:"reply"`
+		ReplyID       string  `json:"replyId"`
+		ReplyActivity string  `json:"replyActivity"`
+		Latest        string  `json:"latest"`
+		Scale         float64 `json:"scale"`
+		Seen          uint64  `json:"seen"`
+		Reset         bool    `json:"reset"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		writeFail(w, http.StatusBadRequest, "宠物窗口参数不正确")
+		return
+	}
+	stale := body.Seen < s.petDesktop.Dismissed()
+	if stale || !body.Shown {
+		s.petDesktop.Hide()
+	} else {
+		scale := 0.0
+		if _, ok := petScale(body.Scale); ok {
+			scale = body.Scale
+		}
+		s.petDesktop.Present(petdesk.State{
+			Name: body.Name, Label: body.Label, Activity: body.Activity,
+			Reply: body.Reply, ReplyID: body.ReplyID, ReplyActivity: body.ReplyActivity, Latest: body.Latest,
+			Scale: scale,
+		})
+	}
+	if body.Reset {
+		s.petDesktop.Reset()
+	}
+	writeOK(w, http.StatusOK, map[string]any{"native": s.petDesktop.Ready(), "dismissed": s.petDesktop.Dismissed()})
 }
 
 func petScale(raw any) (float64, bool) {

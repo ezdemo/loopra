@@ -15,7 +15,6 @@ export type StoredUIPreferences = {
   autoContext: boolean;
   animations: boolean;
   petEnabled?: boolean;
-  hiddenSessions?: string[];
   profile?: { nickname: string; avatar: string; color: string };
   persisted?: boolean;
 };
@@ -24,7 +23,6 @@ export type ClientSettings = {
   preferences: Preferences;
   profile: LocalProfile;
   petEnabled: boolean;
-  hiddenSessions: string[];
 };
 
 export function toStoredPreferences(prefs: Preferences): Omit<StoredUIPreferences, 'persisted'> {
@@ -58,7 +56,6 @@ export function toStoredSettings(settings: ClientSettings): Omit<StoredUIPrefere
   return {
     ...toStoredPreferences(settings.preferences),
     petEnabled: settings.petEnabled,
-    hiddenSessions: [...settings.hiddenSessions],
     profile: { nickname: settings.profile.nickname, avatar: settings.profile.avatar, color: settings.profile.color },
   };
 }
@@ -67,9 +64,8 @@ export function toStoredSettings(settings: ClientSettings): Omit<StoredUIPrefere
 export function mergeStoredSettings(saved: Partial<StoredUIPreferences>, local: ClientSettings): { settings: ClientSettings; complete: boolean } {
   const profilePresent = !!saved.profile && typeof saved.profile === 'object';
   const petPresent = typeof saved.petEnabled === 'boolean';
-  const hiddenPresent = Array.isArray(saved.hiddenSessions);
   return {
-    complete: profilePresent && petPresent && hiddenPresent,
+    complete: profilePresent && petPresent,
     settings: {
       preferences: fromStoredPreferences(saved, local.preferences),
       profile: profilePresent ? {
@@ -78,7 +74,6 @@ export function mergeStoredSettings(saved: Partial<StoredUIPreferences>, local: 
         color: profileColors.includes(saved.profile?.color as LocalProfile['color']) ? saved.profile!.color as LocalProfile['color'] : 'blue',
       } : local.profile,
       petEnabled: petPresent ? saved.petEnabled as boolean : local.petEnabled,
-      hiddenSessions: hiddenPresent ? saved.hiddenSessions!.filter(id => typeof id === 'string' && id.trim()) : local.hiddenSessions,
     },
   };
 }

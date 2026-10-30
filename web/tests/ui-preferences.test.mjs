@@ -31,17 +31,16 @@ test('a saved service record restores the settings labels', () => {
   });
 });
 
-test('profile, pet visibility and hidden sessions travel with the same record', () => {
+test('profile and pet visibility travel with the same record', () => {
   const settings = {
     preferences: local,
     profile: { nickname: '小环', avatar: '', color: 'rose' },
     petEnabled: true,
-    hiddenSessions: ['d0ab4c2fbf56/loopra-1'],
   };
   const stored = toStoredSettings(settings);
   assert.equal(stored.theme, 'dark');
   assert.equal(stored.petEnabled, true);
-  assert.deepEqual(stored.hiddenSessions, ['d0ab4c2fbf56/loopra-1']);
+  assert.equal(stored.hiddenSessions, undefined);
   assert.equal(stored.profile.nickname, '小环');
   const partial = mergeStoredSettings({ theme: 'light', language: 'zh', fontScale: 100 }, settings);
   assert.equal(partial.complete, false);

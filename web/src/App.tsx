@@ -42,7 +42,8 @@ import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
 import usePets from './usePets';
-import { petActivity, petReplyPreview, type PetReply } from './pets';
+import { petActivity, petReplyPreview, petScale, type PetReply } from './pets';
+import { useNativePet } from './pet-desktop';
 import SessionDetails, { SessionProgress } from './components/SessionDetails';
 import { ConfirmAction, query } from './components/RemoteControls';
 import RollbackMessageDialog from './components/RollbackMessageDialog';
@@ -77,9 +78,6 @@ export default function App({ startupPending = false, initialServer }: { startup
   const workspaceLoading = startupPending || (backend.status === 'connecting' && !backend.config);
   const { api, sessions, setSessions, providers, workspaces } = backend;
   const pets = usePets(api, backend.status === 'connected');
-  const [hiddenSessions, setHiddenSessions] = useLocalState<string[]>(`hidden-sessions:${server}`, []);
-  const hiddenSessionsRef = useRef(hiddenSessions);
-  hiddenSessionsRef.current = hiddenSessions;
   const initialTheme = bootTheme();
   const [preferences, setPreferences] = useLocalState<Preferences>('preferences', initialTheme ? { ...defaultPreferences, theme: initialTheme } : defaultPreferences);
   const preferencesRef = useRef(preferences);
@@ -237,7 +235,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   // Legacy Chat.vue floating log stack (SSE `log`, `copy-success`, `app-notify`).
   const chatLogs = useChatLogs();
   const settingsQueue = useRef(Promise.resolve());
-  const session = sessions.find(item => item.id === activeId && !hiddenSessions.includes(item.id));
+  const session = sessions.find(item => item.id === activeId);
   const composerHistory = useMemo(() => session ? getSessionMessages(session).map(message => message.text) : [], [session?.messages, session?.kind]);
   const isHome = !session;
   const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
@@ -333,7 +331,6 @@ export default function App({ startupPending = false, initialServer }: { startup
   // Pending HITL/ask_choice cards drive the composer popup. Read from the live
   // session messages (not demo history) so mock/offline sessions never pop it.
   const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
-  const visibleSessions = sessions.filter(item => !hiddenSessions.includes(item.id));
   const currentWorkspace = workspaces.find(item => item.hash === workspace);
   const projectWorkspaces = useMemo(() => workspaces.filter(item => !isChatWorkspace(item)), [workspaces]);
   const workspaceName = currentWorkspace?.name || '选择工作区';
@@ -365,7 +362,7 @@ export default function App({ startupPending = false, initialServer }: { startup
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
   function currentClientSettings(): ClientSettings {
-    return { preferences: preferencesRef.current, profile: profileRef.current, petEnabled: agentSettingsRef.current.petEnabled, hiddenSessions: hiddenSessionsRef.current };
+    return { preferences: preferencesRef.current, profile: profileRef.current, petEnabled: agentSettingsRef.current.petEnabled };
   }
   function persistClientSettings(settings: ClientSettings, reportError: boolean) {
     uiPreferenceDirty.current = true;
@@ -377,10 +374,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   function applyClientSettings(settings: ClientSettings) {
     preferencesRef.current = settings.preferences;
     profileRef.current = settings.profile;
-    hiddenSessionsRef.current = settings.hiddenSessions;
     agentSettingsRef.current = { ...agentSettingsRef.current, petEnabled: settings.petEnabled };
     setPreferences(settings.preferences);
-    setHiddenSessions(settings.hiddenSessions);
     setAgentSettings(current => ({ ...current, petEnabled: settings.petEnabled }));
     void writeProfileLocal(settings.profile);
   }
@@ -394,11 +389,6 @@ export default function App({ startupPending = false, initialServer }: { startup
     await writeProfileLocal(next);
     profileRef.current = next;
     persistClientSettings({ ...currentClientSettings(), profile: next }, true);
-  }
-  function updateHiddenSessions(next: string[]) {
-    hiddenSessionsRef.current = next;
-    setHiddenSessions(next);
-    persistClientSettings({ ...currentClientSettings(), hiddenSessions: next }, true);
   }
   useEffect(() => {
     if (backend.status !== 'connected' || !profileReady) return;
@@ -416,7 +406,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [api, backend.status, profileReady, setPreferences, setHiddenSessions, setAgentSettings]);
+  }, [api, backend.status, profileReady, setPreferences, setAgentSettings]);
   const coreUpdate = useCoreServiceUpdate(api, notify, () => { setSettingsOpen(false); setMenu(null); }, settingsOpen && !isDesktopWindow());
   const desktopUpdate = useDesktopUpdate(anyGenerating || remoteRun ? '任务正在运行，请在任务结束后重启安装。'
     : coreUpdate.update?.running || coreUpdate.startingUpdate ? '核心服务正在更新，请在完成后重启安装。' : '',
@@ -675,7 +665,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       if (!result.sessionName || result.sessionName === source.name) throw new Error('未能创建独立的分叉会话');
       if (composerViewRef.current.server !== server) return;
       const next: Session = { ...source, id: `${source.workspaceHash}/${result.sessionName}`, name: result.sessionName,
-        title: `[复刻]${source.title}`, worktreeMode: false, archived: false, mtime: Date.now(),
+        title: `[复刻]${source.title}`, worktreeMode: false, mtime: Date.now(),
         messages: messageCount === undefined ? source.messages
           : source.messages.filter(message => message.historyCount !== undefined && message.historyCount <= messageCount) };
       // The fork already exists. Keep it visible even if the history refresh fails.
@@ -817,7 +807,6 @@ export default function App({ startupPending = false, initialServer }: { startup
       notify(`${target.title} 已刷新`);
     } catch (error) { notify(`刷新失败：${error instanceof Error ? error.message : error}`); }
   }
-  function archiveSession() { if (!activeId) return; updateHiddenSessions(hiddenSessionsRef.current.includes(activeId) ? hiddenSessionsRef.current : [...hiddenSessionsRef.current, activeId]); newSession(); notify('会话已隐藏，可在设置中恢复；历史仍保留在服务端'); }
   async function approvePlan() {
     if (!session || planBusy || generatingId) return;
     setPlanBusy(true);
@@ -868,7 +857,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   // list keeps it after a refresh and for other clients.
   function reorderSessions(workspaceHash: string, from: string, to: string) {
     if (!from || !to || from === to) return;
-    const own = sessions.filter(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id));
+    const own = sessions.filter(item => item.workspaceHash === workspaceHash);
     const source = own.findIndex(item => item.id === from);
     const target = own.findIndex(item => item.id === to);
     if (source < 0 || target < 0) return;
@@ -876,7 +865,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     const [moved] = next.splice(source, 1);
     next.splice(target, 0, moved);
     let index = 0;
-    setSessions(current => current.map(item => item.workspaceHash === workspaceHash && !hiddenSessions.includes(item.id) ? next[index++] : item));
+    setSessions(current => current.map(item => item.workspaceHash === workspaceHash ? next[index++] : item));
     const order = next.map(item => item.name).filter((name): name is string => !!name);
     void api.request(`/sessions/order?workspaceHash=${encodeURIComponent(workspaceHash)}`, 'PUT', order)
       .catch(error => { notify(`调整会话顺序失败：${error instanceof Error ? error.message : error}`); void backend.refresh(); });
@@ -1399,13 +1388,25 @@ export default function App({ startupPending = false, initialServer }: { startup
   useEffect(() => () => { runs.detach(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, [runs]);
 
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
+  const nativePet = useNativePet({
+    api,
+    connected: backend.status === 'connected',
+    enabled: agentSettings.petEnabled && !!pets.active,
+    name: pets.active?.name,
+    label: pets.active?.displayName || pets.active?.name,
+    scale: pets.active ? petScale(pets.active) : 0.55,
+    activity: petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks),
+    reply: petReply,
+    latest: petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1)),
+    onDismiss: () => { void saveAgentSettings({ ...agentSettingsRef.current, petEnabled: false }); },
+  });
   const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
     : <Composer home={isHome} loading={workspaceLoading} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !pluginPage && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !pluginPage && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} desktopPet={nativePet.native} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={composerHistory}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -1430,7 +1431,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebarMounted && <Sidebar api={api} open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
+      {sidebarMounted && <Sidebar api={api} open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={sessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
         profile={profile}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
         skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setSchedulesOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
@@ -1450,7 +1451,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
           onClear={() => { setMenu(null); clearChat(); }}
           onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
-          onHide={archiveSession} onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
+          onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
         {skillsOpen && <SkillsPage api={api} onRefresh={() => backend.refresh()} onBack={() => setSkillsOpen(false)} />}
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
@@ -1480,7 +1481,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
     {projectDialog && <ProjectSessions api={api} workspace={projectDialog} count={sessions.filter(item => item.workspaceHash === projectDialog.hash).length} sessions={sessions.filter(item => item.workspaceHash === projectDialog.hash)} onClose={() => setProjectDialog(undefined)} onRefresh={async () => { await backend.refreshWorkspaces(); }} onCompleted={(kind, sessionNames) => projectMaintained(kind, projectDialog, sessionNames)} onRenamed={(previous, renamed) => { setProjectDialog(renamed); setComposerContext(current => ({ ...current, projects: current.projects.map(name => name === previous.name ? renamed.name : name) })); }} notify={notify} />}
     {projectsOpen && <ProjectManager api={api} workspaces={projectWorkspaces} sessions={sessions} current={workspace} onClose={() => setProjectsOpen(false)} onRefresh={backend.refreshWorkspaces} onAdded={item => { setExpandedWorkspaces(previous => previous.includes(item.hash) ? previous : [...previous, item.hash]); newSession(item.hash); }} onDeleted={item => projectMaintained('delete', item)} notify={notify} />}
-    {sessionsOpen && <SessionsManager api={api} sessions={visibleSessions} workspaceHash={workspace} workspaceName={workspaceName} activeId={activeId} onClose={() => setSessionsOpen(false)} onOpen={id => { setSessionsOpen(false); void selectSession(id); }} onNew={() => { setSessionsOpen(false); newSession(); }} onChanged={() => backend.refresh()} notify={notify} />}
+    {sessionsOpen && <SessionsManager api={api} sessions={sessions} workspaceHash={workspace} workspaceName={workspaceName} activeId={activeId} onClose={() => setSessionsOpen(false)} onOpen={id => { setSessionsOpen(false); void selectSession(id); }} onNew={() => { setSessionsOpen(false); newSession(); }} onChanged={() => backend.refresh()} notify={notify} />}
     <Help open={helpOpen} onClose={() => setHelpOpen(false)} server={server} />
     {requirementsOpen && <RequirementBoard api={api} onClose={() => setRequirementsOpen(false)} notify={notify} />}
     {rollbackMessage && session && <RollbackMessageDialog hasSnapshot={!!rollbackMessage.snapshotId} onClose={() => setRollbackMessage(undefined)} onConfirm={async rollbackCode => {
@@ -1489,12 +1490,14 @@ export default function App({ startupPending = false, initialServer }: { startup
       await refreshCurrentSession(result.rollbackUserText);
     }} />}
     {discardPlan && <ConfirmAction title="退出计划模式" onClose={() => setDiscardPlan(false)} action={exitPlanMode}><p>{pendingPlan ? '待审查计划将被丢弃，且无法恢复。' : '将退出计划模式并恢复全部工具。'}</p></ConfirmAction>}
-    <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={visibleSessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
+    <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={sessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
     <Settings
       onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }}
       onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }}
       onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}
       pets={pets}
+      standalonePet={nativePet.native}
+      onResetPetPosition={nativePet.native ? async () => { await pets.clearDesktop(); await nativePet.reset(); } : undefined}
       onInitPet={initPet}
       updateCheck={backend.updateCheck}
       coreUpdate={coreUpdate}
@@ -1519,8 +1522,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       onEditProfile={() => setProfileOpen(true)}
       providers={providers}
       onProviders={saveProviders}
-      sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))}
-      onRestore={id => { updateHiddenSessions(hiddenSessionsRef.current.filter(item => item !== id)); notify('会话已恢复'); }}
+      sessions={sessions}
       notify={notify}
     />
     {profileOpen && <ProfileEditor profile={profile} english={preferences.language === 'English'} onSave={saveProfile} onClose={() => setProfileOpen(false)} />}
