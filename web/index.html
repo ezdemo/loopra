@@ -2,9 +2,29 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <meta name="theme-color" content="#ffffff" />
+    <script>window.__LOOPRA_THEME__="";</script>
+    <script>
+      (function () {
+        var theme = "";
+        try {
+          var saved = JSON.parse(localStorage.getItem("loopra:preferences") || "null");
+          if (saved && typeof saved.theme === "string") theme = saved.theme;
+        } catch (e) {}
+        if (!theme) theme = window.__LOOPRA_THEME__ === "dark" ? "深色" : window.__LOOPRA_THEME__ === "system" ? "跟随系统" : "";
+        var dark = theme === "深色" || theme === "月之暗面" || theme === "dark" || ((theme === "跟随系统" || theme === "system") && matchMedia("(prefers-color-scheme: dark)").matches);
+        var root = document.documentElement;
+        root.classList.add("workspace-theme");
+        root.classList.toggle("dark", dark);
+        root.style.colorScheme = dark ? "dark" : "light";
+        var color = dark ? "#191919" : "#ffffff";
+        root.style.backgroundColor = color;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = color;
+      })();
+    </script>
     <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f8fafb" />
     <meta name="description" content="Loopra — AI 代码助手" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Loopra · Agent Workspace</title>

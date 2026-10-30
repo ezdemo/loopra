@@ -15,7 +15,7 @@ export function BackendServer({ server, onSave }: { server: string; onSave: (ser
     catch (error) { setState(`连接失败：${error instanceof Error ? error.message : error}`); }
     finally { setBusy(false); }
   }
-  return <><PageActions title="服务器" /><form className="settings-card rich-settings-card rich-settings-form" onSubmit={event => { event.preventDefault(); void check(true); }}><Field label="后端 API 地址" value={url} onChange={setUrl} placeholder="http://127.0.0.1:4567" /><p className="section-note" role="status">{state || `当前地址：${server}`}</p><div className="settings-save-row"><Button variant="flat" isLoading={busy} onPress={() => void check(false)}>检查连接</Button><Button type="submit" color="primary" isDisabled={busy}>保存并连接</Button></div></form></>;
+  return <><PageActions title="服务器" /><form className="settings-card rich-settings-card rich-settings-form" onSubmit={event => { event.preventDefault(); void check(true); }}><Field label="后端 API 地址" value={url} onChange={setUrl} placeholder="http://127.0.0.1:4567" /><p className="section-note">这个地址只保存在这台设备上，用来找到 Loopra。</p><p className="section-note" role="status">{state || `当前地址：${server}`}</p><div className="settings-save-row"><Button variant="flat" isLoading={busy} onPress={() => void check(false)}>检查连接</Button><Button type="submit" color="primary" isDisabled={busy}>保存并连接</Button></div></form></>;
 }
 
 export function BackendProjects({ server, workspaces, sessions = [], onRefresh }: { server: string; workspaces: Workspace[]; sessions?: { workspaceHash?: string }[]; onRefresh: () => Promise<void> }) {

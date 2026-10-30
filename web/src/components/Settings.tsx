@@ -162,9 +162,9 @@ export default function Settings(props: Props) {
         {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{settingsCategoryFor(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} /></div> : <>
         {category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
         {tab === '通用' && <>
-          <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，仅保存在本机"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
+          <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，保存到服务端"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
           <h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
-            <SettingRow title="外观" description="选择应用的明暗外观"><SettingSegments label="外观" options={['☼ 浅色', '◉ 深色', '跟随系统']} value={prefs.theme === '浅色' ? '☼ 浅色' : prefs.theme === '深色' ? '◉ 深色' : prefs.theme} onChange={value => update('theme', value.replace(/^[☼◉] /, ''))} /></SettingRow>
+            <SettingRow title="外观" description="选择应用的明暗外观，保存到服务端"><SettingSegments label="外观" options={['☼ 浅色', '◉ 深色', '跟随系统']} value={prefs.theme === '浅色' ? '☼ 浅色' : prefs.theme === '深色' ? '◉ 深色' : prefs.theme} onChange={value => update('theme', value.replace(/^[☼◉] /, ''))} /></SettingRow>
             <SettingRow title="语言" description="侧栏与输入框的显示语言"><SettingSegments label="语言" options={['English', '简体中文']} value={prefs.language} onChange={value => update('language', value)} /></SettingRow>
             <SettingRow title="界面缩放" description="同步调整文字、侧栏宽度、控件尺寸与间距"><div className="font-scale-control"><SettingSegments label="全局界面缩放" options={UI_SCALE_LEVELS.map(level => `${level}%`)} value={`${normalizeUiScale(prefs.fontScale)}%`} onChange={value => update('fontScale', Number(value.replace('%', '')))} /></div></SettingRow>
           </div>
@@ -194,14 +194,14 @@ export default function Settings(props: Props) {
             <div className="about-storage-card">
               <div className="about-connection"><span className="about-row-icon"><Server size="1rem" aria-hidden="true" /></span><div><h4>当前服务</h4><p>{props.server}</p></div><Button size="sm" variant="light" onPress={() => openCategory('服务器')}>连接设置<ChevronRight size=".875rem" aria-hidden="true" /></Button></div>
               <div className="about-storage-locations">
-                <div><Database size="1rem" aria-hidden="true" /><div><h4>服务端数据</h4><p>工作区、会话与运行配置保存在后端服务所在设备。</p></div></div>
-                <div><Monitor size="1rem" aria-hidden="true" /><div><h4>本机偏好</h4><p>外观、缩放等界面偏好保存在当前浏览器或桌面端。</p></div></div>
+                <div><Database size="1rem" aria-hidden="true" /><div><h4>服务端设置</h4><p>外观、个人资料、模型、会话和其余设置都保存在后端服务所在设备。</p></div></div>
+                <div><Monitor size="1rem" aria-hidden="true" /><div><h4>本机连接</h4><p>服务地址保存在这台设备上，用来找到 Loopra。</p></div></div>
               </div>
             </div>
           </section>
           <footer className="about-footer"><button type="button" onClick={props.onOpenHelp}><BookOpen size="1rem" aria-hidden="true" />帮助中心<ArrowUpRight size=".875rem" aria-hidden="true" /></button><div><span>开源主页</span><a href={GITEE_HOME_URL} target="_blank" rel="noreferrer">Gitee<ArrowUpRight size=".875rem" aria-hidden="true" /></a><a href={GITHUB_HOME_URL} target="_blank" rel="noreferrer">GitHub<ArrowUpRight size=".875rem" aria-hidden="true" /></a></div></footer>
         </div>}
-        {tab === '已归档的会话' && <><PageActions title="已隐藏会话" />{sessions.some(session => session.archived) ? <div className="settings-card">{sessions.filter(session => session.archived).map(session => <SettingRow key={session.id} title={session.title} description={session.workspace}><Button variant="light" className="restore-button" onPress={() => onRestore(session.id)}>恢复会话</Button></SettingRow>)}</div> : <div className="empty-setting"><Archive size="1.75rem" strokeWidth={1.5} /><h3>暂无隐藏会话</h3><p>在本机隐藏的会话可以在这里恢复。</p></div>}</>}
+        {tab === '已归档的会话' && <><PageActions title="已隐藏会话" />{sessions.some(session => session.archived) ? <div className="settings-card">{sessions.filter(session => session.archived).map(session => <SettingRow key={session.id} title={session.title} description={session.workspace}><Button variant="light" className="restore-button" onPress={() => onRestore(session.id)}>恢复会话</Button></SettingRow>)}</div> : <div className="empty-setting"><Archive size="1.75rem" strokeWidth={1.5} /><h3>暂无隐藏会话</h3><p>隐藏的会话会记在服务端，可以在这里恢复。</p></div>}</>}
         </>}
       </Enter>
       </div>

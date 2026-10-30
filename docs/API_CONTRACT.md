@@ -83,6 +83,8 @@
 | 方法+路径 | 参数 | data |
 |---|---|---|
 | GET `/config` | — | ConfigDTO（apiKey 脱敏 `前4+****+后4`，短 key→`"****"`；字段全集见契约代理原始输出） |
+| GET `/ui-preferences` | — | `{theme:light\|dark\|system, language:zh\|en, fontScale:80\|90\|100\|110\|120, notifications:b, sound:b, openWith:s, autoContext:b, animations:b, petEnabled:b?, hiddenSessions:[s]?, profile:{nickname,avatar,color}?, persisted:b}`。文件不存在时 `persisted:false` 且不创建文件。个人资料、宠物开关、隐藏会话没保存过时省略 |
+| PUT `/ui-preferences` | body 同上，缺省字段保留已保存值；theme 也接受 `浅色`/`深色`/`跟随系统`，language 也接受 `简体中文`/`English` | 同 GET，`persisted:true`。非法外观、语言、缩放、打开应用、个人资料或隐藏会话 → 400 |
 | PUT `/config` | body `{}` 任意键值合并 | s：渠道类→`"模型渠道已更新，Agent 已重新初始化"`，否则 `"配置已更新"`；广播 config.changed 键：model/reasoningEffort/hitl/fastMode/disabledTools |
 | GET `/models` | — | `{current, currentChannelId, models:[{name,active,channelId,channelName,displayName}]}` |
 | GET `/remote-models` | q: channelId? | `[s]`（GET `{baseUrl}/models` 取 `$.data[].id`） |

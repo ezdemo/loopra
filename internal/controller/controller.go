@@ -78,6 +78,8 @@ type Controller struct {
 	files              FileService
 	acp                *acp.Manager
 	plugins            *plugin.Host
+	uiPreferencesMu    sync.Mutex
+	onUITheme          func(theme string)
 }
 
 // Options 配置服务端。
@@ -90,12 +92,15 @@ type Options struct {
 	PetsDir       string // 默认为 ~/.petdex/pets
 	Configuration ConfigService
 	Files         FileService
+	// OnUITheme 在界面偏好写入成功后调用，参数为 light、dark 或 system。
+	OnUITheme func(theme string)
 }
 
 // New 为指定的智能体构建服务端。
 func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s := &Controller{
 		agent: a, key: ParseAccessKey(opts.AccessKey), registry: opts.Registry, home: opts.Home,
+		onUITheme:    opts.OnUITheme,
 		snapshots:    newSnapshotRegistry(),
 		permissions:  hitl.NewRegistry(),
 		elicitations: hitl.NewElicitationRegistry(),

@@ -2,12 +2,13 @@ import { ToolImageSourceProvider } from './components/ToolImageResult';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Check } from 'lucide-react';
+import { applyDocumentTheme, bootTheme } from './document-theme';
 import { getSessionMessages, useLocalState } from './lib';
 import { useSessionPanel } from './useSessionPanel';
 import type { Provider, Session } from './lib';
 import Sidebar from './layout/Sidebar';
 import ProfileEditor from './components/LocalProfile';
-import { useLocalProfile } from './local-profile';
+import { normalizeProfile, useLocalProfile } from './local-profile';
 import Header from './layout/Header';
 import HomeView from './layout/HomeView';
 import IsolationSwitch from './layout/IsolationSwitch';
@@ -24,6 +25,7 @@ import type { PluginIconRef } from './components/plugin-icons';
 import { CoreServiceUpdateDialog, useCoreServiceUpdate } from './components/CoreServiceUpdate';
 import { DesktopUpdateDialog, useDesktopUpdate } from './components/DesktopUpdate';
 import type { Preferences } from './components/Settings';
+import { mergeStoredSettings, toStoredSettings, type ClientSettings, type StoredUIPreferences } from './ui-preferences';
 import Search from './components/Search';
 import type { FileChange, Message } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
@@ -76,12 +78,23 @@ export default function App({ startupPending = false, initialServer }: { startup
   const { api, sessions, setSessions, providers, workspaces } = backend;
   const pets = usePets(api, backend.status === 'connected');
   const [hiddenSessions, setHiddenSessions] = useLocalState<string[]>(`hidden-sessions:${server}`, []);
-  const [preferences, setPreferences] = useLocalState<Preferences>('preferences', defaultPreferences);
-  const { profile, ready: profileReady, saveProfile } = useLocalProfile();
+  const hiddenSessionsRef = useRef(hiddenSessions);
+  hiddenSessionsRef.current = hiddenSessions;
+  const initialTheme = bootTheme();
+  const [preferences, setPreferences] = useLocalState<Preferences>('preferences', initialTheme ? { ...defaultPreferences, theme: initialTheme } : defaultPreferences);
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
+  const uiPreferenceSave = useRef(0);
+  const uiPreferenceDirty = useRef(false);
+  const { profile, ready: profileReady, saveProfile: writeProfileLocal } = useLocalProfile();
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
   const [profileOpen, setProfileOpen] = useState(false);
   const [composerOptions, setComposerOptions] = useLocalState<ComposerOptions>('composer-options', defaultOptions);
   const [defaultModel, setDefaultModel] = useLocalState('default-model', defaultOptions.modelId);
   const [agentSettings, setAgentSettings] = useLocalState<AgentSettings>('agent-settings', defaultAgentSettings);
+  const agentSettingsRef = useRef(agentSettings);
+  agentSettingsRef.current = agentSettings;
   const [availableApplications, setAvailableApplications] = useState<string[] | null>(null);
   const [petReply, setPetReply] = useState<PetReply | null>(null);
   const [composerContext, setComposerContext] = useState<ComposerContext>(emptyContext);
@@ -328,7 +341,6 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (!chatMode) return;
     setTerminal(false);
   }, [chatMode]);
-  const isDark = preferences.theme === '深色' || (preferences.theme === '跟随系统' && systemDark);
   // A new chat has no session yet, but the Agent's choices are already known:
   // prepare them in the background so the composer never asks for a manual step.
   useEffect(() => {
@@ -352,6 +364,59 @@ export default function App({ startupPending = false, initialServer }: { startup
   }, [preferences.fontScale]);
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
+  function currentClientSettings(): ClientSettings {
+    return { preferences: preferencesRef.current, profile: profileRef.current, petEnabled: agentSettingsRef.current.petEnabled, hiddenSessions: hiddenSessionsRef.current };
+  }
+  function persistClientSettings(settings: ClientSettings, reportError: boolean) {
+    uiPreferenceDirty.current = true;
+    const seq = ++uiPreferenceSave.current;
+    void api.request('/ui-preferences', 'PUT', toStoredSettings(settings))
+      .then(() => { if (seq === uiPreferenceSave.current) uiPreferenceDirty.current = false; })
+      .catch(error => { if (reportError && seq === uiPreferenceSave.current) notify(`设置保存失败：${error instanceof Error ? error.message : error}`); });
+  }
+  function applyClientSettings(settings: ClientSettings) {
+    preferencesRef.current = settings.preferences;
+    profileRef.current = settings.profile;
+    hiddenSessionsRef.current = settings.hiddenSessions;
+    agentSettingsRef.current = { ...agentSettingsRef.current, petEnabled: settings.petEnabled };
+    setPreferences(settings.preferences);
+    setHiddenSessions(settings.hiddenSessions);
+    setAgentSettings(current => ({ ...current, petEnabled: settings.petEnabled }));
+    void writeProfileLocal(settings.profile);
+  }
+  function savePreferences(next: Preferences) {
+    preferencesRef.current = next;
+    setPreferences(next);
+    persistClientSettings({ ...currentClientSettings(), preferences: next }, true);
+  }
+  async function saveProfile(value: Parameters<typeof writeProfileLocal>[0]) {
+    const next = normalizeProfile(value);
+    await writeProfileLocal(next);
+    profileRef.current = next;
+    persistClientSettings({ ...currentClientSettings(), profile: next }, true);
+  }
+  function updateHiddenSessions(next: string[]) {
+    hiddenSessionsRef.current = next;
+    setHiddenSessions(next);
+    persistClientSettings({ ...currentClientSettings(), hiddenSessions: next }, true);
+  }
+  useEffect(() => {
+    if (backend.status !== 'connected' || !profileReady) return;
+    const controller = new AbortController();
+    void api.request<StoredUIPreferences>('/ui-preferences', 'GET', undefined, controller.signal)
+      .then(saved => {
+        if (controller.signal.aborted) return;
+        if (!saved.persisted || uiPreferenceDirty.current) {
+          persistClientSettings(currentClientSettings(), false);
+          return;
+        }
+        const merged = mergeStoredSettings(saved, currentClientSettings());
+        applyClientSettings(merged.settings);
+        if (!merged.complete) persistClientSettings(merged.settings, false);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [api, backend.status, profileReady, setPreferences, setHiddenSessions, setAgentSettings]);
   const coreUpdate = useCoreServiceUpdate(api, notify, () => { setSettingsOpen(false); setMenu(null); }, settingsOpen && !isDesktopWindow());
   const desktopUpdate = useDesktopUpdate(anyGenerating || remoteRun ? '任务正在运行，请在任务结束后重启安装。'
     : coreUpdate.update?.running || coreUpdate.startingUpdate ? '核心服务正在更新，请在完成后重启安装。' : '',
@@ -538,6 +603,10 @@ export default function App({ startupPending = false, initialServer }: { startup
   }
   async function saveAgentSettings(next: AgentSettings) {
     if (next.serverUrl !== server) { setServer(serverAddress(next.serverUrl)); setActiveId(null); setWorkspace(''); return; }
+    if (next.petEnabled !== agentSettings.petEnabled) {
+      agentSettingsRef.current = { ...agentSettingsRef.current, petEnabled: next.petEnabled };
+      persistClientSettings(currentClientSettings(), true);
+    }
     const changed = <K extends keyof AgentSettings>(key: K) => JSON.stringify(next[key]) !== JSON.stringify(agentSettings[key]);
     const localOnly = !(['systemPrompt', 'tools', 'validatorModel', 'imageModel', 'toolModel'] as const).some(changed);
     if (localOnly) { setAgentSettings(next); return; }
@@ -748,7 +817,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       notify(`${target.title} 已刷新`);
     } catch (error) { notify(`刷新失败：${error instanceof Error ? error.message : error}`); }
   }
-  function archiveSession() { if (!activeId) return; setHiddenSessions(current => [...current, activeId]); newSession(); notify('会话已在本机隐藏，可在设置中恢复；后端历史保留'); }
+  function archiveSession() { if (!activeId) return; updateHiddenSessions(hiddenSessionsRef.current.includes(activeId) ? hiddenSessionsRef.current : [...hiddenSessionsRef.current, activeId]); newSession(); notify('会话已隐藏，可在设置中恢复；历史仍保留在服务端'); }
   async function approvePlan() {
     if (!session || planBusy || generatingId) return;
     setPlanBusy(true);
@@ -1284,10 +1353,10 @@ export default function App({ startupPending = false, initialServer }: { startup
     const onChange = () => { setNarrow(media.matches); setSidebar(!media.matches); };
     media.addEventListener('change', onChange); return () => media.removeEventListener('change', onChange);
   }, []);
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDark);
+  useLayoutEffect(() => {
+    applyDocumentTheme(preferences.theme, systemDark);
     void syncDesktopTheme(preferences.theme).catch(error => console.warn('[desktop-theme] sync failed:', error));
-  }, [isDark, preferences.theme]);
+  }, [preferences.theme, systemDark]);
   useEffect(() => {
     const catalog = getModelCatalog(providers);
     if (!catalog.some(model => model.id === composerOptions.modelId) && catalog.length) setComposerOptions(value => ({ ...value, modelId: catalog[0].id }));
@@ -1336,7 +1405,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !pluginPage && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !pluginPage && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={composerHistory}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -1445,13 +1514,13 @@ export default function App({ startupPending = false, initialServer }: { startup
       onClose={() => setSettingsOpen(false)}
       initialTab={settingsTab}
       preferences={preferences}
-      onPreferences={setPreferences}
+      onPreferences={savePreferences}
       profileReady={profileReady}
       onEditProfile={() => setProfileOpen(true)}
       providers={providers}
       onProviders={saveProviders}
       sessions={sessions.map(item => ({ ...item, archived: hiddenSessions.includes(item.id) }))}
-      onRestore={id => { setHiddenSessions(current => current.filter(item => item !== id)); notify('会话已恢复'); }}
+      onRestore={id => { updateHiddenSessions(hiddenSessionsRef.current.filter(item => item !== id)); notify('会话已恢复'); }}
       notify={notify}
     />
     {profileOpen && <ProfileEditor profile={profile} english={preferences.language === 'English'} onSave={saveProfile} onClose={() => setProfileOpen(false)} />}

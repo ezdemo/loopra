@@ -77,7 +77,7 @@ export default function Header(p: HeaderProps) {
           <button role="menuitem" onClick={p.onRecords}><ScrollText size="1rem" />会话记录</button>
           <button role="menuitem" onClick={p.onClear}><MessageCirclePlus size="1rem" />清空当前对话</button>
           <button role="menuitem" onClick={p.onExport}><Download size="1rem" />导出对话</button>
-          <button role="menuitem" onClick={p.onHide}><Archive size="1rem" />在本机隐藏</button>
+          <button role="menuitem" onClick={p.onHide}><Archive size="1rem" />隐藏会话</button>
           <button role="menuitem" onClick={p.onDelete}><Trash2 size="1rem" />删除会话</button>
           <button role="menuitem" onClick={p.onCopyTitle}><Copy size="1rem" />复制会话标题</button>
         </Popup>

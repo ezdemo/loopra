@@ -101,6 +101,7 @@ func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registr
 		Home: settings.Home, AccessKey: settings.AccessKey,
 		StaticDir: dir, StaticFS: bundle, PetsDir: settings.PetsDir,
 		Registry: registry, Configuration: configuration, Files: files,
+		OnUITheme: settings.OnUITheme,
 	})
 	if err != nil {
 		return nil, err

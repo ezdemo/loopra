@@ -24,8 +24,31 @@ import (
 	"github.com/ezdemo/looprax/internal/appicon"
 	"github.com/ezdemo/looprax/internal/bootstrap"
 	"github.com/ezdemo/looprax/internal/config"
+	"github.com/ezdemo/looprax/internal/controller"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 )
+
+func desktopBackground(theme string) string {
+	switch theme {
+	case "dark":
+		return "#191919"
+	case "light":
+		return "#ffffff"
+	default:
+		return "light-dark(#ffffff, #191919)"
+	}
+}
+
+func applyDesktopTheme(theme string) {
+	switch theme {
+	case "dark":
+		mygo.Theme.SetSource(mygo.ThemeDark)
+	case "light":
+		mygo.Theme.SetSource(mygo.ThemeLight)
+	case "system":
+		mygo.Theme.SetSource(mygo.ThemeSystem)
+	}
+}
 
 func main() {
 	// 桌面窗口就是界面。默认不占控制台；LOOPRA_DEBUG=1 时仍把日志打出来。
@@ -63,6 +86,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	options.OnUITheme = applyDesktopTheme
+	theme := ""
+	if settings, err := config.Load(ctx, options); err == nil {
+		theme = controller.SavedUITheme(settings.Home)
+		applyDesktopTheme(theme)
+	}
 
 	type listened struct{ base, key string }
 	ready := make(chan listened, 1)
@@ -117,7 +146,7 @@ func main() {
 			MinWidth:        760,
 			MinHeight:       520,
 			Frameless:       true,
-			BackgroundColor: "light-dark(#f8fafb, #191919)",
+			BackgroundColor: desktopBackground(theme),
 			StateKey:        "workspace",
 			Page:            mygo.PageOptions{TrustedOrigins: []string{origin}},
 		})

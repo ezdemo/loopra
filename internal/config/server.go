@@ -38,6 +38,8 @@ type Options struct {
 	ShutdownTimeout time.Duration
 	// OnListen 在 HTTP 监听成功后调用，供桌面窗口打开工作台。
 	OnListen func(baseURL, accessKey string)
+	// OnUITheme 在界面偏好保存后调用，参数为 light、dark 或 system。
+	OnUITheme func(theme string)
 }
 
 type Server struct {
@@ -49,6 +51,7 @@ type Server struct {
 	StaticLabel       string // 日志用的前端来源；embedded 表示二进制内嵌页面
 	PetsDir           string
 	OnListen          func(baseURL, accessKey string)
+	OnUITheme         func(theme string)
 	ShutdownTimeout   time.Duration
 	ReadHeaderTimeout time.Duration
 	IdleTimeout       time.Duration
@@ -154,6 +157,7 @@ func Load(ctx context.Context, options Options) (*Server, error) {
 	settings.AccessKey = firstNonEmpty(options.AccessKey, os.Getenv("LOOPRA_ACCESS_KEY"), get("loopra.accessKey"))
 	settings.StaticDir = firstNonEmpty(options.StaticDir, os.Getenv("LOOPRA_STATIC_DIR"), get("loopra.staticDir"))
 	settings.OnListen = options.OnListen
+	settings.OnUITheme = options.OnUITheme
 	settings.PetsDir = firstNonEmpty(options.PetsDir, os.Getenv("LOOPRA_PETS_DIR"), get("loopra.petsDir"))
 	if configErr != nil {
 		return nil, configErr

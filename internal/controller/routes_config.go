@@ -3,6 +3,8 @@ package controller
 func (s *Controller) registerConfigRoutes(api *apiRouter) {
 	readRoute(api, "/config", s.action((*Controller).configController))
 	api.PUT("/config", s.action((*Controller).configController))
+	readRoute(api, "/ui-preferences", s.action((*Controller).uiPreferences))
+	api.PUT("/ui-preferences", s.action((*Controller).uiPreferences))
 	readRoute(api, "/models", s.action((*Controller).modelsController))
 	readRoute(api, "/remote-models", s.action((*Controller).remoteModelsController))
 	api.POST("/remote-models", s.action((*Controller).remoteModelsController))

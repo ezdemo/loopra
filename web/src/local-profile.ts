@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { electronApi } from './desktop-shell';
 import { loadDesktopProfile, persistLocalProfile, PROFILE_KEY } from './local-profile-storage';
 
@@ -34,11 +34,13 @@ export function useLocalProfile() {
     window.addEventListener('storage', onStorage);
     return () => { active = false; window.removeEventListener('storage', onStorage); };
   }, []);
+  const saveSeq = useRef(0);
   async function saveProfile(value: LocalProfile) {
+    const seq = ++saveSeq.current;
     const next = normalizeProfile(value);
     const desktop = electronApi()?.localProfile;
     await persistLocalProfile(next, localStorage, desktop || undefined);
-    setProfile(next);
+    if (seq === saveSeq.current) setProfile(next);
   }
   return { profile, ready, saveProfile };
 }

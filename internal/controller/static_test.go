@@ -170,6 +170,40 @@ func TestStaticDiskOverridesEmbedded(t *testing.T) {
 	}
 }
 
+func TestStaticIndexStampsSavedTheme(t *testing.T) {
+	home := t.TempDir()
+	ws := filepath.Join(home, "defaultWorkSpace")
+	os.MkdirAll(ws, 0o755)
+	static := filepath.Join(home, "static")
+	os.MkdirAll(static, 0o755)
+	page := `<!doctype html><html><head><script>window.__LOOPRA_THEME__="";</script></head><body>loopra</body></html>`
+	os.WriteFile(filepath.Join(static, "index.html"), []byte(page), 0o644)
+	os.WriteFile(filepath.Join(home, "ui-preferences.json"), []byte(`{"theme":"dark"}`), 0o644)
+	cfg := config.Default()
+	cfg.WorkspaceDir = ws
+	a, err := agentpkg.New(home, "thm0000001", &cfg, agentpkg.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, _, err := New(a, Options{Home: home, StaticDir: static})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() { srv.Close(); ts.Close() })
+	body := getBody(t, ts.URL+"/")
+	if !strings.Contains(body, `window.__LOOPRA_THEME__="dark"`) || strings.Contains(body, `window.__LOOPRA_THEME__=""`) {
+		t.Fatalf("stamped index = %s", body)
+	}
+	legacy := stampIndexTheme([]byte(`<html><head><title>old</title></head><body>old</body></html>`), "dark")
+	if !strings.Contains(string(legacy), `var theme="dark"`) || !strings.Contains(string(legacy), "#191919") {
+		t.Fatalf("legacy index = %s", legacy)
+	}
+	if got := string(stampIndexTheme([]byte(`<html>loopra</html>`), "dark")); got != `<html>loopra</html>` {
+		t.Fatalf("page without a head changed: %s", got)
+	}
+}
+
 func getBody(t *testing.T, url string) string {
 	t.Helper()
 	resp, err := http.Get(url)

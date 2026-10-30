@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { applyDocumentTheme, bootTheme } from './document-theme';
 import { notifyDesktopWorkspaceAfterPaint } from './desktop-shell';
 import { resolveInitialServer } from './runtime-config';
 import { installFocusAppearance } from './focus';
@@ -29,7 +30,7 @@ import './project-manager.css';
 import './focus.css';
 import './loading.css';
 
-document.documentElement.classList.add('workspace-theme');
+applyDocumentTheme(bootTheme());
 const removeFocusAppearance = installFocusAppearance();
 if (import.meta.hot) import.meta.hot.dispose(removeFocusAppearance);
 installAccessKeyProtocol();
