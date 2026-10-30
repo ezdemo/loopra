@@ -1,6 +1,6 @@
 # 插件
 
-插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。仓库里的 `plugins/web` 是随程序附带的联网插件，启动时如果清单里还没有同名插件，会自动安装。工具名仍然是 `web`。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
+插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。仓库里的 `plugins/web` 是随程序附带的联网插件，启动时如果清单里还没有同名插件，会自动安装。工具名仍然是 `web`。`plugins/chat-neko` 同样随程序附带，只在纯聊天里用 `systemPrompt` 追加猫娘人物设定。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
 
 安装后的文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。设置了 `LOOPRA_JAVA_BACKEND_URL` 时，本进程不加载这些插件。
 
@@ -21,7 +21,7 @@
 
 按这个顺序找入口：
 
-1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`
+1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`。对象里还可以写 `ui.settings`，见下面的设置页
 2. `module`、`main`
 3. `plugin.ts`、`plugin.mts`、`plugin.js`、`plugin.mjs`
 4. `index.ts`、`index.mts`、`index.js`、`index.mjs`
@@ -69,7 +69,7 @@ export function call(input) {
 
 钩子和工具可以写在同一个模块里，也可以写在 `export default` 上。多个插件按安装顺序串行，前一个的返回值交给下一个。某个插件抛错时跳过它，后面的继续。子代理用同一套钩子，并带上 `parentSessionId`。
 
-每次调用都会带上当时能确定的 `invocationId`、`sessionId`、`app`、`agent`。
+每次调用都会带上当时能确定的 `invocationId`、`sessionId`、`app`、`agent`，以及这个插件自己的 `config`。`config` 就是设置页保存的对象，没有保存过时是 `{}`。
 
 | 钩子 | 可以返回 | 作用 |
 | --- | --- | --- |
@@ -132,6 +132,38 @@ export async function load(args) {
 - 离开这棵目录的 `..` 和符号链接会被这个模块拒绝。根目录里面的链接可以照常使用。
 
 `fs.writeFileSync` 直接写本机文件，不经过对话里的路径检查和审批。标记成非只读的插件工具，在被模型调用时仍走审批。
+
+## 设置页
+
+`loopra` 写成对象时可以声明一个设置页。`plugins/chat-neko` 带了一份示例。
+
+```json
+{
+  "loopra": {
+    "plugin": "./plugin.js",
+    "ui": { "settings": "./ui/index.html" }
+  }
+}
+```
+
+宿主在插件卡片上打开它，放进 iframe。`sandbox` 不带 `allow-same-origin`，页面读不到访问密钥和 `localStorage`。地址里也不放密钥。打开前宿主会给这个插件单独发一个 HttpOnly cookie，只在 `/api/plugins/<id>/ui` 下有效。
+
+能取到的文件只限入口所在的目录，例如 `./ui/index.html` 只能再取 `ui/` 里面的文件。允许的类型是 HTML、CSS、JS、常见图片和字体。`..`、符号链接和其他类型都会拒绝。页面自己的 `fetch` 连不上 Loopra 接口。
+
+样式和脚本要写在这个 HTML 里。页面在不透明源里，同目录下单独的样式表和脚本不会被浏览器应用。打开后宿主发：
+
+```js
+{ type: "loopra", op: "ready", plugin: { id, name }, theme }
+```
+
+`theme` 是一组不带 `--` 的颜色变量，例如 `surface`、`text`、`blue`。页面用同样的消息读写自己的配置。配置是一个 JSON 对象，最大 64 KiB，存在 `~/.loopra/plugins/ui-config/<id>.json`。重装插件不会清掉它，卸载会删掉。
+
+```js
+parent.postMessage({ type: "loopra", op: "config:get", id: "1" }, "*");
+parent.postMessage({ type: "loopra", op: "config:set", id: "2", value: { nickname: "主人" } }, "*");
+```
+
+宿主只接受来自这个 iframe 的消息，并用 `{ type: "loopra", op: "config", id, value }` 或 `error` 回答。设置页不能调用插件工具。停用的插件仍然可以打开设置页。
 
 ## 边界
 

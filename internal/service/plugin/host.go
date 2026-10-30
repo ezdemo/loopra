@@ -53,6 +53,7 @@ type View struct {
 	Tools       []string `json:"tools,omitempty"`
 	Hooks       []string `json:"hooks,omitempty"`
 	Entry       string   `json:"entry,omitempty"`
+	Settings    bool     `json:"settings,omitempty"`
 }
 
 // Hooks 把插件工具挂进宿主的工具注册表。回调不能反过来调用 Host 的安装方法。
@@ -264,6 +265,9 @@ func (h *Host) Remove(id string) error {
 	if removeErr := os.RemoveAll(h.pkgDir(id)); err == nil {
 		err = removeErr
 	}
+	if removeErr := os.Remove(h.uiConfigPath(id)); removeErr != nil && !os.IsNotExist(removeErr) && err == nil {
+		err = removeErr
+	}
 	return err
 }
 
@@ -374,6 +378,9 @@ func (h *Host) viewLocked(rec record) View {
 		}
 	} else if rec.Enabled {
 		view.State = "已启用"
+	}
+	if _, err := h.SettingsFile(rec.ID, ""); err == nil {
+		view.Settings = true
 	}
 	return view
 }

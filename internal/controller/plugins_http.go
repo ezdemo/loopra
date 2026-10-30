@@ -27,6 +27,12 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 			writeOK(w, http.StatusOK, s.plugins.List())
 			return
 		}
+		if strings.HasPrefix(path, "external/") {
+			path = strings.TrimPrefix(path, "external/")
+		}
+		if s.servePluginConfig(w, path) || s.servePluginUI(w, r, path) {
+			return
+		}
 		writeFail(w, http.StatusNotFound, "未找到路径")
 		return
 	}
@@ -39,8 +45,12 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(path, "/")
-	if len(parts) == 3 && parts[0] == "external" {
+	if len(parts) > 0 && parts[0] == "external" {
 		parts = parts[1:]
+	}
+	if len(parts) == 3 && parts[1] == "ui" && parts[2] == "open" {
+		s.openPluginUI(w, r, parts[0])
+		return
 	}
 	if len(parts) != 2 {
 		writeFail(w, http.StatusNotFound, "未找到路径")
@@ -48,6 +58,8 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 	}
 	id, action := parts[0], parts[1]
 	switch action {
+	case "config":
+		s.savePluginConfig(w, r, id)
 	case "remove", "uninstall":
 		if err := s.plugins.Remove(id); err != nil {
 			writeFail(w, http.StatusBadRequest, err.Error())

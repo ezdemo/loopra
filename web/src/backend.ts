@@ -55,6 +55,9 @@ export class LoopraClient {
     const url = `${this.apiBase}${path}`;
     return typeof window !== 'undefined' && window.loopraAssetUrl ? window.loopraAssetUrl(url) : url;
   }
+  pluginPage(id: string) {
+    return `${this.apiBase}/plugins/${encodeURIComponent(id)}/ui/`;
+  }
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     // Opening an external ACP session has a 60s backend deadline. Keep a
     // matching finite UI deadline even when a view supplies its own signal.

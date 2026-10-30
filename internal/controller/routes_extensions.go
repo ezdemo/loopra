@@ -3,6 +3,7 @@ package controller
 func (s *Controller) registerExtensionsRoutes(api *apiRouter) {
 	readRoute(api, "/plugins", s.action((*Controller).pluginsController))
 	readRoute(api, "/plugins/external", s.action((*Controller).pluginsController))
+	readRoute(api, "/plugins/*", s.action((*Controller).pluginsController))
 	api.POST("/plugins/", s.action((*Controller).pluginsController))
 	api.POST("/plugins/*", s.action((*Controller).pluginsController))
 	readRoute(api, "/extpacks", s.action((*Controller).extpacksController))

@@ -60,7 +60,11 @@ func (h *Host) RunHook(ctx context.Context, name string, input map[string]any, s
 		ctx = context.Background()
 	}
 	for _, target := range h.hookTargets(name) {
-		out, err := target.run.eval(ctx, target.hook, merged)
+		callInput := cloneMap(merged)
+		if cfg, err := h.UIConfig(target.id); err == nil {
+			callInput["config"] = cfg
+		}
+		out, err := target.run.eval(ctx, target.hook, callInput)
 		if err != nil {
 			logging.Warnf("plugin", "hook %s plugin=%s: %v", name, target.id, err)
 			continue

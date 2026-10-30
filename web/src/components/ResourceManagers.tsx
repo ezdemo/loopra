@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
+import { Check } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { ConfirmAction, errorText, RemoteState, useRemote } from './RemoteControls';
 import { PageActions, Field, SettingDisclosure, ResourceIcon, ResourceEmpty } from './SettingControls';
@@ -7,41 +8,120 @@ import { PageActions, Field, SettingDisclosure, ResourceIcon, ResourceEmpty } fr
 type ToolParam = { name: string; description?: string; type?: string; required?: boolean };
 type Tool = { name: string; description: string; readOnly: boolean; readOnlyOverride: boolean | null; stormExempt: boolean; enabled: boolean; autoApproved: boolean; params?: ToolParam[] };
 export { default as SubAgentManager } from './SubAgentManager';
-type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string };
-function pluginMeta(pack: Pack) {
-  const parts = [pack.tools?.join('、'), pack.hooks?.length ? `钩子 ${pack.hooks.join('、')}` : ''].filter(Boolean);
-  return parts.join(' · ') || pack.source || pack.sourceUrl || pack.id;
+type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string; settings?: boolean };
+const pluginThemeKeys = ['surface', 'sidebar', 'line', 'text', 'secondary', 'muted', 'blue', 'success', 'danger'] as const;
+function pluginTheme() {
+  const node = document.querySelector('.workspace-theme') ?? document.documentElement;
+  const style = getComputedStyle(node);
+  return Object.fromEntries(pluginThemeKeys.map(key => [key, style.getPropertyValue(`--${key}`).trim()]));
+}
+function pluginConfigValue(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
+function pluginTone(id: string) {
+  let n = 0;
+  for (const ch of id) n = (n + ch.charCodeAt(0)) % pluginTones.length;
+  return pluginTones[n];
+}
+function pluginOrigin(pack: Pack) {
+  const source = pack.source || pack.sourceUrl || '';
+  if (/github\.com|^github:|github:/i.test(source)) return 'GitHub';
+  if (/^[a-z]:[\\/]/i.test(source) || source.startsWith('file:') || source.startsWith('.') || source.includes('\\') || source.startsWith('/')) return '本地';
+  return 'npm';
+}
+function pluginFoot(pack: Pack) {
+  if (pack.tools?.length) return pack.tools.join('、');
+  if (pack.hooks?.length) return pack.hooks.join('、');
+  return '';
 }
 export function ExtensionManager({ api }: { api: LoopraClient }) {
-  const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>();
+  const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
+  const frameRef = useRef<HTMLIFrameElement>(null);
   async function act(path: string, body?: unknown, clearSource = false) {
     setBusy(true); setError('');
     try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) setSource(''); }
     catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); setRevision(value => value + 1); }
   }
-  return <div className="settings-resource-page">
+  async function openSettings(pack: Pack) {
+    setBusy(true); setError('');
+    try { await api.request(`/plugins/${encodeURIComponent(pack.id)}/ui/open`, 'POST', {}); setPanel(pack); }
+    catch (cause) { setError(errorText(cause)); }
+    finally { setBusy(false); }
+  }
+  useEffect(() => {
+    if (!panel) return;
+    const current = panel;
+    const frame = frameRef.current;
+    const send = (data: Record<string, unknown>) => frame?.contentWindow?.postMessage(data, '*');
+    const ready = () => send({ type: 'loopra', op: 'ready', plugin: { id: current.id, name: current.displayName || current.id }, theme: pluginTheme() });
+    const node = document.querySelector('.workspace-theme');
+    const observer = node ? new MutationObserver(ready) : undefined;
+    if (node && observer) observer.observe(node, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    async function onMessage(event: MessageEvent) {
+      if (!frame || event.source !== frame.contentWindow) return;
+      const data = event.data as { type?: string; op?: string; id?: unknown; value?: unknown } | null;
+      if (!data || data.type !== 'loopra') return;
+      if (data.op === 'config:get') {
+        try { send({ type: 'loopra', op: 'config', id: data.id, value: await api.request(`/plugins/${encodeURIComponent(current.id)}/config`) }); }
+        catch (cause) { send({ type: 'loopra', op: 'config', id: data.id, error: errorText(cause) }); }
+      }
+      if (data.op === 'config:set') {
+        const value = pluginConfigValue(data.value);
+        if (!value || JSON.stringify(value).length > 65536) { send({ type: 'loopra', op: 'config', id: data.id, error: '插件配置必须是对象' }); return; }
+        try { send({ type: 'loopra', op: 'config', id: data.id, value: await api.request(`/plugins/${encodeURIComponent(current.id)}/config`, 'POST', value) }); }
+        catch (cause) { send({ type: 'loopra', op: 'config', id: data.id, error: errorText(cause) }); }
+      }
+    }
+    window.addEventListener('message', onMessage);
+    return () => { observer?.disconnect(); window.removeEventListener('message', onMessage); };
+  }, [api, panel]);
+  if (panel) {
+    const name = panel.displayName || panel.id;
+    return <div className="settings-resource-page plugin-page">
+      <PageActions title={name} onBack={() => setPanel(undefined)} />
+      {error && <p role="alert" className="settings-error">{error}</p>}
+      <iframe ref={frameRef} className="plugin-settings-frame" title={`${name} 设置`} sandbox="allow-scripts" referrerPolicy="no-referrer" src={api.pluginPage(panel.id)} onLoad={() => frameRef.current?.contentWindow?.postMessage({ type: 'loopra', op: 'ready', plugin: { id: panel.id, name }, theme: pluginTheme() }, '*')} />
+    </div>;
+  }
+  return <div className="settings-resource-page plugin-page">
     <PageActions title="插件"><Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button></PageActions>
     <form className="resource-toolbar resource-install" onSubmit={event => { event.preventDefault(); const value = source.trim(); if (value) void act('/install', { source: value }, true); }}>
       <Field label="npm 包、GitHub 或本地路径" required value={source} onChange={setSource} placeholder="left-pad、GitHub 地址，或本地目录 / .tgz / .js" />
-      <Button size="sm" color="primary" type="submit" isLoading={busy} isDisabled={!source.trim()}>安装插件</Button>
+      <button className="plugin-card-state" type="submit" disabled={busy || !source.trim()}>{busy ? '安装中' : '安装'}</button>
     </form>
-    <p className="section-note">插件是 JavaScript 或 TypeScript 模块，由 moejs 执行。导出的函数会变成工具；也可以导出 tools() 和 call()。turnBefore、toolBefore、llmRequest 这些钩子可以改写一轮对话。可以用 fetch 访问网络，用 node:fs 读写本机文件。入口写在 package.json 的 loopra 字段。</p>
     <RemoteState {...state} />{error && <p role="alert" className="settings-error">{error}</p>}
-    {state.data?.length === 0 && <ResourceEmpty kind="plugin" title="尚未安装插件">填写 npm 包名或 GitHub 地址，例如 left-pad@1.3.0 或 github:owner/repo。</ResourceEmpty>}
-    <div className="resource-list">{state.data?.map(pack => <section className="workbench-card resource-row" key={pack.id}>
-      <ResourceIcon kind="plugin" />
-      <div className="resource-row-info">
-        <div className="resource-name"><strong>{pack.displayName || pack.id}</strong>{pack.version && <code className="resource-version">v{pack.version}</code>}<span className={`resource-status ${pack.enabled && pack.state !== '加载失败' ? 'is-on' : ''}`}>{pack.state || (pack.enabled ? '已启用' : '已停用')}</span></div>
-        <p>{pack.description || pack.remark || pack.source || '暂无描述'}</p>
-        {pack.error && <p role="alert" className="settings-error">{pack.error}</p>}
-        <code className="resource-meta">{pluginMeta(pack)}</code>
-      </div>
-      <div className="resource-row-actions">
-        <Button size="sm" variant={pack.enabled ? 'flat' : 'light'} color={pack.enabled ? 'primary' : 'default'} isDisabled={busy} onPress={() => void act(`/${encodeURIComponent(pack.id)}/toggle`, { enabled: !pack.enabled })}>{pack.enabled ? '停用' : '启用'}</Button>
-        <Button size="sm" variant="light" color="danger" isDisabled={busy} onPress={() => setDeleting(pack)}>卸载</Button>
-      </div>
-    </section>)}</div>
+    {state.data?.length === 0 && <ResourceEmpty kind="plugin" title="尚未安装插件">填写 npm 包名、GitHub 地址，或本地目录。</ResourceEmpty>}
+    <div className="plugin-market">{state.data?.map(pack => {
+      const name = pack.displayName || pack.id;
+      const failed = pack.state === '加载失败';
+      const on = pack.enabled && !failed;
+      return <section className="plugin-card" key={pack.id}>
+        <header className="plugin-card-head">
+          <span className="plugin-card-mark" style={{ background: pluginTone(pack.id) }} aria-hidden="true">{[...name.trim()][0] || '?'}</span>
+          <div className="plugin-card-id">
+            <div className="plugin-card-name">
+              <strong title={name}>{name}</strong>
+              <span className="plugin-card-origin">{pluginOrigin(pack)}</span>
+            </div>
+          </div>
+          <button className={`plugin-card-state ${on ? 'is-on' : ''} ${failed ? 'is-failed' : ''}`} type="button" disabled={busy} onClick={() => void act(`/${encodeURIComponent(pack.id)}/toggle`, { enabled: !pack.enabled })}>
+            {on && <Check size="0.8rem" strokeWidth={2.4} aria-hidden="true" />}
+            {failed ? '加载失败' : on ? '已启用' : '启用'}
+          </button>
+        </header>
+        <p className="plugin-card-desc">{pack.description || pack.remark || pack.source || '暂无描述'}</p>
+        {pack.error && <p role="alert" className="settings-error plugin-card-error">{pack.error}</p>}
+        <footer className="plugin-card-foot">
+          <span>{pack.version ? `v${pack.version}` : pluginOrigin(pack)}</span>
+          {pluginFoot(pack) && <span className="plugin-card-meta" title={pluginFoot(pack)}>{pluginFoot(pack)}</span>}
+          {pack.settings && <button className="plugin-card-open" type="button" disabled={busy} onClick={() => void openSettings(pack)}>设置</button>}
+          <button className="plugin-card-remove" type="button" disabled={busy} onClick={() => setDeleting(pack)}>卸载</button>
+        </footer>
+      </section>;
+    })}</div>
     {deleting && <ConfirmAction title="卸载插件" onClose={() => setDeleting(undefined)} action={() => api.request(`/plugins/${encodeURIComponent(deleting.id)}/remove`, 'POST')} onDone={() => setRevision(value => value + 1)}><p>卸载 {deleting.displayName || deleting.id}？已安装的文件和它贡献的工具会一起移除。</p></ConfirmAction>}
   </div>;
 }

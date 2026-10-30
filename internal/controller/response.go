@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	"github.com/ezdemo/looprax/internal/service/plugin"
 )
 
 // apiResponse 对应 Java 的 ApiResponse 包装：null 字段被省略。
@@ -112,6 +113,7 @@ func (k AccessKey) Match(presented string) bool {
 
 // auth 用 Loopra 访问规则包装处理器：所有请求都校验
 // X-Loopra-Key 头，但 pets spritesheet 路径可用 ?rk=。
+// 插件设置页的 iframe 不能带这个头，只接受它自己的 HttpOnly cookie。
 func (k AccessKey) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -122,6 +124,10 @@ func (k AccessKey) auth(next http.Handler) http.Handler {
 			if presented == "" && r.Method == http.MethodGet &&
 				strings.HasPrefix(path, "/api/pets/") && strings.HasSuffix(path, "/spritesheet") {
 				presented = r.URL.Query().Get("rk")
+			}
+			if presented == "" && plugin.ValidUIRequest(r) {
+				next.ServeHTTP(w, r)
+				return
 			}
 			if !k.Match(presented) {
 				w.Header().Set("Cache-Control", "no-store")

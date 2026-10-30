@@ -101,3 +101,40 @@ func callWeb(t *testing.T, tool BoundTool, args map[string]any) string {
 	}
 	return text
 }
+
+func TestChatNekoAppendsOnlyInChat(t *testing.T) {
+	root := findBundledRoot()
+	if root == "" {
+		t.Fatal("没有找到 plugins")
+	}
+	h := New(t.TempDir(), Hooks{})
+	if _, err := h.Install(context.Background(), filepath.Join(root, "chat-neko")); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Bound()) != 0 {
+		t.Fatalf("tools = %+v", h.Bound())
+	}
+	out, touched := h.RunHook(context.Background(), HookSystemPrompt, map[string]any{
+		"app": "__loopra_chat__", "text": "base",
+	}, nil)
+	extra, _ := out["append"].(string)
+	if !touched["append"] || !strings.Contains(extra, "猫娘") || !strings.Contains(extra, "称呼用户「你」") || touched["text"] {
+		t.Fatalf("chat append = %q touched=%v", extra, touched)
+	}
+	if err := h.SetUIConfig("chat_neko", map[string]any{"nickname": "主人"}); err != nil {
+		t.Fatal(err)
+	}
+	out, touched = h.RunHook(context.Background(), HookSystemPrompt, map[string]any{
+		"app": "__loopra_chat__", "text": "base",
+	}, nil)
+	extra, _ = out["append"].(string)
+	if !strings.Contains(extra, "称呼用户「主人」") {
+		t.Fatalf("nickname append = %q", extra)
+	}
+	out, touched = h.RunHook(context.Background(), HookSystemPrompt, map[string]any{
+		"app": "project", "text": "Working directory: C:\\code",
+	}, nil)
+	if touched["append"] || touched["text"] {
+		t.Fatalf("project prompt changed: %v %v", out, touched)
+	}
+}

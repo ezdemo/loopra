@@ -33,6 +33,7 @@ type pkgFile struct {
 	Version      string
 	Description  string
 	Loopra       string
+	Settings     string
 	Module       string
 	Main         string
 	Entry        string
@@ -679,7 +680,8 @@ func readPkg(dir string) pkgFile {
 	return pkgFile{
 		Name: raw.Name, Version: raw.Version, Description: raw.Description,
 		Module: raw.Module, Main: raw.Main, Loopra: loopraPath(raw.Loopra),
-		Exports: raw.Exports, Dependencies: raw.Dependencies,
+		Settings: loopraSettings(raw.Loopra),
+		Exports:  raw.Exports, Dependencies: raw.Dependencies,
 	}
 }
 
@@ -702,6 +704,21 @@ func loopraPath(raw json.RawMessage) string {
 		return obj.Main
 	}
 	return ""
+}
+
+func loopraSettings(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var obj struct {
+		UI struct {
+			Settings string `json:"settings"`
+		} `json:"ui"`
+	}
+	if json.Unmarshal(raw, &obj) != nil {
+		return ""
+	}
+	return strings.TrimSpace(obj.UI.Settings)
 }
 
 func exportDot(raw json.RawMessage) string {
