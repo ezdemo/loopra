@@ -6,6 +6,8 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -118,6 +120,70 @@ func TestInstallGitHubArchive(t *testing.T) {
 	out, err := h.Bound()[0].Call(context.Background(), map[string]any{})
 	if err != nil || out["text"] != "pong" {
 		t.Fatalf("ping = %v %v", out, err)
+	}
+}
+
+func TestInstallLocalSources(t *testing.T) {
+	home := t.TempDir()
+	h := New(home, Hooks{})
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"local-dir","version":"1.0.0"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.js"), []byte("export function ping() { return { text: \"from-dir\" }; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	view, err := h.Install(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ID != "local_dir" || view.Source != dir {
+		t.Fatalf("dir view = %+v", view)
+	}
+	out, err := h.Bound()[0].Call(context.Background(), map[string]any{})
+	if err != nil || out["text"] != "from-dir" {
+		t.Fatalf("dir call = %#v %v", out, err)
+	}
+
+	file := filepath.Join(t.TempDir(), "hello.ts")
+	if err := os.WriteFile(file, []byte("export function hi() { return { text: \"from-file\" }; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	view, err = h.Install(context.Background(), "file:///"+filepath.ToSlash(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ID != "hello" {
+		t.Fatalf("file view = %+v", view)
+	}
+	var called bool
+	for _, tool := range h.Bound() {
+		if tool.Name != "hello__hi" {
+			continue
+		}
+		called = true
+		out, err = tool.Call(context.Background(), map[string]any{})
+		if err != nil || out["text"] != "from-file" {
+			t.Fatalf("file call = %#v %v", out, err)
+		}
+	}
+	if !called {
+		t.Fatalf("tools = %+v", h.Bound())
+	}
+
+	archivePath := filepath.Join(t.TempDir(), "packed.tgz")
+	if err := os.WriteFile(archivePath, tarGz(map[string]string{
+		"package/package.json": `{"name":"packed","version":"0.1.0"}`,
+		"package/plugin.js":    "export function ping() { return { text: \"from-tar\" }; }\n",
+	}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	view, err = h.Install(context.Background(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ID != "packed" || view.Version != "0.1.0" {
+		t.Fatalf("tar view = %+v", view)
 	}
 }
 

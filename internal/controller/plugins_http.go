@@ -78,7 +78,7 @@ func (s *Controller) installPlugin(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil || strings.TrimSpace(body.Source) == "" {
-		writeFail(w, http.StatusBadRequest, "source 不能为空（npm 包名或 GitHub 地址）")
+		writeFail(w, http.StatusBadRequest, "source 不能为空（npm 包名、GitHub 地址或本地路径）")
 		return
 	}
 	view, err := s.plugins.Install(r.Context(), body.Source)
@@ -92,9 +92,7 @@ func (s *Controller) installPlugin(w http.ResponseWriter, r *http.Request) {
 func (s *Controller) bindPluginTools(specs []plugin.BoundTool) {
 	entries := s.materializePluginTools(specs)
 	s.eachRegistry(func(reg *tools.Registry) {
-		for _, entry := range entries {
-			reg.Add(entry)
-		}
+		s.addPluginEntries(reg, entries)
 	})
 }
 
@@ -110,7 +108,18 @@ func (s *Controller) attachPluginTools(reg *tools.Registry) {
 	if s == nil || s.plugins == nil || reg == nil {
 		return
 	}
-	for _, entry := range s.materializePluginTools(s.plugins.Bound()) {
+	s.addPluginEntries(reg, s.materializePluginTools(s.plugins.Bound()))
+}
+
+func (s *Controller) addPluginEntries(reg *tools.Registry, entries []tools.Tool) {
+	if reg == nil {
+		return
+	}
+	chat := reg.ChatScope()
+	for _, entry := range entries {
+		if chat && !entry.Meta.Chat {
+			continue
+		}
 		reg.Add(entry)
 	}
 }
@@ -139,7 +148,7 @@ func (s *Controller) materializePluginTools(specs []plugin.BoundTool) []tools.To
 			continue
 		}
 		out = append(out, tools.Tool{Tool: toolImpl, Meta: tools.Metadata{
-			Name: spec.Name, Description: spec.Description, ReadOnly: spec.ReadOnly, AutoApprove: spec.ReadOnly,
+			Name: spec.Name, Description: spec.Description, ReadOnly: spec.ReadOnly, AutoApprove: spec.ReadOnly, Chat: spec.Chat,
 		}})
 	}
 	return out

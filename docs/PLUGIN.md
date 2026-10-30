@@ -1,6 +1,6 @@
 # 插件
 
-插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
+插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。仓库里的 `plugins/web` 是随程序附带的联网插件，启动时如果清单里还没有同名插件，会自动安装。工具名仍然是 `web`。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
 
 安装后的文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。设置了 `LOOPRA_JAVA_BACKEND_URL` 时，本进程不加载这些插件。
 
@@ -11,8 +11,9 @@
 - `left-pad`、`left-pad@1.2.3`、`npm:@scope/pkg@1.2.3`
 - `github:owner/repo`、`owner/repo#ref`、`https://github.com/owner/repo`
 - `https://github.com/owner/repo/tree/<ref>/<subdir>`
+- 本地目录、`.tgz` / `.tar.gz`，或单个 `.js` / `.ts` 文件。可以写绝对路径、`./` 相对路径，或 `file:` 地址
 
-不接受 `.jar`、`file:`，以及不是 github.com 的 http(s) 地址。GitHub 没写分支时先试 `main`，再试 `master`。
+不接受 `.jar`，以及不是 github.com 的 http(s) 地址。GitHub 没写分支时先试 `main`，再试 `master`。本地目录会原样复制后再安装其中的生产依赖。单个模块文件会放进一份临时的 `package.json`。
 
 插件 id 会去掉开头的 `@`，把 `/` 换成 `__`，再把其余非字母数字字符收成 `_`。`demo-plugin` 的工具 `greet` 公开名称是 `demo_plugin__greet`。`@scope/pkg` 的 id 是 `scope_pkg`。
 
@@ -58,7 +59,7 @@ export function call(input) {
 }
 ```
 
-`export const meta = { displayName, description }` 或 `{ name, remark }` 用来显示名称和说明。`readOnly: true` 的工具自动放行，其他工具仍走现有审批。
+`export const meta = { displayName, description }` 或 `{ name, remark }` 用来显示名称和说明。`readOnly: true` 的工具自动放行，其他工具仍走现有审批。`chat: true` 的工具可以在纯聊天里使用；不写则只在项目里可用。两种写法里，只有 `tools()` 返回的清单能带上 `chat`。
 
 `tools`、`call`、`meta`、`default`、`plugin`，以及下面的钩子名，不会注册成工具。只有钩子、没有工具的模块也可以加载。
 

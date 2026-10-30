@@ -150,6 +150,7 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s.plugins = plugin.New(s.home, plugin.Hooks{Bind: s.bindPluginTools, Unbind: s.unbindPluginTools})
 	plugin.SetActive(s.plugins)
 	if os.Getenv("LOOPRA_JAVA_BACKEND_URL") == "" {
+		s.plugins.EnsureBundled(context.Background())
 		s.plugins.LoadEnabled(context.Background())
 	}
 	if a != nil {

@@ -71,7 +71,7 @@ export function call(input) { return { text: "hello " + input.args.name }; }
 		t.Fatal(env)
 	}
 	items, _ := env["data"].([]any)
-	if len(items) != 1 || items[0].(map[string]any)["id"] != "greeter" {
+	if pluginRow(items, "greeter") == nil {
 		t.Fatalf("plugins = %v", env["data"])
 	}
 	if !toolListed(t, ts, key, "greeter__greet") {
@@ -89,13 +89,24 @@ export function call(input) { return { text: "hello " + input.args.name }; }
 		t.Fatalf("remove = %d %v", code, env)
 	}
 	code, env = call(t, ts, http.MethodGet, "/api/plugins", key, nil)
-	if items, _ = env["data"].([]any); code != http.StatusOK || len(items) != 0 {
+	items, _ = env["data"].([]any)
+	if code != http.StatusOK || pluginRow(items, "greeter") != nil {
 		t.Fatalf("list after remove = %v", env["data"])
 	}
 	code, _ = call(t, ts, http.MethodPost, "/api/extpacks/install", key, map[string]string{"source": "greeter"})
 	if code != http.StatusBadRequest {
 		t.Fatalf("extpack install = %d", code)
 	}
+}
+
+func pluginRow(items []any, id string) map[string]any {
+	for _, item := range items {
+		row, _ := item.(map[string]any)
+		if row["id"] == id {
+			return row
+		}
+	}
+	return nil
 }
 
 func toolListed(t *testing.T, ts *httptest.Server, key, name string) bool {

@@ -1,0 +1,6 @@
+{
+  "name": "web",
+  "version": "1.0.0",
+  "description": "搜索网页、检索代码文档、读取页面",
+  "loopra": "./plugin.js"
+}

@@ -324,7 +324,7 @@ Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`
 
 ### 插件
 
-插件是 JavaScript 或 TypeScript 模块，运行时是 [moejs](https://github.com/MoeForge/moejs)（Apache-2.0）。在设置 → 插件填写来源，例如 `left-pad@1.3.0`、`@scope/pkg` 或 `https://github.com/owner/repo`。安装位置是 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。写法、钩子、`fetch` 和 `node:fs` 见 [docs/PLUGIN.md](docs/PLUGIN.md)。
+插件是 JavaScript 或 TypeScript 模块，运行时是 [moejs](https://github.com/MoeForge/moejs)（Apache-2.0）。在设置 → 插件填写来源，例如 `left-pad@1.3.0`、`@scope/pkg`、`https://github.com/owner/repo`，或本地目录与 `.js` / `.ts` 文件。安装位置是 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。写法、钩子、`fetch` 和 `node:fs` 见 [docs/PLUGIN.md](docs/PLUGIN.md)。
 
 入口优先读 package.json 的 `loopra`（字符串，或 `{ "plugin": "./plugin.ts" }`），然后是 `module`、`main`，再否则是 `plugin.ts`、`plugin.js`、`index.ts` 或 `index.js`。
 

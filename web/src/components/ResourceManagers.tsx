@@ -23,7 +23,7 @@ export function ExtensionManager({ api }: { api: LoopraClient }) {
   return <div className="settings-resource-page">
     <PageActions title="插件"><Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button></PageActions>
     <form className="resource-toolbar resource-install" onSubmit={event => { event.preventDefault(); const value = source.trim(); if (value) void act('/install', { source: value }, true); }}>
-      <Field label="npm 包或 GitHub 地址" required value={source} onChange={setSource} placeholder="left-pad、@scope/pkg 或 https://github.com/owner/repo" />
+      <Field label="npm 包、GitHub 或本地路径" required value={source} onChange={setSource} placeholder="left-pad、GitHub 地址，或本地目录 / .tgz / .js" />
       <Button size="sm" color="primary" type="submit" isLoading={busy} isDisabled={!source.trim()}>安装插件</Button>
     </form>
     <p className="section-note">插件是 JavaScript 或 TypeScript 模块，由 moejs 执行。导出的函数会变成工具；也可以导出 tools() 和 call()。turnBefore、toolBefore、llmRequest 这些钩子可以改写一轮对话。可以用 fetch 访问网络，用 node:fs 读写本机文件。入口写在 package.json 的 loopra 字段。</p>

@@ -133,9 +133,179 @@ func (h *Host) materialize(ctx context.Context, src origin, dest string) (pkgFil
 		}
 		info.Entry = entry
 		return info, nil
+	case "local":
+		return h.materializeLocal(ctx, src, dest)
 	default:
 		return pkgFile{}, fmt.Errorf("未知插件来源")
 	}
+}
+
+func (h *Host) materializeLocal(ctx context.Context, src origin, dest string) (pkgFile, error) {
+	path, err := filepath.Abs(src.Path)
+	if err != nil {
+		return pkgFile{}, err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return pkgFile{}, fmt.Errorf("找不到本地插件 %s", src.Path)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return pkgFile{}, fmt.Errorf("不使用符号链接作为插件来源")
+	}
+	switch {
+	case info.IsDir():
+		if err := copyTree(path, dest); err != nil {
+			return pkgFile{}, err
+		}
+	case isArchiveName(strings.ToLower(path)):
+		if info.Size() > maxDownload {
+			return pkgFile{}, fmt.Errorf("插件包超过 %d MiB", maxDownload>>20)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return pkgFile{}, err
+		}
+		if err := extractTarGz(data, dest); err != nil {
+			return pkgFile{}, err
+		}
+	case isModuleName(strings.ToLower(path)):
+		if err := stageModule(path, dest, info); err != nil {
+			return pkgFile{}, err
+		}
+	default:
+		return pkgFile{}, fmt.Errorf("本地插件需要是目录、.tgz/.tar.gz，或 .js/.ts 文件")
+	}
+	pkg := readPkg(dest)
+	if pkg.Name == "" {
+		pkg.Name = localPackageName(path)
+	}
+	if pkg.Version == "" {
+		pkg.Version = "0.0.0"
+	}
+	if err := h.installDeps(ctx, dest); err != nil {
+		return pkgFile{}, err
+	}
+	entry, err := findEntry(dest, "")
+	if err != nil {
+		return pkgFile{}, err
+	}
+	pkg.Entry = entry
+	return pkg, nil
+}
+
+func localPackageName(path string) string {
+	base := filepath.Base(path)
+	lower := strings.ToLower(base)
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz"):
+		base = base[:len(base)-len(".tar.gz")]
+	default:
+		base = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	if strings.TrimSpace(base) == "" {
+		return "plugin"
+	}
+	return base
+}
+
+func stageModule(src, dest string, info os.FileInfo) error {
+	if info.Size() > maxOneFile {
+		return fmt.Errorf("插件文件过大")
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	ext := filepath.Ext(src)
+	entry := "plugin" + ext
+	if err := os.WriteFile(filepath.Join(dest, entry), data, 0o644); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("{\"name\":%q,\"version\":\"0.0.0\",\"loopra\":%q}\n", localPackageName(src), "./"+entry)
+	return os.WriteFile(filepath.Join(dest, "package.json"), []byte(body), 0o644)
+}
+
+func copyTree(src, dest string) error {
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+	var written int64
+	files := 0
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return err
+		}
+		if absPath == absDest {
+			return filepath.SkipDir
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(dest, rel)
+		if !inside(dest, target) {
+			return fmt.Errorf("本地路径非法")
+		}
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		meta, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if meta.Size() > maxOneFile {
+			return fmt.Errorf("插件文件过大")
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			in.Close()
+			return err
+		}
+		n, copyErr := io.Copy(out, io.LimitReader(in, maxOneFile+1))
+		closeIn, closeOut := in.Close(), out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeIn != nil {
+			return closeIn
+		}
+		if closeOut != nil {
+			return closeOut
+		}
+		if n > maxOneFile {
+			return fmt.Errorf("插件文件过大")
+		}
+		written += n
+		files++
+		if written > maxExtract || files > maxFiles {
+			return fmt.Errorf("插件包超过大小或文件数限制")
+		}
+		return nil
+	})
 }
 
 func (h *Host) installDeps(ctx context.Context, dir string) error {

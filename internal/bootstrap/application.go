@@ -67,7 +67,7 @@ func newConfigService(settings *config.Server, repository *repository.ConfigRepo
 
 func newToolRegistry(configuration *service.ConfigService) *tools.Registry {
 	workspace := configuration.Snapshot().WorkspaceDir
-	return tools.NewRegistry(append(append(tools.FileTools(workspace), tools.BashTools(workspace)...), tools.WebTools()...)...)
+	return tools.NewRegistry(append(tools.FileTools(workspace), tools.BashTools(workspace)...)...)
 }
 
 func newAgent(settings *config.Server, configuration *service.ConfigService, registry *tools.Registry) (*agent.Agent, error) {

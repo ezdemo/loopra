@@ -32,6 +32,7 @@ type Metadata struct {
 	Description string
 	ReadOnly    bool
 	AutoApprove bool
+	Chat        bool // 插件声明该工具可在纯聊天中使用
 }
 
 // Tool 把 ADK 工具与其 Loopra 元数据组合在一起。
@@ -49,6 +50,27 @@ type Registry struct {
 	auto     map[string]bool
 	filter   func(agentpkg.ReadonlyContext, Metadata) bool
 	policy   *hitl.Policy
+	chat     bool // 这是纯聊天的工具表，只接收声明了 Chat 的插件工具
+}
+
+// SetChatScope 把这张表标成纯聊天。之后只加入声明可在聊天中使用的插件工具。
+func (r *Registry) SetChatScope(chat bool) {
+	if r == nil {
+		return
+	}
+	r.mu <- struct{}{}
+	r.chat = chat
+	<-r.mu
+}
+
+// ChatScope 报告这张表是不是纯聊天的工具表。
+func (r *Registry) ChatScope() bool {
+	if r == nil {
+		return false
+	}
+	r.mu <- struct{}{}
+	defer func() { <-r.mu }()
+	return r.chat
 }
 
 func NewRegistry(entries ...Tool) *Registry {
@@ -197,7 +219,7 @@ func (r *Registry) List() []map[string]any {
 			"name": name, "description": e.Meta.Description,
 			"readOnly": readOnly, "readOnlyOverride": override,
 			"stormExempt": false, "enabled": !r.disabled[name],
-			"autoApproved": auto, "params": toolParameters(e.Tool),
+			"autoApproved": auto, "chat": e.Meta.Chat, "params": toolParameters(e.Tool),
 		}
 		if override == nil {
 			delete(view, "readOnlyOverride")

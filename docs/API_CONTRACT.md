@@ -143,7 +143,7 @@
 
 ### 3.8 Plugins（/api/plugins）
 GET `` 与 GET `/external` → `[{id,displayName,description,remark,version,source,sourceUrl,enabled,state,error,tools:[s],hooks:[s],entry}]`。`hooks` 是已加载的钩子名：`turnBefore`、`systemPrompt`、`llmRequest`、`llmResponse`、`toolBefore`、`toolAfter`、`compact`、`turnAfter`。
-POST `/install` 与 POST `/external/install`，body `{source*}`。`source` 是 npm 包名（可带版本或 dist-tag）、`npm:@scope/pkg`、`github:owner/repo`、`owner/repo#ref` 或 `https://github.com/owner/repo`。`.jar`、`file:` 以及不是 github.com 的 http(s) 地址返回 400。
+POST `/install` 与 POST `/external/install`，body `{source*}`。`source` 是 npm 包名（可带版本或 dist-tag）、`npm:@scope/pkg`、`github:owner/repo`、`owner/repo#ref`、`https://github.com/owner/repo`，或本地路径（目录、`.tgz` / `.tar.gz`、`.js` / `.ts`，以及 `file:` 地址）。`.jar` 以及不是 github.com 的 http(s) 地址返回 400。
 POST `/{id}/toggle` 与 `/external/{id}/toggle`，body `{enabled:b}` → 同一插件项。POST `/{id}/remove|uninstall` 与 `/external/{id}/remove` → `插件已卸载: <id>`。
 工具公开名称是 `<插件 id>__<导出名>`。只读工具自动放行，写入工具走审批。安装文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。
 

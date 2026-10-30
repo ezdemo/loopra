@@ -24,6 +24,7 @@ type BoundTool struct {
 	Name        string
 	Description string
 	ReadOnly    bool
+	Chat        bool
 	Parameters  json.RawMessage
 	Call        func(ctx context.Context, args map[string]any) (map[string]any, error)
 }
@@ -53,6 +54,8 @@ type toolDef struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	ReadOnly    bool            `json:"readOnly"`
+	Chat        bool            `json:"chat"`
+	Expose      string          `json:"expose"`
 	Parameters  json.RawMessage `json:"parameters"`
 }
 
@@ -567,6 +570,12 @@ func bindTools(run *running, id, display string, defs []toolDef, explicit bool, 
 			hook = found
 		}
 		public := id + "__" + ident(def.Name)
+		if def.Expose != "" {
+			if !validToolName(def.Expose) {
+				return fmt.Errorf("工具公开名无效: %s", def.Expose)
+			}
+			public = def.Expose
+		}
 		if seen[public] {
 			return fmt.Errorf("工具名重复: %s", public)
 		}
@@ -575,7 +584,7 @@ func bindTools(run *running, id, display string, defs []toolDef, explicit bool, 
 		if desc == "" {
 			desc = def.Name
 		}
-		if display != "" {
+		if display != "" && def.Expose == "" {
 			desc = display + "：" + desc
 		}
 		if len([]rune(desc)) > 2000 {
@@ -589,7 +598,7 @@ func bindTools(run *running, id, display string, defs []toolDef, explicit bool, 
 		run.names = append(run.names, public)
 		self := run
 		run.bound = append(run.bound, BoundTool{
-			Name: public, Description: desc, ReadOnly: def.ReadOnly, Parameters: append(json.RawMessage(nil), params...),
+			Name: public, Description: desc, ReadOnly: def.ReadOnly, Chat: def.Chat, Parameters: append(json.RawMessage(nil), params...),
 			Call: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 				return self.invoke(ctx, binding, args)
 			},

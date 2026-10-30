@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 func TestPureChatUsesConversationPromptAndNoProjectTools(t *testing.T) {
@@ -65,4 +68,58 @@ func TestPureChatUsesConversationPromptAndNoProjectTools(t *testing.T) {
 	if !foundSearch {
 		t.Fatal("project agent is missing web")
 	}
+}
+
+func TestPluginChatFlagFiltersChatMode(t *testing.T) {
+	_, _, s, _ := parityServer(t, "")
+	chat, err := s.projectRuntime(chatWorkspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"side","version":"1.0.0","loopra":"./plugin.js"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := `export function tools() {
+  return [
+    { name: "note", description: "note", readOnly: true, chat: true },
+    { name: "editx", description: "edit", readOnly: false }
+  ];
+}
+export function call(input) { return { ok: input.name }; }
+`
+	if err := os.WriteFile(filepath.Join(dir, "plugin.js"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.plugins.Install(context.Background(), dir); err != nil {
+		t.Fatal(err)
+	}
+	names := toolNames(chat.registry)
+	if !names["web"] || !names["side__note"] || names["side__editx"] || names["read"] {
+		t.Fatalf("chat tools = %v", names)
+	}
+	for _, entry := range chat.registry.Entries() {
+		if entry.Meta.Name == "web" && !entry.Meta.Chat {
+			t.Fatal("web is missing the chat declaration")
+		}
+	}
+	project, err := s.projectRuntime(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	names = toolNames(project.registry)
+	if !names["side__note"] || !names["side__editx"] || !names["read"] || !names["web"] {
+		t.Fatalf("project tools = %v", names)
+	}
+}
+
+func toolNames(reg *tools.Registry) map[string]bool {
+	names := map[string]bool{}
+	if reg == nil {
+		return names
+	}
+	for _, entry := range reg.Entries() {
+		names[entry.Meta.Name] = true
+	}
+	return names
 }

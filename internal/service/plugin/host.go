@@ -151,7 +151,7 @@ func (h *Host) Bound() []BoundTool {
 	return out
 }
 
-// Install 下载 npm 包或 GitHub 仓库，编译入口模块，并挂上它导出的工具。
+// Install 安装 npm 包、GitHub 仓库或本地目录、压缩包、单个模块，编译入口并挂上它导出的工具。
 func (h *Host) Install(ctx context.Context, source string) (View, error) {
 	if h.home == "" {
 		return View{}, errNoHome

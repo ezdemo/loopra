@@ -139,10 +139,12 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 	}
 	cfg.WorkspaceDir = resolved
 	chat := hash == chatWorkspace
-	reg := tools.NewRegistry(tools.WebTools()...)
+	reg := tools.NewRegistry()
 	instruction := chatInstruction
-	if !chat {
-		reg = tools.NewRegistry(append(append(tools.FileTools(resolved), tools.BashTools(resolved)...), tools.WebTools()...)...)
+	if chat {
+		reg.SetChatScope(true)
+	} else {
+		reg = tools.NewRegistry(append(tools.FileTools(resolved), tools.BashTools(resolved)...)...)
 		if hash == root.agent.App() && root.registry != nil && filepath.Clean(resolved) == filepath.Clean(root.workspaceRoot()) {
 			reg = tools.NewRegistry(root.registry.Entries()...)
 		}

@@ -1,13 +1,14 @@
 package plugin
 
 import (
+	"path/filepath"
 	"testing"
 )
 
 func TestParseSource(t *testing.T) {
 	cases := []struct {
-		in, kind, name, version, owner, repo, ref, sub string
-		fail                                           bool
+		in, kind, name, version, owner, repo, ref, sub, path string
+		fail                                                 bool
 	}{
 		{in: "left-pad", kind: "npm", name: "left-pad", version: "latest"},
 		{in: "left-pad@1.2.3", kind: "npm", name: "left-pad", version: "1.2.3"},
@@ -19,7 +20,12 @@ func TestParseSource(t *testing.T) {
 		{in: "https://github.com/acme/demo/tree/main/packages/demo", kind: "github", owner: "acme", repo: "demo", ref: "main", sub: "packages/demo"},
 		{in: "https://example.com/plugin.jar", fail: true},
 		{in: "https://example.com/a.jar", fail: true},
-		{in: "../local/plugin.js", fail: true},
+		{in: "https://example.com/plugin.tgz", fail: true},
+		{in: "../local/plugin.js", kind: "local", path: "../local/plugin.js"},
+		{in: `C:\plugins\demo`, kind: "local", path: `C:\plugins\demo`},
+		{in: "file:///C:/plugins/demo", kind: "local", path: filepath.FromSlash("C:/plugins/demo")},
+		{in: "plugin.js", kind: "local", path: "plugin.js"},
+		{in: "file://evil.example/plugin.js", fail: true},
 		{in: "", fail: true},
 	}
 	for _, tc := range cases {
@@ -34,7 +40,7 @@ func TestParseSource(t *testing.T) {
 			t.Errorf("%s: %v", tc.in, err)
 			continue
 		}
-		if got.Kind != tc.kind || got.Name != tc.name || got.Version != tc.version || got.Owner != tc.owner || got.Repo != tc.repo || got.Ref != tc.ref || got.Subdir != tc.sub {
+		if got.Kind != tc.kind || got.Name != tc.name || got.Version != tc.version || got.Owner != tc.owner || got.Repo != tc.repo || got.Ref != tc.ref || got.Subdir != tc.sub || got.Path != tc.path {
 			t.Errorf("%s => %+v", tc.in, got)
 		}
 	}
