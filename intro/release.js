@@ -15,19 +15,23 @@
     try { url = new URL(asset.browser_download_url); } catch (e) { return null; }
     if (url.origin !== 'https://github.com' || !url.pathname.startsWith('/ezdemo/loopra-release/releases/download/')) return null;
     var name = asset.name.toLowerCase();
-    var extension = (name.match(/\.(appimage|deb|rpm|exe|msi|dmg|pkg|zip)$/) || [])[1];
-    if (!extension) return null;
+    if (/\.(?:yml|yaml|blockmap|txt|json)$/.test(name) || /\.tar\.gz$/.test(name) || name.endsWith('.tgz')) return null;
+    var extension = (name.match(/\.(appimage|deb|rpm|exe|msi|dmg|pkg|zip)$/) || [])[1] || '';
+    // darwin- 里含有 win-，必须先于 Windows 判断，否则 macOS 压缩包会被划进 Windows。
     var platform;
-    if (/(?:windows|win32|win64|win[-_.])/.test(name) || /^(exe|msi)$/.test(extension)) platform = 'windows';
-    else if (/(?:macos|darwin|mac[-_.])/.test(name) || /^(dmg|pkg)$/.test(extension)) platform = 'macos';
-    else if (/(?:linux)/.test(name) || /^(appimage|deb|rpm)$/.test(extension)) platform = 'linux';
+    if (/(?:macos|darwin|mac[-_.])/.test(name) || /^(dmg|pkg)$/.test(extension)) platform = 'macos';
+    else if (/(?:^|[-_.])linux(?:[-_.]|$)/.test(name) || /^(appimage|deb|rpm)$/.test(extension)) platform = 'linux';
+    else if (/(?:^|[-_.])(?:windows|win32|win64)(?:[-_.]|$)/.test(name) || /(?:^|[-_.])win[-_.]/.test(name) || /^(exe|msi)$/.test(extension)) platform = 'windows';
     else return null;
     var arch = /arm64|aarch64/.test(name) ? 'arm64'
       : /x64|x86[-_]64|amd64/.test(name) ? 'x64'
       : /universal/.test(name) ? 'universal'
-      : /ia32|i[3-6]86/.test(name) ? 'x86' : '';
+      : /armv7|(?:^|[-_.])arm(?:[-_.]|$)/.test(name) ? 'armv7'
+      : /s390x/.test(name) ? 's390x'
+      : /ia32|i[3-6]86|(?:^|[-_.])386(?:[-_.]|$)/.test(name) ? 'x86' : '';
     return {
-      platform: platform, arch: arch, format: extension,
+      platform: platform, arch: arch, format: extension || 'bin',
+      kind: /(?:^|[-_.])desktop(?:[-_.]|$)/.test(name) ? 'desktop' : 'cli',
       name: asset.name, url: url.href,
       size: typeof asset.size === 'number' && Number.isFinite(asset.size) && asset.size > 0 ? asset.size : 0
     };
@@ -70,13 +74,14 @@
   function text(zh, en) { return english() ? en : zh; }
 
   function assetLabel(asset) {
-    var arch = asset.arch === 'x64' ? 'x86-64' : asset.arch === 'arm64' ? 'ARM64' : asset.arch === 'x86' ? 'x86' : asset.arch === 'universal' ? 'Universal' : '';
+    var arch = { x64: 'x86-64', arm64: 'ARM64', x86: 'x86', universal: 'Universal', armv7: 'ARMv7', s390x: 's390x' }[asset.arch] || asset.arch || '';
     if (asset.platform === 'macos') {
       if (asset.arch === 'arm64') arch = 'Apple Silicon';
       if (asset.arch === 'x64') arch = 'Intel';
     }
-    var format = { appimage: 'AppImage', deb: 'Debian / Ubuntu', rpm: 'RPM', exe: 'Windows', msi: 'Windows MSI', dmg: 'DMG', pkg: 'PKG', zip: 'ZIP' }[asset.format];
-    return [asset.platform === 'macos' ? arch : format, asset.platform === 'macos' ? format : arch].filter(Boolean).join(' · ');
+    var format = { appimage: 'AppImage', deb: 'Debian / Ubuntu', rpm: 'RPM', exe: 'Windows', msi: 'Windows MSI', dmg: 'DMG', pkg: 'PKG', zip: 'ZIP' }[asset.format] || '';
+    var kind = asset.kind === 'desktop' ? text('桌面', 'Desktop') : text('命令行', 'CLI');
+    return [kind, asset.platform === 'macos' ? arch : format, asset.platform === 'macos' ? format : arch].filter(Boolean).join(' · ');
   }
 
   function fallbackLink(label) {

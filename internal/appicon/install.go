@@ -26,7 +26,7 @@ func Install() error {
 	if err := os.MkdirAll(iconDir, 0o755); err != nil {
 		return err
 	}
-	if err := writeIfChanged(filepath.Join(iconDir, "com.ezdemo.looprax.png"), PNG, 0o644); err != nil {
+	if err := writeIfChanged(filepath.Join(iconDir, "com.ezdemo.loopra.png"), PNG, 0o644); err != nil {
 		return err
 	}
 	exe, err := os.Executable()
@@ -40,9 +40,9 @@ func Install() error {
 	if err := os.MkdirAll(apps, 0o755); err != nil {
 		return err
 	}
-	desktop := "[Desktop Entry]\nType=Application\nVersion=1.0\nName=LoopraX\nComment=LoopraX 工作台\nExec=" +
-		execField(exe) + "\nIcon=com.ezdemo.looprax\nTerminal=false\nCategories=Development;\nStartupWMClass=looprax\n"
-	return writeIfChanged(filepath.Join(apps, "com.ezdemo.looprax.desktop"), []byte(desktop), 0o644)
+	desktop := "[Desktop Entry]\nType=Application\nVersion=1.0\nName=Loopra\nComment=Loopra 工作台\nExec=" +
+		execField(exe) + "\nIcon=com.ezdemo.loopra\nTerminal=false\nCategories=Development;\nStartupWMClass=loopra\n"
+	return writeIfChanged(filepath.Join(apps, "com.ezdemo.loopra.desktop"), []byte(desktop), 0o644)
 }
 
 func writeIfChanged(path string, data []byte, mode os.FileMode) error {

@@ -4,7 +4,7 @@ if (-not $api) { $api = 'https://api.github.com/repos/ezdemo/loopra-release/rele
 $release = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'Looprax-Updater' }
 $arch = $env:LOOPRAX_UPDATE_ARCH
 $targetName = [System.IO.Path]::GetFileName($env:LOOPRAX_UPDATE_TARGET)
-$desktop = $targetName -eq 'LoopraX' -or $targetName -like '*desktop*'
+$desktop = $targetName -eq 'Loopra' -or $targetName -eq 'LoopraX' -or $targetName -like '*desktop*'
 function Get-AssetTokens([string]$name) {
     $base = [System.IO.Path]::GetFileName($name).ToLowerInvariant()
     foreach ($suffix in @('.tar.gz', '.exe', '.zip', '.tgz')) {
@@ -15,7 +15,7 @@ function Get-AssetTokens([string]$name) {
 $asset = $release.assets | Where-Object {
     $tokens = @(Get-AssetTokens $_.name)
     $archOk = if ($arch -eq 'arm') { ($tokens -contains 'armv7') -or ($tokens -contains 'arm') } else { $tokens -contains $arch }
-    $shortExe = $arch -eq 'amd64' -and $_.name -eq 'looprax.exe'
+    $shortExe = $arch -eq 'amd64' -and ($_.name -eq 'loopra.exe' -or $_.name -eq 'looprax.exe')
     $platformOk = ($tokens -contains 'windows') -or $shortExe
     $extOk = $_.name.EndsWith('.exe') -or $_.name.EndsWith('.zip')
     $kindOk = ($tokens -contains 'desktop') -eq [bool]$desktop
@@ -36,8 +36,8 @@ if ($asset.name.EndsWith('.zip')) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($download)
     try {
-        $entry = $archive.Entries | Where-Object { $_.Name -eq 'looprax.exe' } | Select-Object -First 1
-        if (-not $entry) { throw 'Archive does not contain looprax.exe' }
+        $entry = $archive.Entries | Where-Object { $_.Name -eq 'loopra.exe' -or $_.Name -eq 'looprax.exe' } | Select-Object -First 1
+        if (-not $entry) { throw 'Archive does not contain loopra.exe' }
         $inputStream = $entry.Open()
         $outputStream = [System.IO.File]::Create($staged)
         try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose(); $inputStream.Dispose() }

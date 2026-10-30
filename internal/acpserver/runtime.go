@@ -121,7 +121,7 @@ func ServeStreams(ctx context.Context, runtime *Runtime, toClient io.Writer, fro
 func (r *Runtime) Initialize(context.Context, acpsdk.InitializeRequest) (acpsdk.InitializeResponse, error) {
 	return acpsdk.InitializeResponse{
 		ProtocolVersion: acpsdk.ProtocolVersionNumber,
-		AgentInfo:       &acpsdk.Implementation{Name: "looprax", Version: version, Title: acpsdk.Ptr("LoopraX")},
+		AgentInfo:       &acpsdk.Implementation{Name: "loopra", Version: version, Title: acpsdk.Ptr("Loopra")},
 		AgentCapabilities: acpsdk.AgentCapabilities{
 			LoadSession: true,
 			PromptCapabilities: acpsdk.PromptCapabilities{

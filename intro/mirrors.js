@@ -12,7 +12,7 @@
     { id: 'monlor', label: 'gh.monlor.com', prefix: 'https://gh.monlor.com/' }
   ];
   var CHOICE_KEY = 'loopra.public-download-source.v1';
-  // A tiny electron-builder manifest exercises the actual release download route.
+  // A small release manifest exercises the actual release download route.
   var PROBE_URL = 'https://github.com/ezdemo/loopra-release/releases/latest/download/latest.yml';
   var TIMEOUT = 7000;
 
@@ -107,7 +107,7 @@
       link.href = downloadUrl(link.dataset.downloadOriginal, activeSource());
     });
     document.querySelectorAll('[data-install-command]').forEach(function (element) {
-      element.textContent = installCommand(activeSource(), element.dataset.installCommand, false);
+      element.textContent = installCommand(activeSource(), element.dataset.installCommand, element.dataset.installGui === 'true');
     });
   }
 

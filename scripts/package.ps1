@@ -11,9 +11,9 @@
 
   windows/amd64 会额外做硬链接，沿用 bin 里原来的文件名：
     loopra.exe
-    looprax-desktop.exe
+    loopra-desktop.exe
 
-  darwin 桌面端打成 .app（访达里的名字是 LoopraX），并另写同名 .zip。
+  darwin 桌面端打成 .app（访达里的名字是 Loopra），并另写同名 .zip。
   把 zip 拷到 Mac 再解压，可执行权限才还在。
 
 .EXAMPLE
@@ -145,9 +145,9 @@ function Get-ArtifactName {
     if ($Row.Arch -eq 'arm' -and $Row.GOARM -eq '7') {
         $label = 'armv7'
     }
-    $prefix = 'looprax'
+    $prefix = 'loopra'
     if ($Row.Product -eq 'desktop') {
-        $prefix = 'looprax-desktop'
+        $prefix = 'loopra-desktop'
     }
     $name = '{0}-{1}-{2}' -f $prefix, $Row.OS, $label
     if ($Row.OS -eq 'windows') {
@@ -190,7 +190,7 @@ function Add-AppIcon {
     }
 }
 
-# 把 darwin 桌面二进制套成 LoopraX.app。返回一并写出的 zip，没有 zip 时返回空。
+# 把 darwin 桌面二进制套成 Loopra.app。返回一并写出的 zip，没有 zip 时返回空。
 function Publish-DarwinApp {
     param([string]$Binary, [string]$AppPath)
     if (Test-Path -LiteralPath $AppPath) {
@@ -198,7 +198,7 @@ function Publish-DarwinApp {
     }
     $macos = Join-Path $AppPath 'Contents\MacOS'
     New-Item -ItemType Directory -Force -Path $macos | Out-Null
-    Move-Item -LiteralPath $Binary -Destination (Join-Path $macos 'LoopraX')
+    Move-Item -LiteralPath $Binary -Destination (Join-Path $macos 'Loopra')
     $template = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'macos\Info.plist'))
     $plist = $template.Replace('@VERSION@', (Get-MacBundleVersion))
     $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -208,7 +208,7 @@ function Publish-DarwinApp {
     $zip = [System.IO.Path]::ChangeExtension($AppPath, '.zip')
     $python = Find-Python
     if (-not $python) {
-        Write-Warning '未找到 Python，已生成 .app。从 Windows 拷到 Mac 后需要 chmod +x Contents/MacOS/LoopraX。'
+        Write-Warning '未找到 Python，已生成 .app。从 Windows 拷到 Mac 后需要 chmod +x Contents/MacOS/Loopra。'
         return $null
     }
     & $python (Join-Path $PSScriptRoot 'zip-macos-app.py') $AppPath $zip
@@ -226,7 +226,7 @@ function Get-AliasName {
         return ''
     }
     if ($Row.Product -eq 'web') { return 'loopra.exe' }
-    if ($Row.Product -eq 'desktop') { return 'looprax-desktop.exe' }
+    if ($Row.Product -eq 'desktop') { return 'loopra-desktop.exe' }
     return ''
 }
 

@@ -1,18 +1,16 @@
 <p align="center">
-  <img src="web/public/loopra-logo.svg" alt="LoopraX" width="88"/>
+  <img src="web/public/loopra-logo.svg" alt="Loopra" width="88"/>
 </p>
 
-<h1 align="center">LoopraX</h1>
+<h1 align="center">Loopra</h1>
 
 <p align="center">
-  <strong>以 Go 为核心的 AI 编码代理与工作台</strong><br/>
-  在本地代码库里持续推理、调用工具、保留会话。
+  <strong>面向本地代码库的 AI 编码代理与工作台</strong><br/>
+  持续推理、调用工具、保留会话。
 </p>
 
 <p align="center">
   <a href="https://loopra.cn"><img alt="Website" src="https://img.shields.io/badge/website-loopra.cn-2F80ED"/></a>
-  <img alt="Go 1.27" src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white"/>
-  <img alt="GoFrame" src="https://img.shields.io/badge/GoFrame-v2-111827"/>
   <img alt="React 18" src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black"/>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green"/></a>
 </p>
@@ -35,9 +33,9 @@
 
 ---
 
-LoopraX 是 [Loopra](https://github.com/ezdemo/loopra) 的 Go 实现。它把一次编码任务收成一条循环：阅读项目上下文，搜索、编辑或构建，把执行结果收回来再推理，直到完成，或停在需要你决定的地方。
+Loopra 把一次编码任务收成一条循环：阅读项目上下文，搜索、编辑或构建，把执行结果收回来再推理，直到完成，或停在需要你决定的地方。
 
-它读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。Java 的 `.jar` 插件和拓展包由可选的 [Java 兼容后端](#java-兼容后端) 执行。
+它与 [Loopra](https://github.com/ezdemo/loopra) 读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。Java 的 `.jar` 插件和拓展包由可选的 [Java 兼容后端](#java-兼容后端) 执行。
 
 新建会话默认使用 Loopra Native。也可以改接 Claude Code、Codex、Pi 或 DeepSeek Harness。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
 
@@ -85,7 +83,7 @@ macOS / Linux：
 curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui.sh | bash
 ```
 
-命令行装到 `~/.looprax/bin`（Windows 为 `%LOCALAPPDATA%\LoopraX\bin`）。macOS 桌面端解压到 `~/Applications/LoopraX.app`。
+命令行装到 `~/.loopra/bin`（Windows 为 `%LOCALAPPDATA%\Loopra\bin`）。macOS 桌面端解压到 `~/Applications/Loopra.app`。
 
 <details>
 <summary>国内网络、指定镜像与指定版本</summary>
@@ -242,7 +240,7 @@ loopra acp        # 在标准输入输出上提供 ACP，不启动网页
 
 ## 架构
 
-工作台通过 HTTP / SSE 进入进程。Loopra Native 在本进程里完成推理和工具调用；选择外部引擎时，Go 以 ACP v1 stdio 客户端驱动本机适配器。`loopra acp` 则把 LoopraX 自己暴露给外部编辑器，这条路径不启动网页。
+工作台通过 HTTP / SSE 进入进程。Loopra Native 在本进程里完成推理和工具调用；选择外部引擎时，由本进程以 ACP v1 stdio 客户端驱动本机适配器。`loopra acp` 则把 Loopra 自己暴露给外部编辑器，这条路径不启动网页。
 
 ```mermaid
 flowchart TB
@@ -260,7 +258,7 @@ flowchart TB
 
 文件、命令和 Git 都发生在运行后端的那台机器上。会话和业务配置落在 `~/.loopra`。
 
-`cmd/looprax` 是产品入口。HTTP、配置和日志由 GoFrame 的 `ghttp`、`gcfg`、`glog` 承载，智能体循环使用 ADK Go。依赖在 `internal/bootstrap` 集中注册，Controller 和 Service 不从全局容器查找对象。写法上的 Spring 对照见 [用 Java 的感觉写 Go](docs/SPRING_STYLE.md)，装配、配置加载和请求链路见 [架构指南](docs/ARCHITECTURE.md)。
+`cmd/looprax` 是产品入口。依赖在 `internal/bootstrap` 集中注册，Controller 和 Service 不从全局容器查找对象。装配、配置加载和请求链路见 [架构指南](docs/ARCHITECTURE.md)。
 
 ```text
 looprax/
@@ -284,10 +282,10 @@ looprax/
 
 | 层 | 技术 |
 |---|---|
-| 核心 | Go、GoFrame、ADK Go、Spring 风格 IoC |
-| Web | GoFrame `ghttp`、SSE |
+| 核心 | 推理循环、依赖装配 |
+| Web | HTTP、SSE |
 | 工作台 | React、TypeScript、NextUI、Vite、Monaco |
-| 桌面 | mygo 原生窗口 |
+| 桌面 | 原生窗口 |
 | 协议 | MCP、OpenAPI、ACP、Chat Completions、OpenCode 兼容网关、Responses、Anthropic Messages |
 | 持久化 | JSONL 会话、`~/.loopra` JSON 配置、项目 Markdown |
 
@@ -311,7 +309,7 @@ looprax/
 
 ### 技能
 
-LoopraX 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`），介绍能力入口、技能发现与加载、MCP / OpenAPI 接入和能力缺失排查。系统提示会引导 Agent 在首次处理任务前通过 `skillread` 读取。
+Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`），介绍能力入口、技能发现与加载、MCP / OpenAPI 接入和能力缺失排查。系统提示会引导 Agent 在首次处理任务前通过 `skillread` 读取。
 
 技能还从这些目录挂载，同名技能用完整标识区分：
 
@@ -343,7 +341,7 @@ MCP 与 OpenAPI 可为 Agent 注入额外能力。用户级配置在 `~/.loopra/
 
 原生 Agent 通过固定的 `tool_search` 和 `call_tool` 使用 MCP。工具定义按需出现在搜索结果里，请求里的工具列表保持稳定。连接在实际检索或调用时建立，当前轮次内复用，轮次结束后关闭。检索方式见 [工具发现与动态调用](docs/TOOL_DISCOVERY.md)。
 
-LoopraX 也可以对外发布自己的工具。设置页进入「MCP 服务器 → 发布 Loopra 工具」。发布默认关闭，启用后使用 Streamable HTTP（默认 `/mcp`，也可切换 SSE）。选择「全部已启用」发布当前启用工具，选择「手动选择」时只发布白名单中的工具。配置保存在 `~/.loopra/mcp-server.json`。连接地址为当前 Web 服务地址加上 endpoint，例如 `http://127.0.0.1:8080/mcp`，请求需要 `X-Loopra-Key`。
+Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 → 发布 Loopra 工具」。发布默认关闭，启用后使用 Streamable HTTP（默认 `/mcp`，也可切换 SSE）。选择「全部已启用」发布当前启用工具，选择「手动选择」时只发布白名单中的工具。配置保存在 `~/.loopra/mcp-server.json`。连接地址为当前 Web 服务地址加上 endpoint，例如 `http://127.0.0.1:8080/mcp`，请求需要 `X-Loopra-Key`。
 
 同一设置页可以一键启动 Cloudflare Quick Tunnel。本机需要已安装 `cloudflared` 并加入 PATH，也可以在页面填写可执行文件路径。Quick Tunnel 生成临时公网地址，应用退出后失效；本地代理只转发已配置的 MCP endpoint。该能力适合开发和测试。Quick Tunnel 不支持 SSE，请将 MCP 传输方式设为 Streamable HTTP。
 
@@ -377,7 +375,7 @@ LoopraX 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 ### 工作台
 
-`loopra` 不写子命令时启动 Web，`loopra web [port]` 与之相同。`looprax-desktop` 启动同一服务并打开工作台窗口，地址里自动带上密钥。文件、命令、Git 和系统目录操作发生在后端所在机器。
+`loopra` 不写子命令时启动 Web，`loopra web [port]` 与之相同。`loopra-desktop` 启动同一服务并打开工作台窗口，地址里自动带上密钥。文件、命令、Git 和系统目录操作发生在后端所在机器。
 
 工作区中的「纯聊天」只启用 `web` 联网查询，不暴露项目文件、终端或 Git。会话仍独立持久化。
 
@@ -408,15 +406,15 @@ LoopraX 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 ### ACP
 
-LoopraX 可以作为 ACP Agent 供外部编辑器连接。这条命令只占用标准输入输出，不启动 HTTP 服务，日志写到 stderr：
+Loopra 可以作为 ACP Agent 供外部编辑器连接。这条命令只占用标准输入输出，不启动 HTTP 服务，日志写到 stderr：
 
 ```bash
 loopra acp
 ```
 
-工作台里的 Loopra Native 会话不会拉起这条命令。协议由 `coder/acp-go-sdk` 实现。
+工作台里的 Loopra Native 会话不会拉起这条命令。
 
-在工作台中选择外部引擎时，Go 进程以 ACP v1 stdio 客户端驱动本机适配器。需要已安装的 Node.js，以及对应适配器：`@agentclientprotocol/claude-agent-acp`、`@agentclientprotocol/codex-acp`、`pi-acp`、`@deepseek-ai/dsh`。`GET /api/agent-engines` 会报告每个引擎的可用性与缺失原因。下面的环境变量可覆盖自动探测：
+在工作台中选择外部引擎时，本进程以 ACP v1 stdio 客户端驱动本机适配器。需要已安装的 Node.js，以及对应适配器：`@agentclientprotocol/claude-agent-acp`、`@agentclientprotocol/codex-acp`、`pi-acp`、`@deepseek-ai/dsh`。`GET /api/agent-engines` 会报告每个引擎的可用性与缺失原因。下面的环境变量可覆盖自动探测：
 
 | 环境变量 | 作用 |
 |---|---|
@@ -431,7 +429,7 @@ loopra acp
 
 ### Java 兼容后端
 
-Java `.jar` 插件和拓展包需要 Java 运行时。设置 `LOOPRA_JAVA_BACKEND_URL` 后，全部 `/api` 与 `/mcp` 流量交给该服务，包括聊天、历史、权限与引擎管理；Go 调度器不会启动。两边密钥不同时再设置 `LOOPRA_JAVA_BACKEND_KEY`。
+Java `.jar` 插件和拓展包需要 Java 运行时。设置 `LOOPRA_JAVA_BACKEND_URL` 后，全部 `/api` 与 `/mcp` 流量交给该服务，包括聊天、历史、权限与引擎管理；内置调度器不会启动。两边密钥不同时再设置 `LOOPRA_JAVA_BACKEND_KEY`。
 
 ## 配置
 
@@ -518,16 +516,16 @@ pnpm test
 pnpm build
 ```
 
-开发地址为 `http://127.0.0.1:3000/`，`/api` 代理到本机 `4567`。单独开发前端时先运行 `go run ./cmd/looprax 4567`，并在页面填入启动日志里的访问密钥。`pnpm build` 输出到 `web/dist`，供 Go 服务直接托管。
+开发地址为 `http://127.0.0.1:3000/`，`/api` 代理到本机 `4567`。单独开发前端时先运行 `go run ./cmd/looprax 4567`，并在页面填入启动日志里的访问密钥。`pnpm build` 输出到 `web/dist`，由后端直接托管。
 
 把页面嵌进二进制：
 
 ```bash
-go build -tags webdist -o looprax ./cmd/looprax
-go build -tags webdist -o looprax-desktop ./cmd/looprax-desktop
+go build -tags webdist -o loopra ./cmd/looprax
+go build -tags webdist -o loopra-desktop ./cmd/looprax-desktop
 ```
 
-多平台打包脚本会先构建前端，再按 `scripts/package-matrix.txt` 写出 `bin/`。桌面端覆盖 Windows、Linux、macOS 的 amd64 与 arm64；macOS 产物是 `LoopraX.app` 和保持可执行权限的 zip。
+多平台打包脚本会先构建前端，再按 `scripts/package-matrix.txt` 写出 `bin/`。桌面端覆盖 Windows、Linux、macOS 的 amd64 与 arm64；macOS 产物是 `Loopra.app` 和保持可执行权限的 zip。
 
 ```powershell
 .\scripts\package.ps1
@@ -544,7 +542,7 @@ go build -tags webdist -o looprax-desktop ./cmd/looprax-desktop
 | 文档 | 何时打开 |
 |---|---|
 | [架构与开发指南](docs/ARCHITECTURE.md) | 目录职责、依赖装配、配置加载和请求链路 |
-| [用 Java 的感觉写 Go](docs/SPRING_STYLE.md) | Spring 概念在这份代码里的对应写法 |
+| [依赖装配写法](docs/SPRING_STYLE.md) | 组合根、构造器注入和请求链路的对应写法 |
 | [工具发现与动态调用](docs/TOOL_DISCOVERY.md) | `tool_search` / `call_tool` 如何接入 MCP |
 | [rg 工具说明](docs/RG_TOOL.md) | 搜索模式、参数，以及内置 ripgrep 的更新 |
 | [API 契约](docs/API_CONTRACT.md) | REST 路径、鉴权和响应形状 |

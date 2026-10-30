@@ -24,7 +24,7 @@ const (
 func Checkpoint(dir, msgID string) (Snapshot, error) {
 	r := Runner{Dir: dir}
 	snap := Snapshot{MsgID: msgID, CreatedAt: time.Now().UnixMilli()}
-	index, err := os.CreateTemp("", "looprax-snapshot-index-*")
+	index, err := os.CreateTemp("", "loopra-snapshot-index-*")
 	if err != nil {
 		return snap, err
 	}

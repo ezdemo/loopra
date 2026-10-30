@@ -63,7 +63,7 @@ func Executable() (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("resolve rg cache: %w", err)
 		}
-		cache = filepath.Join(base, "looprax", "rg")
+		cache = filepath.Join(base, "loopra", "rg")
 	}
 	return executableAt(cache)
 }

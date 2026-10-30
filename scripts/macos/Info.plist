@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>LoopraX</string>
+	<string>Loopra</string>
 	<key>CFBundleExecutable</key>
-	<string>LoopraX</string>
+	<string>Loopra</string>
 	<key>CFBundleIconFile</key>
-	<string>looprax</string>
+	<string>loopra</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.ezdemo.looprax</string>
+	<string>com.ezdemo.loopra</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>LoopraX</string>
+	<string>Loopra</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

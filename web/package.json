@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "LoopraX workbench. pnpm dev proxies /api to 127.0.0.1:4567; pnpm build writes dist for the Go server.",
+  "description": "Loopra workbench. pnpm dev proxies /api to 127.0.0.1:4567; pnpm build writes dist for the Go server.",
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc -p tsconfig.json --noEmit",

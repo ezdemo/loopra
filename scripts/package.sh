@@ -4,8 +4,8 @@
 #
 # Desktop builds are windows, linux, and darwin on amd64 and arm64.
 # Web also builds windows/386, linux/armv7 (GOARM=7), and linux/s390x.
-# windows/amd64 also gets the short names loopra.exe and looprax-desktop.exe.
-# darwin desktop builds are LoopraX .app bundles, plus a .zip that keeps
+# windows/amd64 also gets the short names loopra.exe and loopra-desktop.exe.
+# darwin desktop builds are Loopra .app bundles, plus a .zip that keeps
 # the executable bit when the archive is copied from Windows.
 #
 #   ./scripts/package.sh
@@ -122,9 +122,9 @@ artifact_name() {
   if [ "$arch" = arm ] && [ "$goarm" = 7 ]; then
     label=armv7
   fi
-  prefix=looprax
+  prefix=loopra
   if [ "$product" = desktop ]; then
-    prefix=looprax-desktop
+    prefix=loopra-desktop
   fi
   name=$prefix-$goos-$label
   if [ "$goos" = windows ]; then
@@ -140,15 +140,15 @@ mac_version() {
     "$root/internal/controller/version.go" | head -n 1
 }
 
-# Wrap a darwin desktop binary as LoopraX.app. Prints the zip path when one
+# Wrap a darwin desktop binary as Loopra.app. Prints the zip path when one
 # was written.
 publish_darwin_app() {
   binary=$1
   app=$2
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" || return 1
-  mv "$binary" "$app/Contents/MacOS/LoopraX" || return 1
-  chmod 755 "$app/Contents/MacOS/LoopraX" 2>/dev/null || true
+  mv "$binary" "$app/Contents/MacOS/Loopra" || return 1
+  chmod 755 "$app/Contents/MacOS/Loopra" 2>/dev/null || true
   version=$(mac_version || true)
   if [ -z "$version" ]; then
     version=0.1.0
@@ -176,7 +176,7 @@ publish_darwin_app() {
     printf '%s\n' "$zip"
     return 0
   fi
-  echo '  已生成 .app。从 Windows 拷到 Mac 后需要 chmod +x Contents/MacOS/LoopraX' >&2
+  echo '  已生成 .app。从 Windows 拷到 Mac 后需要 chmod +x Contents/MacOS/Loopra' >&2
 }
 
 alias_name() {
@@ -188,7 +188,7 @@ alias_name() {
     return
   fi
   if [ "$goos" = windows ] && [ "$arch" = amd64 ] && [ "$product" = desktop ]; then
-    printf '%s\n' looprax-desktop.exe
+    printf '%s\n' loopra-desktop.exe
     return
   fi
   printf '\n'

@@ -78,7 +78,7 @@
     document.title = lang === 'en' && en['doc.title'] ? en['doc.title'] : originalTitle;
     if (description) {
       description.content = lang === 'en'
-        ? 'Loopra is a Java-powered AI coding agent and workbench. Use Native, Claude Code, Codex, Pi and DeepSeek Harness through React Web and Electron Desktop for local codebase development and collaboration.'
+        ? (en['doc.description'] || 'Loopra is an AI coding agent and workbench for local codebases. It reasons, calls tools and keeps sessions, and can also run Claude Code, Codex, Pi and DeepSeek Harness. Web and desktop open the same interface.')
         : originalDescription;
     }
     var toggle = document.querySelector('[data-lang-toggle]');

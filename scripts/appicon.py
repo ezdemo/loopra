@@ -1,7 +1,7 @@
-"""Embed the LoopraX mark into packaged Windows and macOS apps.
+"""Embed the Loopra mark into packaged Windows and macOS apps.
 
 Source: web/public/icon-512.png. Windows gets an icon resource in the exe.
-macOS gets looprax.icns inside the .app. The Linux desktop binary embeds the
+macOS gets loopra.icns inside the .app. The Linux desktop binary embeds the
 same PNG and installs it on startup.
 """
 
@@ -178,7 +178,7 @@ def stamp_app(path, image):
         raise SystemExit("不是 .app 目录: " + path)
     resources = os.path.join(path, "Contents", "Resources")
     os.makedirs(resources, exist_ok=True)
-    icns = os.path.join(resources, "looprax.icns")
+    icns = os.path.join(resources, "loopra.icns")
     with open(icns, "wb") as handle:
         handle.write(icns_bytes(image))
     plist = os.path.join(path, "Contents", "Info.plist")
@@ -186,7 +186,7 @@ def stamp_app(path, image):
     if "CFBundleIconFile" not in text:
         text = text.replace(
             "</dict>",
-            "\t<key>CFBundleIconFile</key>\n\t<string>looprax</string>\n</dict>",
+            "\t<key>CFBundleIconFile</key>\n\t<string>loopra</string>\n</dict>",
             1,
         )
         with open(plist, "w", encoding="utf-8", newline="\n") as handle:

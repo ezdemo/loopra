@@ -1,6 +1,6 @@
 # 用 Java 的感觉写 Go：GoFrame + Spring 风格开发指南
 
-本文面向从 Spring Boot 转到 Go 的开发者。LoopraX 的根模块刻意保留了 Spring 的心智模型：
+本文面向从 Spring Boot 转到 Go 的开发者。Loopra 的根模块刻意保留了 Spring 的心智模型：
 **组合根集中声明 Bean、构造器注入、配置分层、MVC 式路由、应用生命周期回调**，
 但底层换成 Go 生态的 [GoFrame v2](https://goframe.org/)（`ghttp` / `gcfg` / `glog`）
 与 [ADK Go](https://google.github.io/adk-docs/) 智能体运行时。
@@ -13,7 +13,7 @@
 
 ## 1. 概念对照表
 
-| Spring Boot | LoopraX 对应物 | 位置 |
+| Spring Boot | Loopra 对应物 | 位置 |
 | --- | --- | --- |
 | `@SpringBootApplication` / `SpringApplication.run` | `spring.NewApplication("looprax").Run(ctx)` | `cmd/looprax/main.go` → `bootstrap.Run` |
 | IoC 容器 / `ApplicationContext` | `internal/spring`（`Application` + `BeanFactory`） | `internal/spring/` |

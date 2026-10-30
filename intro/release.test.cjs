@@ -13,10 +13,22 @@ test('classifies current release installers and excludes updater metadata and th
   const data = normalizeRelease(release([
     asset('latest.yml'), asset('latest-unsigned-mac.yml'), asset('loopra-dist.tar.gz'),
     asset('Loopra-windows-x64.exe'), asset('Loopra-windows-x64.exe.blockmap'),
-    asset('Loopra-macos-arm64.zip'), asset('Loopra-linux-x64.AppImage'), asset('Loopra-linux-x64.deb')
+    asset('Loopra-macos-arm64.zip'), asset('Loopra-linux-x64.AppImage'), asset('Loopra-linux-x64.deb'),
+    asset('looprax-desktop-darwin-amd64.zip'), asset('looprax-desktop-darwin-arm64.zip'),
+    asset('looprax-darwin-arm64'), asset('looprax-desktop-linux-amd64'), asset('looprax-linux-arm64'),
+    asset('looprax-windows-386.exe')
   ]));
-  assert.deepEqual(data.assets.map(a => [a.platform, a.arch, a.format]), [
-    ['windows', 'x64', 'exe'], ['macos', 'arm64', 'zip'], ['linux', 'x64', 'appimage'], ['linux', 'x64', 'deb']
+  assert.deepEqual(data.assets.map(a => [a.platform, a.arch, a.format, a.kind]), [
+    ['windows', 'x64', 'exe', 'cli'],
+    ['macos', 'arm64', 'zip', 'cli'],
+    ['linux', 'x64', 'appimage', 'cli'],
+    ['linux', 'x64', 'deb', 'cli'],
+    ['macos', 'x64', 'zip', 'desktop'],
+    ['macos', 'arm64', 'zip', 'desktop'],
+    ['macos', 'arm64', 'bin', 'cli'],
+    ['linux', 'x64', 'bin', 'desktop'],
+    ['linux', 'arm64', 'bin', 'cli'],
+    ['windows', 'x86', 'exe', 'cli']
   ]);
   assert.equal(data.assets[0].size, 1048576);
   assert.equal(data.version, 'v1');

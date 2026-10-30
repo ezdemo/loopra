@@ -26,7 +26,7 @@ api = os.environ.get("LOOPRAX_RELEASE_API_URL", "https://api.github.com/repos/ez
 release = json.loads(fetch(api, 4 * 1024 * 1024))
 platform, arch = os.environ["LOOPRAX_UPDATE_OS"], os.environ["LOOPRAX_UPDATE_ARCH"]
 target_name = Path(os.environ.get("LOOPRAX_UPDATE_TARGET", "")).name
-desktop = "desktop" in target_name.lower() or target_name == "LoopraX"
+desktop = "desktop" in target_name.lower() or target_name in ("Loopra", "LoopraX")
 
 def tokens(name):
     base = Path(name).name.lower()
@@ -55,15 +55,17 @@ if digest.startswith("sha256:") and hashlib.sha256(data).hexdigest() != digest[7
     raise RuntimeError("Release checksum mismatch")
 if asset["name"].endswith(".zip"):
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        entries = [entry for entry in archive.infolist() if Path(entry.filename).name == ("LoopraX" if desktop else "looprax")]
+        names = ("Loopra", "LoopraX") if desktop else ("loopra", "looprax")
+        entries = [entry for entry in archive.infolist() if Path(entry.filename).name in names]
         if not entries or entries[0].file_size > 128 * 1024 * 1024:
-            raise RuntimeError("Archive does not contain a valid looprax binary")
+            raise RuntimeError("Archive does not contain a valid loopra binary")
         data = archive.read(entries[0])
 elif asset["name"].endswith((".tar.gz", ".tgz")):
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-        entries = [entry for entry in archive.getmembers() if entry.isfile() and Path(entry.name).name == ("LoopraX" if desktop else "looprax")]
+        names = ("Loopra", "LoopraX") if desktop else ("loopra", "looprax")
+        entries = [entry for entry in archive.getmembers() if entry.isfile() and Path(entry.name).name in names]
         if not entries or entries[0].size > 128 * 1024 * 1024:
-            raise RuntimeError("Archive does not contain a valid looprax binary")
+            raise RuntimeError("Archive does not contain a valid loopra binary")
         data = archive.extractfile(entries[0]).read()
 if len(data) < 64 or data[:4] not in (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe"):
     raise RuntimeError("Downloaded file is not a supported native executable")

@@ -1,4 +1,4 @@
-// Command looprax-desktop 在本机启动 LoopraX API，并用 mygo 打开工作台。
+// Command looprax-desktop 在本机启动 Loopra API，并用 mygo 打开工作台。
 //
 // 页面与 API 同一源（http://127.0.0.1:<port>）。先在 web 目录执行 pnpm build，
 // 或用 go build -tags webdist 把 web/dist 嵌进二进制。
@@ -35,8 +35,8 @@ func main() {
 	}
 	var options config.Options
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: looprax-desktop [port] [flags]")
-		fmt.Fprintln(os.Stderr, "starts the LoopraX API and opens the workbench")
+		fmt.Fprintln(os.Stderr, "usage: loopra-desktop [port] [flags]")
+		fmt.Fprintln(os.Stderr, "starts the Loopra API and opens the workbench")
 		flag.PrintDefaults()
 	}
 	flag.StringVar(&options.ConfigFile, "config", "", "配置文件路径（默认 manifest/config/config.yaml）")
@@ -110,7 +110,7 @@ func main() {
 	}
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:           "LoopraX",
+			Title:           "Loopra",
 			URL:             pageURL,
 			Width:           1280,
 			Height:          840,
