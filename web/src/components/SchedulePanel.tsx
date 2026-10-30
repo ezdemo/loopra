@@ -7,7 +7,7 @@ import { ConfirmAction, errorText, query } from './RemoteControls';
 import { Field, SelectField } from './SettingControls';
 
 type Run = { id: string; startedAt: number; finishedAt: number; status: string; sessionName?: string; message?: string; result?: string; error?: string };
-type Task = { id: string; name: string; sessionName: string; sessionMode?: 'independent' | 'existing'; message: string; cronExpr: string | null; intervalSec: number | null; enabled: boolean; runCount?: number; nextRunAt?: number; lastResult?: string; lastError?: string; runs?: Run[]; workspaceHash: string };
+type Task = { id: string; name: string; sessionName: string; sessionMode?: 'independent' | 'existing'; message: string; cronExpr: string | null; intervalSec: number | null; enabled: boolean; runCount?: number; nextRunAt?: number; lastResult?: string; lastError?: string; runs?: Run[]; workspaceHash: string; plugin?: boolean };
 type ScheduleMode = 'daily' | 'interval' | 'cron';
 type TaskFilter = 'all' | 'enabled' | 'paused';
 function scheduleLabel(task: Task) {
@@ -48,22 +48,30 @@ export default function SchedulePanel({ api, workspaces, sessions, onOpenSession
     const controller = new AbortController();
     setLoading(true); setLoadErrors([]);
     const hashes = workspaceKey ? workspaceKey.split('\0') : [];
-    void Promise.allSettled(hashes.map(hash => api.request<Task[]>(`/schedules?${query({ workspaceHash: hash })}`, 'GET', undefined, controller.signal)))
+    const jobs = hashes.map(hash => ({ hash, request: api.request<Task[]>(`/schedules?${query({ workspaceHash: hash })}`, 'GET', undefined, controller.signal) }));
+    jobs.push({ hash: 'plugin', request: api.request<Task[]>('/plugins/schedules', 'GET', undefined, controller.signal) });
+    void Promise.allSettled(jobs.map(job => job.request))
       .then(results => {
         if (!active) return;
-        setTasks(results.flatMap((result, index) => result.status === 'fulfilled' ? result.value.map(task => ({ ...task, workspaceHash: hashes[index] })) : []));
-        setLoadErrors(results.flatMap((result, index) => result.status === 'rejected' ? [`${hashes[index]}：${errorText(result.reason)}`] : []));
+        setTasks(results.flatMap((result, index) => result.status === 'fulfilled' ? result.value.map(task => ({ ...task, workspaceHash: jobs[index].hash, plugin: jobs[index].hash === 'plugin' || task.plugin })) : []));
+        setLoadErrors(results.flatMap((result, index) => result.status === 'rejected' ? [`${jobs[index].hash === 'plugin' ? '插件' : jobs[index].hash}：${errorText(result.reason)}`] : []));
         setLoading(false);
       });
     return () => { active = false; controller.abort(); };
   }, [api, workspaceKey, revision]);
   const refresh = () => setRevision(value => value + 1);
-  const workspaceName = (hash: string) => { const item = workspaces.find(workspace => workspace.hash === hash); return item?.displayName || item?.name || hash; };
+  const workspaceName = (hash: string) => hash === 'plugin' ? '插件' : (() => { const item = workspaces.find(workspace => workspace.hash === hash); return item?.displayName || item?.name || hash; })();
   const enabledCount = tasks.filter(task => task.enabled).length;
   const visible = tasks.filter(task => filter === 'all' || (filter === 'enabled' ? task.enabled : !task.enabled));
   const runs = tasks.flatMap(task => (task.runs || []).map(run => ({ task, run }))).sort((a, b) => b.run.startedAt - a.run.startedAt);
   const runTasks = tasks.filter(task => task.runs?.length);
   const visibleRuns = runTaskFilter === 'all' ? runs : runs.filter(({ task }) => `${task.workspaceHash}/${task.id}` === runTaskFilter);
+  async function runPlugin(task: Task) {
+    setBusy(true); setError('');
+    try { await api.request(`/plugins/schedules/${encodeURIComponent(task.id)}/run`, 'POST'); return true; }
+    catch (cause) { setError(errorText(cause)); return false; }
+    finally { setBusy(false); refresh(); }
+  }
   async function act(hash: string, path: string, method = 'POST', body?: unknown) {
     setBusy(true); setError('');
     try { await api.request(`/schedules${path}?${query({ workspaceHash: hash })}`, method, body); return true; }
@@ -93,7 +101,7 @@ export default function SchedulePanel({ api, workspaces, sessions, onOpenSession
     <div className="automation-page-heading"><Tabs aria-label="自动化分类" selectedKey={tab} onSelectionChange={key => setTab(String(key))} variant="underlined" className="automation-tabs"><Tab key="tasks" title="定时任务" /><Tab key="runs" title="运行记录" /></Tabs><div className="automation-heading-actions"><Button size="sm" variant="light" isIconOnly aria-label="刷新自动化" onPress={refresh}><RefreshCw size={16} /></Button><Button size="sm" color="primary" onPress={() => edit()} isDisabled={!workspaces.length}>新建自动化</Button></div></div>
     {loadErrors.length > 0 && <p className="settings-error" role="alert">部分项目加载失败：{loadErrors.join('；')}</p>}{error && !draft && <p className="settings-error" role="alert">{error}</p>}
     {tab === 'tasks' ? <><div className="automation-filters">{([['all', `全部 (${tasks.length})`], ['enabled', `已启用 (${enabledCount})`], ['paused', `已暂停 (${tasks.length - enabledCount})`]] as const).map(([key, label]) => <Button key={key} size="sm" variant={filter === key ? 'flat' : 'light'} onPress={() => setFilter(key)} aria-pressed={filter === key}>{label}</Button>)}</div>
-      <div className="automation-card-grid">{visible.map(task => <article className="automation-card" key={`${task.workspaceHash}/${task.id}`}><div className="automation-card-heading"><button type="button" onClick={() => setSelectedTask(task)}>{task.name || task.id}</button><Switch size="sm" color="success" aria-label={`${task.enabled ? '暂停' : '启用'} ${task.name}`} isSelected={task.enabled} isDisabled={busy} onValueChange={() => void act(task.workspaceHash, `/${encodeURIComponent(task.id)}/toggle`)} /></div><button type="button" className="automation-card-description" onClick={() => setSelectedTask(task)}>{task.message}</button><div className="automation-card-footer"><span><AlarmClock size={15} />{scheduleLabel(task)}</span><span>{nextLabel(task)}</span></div><div className="automation-card-project">{workspaceName(task.workspaceHash)}</div></article>)}</div>
+      <div className="automation-card-grid">{visible.map(task => <article className="automation-card" key={`${task.workspaceHash}/${task.id}`}><div className="automation-card-heading"><button type="button" onClick={() => setSelectedTask(task)}>{task.name || task.id}</button><Switch size="sm" color="success" aria-label={`${task.enabled ? '暂停' : '启用'} ${task.name}`} title={task.plugin ? '由插件提供，停用插件后消失' : undefined} isSelected={task.enabled} isDisabled={busy || !!task.plugin} onValueChange={() => void act(task.workspaceHash, `/${encodeURIComponent(task.id)}/toggle`)} /></div><button type="button" className="automation-card-description" onClick={() => setSelectedTask(task)}>{task.message}</button><div className="automation-card-footer"><span><AlarmClock size={15} />{scheduleLabel(task)}</span><span>{nextLabel(task)}</span></div><div className="automation-card-project">{workspaceName(task.workspaceHash)}</div></article>)}</div>
       {!loading && visible.length === 0 && <p className="panel-empty">{tasks.length ? '没有符合条件的定时任务。' : workspaces.length ? '暂无定时任务，创建一个自动化开始使用。' : '请先添加项目。'}</p>}</> : <>
         <div className="automation-run-toolbar"><SelectField compact label="筛选运行记录" value={runTaskFilter} onChange={setRunTaskFilter} options={[{ value: 'all', label: '全部任务' }, ...runTasks.map(task => ({ value: `${task.workspaceHash}/${task.id}`, label: task.name || task.id }))]} /><span>{visibleRuns.length} 条记录</span></div>
         <div className="automation-record-list">{visibleRuns.map(({ task, run }) => <button type="button" key={`${task.workspaceHash}/${task.id}/${run.id}`} className="automation-record-row" onClick={() => setSelectedRun({ run, task })}><span><strong>{task.name}</strong><small>{workspaceName(task.workspaceHash)} · {new Date(run.startedAt).toLocaleString()}</small></span><span>{run.status === 'error' ? <><AlertCircle size={15} /> 执行失败</> : '执行完成'}</span></button>)}{!loading && visibleRuns.length === 0 && <p className="panel-empty">{runTaskFilter === 'all' ? '暂无运行记录。' : '该任务暂无运行记录。'}</p>}</div>
@@ -118,9 +126,9 @@ export default function SchedulePanel({ api, workspaces, sessions, onOpenSession
           </section>
         </ModalBody>
         <ModalFooter className="app-dialog-footer automation-detail-footer">
-          <Button size="sm" color="danger" variant="light" className="automation-detail-delete" startContent={<Trash2 size={15} aria-hidden="true" />} onPress={() => { setDeleting(selectedTask); setSelectedTask(undefined); }}>删除</Button>
-          <Button size="sm" variant="bordered" startContent={<Pencil size={15} aria-hidden="true" />} onPress={() => edit(selectedTask)}>编辑</Button>
-          <Button size="sm" color="primary" startContent={<Play size={15} aria-hidden="true" />} isDisabled={busy} onPress={() => { setSelectedTask(undefined); void act(selectedTask.workspaceHash, `/${encodeURIComponent(selectedTask.id)}/run`); }}>立即运行</Button>
+          {!selectedTask.plugin && <Button size="sm" color="danger" variant="light" className="automation-detail-delete" startContent={<Trash2 size={15} aria-hidden="true" />} onPress={() => { setDeleting(selectedTask); setSelectedTask(undefined); }}>删除</Button>}
+          {!selectedTask.plugin && <Button size="sm" variant="bordered" startContent={<Pencil size={15} aria-hidden="true" />} onPress={() => edit(selectedTask)}>编辑</Button>}
+          <Button size="sm" color="primary" startContent={<Play size={15} aria-hidden="true" />} isDisabled={busy} onPress={() => { const task = selectedTask; setSelectedTask(undefined); if (task.plugin) void runPlugin(task); else void act(task.workspaceHash, `/${encodeURIComponent(task.id)}/run`); }}>立即运行</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>}

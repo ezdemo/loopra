@@ -20,6 +20,7 @@ type SubAgentProfile struct {
 	AllowedTools []string `json:"allowedTools,omitempty"`
 	ModelChannel string   `json:"modelChannel,omitempty"`
 	Model        string   `json:"model,omitempty"`
+	Plugin       bool     `json:"plugin,omitempty"`
 }
 
 // builtinProfiles 复现 Java 枚举的内容；内置 id 的自定义字段
@@ -130,6 +131,9 @@ func (s *Controller) subAgentDTO(p SubAgentProfile) map[string]any {
 		"tools": toolNames, "enable": enabled,
 		"builtin": isBuiltinProfile(p.ID),
 	}
+	if p.Plugin {
+		dto["plugin"] = true
+	}
 	if len(p.AllowedTools) > 0 {
 		dto["allowedTools"] = p.AllowedTools
 	}
@@ -140,6 +144,49 @@ func (s *Controller) subAgentDTO(p SubAgentProfile) map[string]any {
 		dto["model"] = p.Model
 	}
 	return dto
+}
+
+func (s *Controller) subAgentProfiles() []SubAgentProfile {
+	profiles := s.subAgentLoad()
+	if s.plugins == nil {
+		return profiles
+	}
+	extra := s.plugins.Subagents()
+	if len(extra) == 0 {
+		return profiles
+	}
+	owned := map[string]bool{}
+	for _, item := range extra {
+		owned[strings.ToLower(item.ID)] = true
+	}
+	kept := make([]SubAgentProfile, 0, len(profiles)+len(extra))
+	for _, profile := range profiles {
+		if owned[strings.ToLower(profile.ID)] {
+			continue
+		}
+		kept = append(kept, profile)
+	}
+	yes := true
+	for _, item := range extra {
+		kept = append(kept, SubAgentProfile{
+			ID: item.ID, Name: item.Name, Description: item.Description,
+			Enable: &yes, ReadOnly: item.ReadOnly, Instructions: item.Instructions, Plugin: true,
+		})
+	}
+	return kept
+}
+
+func (s *Controller) pluginSubagent(id string) bool {
+	if s.plugins == nil {
+		return false
+	}
+	id = strings.ToLower(id)
+	for _, item := range s.plugins.Subagents() {
+		if strings.ToLower(item.ID) == id {
+			return true
+		}
+	}
+	return false
 }
 
 func isBuiltinProfile(id string) bool {
@@ -159,7 +206,7 @@ func (s *Controller) subAgentsController(w http.ResponseWriter, r *http.Request)
 	}
 	switch r.Method {
 	case http.MethodGet:
-		profiles := s.subAgentLoad()
+		profiles := s.subAgentProfiles()
 		out := make([]map[string]any, 0, len(profiles))
 		for _, p := range profiles {
 			out = append(out, s.subAgentDTO(p))
@@ -189,8 +236,15 @@ func (s *Controller) subAgentsController(w http.ResponseWriter, r *http.Request)
 			}
 			// 内置内容字段会在下次加载时被强制还原
 		}
-		s.subAgentSave(body.Profiles)
-		profiles := s.subAgentLoad()
+		kept := make([]SubAgentProfile, 0, len(body.Profiles))
+		for _, p := range body.Profiles {
+			if s.pluginSubagent(p.ID) {
+				continue
+			}
+			kept = append(kept, p)
+		}
+		s.subAgentSave(kept)
+		profiles := s.subAgentProfiles()
 		out := make([]map[string]any, 0, len(profiles))
 		for _, p := range profiles {
 			out = append(out, s.subAgentDTO(p))

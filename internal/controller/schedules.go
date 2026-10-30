@@ -32,10 +32,35 @@ func (s *Controller) startScheduleTicker(interval time.Duration) {
 						view.scheduleScan()
 					}
 				}
+				s.scanPluginSchedules()
 				s.scanRequirements()
 			}
 		}
 	}()
+}
+
+func (s *Controller) scanPluginSchedules() {
+	if s.plugins == nil || s.agent == nil || s.tasks == nil {
+		return
+	}
+	now := time.Now().UnixMilli()
+	for _, task := range s.plugins.ScheduledTasks() {
+		if !task.Enabled || task.NextRunAt <= 0 || task.NextRunAt > now {
+			continue
+		}
+		key := "plugin:" + task.ID
+		if !s.tasks.TryStart(key) {
+			continue
+		}
+		go func(task model.ScheduledTask, key string) {
+			defer s.tasks.Finish(key)
+			if !s.tasks.Ticker().Acquire() {
+				return
+			}
+			defer s.tasks.Ticker().Release()
+			s.executePluginSchedule(context.Background(), task)
+		}(task, key)
+	}
 }
 
 // scheduleScan 触发所有已启用且 nextRunAt 到期的任务。
@@ -167,6 +192,64 @@ func (s *Controller) executeScheduledTask(ctx context.Context, task model.Schedu
 	}
 	s.tasks.Record(task.ID, run, reply, err)
 	return reply
+}
+
+func (s *Controller) executePluginSchedule(ctx context.Context, task model.ScheduledTask) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+	run := model.ScheduleRun{
+		ID: schedule.NewID(), StartedAt: time.Now().UnixMilli(),
+		Status: "running", Message: task.Message,
+		SessionName: "automation-" + strings.ReplaceAll(task.ID, "-", ""),
+	}
+	view, err := s.projectRuntime(chatWorkspace)
+	var reply string
+	if err == nil {
+		reply, err = view.runTurnQuiet(ctx, run.SessionName, task.Message)
+	}
+	run.FinishedAt = time.Now().UnixMilli()
+	if err != nil {
+		run.Status = "failed"
+		run.Error = err.Error()
+	} else {
+		run.Status = "completed"
+		run.Result = reply
+	}
+	if s.plugins != nil {
+		s.plugins.RecordSchedule(task, run, reply, err)
+	}
+	return reply
+}
+
+func (s *Controller) runPluginSchedule(w http.ResponseWriter, r *http.Request, id string) {
+	task, ok := s.pluginSchedule(id)
+	if !ok {
+		writeFail(w, http.StatusNotFound, "定时任务不存在: "+id)
+		return
+	}
+	key := "plugin:" + id
+	if s.tasks == nil || !s.tasks.TryStart(key) {
+		writeFail(w, http.StatusBadRequest, "定时任务正在执行")
+		return
+	}
+	defer s.tasks.Finish(key)
+	reply := s.executePluginSchedule(r.Context(), task)
+	writeOK(w, http.StatusOK, reply)
+}
+
+func (s *Controller) pluginSchedule(id string) (model.ScheduledTask, bool) {
+	if s.plugins == nil {
+		return model.ScheduledTask{}, false
+	}
+	for _, task := range s.plugins.ScheduledTasks() {
+		if task.ID == id {
+			return task, true
+		}
+	}
+	return model.ScheduledTask{}, false
 }
 
 // explicitEnabled 报告原始请求体是否带有 enabled 键。

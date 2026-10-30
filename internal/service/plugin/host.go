@@ -54,6 +54,7 @@ type View struct {
 	Hooks       []string     `json:"hooks,omitempty"`
 	Entry       string       `json:"entry,omitempty"`
 	Settings    bool         `json:"settings,omitempty"`
+	Builtin     bool         `json:"builtin,omitempty"`
 	Icon        *IconRef     `json:"icon,omitempty"`
 	Sidebar     *SidebarLink `json:"sidebar,omitempty"`
 	Menu        *MenuView    `json:"menu,omitempty"`
@@ -101,6 +102,7 @@ type record struct {
 	Source      string `json:"source"`
 	Entry       string `json:"entry,omitempty"`
 	Enabled     bool   `json:"enabled"`
+	Builtin     bool   `json:"builtin,omitempty"`
 	InstalledAt int64  `json:"installedAt"`
 }
 
@@ -280,6 +282,10 @@ func (h *Host) Remove(id string) error {
 	for _, rec := range h.records {
 		if rec.ID == id {
 			found = true
+			if rec.Builtin {
+				h.mu.Unlock()
+				return errBuiltin
+			}
 			continue
 		}
 		next = append(next, rec)
@@ -298,6 +304,7 @@ func (h *Host) Remove(id string) error {
 	if removeErr := os.Remove(h.uiConfigPath(id)); removeErr != nil && !os.IsNotExist(removeErr) && err == nil {
 		err = removeErr
 	}
+	h.forgetSchedule(contributionID(id))
 	return err
 }
 
@@ -332,6 +339,7 @@ func (h *Host) reload(ctx context.Context, rec record) error {
 	for i := range h.records {
 		if h.records[i].ID == rec.ID {
 			rec.Enabled = h.records[i].Enabled
+			rec.Builtin = h.records[i].Builtin
 			rec.InstalledAt = h.records[i].InstalledAt
 			if h.records[i].Source != "" {
 				rec.Source = h.records[i].Source
@@ -387,7 +395,7 @@ func (h *Host) viewLocked(rec record) View {
 	view := View{
 		ID: rec.ID, DisplayName: rec.DisplayName, Description: rec.Description, Remark: rec.Description,
 		Version: rec.Version, Source: rec.Source, SourceURL: rec.Source, Enabled: rec.Enabled,
-		Entry: rec.Entry, State: "已停用",
+		Entry: rec.Entry, Builtin: rec.Builtin, State: "已停用",
 	}
 	if view.DisplayName == "" {
 		view.DisplayName = rec.Name
@@ -521,6 +529,7 @@ type errText string
 func (e errText) Error() string { return string(e) }
 
 const (
-	errNoHome errText = "插件目录不可用"
-	errBadID  errText = "无法从包名生成插件标识"
+	errNoHome  errText = "插件目录不可用"
+	errBadID   errText = "无法从包名生成插件标识"
+	errBuiltin errText = "内置插件不能卸载"
 )

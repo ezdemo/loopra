@@ -30,6 +30,10 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(path, "external/") {
 			path = strings.TrimPrefix(path, "external/")
 		}
+		if path == "schedules" {
+			writeOK(w, http.StatusOK, s.plugins.ScheduledTasks())
+			return
+		}
 		if s.servePluginConfig(w, path) || s.servePluginIcon(w, r, path) || s.servePluginUI(w, r, path) {
 			return
 		}
@@ -47,6 +51,10 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(path, "/")
 	if len(parts) > 0 && parts[0] == "external" {
 		parts = parts[1:]
+	}
+	if len(parts) == 3 && parts[0] == "schedules" && parts[2] == "run" {
+		s.runPluginSchedule(w, r, parts[1])
+		return
 	}
 	if len(parts) == 3 && parts[2] == "open" && (parts[1] == "ui" || parts[1] == "sidebar" || parts[1] == "menu") {
 		s.openPluginUI(w, r, parts[0], parts[1])

@@ -10,7 +10,7 @@ import { PageActions, Field, SettingDisclosure, ResourceIcon, ResourceEmpty } fr
 type ToolParam = { name: string; description?: string; type?: string; required?: boolean };
 type Tool = { name: string; description: string; readOnly: boolean; readOnlyOverride: boolean | null; stormExempt: boolean; enabled: boolean; autoApproved: boolean; params?: ToolParam[] };
 export { default as SubAgentManager } from './SubAgentManager';
-type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string; settings?: boolean; icon?: PluginIconRef };
+type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; builtin?: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string; settings?: boolean; icon?: PluginIconRef };
 const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
 function pluginTone(id: string) {
   let n = 0;
@@ -18,6 +18,7 @@ function pluginTone(id: string) {
   return pluginTones[n];
 }
 function pluginOrigin(pack: Pack) {
+  if (pack.builtin) return '内置';
   const source = pack.source || pack.sourceUrl || '';
   if (/github\.com|^github:|github:/i.test(source)) return 'GitHub';
   if (/^[a-z]:[\\/]/i.test(source) || source.startsWith('file:') || source.startsWith('.') || source.includes('\\') || source.startsWith('/')) return '本地';
@@ -75,7 +76,7 @@ export function ExtensionManager({ api, onChanged }: { api: LoopraClient; onChan
           <span>{pack.version ? `v${pack.version}` : pluginOrigin(pack)}</span>
           {pluginFoot(pack) && <span className="plugin-card-meta" title={pluginFoot(pack)}>{pluginFoot(pack)}</span>}
           {pack.settings && <button className="plugin-card-open" type="button" disabled={busy} onClick={() => setPanel(pack)}>设置</button>}
-          <button className="plugin-card-remove" type="button" disabled={busy} onClick={() => setDeleting(pack)}>卸载</button>
+          {!pack.builtin && <button className="plugin-card-remove" type="button" disabled={busy} onClick={() => setDeleting(pack)}>卸载</button>}
         </footer>
       </section>;
     })}</div>

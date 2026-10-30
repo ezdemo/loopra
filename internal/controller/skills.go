@@ -47,6 +47,11 @@ func (s *Controller) globalSkillMetadata() []map[string]any {
 			out = append(out, map[string]any{"name": entry["name"], "description": entry["description"], "scope": entry["scope"], "runAs": "", "directoryName": entry["directoryName"]})
 		}
 	}
+	if s.plugins != nil {
+		for _, skill := range s.plugins.Skills() {
+			out = append(out, map[string]any{"name": skill.Name, "description": skill.Description, "scope": "@plugin-skills/" + skill.PluginID, "runAs": "", "directoryName": skill.PluginID})
+		}
+	}
 	return out
 }
 
@@ -81,6 +86,11 @@ func (s *Controller) readSkill(name, path string) (string, error) {
 		root = s.agentsSkillsRoot()
 	case "@project-skills":
 		root = filepath.Join(s.workspaceRoot(), ".loopra", "skills")
+	case "@plugin-skills":
+		if s.plugins == nil {
+			return "", fmt.Errorf("技能来源不存在")
+		}
+		return s.plugins.ReadSkill(relative, path)
 	default:
 		return "", fmt.Errorf("技能来源不存在")
 	}

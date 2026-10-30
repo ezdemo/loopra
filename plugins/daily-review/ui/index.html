@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <title>每日回顾</title>
+  <style>
+    body { margin: 0; background: var(--surface, #fff); color: var(--text, #172033); font: 14px/1.6 "Segoe UI", sans-serif; }
+    main { max-width: 32rem; padding: 1.25rem 1.35rem 1.5rem; }
+    h1 { margin: 0; font-size: 1rem; }
+    p { margin: .7rem 0 0; color: var(--secondary, #5c6b82); }
+    label { display: block; margin-top: 1rem; color: var(--secondary, #5c6b82); font-size: .75rem; }
+    input { display: block; width: 100%; box-sizing: border-box; margin-top: .35rem; padding: .55rem .7rem; border: 1px solid var(--line, #e6e8ee); border-radius: .5rem; background: var(--sidebar, #f6f7f9); color: inherit; font: inherit; }
+    button { margin-top: .85rem; border: 0; border-radius: .5rem; padding: .45rem .9rem; background: var(--blue, #3b6cf6); color: #fff; font: inherit; }
+    #status { min-height: 1.4rem; }
+    #status.ok { color: var(--success, #1f9d55); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>每日回顾</h1>
+    <p id="where">插件卡片上的设置页</p>
+    <p>这是一份默认关闭的示例。启用后，侧栏、设置菜单、技能、子代理、每天 9:00 的定时任务和只读工具会一起出现。停用后这些入口消失，这一页还能打开。</p>
+    <label>关注点
+      <input id="focus" maxlength="80" placeholder="例如：这次改动的失败路径">
+    </label>
+    <button id="save" type="button">保存</button>
+    <p id="status"></p>
+    <p>留空则不改提示词。保存后，下一轮会把这句话接在系统提示词后面。只读工具是 <code>daily_review__checklist</code>。</p>
+  </main>
+  <script>
+    const path = location.pathname;
+    document.getElementById("where").textContent = path.indexOf("/sidebar") >= 0
+      ? "这个页面挂在侧栏「每日回顾」。"
+      : path.indexOf("/menu/") >= 0
+        ? "这个页面挂在设置菜单「关注点」。"
+        : "这个页面挂在插件卡片的「设置」。";
+    const pending = new Map();
+    let seq = 0;
+    function ask(op, value) {
+      const id = String(++seq);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { pending.delete(id); reject(new Error("timeout")); }, 800);
+        pending.set(id, { resolve, reject, timer });
+        parent.postMessage({ type: "loopra", op: op, id: id, value: value }, "*");
+      });
+    }
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+      if (!data || data.type !== "loopra" || event.source !== parent) return;
+      if (data.op === "ready" && data.theme) {
+        for (const [key, value] of Object.entries(data.theme)) {
+          if (value) document.documentElement.style.setProperty("--" + key, value);
+        }
+      }
+      if (data.op !== "config") return;
+      const wait = pending.get(String(data.id));
+      if (!wait) return;
+      pending.delete(String(data.id));
+      clearTimeout(wait.timer);
+      if (data.error) wait.reject(new Error(data.error));
+      else wait.resolve(data.value || {});
+    });
+    const focus = document.getElementById("focus");
+    const status = document.getElementById("status");
+    async function load() {
+      for (let i = 0; i < 20; i++) {
+        try {
+          const value = await ask("config:get");
+          focus.value = value.focus || "";
+          return;
+        } catch (error) {
+          if (error.message !== "timeout") { status.textContent = error.message; return; }
+        }
+      }
+    }
+    document.getElementById("save").onclick = async () => {
+      status.textContent = "保存中";
+      status.className = "";
+      try {
+        const value = await ask("config:set", { focus: focus.value.trim() });
+        status.textContent = value.focus ? "已保存：" + value.focus : "已清空";
+        status.className = "ok";
+      } catch (error) {
+        status.textContent = error.message === "timeout" ? "没有连上 Loopra" : error.message;
+      }
+    };
+    load();
+  </script>
+</body>
+</html>

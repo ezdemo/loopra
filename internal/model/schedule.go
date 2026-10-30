@@ -18,6 +18,7 @@ type ScheduledTask struct {
 	Runs        []ScheduleRun `json:"runs"`
 	CreatedAt   int64         `json:"createdAt"`
 	UpdatedAt   int64         `json:"updatedAt"`
+	Plugin      bool          `json:"plugin,omitempty"`
 }
 
 // ScheduleRun 是一条执行记录（前插，不设上限）。

@@ -416,3 +416,122 @@ func TestPluginSettingsPage(t *testing.T) {
 		t.Fatalf("array config = %d %v", code, env["error"])
 	}
 }
+
+func TestPluginDeclaresSkillAgentAndSchedule(t *testing.T) {
+	home := t.TempDir()
+	ws := filepath.Join(home, "defaultWorkSpace")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.WorkspaceDir = ws
+	registry := tools.NewRegistry()
+	a, err := agentpkg.New(home, "contrib01", &cfg, agentpkg.Options{Toolsets: []tool.Toolset{registry}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, key, err := New(a, Options{Home: home, Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "src")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkg := `{
+		"name":"contrib","version":"1.0.0","description":"contrib",
+		"loopra":{
+			"plugin":"./plugin.js",
+			"skill":"./SKILL.md",
+			"subagent":{"name":"复查","description":"只读","readOnly":true,"instructions":"只报告问题。"},
+			"schedule":{"name":"每日回顾","message":"总结一下","intervalSec":120}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.js"), []byte("export function systemPrompt(){ return {} }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: 复查清单\ndescription: 提交前看一遍\n---\n正文\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.plugins.Install(context.Background(), dir); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() { srv.Close(); ts.Close() })
+
+	code, env := call(t, ts, http.MethodGet, "/api/agent/skills", key, nil)
+	if code != http.StatusOK || !skillListed(env["data"], "@plugin-skills/contrib", "复查清单") {
+		t.Fatalf("skills = %d %#v", code, env["data"])
+	}
+	read, err := srv.callExportTool(context.Background(), "skillread", map[string]any{"name": "@plugin-skills/contrib"})
+	if err != nil || !strings.Contains(fmt.Sprint(read), "正文") {
+		t.Fatalf("skillread = %#v %v", read, err)
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/sub-agents", key, nil)
+	row := profileRow(env["data"], "plugin-contrib")
+	if code != http.StatusOK || row == nil || row["plugin"] != true || row["name"] != "复查" {
+		t.Fatalf("subagent = %d %#v", code, row)
+	}
+	code, env = call(t, ts, http.MethodPut, "/api/sub-agents", key, map[string]any{"profiles": []map[string]any{{"id": "plugin-contrib", "name": "改掉", "instructions": "no"}, {"id": "custom1", "name": "Custom", "instructions": "mine"}}})
+	if code != http.StatusOK {
+		t.Fatalf("put = %d %v", code, env["error"])
+	}
+	saved, err := os.ReadFile(filepath.Join(home, "sub-agents.json"))
+	if err != nil || strings.Contains(string(saved), "plugin-contrib") {
+		t.Fatalf("plugin profile was stored: %v %s", err, saved)
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/sub-agents", key, nil)
+	if profileRow(env["data"], "plugin-contrib") == nil || profileRow(env["data"], "custom1") == nil {
+		t.Fatalf("after put = %#v", env["data"])
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/plugins/schedules", key, nil)
+	items, _ := env["data"].([]any)
+	var task map[string]any
+	if len(items) > 0 {
+		task, _ = items[0].(map[string]any)
+	}
+	if code != http.StatusOK || task["id"] != "plugin-contrib" || task["plugin"] != true || task["message"] != "总结一下" {
+		t.Fatalf("schedules = %d %#v", code, env["data"])
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/contrib/toggle", key, map[string]any{"enabled": false})
+	if code != http.StatusOK {
+		t.Fatalf("disable = %d %v", code, env["error"])
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/agent/skills", key, nil)
+	if skillListed(env["data"], "@plugin-skills/contrib", "复查清单") {
+		t.Fatal("disabled skill still listed")
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/sub-agents", key, nil)
+	if profileRow(env["data"], "plugin-contrib") != nil {
+		t.Fatal("disabled subagent still listed")
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/plugins/schedules", key, nil)
+	if items, _ = env["data"].([]any); code != http.StatusOK || len(items) != 0 {
+		t.Fatalf("disabled schedules = %d %#v", code, env["data"])
+	}
+}
+
+func skillListed(data any, scope, name string) bool {
+	items, _ := data.([]any)
+	for _, item := range items {
+		row, _ := item.(map[string]any)
+		if row["scope"] == scope && row["name"] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func profileRow(data any, id string) map[string]any {
+	items, _ := data.([]any)
+	for _, item := range items {
+		row, _ := item.(map[string]any)
+		if row["id"] == id {
+			return row
+		}
+	}
+	return nil
+}

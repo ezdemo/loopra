@@ -321,7 +321,7 @@ func (s *Controller) installSubRunner() {
 			}, &provider.Options{Model: modelName})
 		},
 		Profiles: func(id string) (subagent.Profile, bool) {
-			for _, p := range s.subAgentLoad() {
+			for _, p := range s.subAgentProfiles() {
 				if p.ID == id {
 					return subagent.Profile{
 						ID: p.ID, Name: p.Name, Description: p.Description,

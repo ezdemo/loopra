@@ -8,6 +8,8 @@ import { Field, SelectField } from './SettingControls';
 type Skill = { name: string; description?: string; slug?: string; displayName?: string; summary?: string; installSlug?: string; url?: string; scope?: string; directoryName?: string };
 type Selection = { skill: Skill; installed: boolean; market: string };
 const isBuiltinSkill = (skill: Skill) => skill.scope === '@builtin-skills' || !!skill.scope?.startsWith('@builtin-skills/');
+const isPluginSkill = (skill: Skill) => !!skill.scope?.startsWith('@plugin-skills/');
+const skillBadge = (skill: Skill) => isPluginSkill(skill) ? '插件' : isBuiltinSkill(skill) ? '内置' : '已安装';
 const skillName = (skill: Skill) => skill.displayName || skill.name || skill.slug || '未命名技能';
 const skillSlug = (skill: Skill) => skill.installSlug || skill.slug || skill.name;
 const skillKey = (skill: Skill) => JSON.stringify([skill.scope || '', skill.directoryName || skill.slug || skill.name]);
@@ -60,7 +62,7 @@ export default function SkillsPage({ api, onRefresh, onBack }: { api: LoopraClie
       {!state.loading && !state.error && visible.length === 0 && <div className="skills-hub-empty"><Sparkles size={30} strokeWidth={1.5} /><h2>{tab === 'installed' && !filter ? '从一个技能开始' : '没有找到匹配的技能'}</h2><p>{tab === 'installed' && !filter ? '前往技能市场，为智能体添加新的工作能力。' : '试试其他关键词，或切换技能市场。'}</p>{tab === 'installed' && !filter && <Button color="primary" size="sm" onPress={() => setTab('market')}>发现技能<ArrowUpRight size={14} /></Button>}</div>}
       <div className="skills-hub-grid" key={tab === 'market' ? `market:${market}` : 'installed'}>{visible.map(skill => {
         const added = tab === 'installed' || isInstalled(skill);
-        return <article className="skills-hub-card" key={skillKey(skill)}><div className="skills-hub-card-top"><span className="skills-hub-avatar" aria-hidden="true">{skillName(skill).slice(0, 2).toUpperCase()}</span>{added && <span className="skills-hub-badge"><Check size={12} />{isBuiltinSkill(skill) ? '内置' : '已安装'}</span>}</div><h2 title={skillName(skill)}>{skillName(skill)}</h2><p className="skills-hub-summary">{skill.summary || skill.description || '暂无技能说明'}</p><footer><Button size="sm" variant="light" onPress={() => { setError(''); setSelected({ skill, installed: tab === 'installed', market }); }}>查看详情<ArrowUpRight size={13} /></Button>{tab === 'installed' ? !isBuiltinSkill(skill) && <Button size="sm" variant="light" className="skills-hub-remove" isDisabled={busy} onPress={() => setUninstall(skill)} startContent={<Trash2 size={13} />}>卸载</Button> : <Button size="sm" color={added ? 'default' : 'primary'} variant={added ? 'flat' : 'solid'} isDisabled={added || busy} onPress={() => void install(skill, market)} startContent={added ? <Check size={13} /> : <Download size={13} />}>{added ? '已安装' : '安装'}</Button>}</footer></article>;
+        return <article className="skills-hub-card" key={skillKey(skill)}><div className="skills-hub-card-top"><span className="skills-hub-avatar" aria-hidden="true">{skillName(skill).slice(0, 2).toUpperCase()}</span>{added && <span className="skills-hub-badge"><Check size={12} />{skillBadge(skill)}</span>}</div><h2 title={skillName(skill)}>{skillName(skill)}</h2><p className="skills-hub-summary">{skill.summary || skill.description || '暂无技能说明'}</p><footer><Button size="sm" variant="light" onPress={() => { setError(''); setSelected({ skill, installed: tab === 'installed', market }); }}>查看详情<ArrowUpRight size={13} /></Button>{tab === 'installed' ? !isBuiltinSkill(skill) && !isPluginSkill(skill) && <Button size="sm" variant="light" className="skills-hub-remove" isDisabled={busy} onPress={() => setUninstall(skill)} startContent={<Trash2 size={13} />}>卸载</Button> : <Button size="sm" color={added ? 'default' : 'primary'} variant={added ? 'flat' : 'solid'} isDisabled={added || busy} onPress={() => void install(skill, market)} startContent={added ? <Check size={13} /> : <Download size={13} />}>{added ? '已安装' : '安装'}</Button>}</footer></article>;
       })}</div>
       {selected && <Modal isOpen onClose={() => setSelected(undefined)} hideCloseButton placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog skills-hub-detail', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop' }} aria-label="技能详情">
         <ModalContent>
@@ -70,7 +72,7 @@ export default function SkillsPage({ api, onRefresh, onBack }: { api: LoopraClie
             <Button size="sm" isIconOnly variant="light" className="skills-detail-close" aria-label="关闭技能详情" onPress={() => setSelected(undefined)}><X size={18} /></Button>
           </ModalHeader>
           <ModalBody className="app-dialog-body skills-detail-body">
-            <div className="skills-detail-meta">{selected.installed || isInstalled(selectedSkill || selected.skill) ? <span className="skills-hub-badge"><Check size={12} />{isBuiltinSkill(selected.skill) ? '内置' : '已安装'}</span> : <span className="skills-detail-source">{selected.market || '默认市场'}</span>}</div>
+            <div className="skills-detail-meta">{selected.installed || isInstalled(selectedSkill || selected.skill) ? <span className="skills-hub-badge"><Check size={12} />{skillBadge(selected.skill)}</span> : <span className="skills-detail-source">{selected.market || '默认市场'}</span>}</div>
             {!selected.installed && <RemoteState {...detail} />}
             {selectedSkill && <section><h3>技能说明</h3><div className="skills-detail-description">{selectedSkill.description || selectedSkill.summary || '暂无技能说明'}</div></section>}
             {error && <p className="settings-error" role="alert">{error}</p>}
@@ -83,6 +85,6 @@ export default function SkillsPage({ api, onRefresh, onBack }: { api: LoopraClie
         </ModalContent>
       </Modal>}
     </div>
-    {uninstall && !isBuiltinSkill(uninstall) && <ConfirmAction title="卸载技能" onClose={() => setUninstall(undefined)} action={() => api.request(`/skill-market/uninstall?${query({ slug: uninstall.directoryName || uninstall.name, scope: uninstall.scope })}`, 'POST')} onDone={() => { setSelected(undefined); setRevision(value => value + 1); void onRefresh().catch(cause => setError(errorText(cause))); }}><p>卸载 {skillName(uninstall)}？</p></ConfirmAction>}
+    {uninstall && !isBuiltinSkill(uninstall) && !isPluginSkill(uninstall) && <ConfirmAction title="卸载技能" onClose={() => setUninstall(undefined)} action={() => api.request(`/skill-market/uninstall?${query({ slug: uninstall.directoryName || uninstall.name, scope: uninstall.scope })}`, 'POST')} onDone={() => { setSelected(undefined); setRevision(value => value + 1); void onRefresh().catch(cause => setError(errorText(cause))); }}><p>卸载 {skillName(uninstall)}？</p></ConfirmAction>}
   </section>;
 }

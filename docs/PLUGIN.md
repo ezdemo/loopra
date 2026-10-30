@@ -1,6 +1,6 @@
 # 插件
 
-插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。仓库里的 `plugins/web` 是随程序附带的联网插件，启动时如果清单里还没有同名插件，会自动安装。工具名仍然是 `web`。`plugins/chat-neko` 同样随程序附带，只在纯聊天里用 `systemPrompt` 追加猫娘人物设定。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
+插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。`plugins/` 里的是内置插件：`plugins/web` 提供联网工具，名字仍然是 `web`；`plugins/chat-neko` 只在纯聊天里用 `systemPrompt` 追加猫娘人物设定；`plugins/daily-review` 是一份默认关闭的示例，启用后能看到设置页、侧栏、设置菜单、只读工具、技能、子代理和定时任务。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
 
 安装后的文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。设置了 `LOOPRA_JAVA_BACKEND_URL` 时，本进程不加载这些插件。
 
@@ -17,11 +17,21 @@
 
 插件 id 会去掉开头的 `@`，把 `/` 换成 `__`，再把其余非字母数字字符收成 `_`。`demo-plugin` 的工具 `greet` 公开名称是 `demo_plugin__greet`。`@scope/pkg` 的 id 是 `scope_pkg`。
 
+## 内置插件
+
+`plugins/` 目录里，`package.json` 写了名字的插件是内置插件。程序启动时安装；目录还在、来源没变时，按当前文件更新。
+
+内置插件可以停用，不能卸载。设置页上来源显示「内置」，没有卸载按钮。接口里这项是 `builtin: true`，`POST /api/plugins/<id>/remove` 会拒绝。
+
+`loopra.defaultEnabled` 只在第一次安装时生效。`false` 表示默认关闭，不写或写 `true` 表示默认开启。用户之后的开关会留下来，以后更新不会改回去。`plugins/web` 和 `plugins/chat-neko` 默认开启，`plugins/daily-review` 默认关闭。
+
+插件从 `plugins/` 里去掉之后，已经装上的那份不再是内置，可以卸载。同名但来源不是这个目录的插件保持原样，也不会变成内置。
+
 ## 入口
 
 按这个顺序找入口：
 
-1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`。对象里还可以写 `icon`、`ui.settings`、`ui.sidebar` 和 `ui.menu`，见下面的设置页、侧栏入口和设置菜单
+1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`。对象里还可以写 `defaultEnabled`、`icon`、`ui.settings`、`ui.sidebar`、`ui.menu`，以及下面的技能、子代理和定时任务
 2. `module`、`main`
 3. `plugin.ts`、`plugin.mts`、`plugin.js`、`plugin.mjs`
 4. `index.ts`、`index.mts`、`index.js`、`index.mjs`
@@ -169,7 +179,7 @@ parent.postMessage({ type: "loopra", op: "config:set", id: "2", value: { nicknam
 
 `ui.sidebar` 在侧栏「定时任务」下面加一个入口。点开后主区域显示页面，沙箱、cookie 和消息跟设置页一样。cookie 的 Path 是 `/api/plugins/<id>/sidebar`。
 
-可以写路径，也可以写标题、图标和路径。没写标题时用插件显示名。没写图标时用插件自己的 `icon`。样式和脚本同样要写在 HTML 里。停用或卸载后，侧栏入口和设置菜单都会去掉。插件卡片上的设置页还可以打开。`plugins/chat-neko` 只挂设置页，用来改纯聊天里的称呼。
+可以写路径，也可以写标题、图标和路径。没写标题时用插件显示名。没写图标时用插件自己的 `icon`。样式和脚本同样要写在 HTML 里。停用或卸载后，侧栏入口和设置菜单都会去掉。插件卡片上的设置页还可以打开。`plugins/chat-neko` 只挂设置页，用来改纯聊天里的称呼。`plugins/daily-review` 同时挂了设置页、侧栏和带两个子菜单的设置菜单，并且默认关闭。
 
 ```json
 "icon": "./ui/icon.svg",
@@ -196,6 +206,31 @@ cookie 的 Path 是 `/api/plugins/<id>/menu`。页面地址是 `/menu/`，有子
   ]
 }
 ```
+
+## 技能、子代理、定时任务
+
+已启用的插件可以各声明一条。它们出现在现有的技能、子代理和定时任务列表里。停用或卸载后一起消失，也不会写进用户自己的技能目录、`sub-agents.json` 或某个项目的定时任务文件。`plugins/daily-review` 把这三项和设置页、侧栏、菜单、只读工具放在同一个插件里，默认关闭。
+
+```json
+"skill": "./SKILL.md",
+"subagent": {
+  "name": "回顾",
+  "description": "按回顾清单做只读检查",
+  "readOnly": true,
+  "file": "./AGENT.md"
+},
+"schedule": {
+  "name": "每日回顾",
+  "message": "请用几句话回顾今天。",
+  "cron": "0 0 9 * * ?"
+}
+```
+
+`skill` 也可以写成 `{ "file": "./SKILL.md" }`。文件名必须是 `SKILL.md`，可以放在子目录里。开头的 frontmatter 提供 `name` 和 `description`，缺了就用插件自己的名称和说明。技能标识是 `@plugin-skills/<插件 id>`，模型用 `skillread` 读取。技能页上标成插件，不能从那里卸载。
+
+`subagent` 的说明可以改成 `"file": "./AGENT.md"`。角色 id 固定是 `plugin-<插件 id>`。它会出现在子代理列表里，不能在那里编辑或删除。`readOnly` 省略时是只读。
+
+`schedule` 用 6 字段 `cron`，或者用 `intervalSec`（至少 60 秒）。两者都写时以 cron 为准。到点后在纯聊天里新建一次会话并发送 `message`。定时任务页上标成插件，不能改内容或暂停；停用插件就会停。`POST /api/plugins/schedules/<id>/run` 可以立刻跑一次。
 
 ## 边界
 

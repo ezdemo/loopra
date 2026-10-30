@@ -138,3 +138,121 @@ func TestChatNekoAppendsOnlyInChat(t *testing.T) {
 		t.Fatalf("project prompt changed: %v %v", out, touched)
 	}
 }
+
+func TestDailyReviewDeclaresContributions(t *testing.T) {
+	root := findBundledRoot()
+	if root == "" {
+		t.Fatal("没有找到 plugins")
+	}
+	h := New(t.TempDir(), Hooks{})
+	view, err := h.Install(context.Background(), filepath.Join(root, "daily-review"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ID != "daily_review" || view.DisplayName != "每日回顾" || !view.Enabled || !view.Settings {
+		t.Fatalf("view = %+v", view)
+	}
+	if view.Icon == nil || view.Icon.Name != "calendar" || view.Sidebar == nil || view.Sidebar.Title != "每日回顾" || view.Menu == nil || len(view.Menu.Children) != 2 {
+		t.Fatalf("surfaces = %+v", view)
+	}
+	if view.Menu.Children[0].ID != "focus" || view.Menu.Children[1].ID != "about" {
+		t.Fatalf("menu = %+v", view.Menu)
+	}
+	tool := findTool(t, h, "daily_review__checklist")
+	if !tool.ReadOnly || tool.Chat {
+		t.Fatalf("tool = %+v", tool)
+	}
+	out, err := tool.Call(context.Background(), map[string]any{"topic": "这次改动"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := out["text"].(string)
+	if !strings.Contains(text, "发现 / 证据 / 下一步") {
+		t.Fatalf("checklist = %q", text)
+	}
+	prompt, touched := h.RunHook(context.Background(), HookSystemPrompt, map[string]any{"text": "base"}, nil)
+	if touched["append"] || touched["text"] {
+		t.Fatalf("empty focus changed prompt: %v %v", prompt, touched)
+	}
+	if err := h.SetUIConfig("daily_review", map[string]any{"focus": "失败路径"}); err != nil {
+		t.Fatal(err)
+	}
+	prompt, touched = h.RunHook(context.Background(), HookSystemPrompt, map[string]any{"text": "base"}, nil)
+	extra, _ := prompt["append"].(string)
+	if !touched["append"] || !strings.Contains(extra, "失败路径") || touched["text"] {
+		t.Fatalf("focus append = %q touched=%v", extra, touched)
+	}
+	skills := h.Skills()
+	if len(skills) != 1 || skills[0].PluginID != "daily_review" || skills[0].Name != "每日回顾" {
+		t.Fatalf("skills = %+v", skills)
+	}
+	body, err := h.ReadSkill("daily_review", "SKILL.md")
+	if err != nil || !strings.Contains(body, "发现 / 证据 / 下一步") {
+		t.Fatalf("skill = %q %v", body, err)
+	}
+	agents := h.Subagents()
+	if len(agents) != 1 || agents[0].ID != "plugin-daily_review" || !agents[0].ReadOnly || !strings.Contains(agents[0].Instructions, "@plugin-skills/daily_review") {
+		t.Fatalf("agents = %+v", agents)
+	}
+	tasks := h.ScheduledTasks()
+	if len(tasks) != 1 || tasks[0].ID != "plugin-daily_review" || tasks[0].CronExpr != "0 0 9 * * ?" || !tasks[0].Plugin {
+		t.Fatalf("tasks = %+v", tasks)
+	}
+}
+
+func TestBundledPluginsCanDisableButNotRemove(t *testing.T) {
+	if findBundledRoot() == "" {
+		t.Fatal("没有找到 plugins")
+	}
+	h := New(t.TempDir(), Hooks{})
+	if err := h.upsert(record{ID: "retired", Name: "retired", DisplayName: "旧插件", Enabled: true, Builtin: true, Source: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	h.EnsureBundled(ctx)
+
+	retired, ok := h.pluginRecord("retired")
+	if !ok || retired.Builtin {
+		t.Fatalf("retired = %+v ok=%v", retired, ok)
+	}
+	if err := h.Remove("retired"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"web", "chat_neko"} {
+		rec, ok := h.pluginRecord(id)
+		if !ok || !rec.Builtin || !rec.Enabled {
+			t.Fatalf("%s = %+v ok=%v", id, rec, ok)
+		}
+		if err := h.Remove(id); err == nil || err.Error() != "内置插件不能卸载" {
+			t.Fatalf("remove %s: %v", id, err)
+		}
+	}
+	daily, ok := h.pluginRecord("daily_review")
+	if !ok || !daily.Builtin || daily.Enabled {
+		t.Fatalf("daily = %+v ok=%v", daily, ok)
+	}
+	seen := false
+	for _, view := range h.List() {
+		if view.ID == "daily_review" {
+			seen = view.Builtin && !view.Enabled && view.Settings && view.Sidebar == nil && view.Menu == nil
+		}
+	}
+	if !seen {
+		t.Fatal("清单里没有默认关闭的内置每日回顾")
+	}
+	if _, err := h.SetEnabled(ctx, "daily_review", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.SetEnabled(ctx, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	h.EnsureBundled(ctx)
+	daily, _ = h.pluginRecord("daily_review")
+	web, webOK := h.pluginRecord("web")
+	if !webOK || !daily.Enabled || !daily.Builtin || web.Enabled || !web.Builtin {
+		t.Fatalf("daily=%+v web=%+v", daily, web)
+	}
+	if err := h.Remove("daily_review"); err == nil || err.Error() != "内置插件不能卸载" {
+		t.Fatalf("remove daily: %v", err)
+	}
+}

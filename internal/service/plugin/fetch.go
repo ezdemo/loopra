@@ -29,24 +29,36 @@ const (
 )
 
 type pkgFile struct {
-	Name         string
-	Version      string
-	Description  string
-	Loopra       string
-	Settings     string
-	Sidebar      string
-	SidebarTitle string
-	SidebarIcon  pkgIcon
-	Icon         pkgIcon
-	MenuTitle    string
-	MenuIcon     pkgIcon
-	MenuPage     string
-	MenuChildren []pkgMenuChild
-	Module       string
-	Main         string
-	Entry        string
-	Exports      json.RawMessage
-	Dependencies map[string]string
+	Name                 string
+	Version              string
+	Description          string
+	Loopra               string
+	Settings             string
+	Sidebar              string
+	SidebarTitle         string
+	SidebarIcon          pkgIcon
+	Icon                 pkgIcon
+	MenuTitle            string
+	MenuIcon             pkgIcon
+	MenuPage             string
+	MenuChildren         []pkgMenuChild
+	SkillFile            string
+	SubagentName         string
+	SubagentDescription  string
+	SubagentFile         string
+	SubagentInstructions string
+	SubagentReadOnly     bool
+	SubagentSet          bool
+	ScheduleName         string
+	ScheduleMessage      string
+	ScheduleCron         string
+	ScheduleInterval     int64
+	DefaultEnabled       bool
+	Module               string
+	Main                 string
+	Entry                string
+	Exports              json.RawMessage
+	Dependencies         map[string]string
 }
 
 type pkgIcon struct {
@@ -703,7 +715,11 @@ func readPkg(dir string) pkgFile {
 		Module: raw.Module, Main: raw.Main, Loopra: loopraPath(raw.Loopra),
 		Settings: ui.Settings, Sidebar: ui.SidebarPage, SidebarTitle: ui.SidebarTitle, SidebarIcon: ui.SidebarIcon,
 		Icon: ui.Icon, MenuTitle: ui.MenuTitle, MenuIcon: ui.MenuIcon, MenuPage: ui.MenuPage, MenuChildren: ui.Children,
-		Exports: raw.Exports, Dependencies: raw.Dependencies,
+		SkillFile: ui.SkillFile, SubagentName: ui.SubagentName, SubagentDescription: ui.SubagentDescription,
+		SubagentFile: ui.SubagentFile, SubagentInstructions: ui.SubagentInstructions, SubagentReadOnly: ui.SubagentReadOnly, SubagentSet: ui.SubagentSet,
+		ScheduleName: ui.ScheduleName, ScheduleMessage: ui.ScheduleMessage, ScheduleCron: ui.ScheduleCron, ScheduleInterval: ui.ScheduleInterval,
+		DefaultEnabled: ui.DefaultEnabled,
+		Exports:        raw.Exports, Dependencies: raw.Dependencies,
 	}
 }
 
@@ -729,36 +745,117 @@ func loopraPath(raw json.RawMessage) string {
 }
 
 type loopraUI struct {
-	Settings     string
-	SidebarTitle string
-	SidebarPage  string
-	SidebarIcon  pkgIcon
-	Icon         pkgIcon
-	MenuTitle    string
-	MenuIcon     pkgIcon
-	MenuPage     string
-	Children     []pkgMenuChild
+	Settings             string
+	SidebarTitle         string
+	SidebarPage          string
+	SidebarIcon          pkgIcon
+	Icon                 pkgIcon
+	MenuTitle            string
+	MenuIcon             pkgIcon
+	MenuPage             string
+	Children             []pkgMenuChild
+	SkillFile            string
+	SubagentName         string
+	SubagentDescription  string
+	SubagentFile         string
+	SubagentInstructions string
+	SubagentReadOnly     bool
+	SubagentSet          bool
+	ScheduleName         string
+	ScheduleMessage      string
+	ScheduleCron         string
+	ScheduleInterval     int64
+	DefaultEnabled       bool
 }
 
 func parseLoopraUI(raw json.RawMessage) loopraUI {
+	ui := loopraUI{DefaultEnabled: true}
 	if len(raw) == 0 || string(raw) == "null" {
-		return loopraUI{}
+		return ui
 	}
 	var box struct {
-		Icon json.RawMessage `json:"icon"`
-		UI   struct {
+		DefaultEnabled *bool           `json:"defaultEnabled"`
+		Icon           json.RawMessage `json:"icon"`
+		Skill          json.RawMessage `json:"skill"`
+		Subagent       json.RawMessage `json:"subagent"`
+		Schedule       json.RawMessage `json:"schedule"`
+		UI             struct {
 			Settings string          `json:"settings"`
 			Sidebar  json.RawMessage `json:"sidebar"`
 			Menu     json.RawMessage `json:"menu"`
 		} `json:"ui"`
 	}
 	if json.Unmarshal(raw, &box) != nil {
-		return loopraUI{}
+		return ui
 	}
-	ui := loopraUI{Settings: strings.TrimSpace(box.UI.Settings), Icon: parseIcon(box.Icon)}
+	if box.DefaultEnabled != nil {
+		ui.DefaultEnabled = *box.DefaultEnabled
+	}
+	ui.Settings = strings.TrimSpace(box.UI.Settings)
+	ui.Icon = parseIcon(box.Icon)
 	ui.SidebarTitle, ui.SidebarPage, ui.SidebarIcon = parseSidebar(box.UI.Sidebar)
 	ui.MenuTitle, ui.MenuPage, ui.MenuIcon, ui.Children = parseMenu(box.UI.Menu)
+	ui.SkillFile = parseSkill(box.Skill)
+	ui.SubagentName, ui.SubagentDescription, ui.SubagentFile, ui.SubagentInstructions, ui.SubagentReadOnly, ui.SubagentSet = parseSubagent(box.Subagent)
+	ui.ScheduleName, ui.ScheduleMessage, ui.ScheduleCron, ui.ScheduleInterval = parseSchedule(box.Schedule)
 	return ui
+}
+
+func parseSkill(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var obj struct {
+		File string `json:"file"`
+	}
+	if json.Unmarshal(raw, &obj) != nil {
+		return ""
+	}
+	return strings.TrimSpace(obj.File)
+}
+
+func parseSubagent(raw json.RawMessage) (name, description, file, instructions string, readOnly, ok bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", "", "", "", false, false
+	}
+	var obj struct {
+		Name         string `json:"name"`
+		Description  string `json:"description"`
+		File         string `json:"file"`
+		Instructions string `json:"instructions"`
+		ReadOnly     *bool  `json:"readOnly"`
+	}
+	if json.Unmarshal(raw, &obj) != nil {
+		return "", "", "", "", false, false
+	}
+	if strings.TrimSpace(obj.Name) == "" && strings.TrimSpace(obj.File) == "" && strings.TrimSpace(obj.Instructions) == "" {
+		return "", "", "", "", false, false
+	}
+	readOnly = true
+	if obj.ReadOnly != nil {
+		readOnly = *obj.ReadOnly
+	}
+	return strings.TrimSpace(obj.Name), strings.TrimSpace(obj.Description), strings.TrimSpace(obj.File), strings.TrimSpace(obj.Instructions), readOnly, true
+}
+
+func parseSchedule(raw json.RawMessage) (name, message, cron string, interval int64) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", "", "", 0
+	}
+	var obj struct {
+		Name        string  `json:"name"`
+		Message     string  `json:"message"`
+		Cron        string  `json:"cron"`
+		IntervalSec float64 `json:"intervalSec"`
+	}
+	if json.Unmarshal(raw, &obj) != nil {
+		return "", "", "", 0
+	}
+	return strings.TrimSpace(obj.Name), strings.TrimSpace(obj.Message), strings.TrimSpace(obj.Cron), int64(obj.IntervalSec)
 }
 
 func parseSidebar(raw json.RawMessage) (title, page string, icon pkgIcon) {

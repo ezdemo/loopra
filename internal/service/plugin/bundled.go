@@ -8,9 +8,10 @@ import (
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 )
 
-// EnsureBundled 安装 plugins 目录里的附带插件。
-// 来源仍是这个目录时，按当前文件重新安装，并保留原来的停用状态。
-// 同名但来源不同的插件保持原样。
+// EnsureBundled 安装 plugins 目录里的内置插件。
+// 来源仍是这个目录时，按当前文件重新安装，并保留用户后来的开关。
+// 第一次安装用包里的 defaultEnabled，没写则开启。
+// 同名但来源不同的插件保持原样，也不再算内置。
 func (h *Host) EnsureBundled(ctx context.Context) {
 	if h == nil || h.home == "" {
 		return
@@ -23,6 +24,7 @@ func (h *Host) EnsureBundled(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	kept := map[string]bool{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -41,16 +43,53 @@ func (h *Host) EnsureBundled(ctx context.Context) {
 		if exists && filepath.Clean(rec.Source) != filepath.Clean(abs) {
 			continue
 		}
-		enabled := !exists || rec.Enabled
-		if _, err := h.Install(ctx, abs); err != nil {
-			logging.Warnf("plugin", "附带插件 %s 安装失败: %v", abs, err)
-			continue
+		kept[id] = true
+		enabled := info.DefaultEnabled
+		if exists {
+			enabled = rec.Enabled
 		}
-		if !enabled {
+		if _, err := h.Install(ctx, abs); err != nil {
+			logging.Warnf("plugin", "内置插件 %s 安装失败: %v", abs, err)
+		} else if !enabled {
 			if _, err := h.SetEnabled(ctx, id, false); err != nil {
-				logging.Warnf("plugin", "附带插件 %s 保持停用失败: %v", id, err)
+				logging.Warnf("plugin", "内置插件 %s 保持停用失败: %v", id, err)
 			}
 		}
+		if _, ok := h.pluginRecord(id); ok {
+			h.setBuiltin(id, true)
+		}
+	}
+	h.releaseBuiltin(kept)
+}
+
+func (h *Host) setBuiltin(id string, builtin bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ensureManifest()
+	for i := range h.records {
+		if h.records[i].ID != id || h.records[i].Builtin == builtin {
+			continue
+		}
+		h.records[i].Builtin = builtin
+		_ = h.saveLocked()
+		return
+	}
+}
+
+// releaseBuiltin 去掉已经不在 plugins 目录里的内置标记，这样用户可以卸载它。
+func (h *Host) releaseBuiltin(keep map[string]bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ensureManifest()
+	changed := false
+	for i := range h.records {
+		if h.records[i].Builtin && !keep[h.records[i].ID] {
+			h.records[i].Builtin = false
+			changed = true
+		}
+	}
+	if changed {
+		_ = h.saveLocked()
 	}
 }
 

@@ -7,15 +7,15 @@ import { groupGitModels, type GitModel } from '../git-models';
 import { ConfirmAction, errorText, RemoteState, useRemote } from './RemoteControls';
 import { Field, PageActions, SelectField, SettingDisclosure, TextField } from './SettingControls';
 
-type ServerProfile = { id: string; name?: string; description?: string; readOnly?: boolean; systemPrompt?: string; tools?: string[]; allowedTools?: string[] | null; enable?: boolean | null; modelChannel?: string; model?: string };
-type Profile = { id: string; name: string; description: string; instructions: string; readOnly: boolean; enable: boolean; allowedTools: string[] | null; tools?: string[]; model?: string; modelChannel?: string };
+type ServerProfile = { id: string; name?: string; description?: string; readOnly?: boolean; systemPrompt?: string; tools?: string[]; allowedTools?: string[] | null; enable?: boolean | null; modelChannel?: string; model?: string; plugin?: boolean };
+type Profile = { id: string; name: string; description: string; instructions: string; readOnly: boolean; enable: boolean; allowedTools: string[] | null; tools?: string[]; model?: string; modelChannel?: string; plugin?: boolean };
 type RoleTool = { name: string; readOnly: boolean; enabled?: boolean };
 
 // GET calls the prompt systemPrompt; PUT expects instructions. Preserve that boundary.
 const toProfile = (profile: ServerProfile): Profile => ({
   id: profile.id, name: profile.name ?? profile.id, description: profile.description ?? '',
   instructions: profile.systemPrompt ?? '', readOnly: !!profile.readOnly, enable: profile.enable !== false,
-  allowedTools: profile.allowedTools ?? null, tools: profile.tools, model: profile.model, modelChannel: profile.modelChannel,
+  allowedTools: profile.allowedTools ?? null, tools: profile.tools, model: profile.model, modelChannel: profile.modelChannel, plugin: profile.plugin,
 });
 function normalizeProfile(profile: Profile): Profile {
   const { model, modelChannel, ...rest } = profile;
@@ -120,7 +120,7 @@ export default function SubAgentManager({ api }: { api: LoopraClient }) {
           <div className="agent-role-row-content"><div className="agent-role-row-title"><h3>{profile.name}</h3><span className={`resource-status ${profile.enable ? 'is-on' : ''}`}>{profile.enable ? '已启用' : '已停用'}</span></div><p className="agent-role-description" title={profile.description}>{profile.description || '暂未填写角色职责'}</p>
             <div className="agent-role-row-meta"><span title="角色 ID">{profile.id}</span><span>{profile.readOnly ? <LockKeyhole size={12} /> : <Pencil size={12} />}{profile.readOnly ? '只读' : '可写'}</span><span title={profile.model || '跟随主代理的模型选择'}><Bot size={12} />{roleModel(profile)}</span><span><Wrench size={12} />{profile.tools ? `${profile.tools.length} 项工具` : profile.allowedTools !== null ? `${profile.allowedTools.length} 项工具` : '继承工具'}</span></div>
           </div>
-          <div className="agent-role-row-actions"><Button size="sm" variant="light" aria-label={`编辑 ${profile.name}`} isDisabled={busy} startContent={<Pencil size={13} />} onPress={() => edit(profile)}>编辑</Button><Button size="sm" variant="light" aria-label={`${profile.enable ? '停用' : '启用'} ${profile.name}`} isDisabled={busy} onPress={() => void save(profiles.map(item => item.id === profile.id ? { ...item, enable: !item.enable } : item))}>{profile.enable ? '停用' : '启用'}</Button><Button isIconOnly size="sm" variant="light" className="agent-role-remove" aria-label={`移除 ${profile.name}`} title="移除角色" isDisabled={busy} onPress={() => setDeleting(profile)}><Trash2 size={14} /></Button></div>
+          <div className="agent-role-row-actions">{profile.plugin ? <span className="resource-status is-on">插件</span> : <><Button size="sm" variant="light" aria-label={`编辑 ${profile.name}`} isDisabled={busy} startContent={<Pencil size={13} />} onPress={() => edit(profile)}>编辑</Button><Button size="sm" variant="light" aria-label={`${profile.enable ? '停用' : '启用'} ${profile.name}`} isDisabled={busy} onPress={() => void save(profiles.map(item => item.id === profile.id ? { ...item, enable: !item.enable } : item))}>{profile.enable ? '停用' : '启用'}</Button><Button isIconOnly size="sm" variant="light" className="agent-role-remove" aria-label={`移除 ${profile.name}`} title="移除角色" isDisabled={busy} onPress={() => setDeleting(profile)}><Trash2 size={14} /></Button></>}</div>
         </div>
         <button type="button" className="agent-role-detail-toggle" aria-expanded={open} aria-controls={`role-detail-${profile.id}`} onClick={() => setExpanded(open ? '' : profile.id)}>提示词与工具<ChevronDown size={13} /></button>
         {open && <div className="agent-role-details" id={`role-detail-${profile.id}`}><h4>角色提示词</h4><pre>{profile.instructions || '尚未配置角色提示词'}</pre><h4>可用工具</h4>{toolNames.length ? <ul className="agent-role-tool-chips">{toolNames.map(tool => <li key={tool}>{tool}</li>)}</ul> : <p>{profile.tools || profile.allowedTools !== null ? '当前没有可用工具' : '继承主代理可用的工具'}</p>}</div>}
