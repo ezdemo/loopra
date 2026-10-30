@@ -23,6 +23,8 @@ type anthropicAdapter struct {
 
 func (a *anthropicAdapter) Name() string { return a.config.DefaultModel }
 
+func (a *anthropicAdapter) Protocol() string { return ProtocolAnthropic }
+
 func (a *anthropicAdapter) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
 		snap := a.config.Settings.Snapshot()
@@ -35,7 +37,8 @@ func (a *anthropicAdapter) GenerateContent(ctx context.Context, req *model.LLMRe
 			headers["Accept"] = "text/event-stream"
 		}
 		tracker := newCallIDTracker()
-		body, err := a.buildBody(req, tracker, snap, stream)
+		built, buildErr := a.buildBody(req, tracker, snap, stream)
+		body, err := outgoingBody(req, built, buildErr)
 		if err != nil {
 			yield(nil, err)
 			return

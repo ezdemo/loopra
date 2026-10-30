@@ -163,7 +163,7 @@ func nativeCommandMetadata() []map[string]any {
 		{"/hitl", "切换 HITL 模式（free/approval/auto）", ""},
 		{"/init", "自动分析项目生成 loopra.md", ""},
 		{"/plan", "[任务]   进入计划模式（只读探索，用 submit_plan 提交计划供审查）", "任务描述（可选）"},
-		{"/plugin", "外置插件管理：add <jar直链|本地jar路径> / list / remove <id> / enable|disable <id>", "add <jar直链> | list | remove <id> | enable|disable <id>"},
+		{"/plugin", "在设置页安装插件。来源是 npm 包名或 GitHub 地址，由 moejs 执行。插件可以提供工具和对话钩子，也可以 fetch 或用 node:fs 读写本机文件", "left-pad | @scope/pkg | github:owner/repo"},
 		{"/sessions", "列出历史会话", ""},
 	} {
 		entry := map[string]any{"cmd": command.cmd, "desc": command.desc}

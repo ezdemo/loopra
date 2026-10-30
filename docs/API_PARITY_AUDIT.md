@@ -55,11 +55,11 @@ OpenAPI 来源支持带鉴权的 JSON/YAML 下载、持久化缓存、刷新/移
 
 外部 ACP 引擎由 Go 原生执行：`internal/service/acp` 实现了 ACP v1 的 stdio JSON-RPC 传输、`initialize/session.new/load/resume/prompt/cancel/set_mode/set_model/set_config_option`、`session/update` 归约、`session/request_permission` 审批桥接与进程树回收；`internal/controller/acp_runtime.go` 负责把更新转换为 Loopra 的 `content/reasoning/tool_call/tool_result/file_changes/acp_plan/acp_commands/config_options/usage/complete` 事件并写入同一套会话转录。探测支持 claude-code、codex、pi、dsh 四个提供方。
 
-配置 `LOOPRA_JAVA_BACKEND_URL` 后，完整的 `/api` 与 `/mcp` 执行上下文会一并委派。`LOOPRA_JAVA_BACKEND_KEY` 提供其密钥。聊天、审批、会话、历史与引擎/插件管理因此共享同一个后端，且 Go 调度器不会启动。鉴权与即时 SSE 转发已测试。这是 JVM 兼容模式，用于 Java `.jar` 插件/扩展包执行。
+原生插件从 npm 包或 GitHub 地址安装，由 moejs 执行。配置 `LOOPRA_JAVA_BACKEND_URL` 后，完整的 `/api` 与 `/mcp` 执行上下文会一并委派，本进程不加载原生插件。`LOOPRA_JAVA_BACKEND_KEY` 提供其密钥。聊天、审批、会话、历史与引擎管理因此共享同一个后端，且 Go 调度器不会启动。鉴权与即时 SSE 转发已测试。
 
 ## 剩余的原生对齐缺口与未验证行为
 
-1. Java `.jar` 插件与扩展包执行需要 Java 兼容后端。外部 ACP 引擎已原生可用，但会话分叉（`session/fork`）、ACP 提问（`elicitation/create`）、子代理原生 child session 与共享进程池尚未实现；Claude Code 的扁平化子代理转录已按 `parentToolUseId` 归约为 `sub_*` 事件。
+1. 外部 ACP 引擎已原生可用，但会话分叉（`session/fork`）、ACP 提问（`elicitation/create`）、子代理原生 child session 与共享进程池尚未实现；Claude Code 的扁平化子代理转录已按 `parentToolUseId` 归约为 `sub_*` 事件。
 2. 命令元数据与 Java 一致，但完整的斜杠命令分发器、Goal/清单执行与 AI 自动解决工作树冲突的策略仍不完整。保存 `mergeMode` 并不证明这些合并策略会执行。
 3. 上下文 token 估算已明确标注为 UTF-8 近似值，并非 Java 的精确原生分词器。缓存计量与各提供商特有的上下文估算在数值上并不等价。
 4. 185 个 API 尚未全部通过穷举的成功/错误/持久化/SSE 差异场景。缓存生命周期/上限、复杂的子会话分支、每个 OpenAPI/市场变体以及 MCP 工具名冲突仍需进一步验收。

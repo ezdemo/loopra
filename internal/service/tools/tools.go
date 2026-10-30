@@ -302,6 +302,22 @@ func (r *Registry) SetReadOnly(name string, forced *bool) error {
 	return nil
 }
 
+// Remove 按名称摘掉一个工具。名称不存在时不做任何事。
+func (r *Registry) Remove(name string) {
+	r.mu <- struct{}{}
+	defer func() { <-r.mu }()
+	next := make([]Tool, 0, len(r.entries))
+	for _, entry := range r.entries {
+		if entry.Meta.Name != name {
+			next = append(next, entry)
+		}
+	}
+	r.entries = next
+	delete(r.disabled, name)
+	delete(r.readonly, name)
+	delete(r.auto, name)
+}
+
 func (r *Registry) known(name string) bool {
 	for _, e := range r.entries {
 		if e.Meta.Name == name {

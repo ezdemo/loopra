@@ -118,7 +118,7 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 
 ## 6. ~/.loopra 目录清单
 
-config.json、agent-preferences.json、agent-mcp.json、mcp-servers.json、mcp-server.json、model_meta.json、prompt-presets.json、loopra.md、usage_daily.jsonl、sessions/（无项目会话）、workspace/{hash}/（workspace.json、sessions/、goals/、schedules/）、requirements/requirements.json、skills/、extpacks/（+清单）、plugins/（+installed.json）、worktree/、chat-workspace/（纯聊天，hash=`__loopra_chat__`）、defaultWorkSpace/、pet/、logs/http/。
+config.json、agent-preferences.json、agent-mcp.json、mcp-servers.json、mcp-server.json、model_meta.json、prompt-presets.json、loopra.md、usage_daily.jsonl、sessions/（无项目会话）、workspace/{hash}/（workspace.json、sessions/、goals/、schedules/）、requirements/requirements.json、skills/、plugins/（installed.json、packages/&lt;id&gt;/）、worktree/、chat-workspace/（纯聊天，hash=`__loopra_chat__`）、defaultWorkSpace/、pet/、logs/http/。
 项目内 `.loopra/`：mcp-servers.json、skills/、read_img/、paste/、workspace/workspace.json（共享上下文）、checklists/{sessionId}.json、loopra-memory.md。
 
 ## 7. 复刻要点

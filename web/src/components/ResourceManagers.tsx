@@ -7,21 +7,42 @@ import { PageActions, Field, SettingDisclosure, ResourceIcon, ResourceEmpty } fr
 type ToolParam = { name: string; description?: string; type?: string; required?: boolean };
 type Tool = { name: string; description: string; readOnly: boolean; readOnlyOverride: boolean | null; stormExempt: boolean; enabled: boolean; autoApproved: boolean; params?: ToolParam[] };
 export { default as SubAgentManager } from './SubAgentManager';
-type Pack = { id: string; name?: string; displayName?: string; remark?: string; description?: string; enabled: boolean; sourceUrl?: string; state?: string; className?: string; activeInstances?: number; totalInstances?: number; version?: string; started?: boolean; bridgeCount?: number };
-export function ExtensionManager({ api, plugin = false }: { api: LoopraClient; plugin?: boolean }) {
-  const endpoint = plugin ? '/plugins' : '/extpacks'; const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, endpoint, revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>();
-  async function act(path: string, body?: unknown) { setBusy(true); setError(''); try { await api.request(`${endpoint}${path}`, 'POST', body); setRevision(value => value + 1); setSource(''); } catch (cause) { setError(errorText(cause)); } finally { setBusy(false); } }
+type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string };
+function pluginMeta(pack: Pack) {
+  const parts = [pack.tools?.join('、'), pack.hooks?.length ? `钩子 ${pack.hooks.join('、')}` : ''].filter(Boolean);
+  return parts.join(' · ') || pack.source || pack.sourceUrl || pack.id;
+}
+export function ExtensionManager({ api }: { api: LoopraClient }) {
+  const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>();
+  async function act(path: string, body?: unknown, clearSource = false) {
+    setBusy(true); setError('');
+    try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) setSource(''); }
+    catch (cause) { setError(errorText(cause)); }
+    finally { setBusy(false); setRevision(value => value + 1); }
+  }
   return <div className="settings-resource-page">
-    <PageActions title={plugin ? '插件' : '拓展包'}><Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button></PageActions>
-    {!plugin && <form className="resource-toolbar resource-install" onSubmit={event => { event.preventDefault(); void act('/install', { source: source.trim() }); }}><Field label="JAR 地址或路径" required value={source} onChange={setSource} placeholder="https://…/extension.jar 或服务端本地路径" /><Button size="sm" color="primary" type="submit" isLoading={busy}>安装拓展包</Button></form>}
+    <PageActions title="插件"><Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button></PageActions>
+    <form className="resource-toolbar resource-install" onSubmit={event => { event.preventDefault(); const value = source.trim(); if (value) void act('/install', { source: value }, true); }}>
+      <Field label="npm 包或 GitHub 地址" required value={source} onChange={setSource} placeholder="left-pad、@scope/pkg 或 https://github.com/owner/repo" />
+      <Button size="sm" color="primary" type="submit" isLoading={busy} isDisabled={!source.trim()}>安装插件</Button>
+    </form>
+    <p className="section-note">插件是 JavaScript 或 TypeScript 模块，由 moejs 执行。导出的函数会变成工具；也可以导出 tools() 和 call()。turnBefore、toolBefore、llmRequest 这些钩子可以改写一轮对话。可以用 fetch 访问网络，用 node:fs 读写本机文件。入口写在 package.json 的 loopra 字段。</p>
     <RemoteState {...state} />{error && <p role="alert" className="settings-error">{error}</p>}
-    {state.data?.length === 0 && <ResourceEmpty kind={plugin ? 'plugin' : 'extension'} title={plugin ? '暂无运行时插件' : '尚未安装拓展包'}>{plugin ? '服务端注册的插件将在这里显示。' : '填写 JAR 地址或服务端路径以安装拓展包。'}</ResourceEmpty>}
+    {state.data?.length === 0 && <ResourceEmpty kind="plugin" title="尚未安装插件">填写 npm 包名或 GitHub 地址，例如 left-pad@1.3.0 或 github:owner/repo。</ResourceEmpty>}
     <div className="resource-list">{state.data?.map(pack => <section className="workbench-card resource-row" key={pack.id}>
-      <ResourceIcon kind={plugin ? 'plugin' : 'extension'} />
-      <div className="resource-row-info"><div className="resource-name"><strong>{pack.displayName || pack.name || pack.id}</strong>{pack.version && <code className="resource-version">v{pack.version}</code>}<span className={`resource-status ${pack.enabled ? 'is-on' : ''}`}>{pack.state || (pack.enabled ? '已启用' : '已停用')}</span></div><p>{pack.description || pack.remark || pack.sourceUrl || '暂无描述'}</p>{plugin ? <code className="resource-meta" title={pack.className}>{pack.id}</code> : pack.started !== undefined && <span className="resource-meta">{pack.started ? '运行中' : '已停止'}{pack.bridgeCount !== undefined ? ` · ${pack.bridgeCount} 个桥接` : ''}</span>}</div>
-      <div className="resource-row-actions">{plugin && pack.totalInstances !== undefined && <span className="resource-instances">{pack.activeInstances} / {pack.totalInstances} 实例</span>}<Button size="sm" variant={pack.enabled ? 'flat' : 'light'} color={pack.enabled ? 'primary' : 'default'} isDisabled={busy} onPress={() => void act(`/${encodeURIComponent(pack.id)}/toggle`, { enabled: !pack.enabled })}>{pack.enabled ? '停用' : '启用'}</Button>{!plugin && <><Button size="sm" variant="light" isDisabled={busy} onPress={() => void act(`/${encodeURIComponent(pack.id)}/start`)}>启动</Button><Button size="sm" variant="light" isDisabled={busy} onPress={() => void act(`/${encodeURIComponent(pack.id)}/stop`)}>停止</Button><Button size="sm" variant="light" color="danger" onPress={() => setDeleting(pack)}>卸载</Button></>}</div>
+      <ResourceIcon kind="plugin" />
+      <div className="resource-row-info">
+        <div className="resource-name"><strong>{pack.displayName || pack.id}</strong>{pack.version && <code className="resource-version">v{pack.version}</code>}<span className={`resource-status ${pack.enabled && pack.state !== '加载失败' ? 'is-on' : ''}`}>{pack.state || (pack.enabled ? '已启用' : '已停用')}</span></div>
+        <p>{pack.description || pack.remark || pack.source || '暂无描述'}</p>
+        {pack.error && <p role="alert" className="settings-error">{pack.error}</p>}
+        <code className="resource-meta">{pluginMeta(pack)}</code>
+      </div>
+      <div className="resource-row-actions">
+        <Button size="sm" variant={pack.enabled ? 'flat' : 'light'} color={pack.enabled ? 'primary' : 'default'} isDisabled={busy} onPress={() => void act(`/${encodeURIComponent(pack.id)}/toggle`, { enabled: !pack.enabled })}>{pack.enabled ? '停用' : '启用'}</Button>
+        <Button size="sm" variant="light" color="danger" isDisabled={busy} onPress={() => setDeleting(pack)}>卸载</Button>
+      </div>
     </section>)}</div>
-    {deleting && <ConfirmAction title="卸载拓展包" onClose={() => setDeleting(undefined)} action={() => api.request(`/extpacks/${encodeURIComponent(deleting.id)}/uninstall`, 'POST')} onDone={() => setRevision(value => value + 1)}><p>卸载 {deleting.name}？</p></ConfirmAction>}
+    {deleting && <ConfirmAction title="卸载插件" onClose={() => setDeleting(undefined)} action={() => api.request(`/plugins/${encodeURIComponent(deleting.id)}/remove`, 'POST')} onDone={() => setRevision(value => value + 1)}><p>卸载 {deleting.displayName || deleting.id}？已安装的文件和它贡献的工具会一起移除。</p></ConfirmAction>}
   </div>;
 }
 export function ToolManager({ api, onRefresh }: { api: LoopraClient; onRefresh: () => Promise<void> }) {

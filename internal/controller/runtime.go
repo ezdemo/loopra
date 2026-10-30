@@ -148,6 +148,7 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 		}
 		instruction = root.systemInstruction(resolved)
 	}
+	root.attachPluginTools(reg)
 	a, err := root.agent.Derive(hash, cfg, []tool.Toolset{reg}, instruction)
 	if err != nil {
 		return nil, err

@@ -7,7 +7,7 @@ import type { Provider, Session } from '../lib';
 import { PageActions, SelectField, SettingRow, SettingSwitch, TextField } from './SettingControls';
 
 // 设置页里只有「会话默认」和「系统提示词」仍走本地 props（由 App 统一持久化到后端）。
-// 服务器 / 项目 / 工具 / 技能 / 子代理 / 数据面板 / 拓展包 / 集成（MCP·OpenAPI）
+// 服务器 / 项目 / 工具 / 技能 / 子代理 / 数据面板 / 插件 / 集成（MCP·OpenAPI）
 // 都已迁移到后端驱动页（BackendSettings / ResourceManagers / UsageDashboard / IntegrationManager）。
 // 历史上这里还有一批本地 mock 实现，与旧 legacy.html 的「演示配置」语义混淆，已删除。
 export type SettingsPageProps = { config: AgentSettings; onConfig: (value: AgentSettings) => void | Promise<void>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void; providers: Provider[]; sessions: Session[]; notify: (text: string) => void };

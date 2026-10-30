@@ -17,7 +17,6 @@ import (
 	agentpkg "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/model"
-	"google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
@@ -178,15 +177,14 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 	if err != nil {
 		return Result{}, fmt.Errorf("IO_ERROR: %v", err)
 	}
-	// 与主代理一致：并行工具调用完成即上报 sub_tool_result，
-	// 不再等整批调用合并后才一起结束。
-	notifier, err := loopraagent.ToolResultPlugin()
+	// 与主代理一致：同一套钩子，并行工具调用完成即上报 sub_tool_result。
+	plugins, err := loopraagent.RuntimePlugins(llm)
 	if err != nil {
 		return Result{}, fmt.Errorf("IO_ERROR: %v", err)
 	}
 	run, err := runner.New(runner.Config{
 		AppName: "loopra", Agent: root, SessionService: inMem,
-		PluginConfig: runner.PluginConfig{Plugins: []*plugin.Plugin{notifier}},
+		PluginConfig: runner.PluginConfig{Plugins: plugins},
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("IO_ERROR: %v", err)

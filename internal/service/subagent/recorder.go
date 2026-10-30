@@ -67,6 +67,7 @@ func nowMillis() int64 { return time.Now().UnixMilli() }
 const subHitlTimeout = 5 * time.Minute
 
 func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Session, parentSession, message string, subID int, subSessionID string, rec *recorder, sink Sink) string {
+	ctx = loopraagent.WithParentSession(ctx, parentSession)
 	if sink != nil {
 		// 让 runner 的 AfterToolCallback 能逐个工具上报 sub_tool_result。
 		ctx = loopraagent.WithToolResultSink(ctx, newSubToolResults(subID, sink))

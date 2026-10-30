@@ -36,6 +36,7 @@ internal/
     workspace.go                工作区准备、Java 兼容工作区 ID
     agent/                      ADK 智能体组装与派生
     tools/                      内置工具及工具注册表
+    plugin/                     moejs 插件：从 npm 或 GitHub 安装，绑定工具、对话钩子、fetch 和 node:fs
     hitl/                       人工审批规则与状态
     subagent/                   子智能体执行
     requirement/                需求存储、校验与执行调度

@@ -26,6 +26,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service/acp"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
+	"github.com/ezdemo/looprax/internal/service/plugin"
 	"github.com/ezdemo/looprax/internal/service/requirement"
 	"github.com/ezdemo/looprax/internal/service/schedule"
 	"github.com/ezdemo/looprax/internal/service/subagent"
@@ -76,6 +77,7 @@ type Controller struct {
 	configuration      ConfigService
 	files              FileService
 	acp                *acp.Manager
+	plugins            *plugin.Host
 }
 
 // Options 配置服务端。
@@ -145,6 +147,11 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s.installSubRunner()
 	s.installControlTools()
 	s.applyToolConfig()
+	s.plugins = plugin.New(s.home, plugin.Hooks{Bind: s.bindPluginTools, Unbind: s.unbindPluginTools})
+	plugin.SetActive(s.plugins)
+	if os.Getenv("LOOPRA_JAVA_BACKEND_URL") == "" {
+		s.plugins.LoadEnabled(context.Background())
+	}
 	if a != nil {
 		if err := os.MkdirAll(s.workspaceRoot(), 0o755); err != nil {
 			return nil, "", err

@@ -1,0 +1,729 @@
+package plugin
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/MoeForge/moejs"
+	"github.com/MoeForge/moejs/eventloop"
+	"github.com/MoeForge/moejs/node"
+	"github.com/MoeForge/moejs/webapi"
+
+	"github.com/ezdemo/looprax/internal/infrastructure/fsutil"
+)
+
+// BoundTool 是一个已经绑定到 moejs 导出函数的工具。
+type BoundTool struct {
+	Name        string
+	Description string
+	ReadOnly    bool
+	Parameters  json.RawMessage
+	Call        func(ctx context.Context, args map[string]any) (map[string]any, error)
+}
+
+type running struct {
+	mu          sync.Mutex
+	closeOnce   sync.Once
+	rt          *moejs.Runtime
+	loop        *eventloop.Loop
+	node        *node.API
+	web         *webapi.API
+	names       []string
+	bound       []BoundTool
+	hooks       map[string]moejs.Hook
+	displayName string
+	description string
+	entry       string
+}
+
+type toolBinding struct {
+	short   string
+	hook    moejs.Hook
+	viaCall bool
+}
+
+type toolDef struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	ReadOnly    bool            `json:"readOnly"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type modCache struct {
+	root string
+	ctx  context.Context
+	mu   sync.Mutex
+	mods map[string]*moejs.Module
+}
+
+func openPackage(ctx context.Context, dir string, rec record) (*running, error) {
+	entry, err := findEntry(dir, rec.Entry)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(filepath.Join(dir, entry))
+	if err != nil {
+		return nil, err
+	}
+	cache := &modCache{root: dir, ctx: ctx, mods: map[string]*moejs.Module{}}
+	entryMod, err := cache.compile(abs)
+	if err != nil {
+		return nil, jsError(err)
+	}
+	linked, err := moejs.Link(entryMod, node.Resolver(cache.resolve))
+	if err != nil {
+		return nil, jsError(err)
+	}
+	run, err := newHostRuntime(cache)
+	if err != nil {
+		return nil, err
+	}
+	discard := run
+	defer func() {
+		if discard != nil {
+			discard.close()
+		}
+	}()
+	if err := run.rt.SetGlobal("console", consoleObject()); err != nil {
+		return nil, err
+	}
+	if err := run.run(ctx, func(rt *moejs.Runtime) error {
+		err := rt.Load(linked)
+		if errors.Is(err, moejs.ErrModulePending) {
+			return nil
+		}
+		return err
+	}); err != nil {
+		return nil, jsError(err)
+	}
+	display, description := readMeta(run.rt)
+	if display == "" {
+		display = rec.DisplayName
+	}
+	if display == "" {
+		display = rec.Name
+	}
+	run.displayName = display
+	run.description = description
+	run.entry = entry
+	defs, explicit, err := readToolDefs(run.rt, linked)
+	if err != nil {
+		return nil, jsError(err)
+	}
+	callHook, hasCall, err := findCall(run.rt, linked)
+	if err != nil {
+		return nil, jsError(err)
+	}
+	hooks, err := collectHooks(run.rt, linked)
+	if err != nil {
+		return nil, jsError(err)
+	}
+	run.hooks = hooks
+	if err := bindTools(run, rec.ID, display, defs, explicit, callHook, hasCall, linked, run.rt); err != nil {
+		return nil, err
+	}
+	if len(run.bound) == 0 && len(run.hooks) == 0 {
+		return nil, fmt.Errorf("插件没有导出工具或钩子")
+	}
+	discard = nil
+	return run, nil
+}
+
+func (c *modCache) resolve(ref moejs.Referrer, spec string) (*moejs.Module, error) {
+	from := c.root
+	if ref != nil && ref.Name() != "" {
+		from = filepath.Dir(ref.Name())
+	}
+	file, err := locate(c.root, from, spec)
+	if err != nil {
+		return nil, err
+	}
+	return c.compile(file)
+}
+
+func (c *modCache) compile(file string) (*moejs.Module, error) {
+	file = filepath.Clean(file)
+	if !inside(c.root, file) {
+		return nil, fmt.Errorf("导入越出插件目录")
+	}
+	rel, err := filepath.Rel(c.root, file)
+	if err != nil {
+		return nil, err
+	}
+	safe, err := fsutil.SafeJoin(c.root, rel)
+	if err != nil {
+		return nil, fmt.Errorf("导入越出插件目录")
+	}
+	c.mu.Lock()
+	if mod, ok := c.mods[safe]; ok {
+		c.mu.Unlock()
+		return mod, nil
+	}
+	c.mu.Unlock()
+	info, err := os.Stat(safe)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		return nil, fmt.Errorf("%s 超过 1 MiB 或不是文件", rel)
+	}
+	data, err := os.ReadFile(safe)
+	if err != nil {
+		return nil, err
+	}
+	mod, err := compileFile(c.ctx, safe, string(data))
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if old, ok := c.mods[safe]; ok {
+		return old, nil
+	}
+	c.mods[safe] = mod
+	return mod, nil
+}
+
+func compileFile(ctx context.Context, name, source string) (*moejs.Module, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return moejs.CompileWith(name, source, moejs.CompileOptions{TypeScript: isTS(name), Context: ctx})
+}
+
+func isTS(file string) bool {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".ts", ".tsx", ".mts", ".cts":
+		return true
+	default:
+		return false
+	}
+}
+
+func locate(root, from, spec string) (string, error) {
+	spec = strings.TrimSpace(spec)
+	if strings.HasPrefix(spec, "node:") {
+		return "", fmt.Errorf("没有内置模块 %s（可用 node:fs、node:fs/promises、node:buffer）", spec)
+	}
+	if spec == "" || strings.Contains(spec, "://") || filepath.IsAbs(spec) || strings.HasPrefix(spec, "/") {
+		return "", fmt.Errorf("不允许导入 %s", spec)
+	}
+	if spec == "." || spec == ".." || strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") {
+		return resolveExisting(root, filepath.Clean(filepath.Join(from, filepath.FromSlash(spec))))
+	}
+	return resolveBare(root, from, spec)
+}
+
+func resolveBare(root, from, spec string) (string, error) {
+	pkg, sub := splitSpec(spec)
+	dir := filepath.Clean(from)
+	root = filepath.Clean(root)
+	for {
+		if !inside(root, dir) && dir != root {
+			break
+		}
+		base := filepath.Join(dir, "node_modules", filepath.FromSlash(pkg))
+		if info, err := os.Stat(base); err == nil && info.IsDir() {
+			if sub == "" {
+				return resolvePackageEntry(root, base)
+			}
+			return resolveExisting(root, filepath.Join(base, filepath.FromSlash(sub)))
+		}
+		if dir == root {
+			break
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			break
+		}
+		dir = next
+	}
+	return "", fmt.Errorf("找不到依赖 %s", spec)
+}
+
+func splitSpec(spec string) (string, string) {
+	parts := strings.Split(spec, "/")
+	if strings.HasPrefix(spec, "@") && len(parts) >= 2 {
+		return parts[0] + "/" + parts[1], strings.Join(parts[2:], "/")
+	}
+	if len(parts) == 0 {
+		return spec, ""
+	}
+	return parts[0], strings.Join(parts[1:], "/")
+}
+
+func resolvePackageEntry(root, dir string) (string, error) {
+	info := readPkg(dir)
+	if rel := exportDot(info.Exports); rel != "" {
+		if file, err := resolveExisting(root, filepath.Join(dir, cleanRel(rel))); err == nil {
+			return file, nil
+		}
+	}
+	for _, rel := range []string{info.Module, info.Main, "index.js"} {
+		if strings.TrimSpace(rel) == "" {
+			continue
+		}
+		if file, err := resolveExisting(root, filepath.Join(dir, cleanRel(rel))); err == nil {
+			return file, nil
+		}
+	}
+	return "", fmt.Errorf("找不到依赖入口 %s", dir)
+}
+
+func findEntry(dir, saved string) (string, error) {
+	info := readPkg(dir)
+	candidates := []string{}
+	if saved != "" {
+		candidates = append(candidates, saved)
+	}
+	for _, rel := range []string{info.Loopra, info.Module, info.Main} {
+		if strings.TrimSpace(rel) != "" {
+			candidates = append(candidates, rel)
+		}
+	}
+	candidates = append(candidates,
+		"plugin.ts", "plugin.mts", "plugin.js", "plugin.mjs",
+		"index.ts", "index.mts", "index.js", "index.mjs",
+		filepath.Join("src", "plugin.ts"), filepath.Join("src", "plugin.js"),
+		filepath.Join("src", "index.ts"), filepath.Join("src", "index.js"),
+	)
+	for _, rel := range candidates {
+		file, err := resolveExisting(dir, filepath.Join(dir, cleanRel(rel)))
+		if err != nil {
+			continue
+		}
+		out, err := filepath.Rel(dir, file)
+		if err != nil {
+			continue
+		}
+		return out, nil
+	}
+	return "", fmt.Errorf("找不到插件入口（package.json 的 loopra、module 或 main，或 plugin.js / index.js）")
+}
+
+func cleanRel(rel string) string {
+	rel = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(rel)), "./")
+	return filepath.FromSlash(rel)
+}
+
+func resolveExisting(root, target string) (string, error) {
+	target = filepath.Clean(target)
+	if !inside(root, target) {
+		return "", fmt.Errorf("导入越出插件目录")
+	}
+	if file, ok := existingFile(target); ok {
+		return file, nil
+	}
+	try := []string{}
+	switch {
+	case strings.HasSuffix(target, ".js"):
+		stem := strings.TrimSuffix(target, ".js")
+		try = append(try, stem+".ts", stem+".tsx", stem+".mts", stem+".cts")
+	case strings.HasSuffix(target, ".mjs"):
+		try = append(try, strings.TrimSuffix(target, ".mjs")+".mts")
+	default:
+		for _, ext := range []string{".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"} {
+			try = append(try, target+ext)
+		}
+		for _, name := range []string{"index.js", "index.mjs", "index.ts", "index.mts"} {
+			try = append(try, filepath.Join(target, name))
+		}
+	}
+	for _, candidate := range try {
+		if !inside(root, candidate) {
+			continue
+		}
+		if file, ok := existingFile(candidate); ok {
+			return file, nil
+		}
+	}
+	return "", fmt.Errorf("找不到模块 %s", target)
+}
+
+func existingFile(path string) (string, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return path, true
+}
+
+func inside(root, target string) bool {
+	root, err1 := filepath.Abs(root)
+	target, err2 := filepath.Abs(target)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return fsutil.WithinPath(root, target)
+}
+
+func readToolDefs(rt *moejs.Runtime, mod *moejs.Module) ([]toolDef, bool, error) {
+	for _, hookName := range []struct {
+		export  string
+		members []string
+	}{
+		{"tools", nil},
+		{"default", []string{"tools"}},
+	} {
+		hook, err := mod.Hook(hookName.export, hookName.members...)
+		if err != nil {
+			continue
+		}
+		ok, err := rt.Has(hook)
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			continue
+		}
+		res, err := rt.Call(hook)
+		if err != nil {
+			return nil, true, err
+		}
+		val, err := rt.ToGo(res)
+		if err != nil {
+			return nil, true, err
+		}
+		defs, err := decodeDefs(val)
+		return defs, true, err
+	}
+	if value, ok := rt.Export("tools"); ok {
+		val, err := rt.ToGo(value)
+		if err != nil {
+			return nil, false, err
+		}
+		if _, isArray := val.([]any); isArray {
+			defs, err := decodeDefs(val)
+			return defs, true, err
+		}
+	}
+	return nil, false, nil
+}
+
+func findCall(rt *moejs.Runtime, mod *moejs.Module) (moejs.Hook, bool, error) {
+	for _, item := range []struct {
+		export  string
+		members []string
+	}{
+		{"call", nil},
+		{"default", []string{"call"}},
+	} {
+		hook, err := mod.Hook(item.export, item.members...)
+		if err != nil {
+			continue
+		}
+		ok, err := rt.Has(hook)
+		if err != nil {
+			return moejs.Hook{}, false, err
+		}
+		if ok {
+			return hook, true, nil
+		}
+	}
+	return moejs.Hook{}, false, nil
+}
+
+func exportHook(rt *moejs.Runtime, mod *moejs.Module, name string) (moejs.Hook, bool, error) {
+	hook, err := mod.Hook(name)
+	if err != nil {
+		return moejs.Hook{}, false, nil
+	}
+	ok, err := rt.Has(hook)
+	return hook, ok, err
+}
+
+func decodeDefs(v any) ([]toolDef, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var defs []toolDef
+	if json.Unmarshal(raw, &defs) != nil {
+		return nil, fmt.Errorf("tools 必须是工具定义数组")
+	}
+	seen := map[string]bool{}
+	for _, def := range defs {
+		if !validToolName(def.Name) {
+			return nil, fmt.Errorf("工具名无效: %s", def.Name)
+		}
+		if seen[def.Name] {
+			return nil, fmt.Errorf("工具名重复: %s", def.Name)
+		}
+		seen[def.Name] = true
+	}
+	if len(defs) == 0 {
+		return nil, nil
+	}
+	return defs, nil
+}
+
+func validToolName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func reserved(name string) bool {
+	switch name {
+	case "tools", "call", "meta", "default", "plugin":
+		return true
+	}
+	for _, hook := range hookOrder {
+		if name == hook {
+			return true
+		}
+	}
+	return false
+}
+
+func collectHooks(rt *moejs.Runtime, mod *moejs.Module) (map[string]moejs.Hook, error) {
+	hooks := map[string]moejs.Hook{}
+	for _, name := range hookOrder {
+		hook, ok, err := exportHook(rt, mod, name)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			nested, nestErr := mod.Hook("default", name)
+			if nestErr != nil {
+				continue
+			}
+			ok, err = rt.Has(nested)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+			hook = nested
+		}
+		hooks[name] = hook
+	}
+	return hooks, nil
+}
+
+func (p *running) hookNames() []string {
+	if p == nil || len(p.hooks) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(p.hooks))
+	for _, name := range hookOrder {
+		if _, ok := p.hooks[name]; ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func bindTools(run *running, id, display string, defs []toolDef, explicit bool, callHook moejs.Hook, hasCall bool, mod *moejs.Module, rt *moejs.Runtime) error {
+	if !explicit {
+		for _, name := range mod.Exports() {
+			if reserved(name) {
+				continue
+			}
+			_, ok, err := exportHook(rt, mod, name)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+			defs = append(defs, toolDef{Name: name, Description: name})
+		}
+	}
+	if len(defs) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, def := range defs {
+		hook := callHook
+		viaCall := hasCall
+		if !hasCall {
+			found, ok, err := exportHook(rt, mod, def.Name)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("工具 %s 没有对应的导出函数，也没有 call", def.Name)
+			}
+			hook = found
+		}
+		public := id + "__" + ident(def.Name)
+		if seen[public] {
+			return fmt.Errorf("工具名重复: %s", public)
+		}
+		seen[public] = true
+		desc := strings.TrimSpace(def.Description)
+		if desc == "" {
+			desc = def.Name
+		}
+		if display != "" {
+			desc = display + "：" + desc
+		}
+		if len([]rune(desc)) > 2000 {
+			desc = string([]rune(desc)[:2000])
+		}
+		params := def.Parameters
+		if string(params) == "null" || len(params) == 0 {
+			params = nil
+		}
+		binding := toolBinding{short: def.Name, hook: hook, viaCall: viaCall}
+		run.names = append(run.names, public)
+		self := run
+		run.bound = append(run.bound, BoundTool{
+			Name: public, Description: desc, ReadOnly: def.ReadOnly, Parameters: append(json.RawMessage(nil), params...),
+			Call: func(ctx context.Context, args map[string]any) (map[string]any, error) {
+				return self.invoke(ctx, binding, args)
+			},
+		})
+	}
+	return nil
+}
+
+func (p *running) invoke(ctx context.Context, b toolBinding, args map[string]any) (map[string]any, error) {
+	if args == nil {
+		args = map[string]any{}
+	}
+	var payload any = args
+	if b.viaCall {
+		payload = map[string]any{"name": b.short, "args": args}
+	}
+	out, err := p.eval(ctx, b.hook, payload)
+	if err != nil {
+		return nil, err
+	}
+	return asResult(out), nil
+}
+
+func (p *running) eval(ctx context.Context, hook moejs.Hook, payload any) (any, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	defer p.rt.ReleaseCallData()
+	var res moejs.Value
+	err := p.run(ctx, func(rt *moejs.Runtime) error {
+		arg, err := rt.FromGo(payload)
+		if err != nil {
+			return err
+		}
+		res, err = rt.Call(hook, arg)
+		return err
+	})
+	if err != nil {
+		return nil, jsError(err)
+	}
+	res, err = settledValue(p.rt, res)
+	if err != nil {
+		return nil, err
+	}
+	out, err := p.rt.ToGo(res)
+	if err != nil {
+		return nil, jsError(err)
+	}
+	return out, nil
+}
+
+func asResult(v any) map[string]any {
+	switch value := v.(type) {
+	case map[string]any:
+		return value
+	case nil:
+		return map[string]any{}
+	case string:
+		return map[string]any{"text": value}
+	case []any:
+		return map[string]any{"items": value}
+	default:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return map[string]any{"value": fmt.Sprint(value)}
+		}
+		var obj map[string]any
+		if json.Unmarshal(raw, &obj) == nil && obj != nil {
+			return obj
+		}
+		return map[string]any{"value": json.RawMessage(raw)}
+	}
+}
+
+func readMeta(rt *moejs.Runtime) (string, string) {
+	value, ok := rt.Export("meta")
+	if !ok {
+		return "", ""
+	}
+	raw, err := rt.ToGo(value)
+	if err != nil {
+		return "", ""
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return "", ""
+	}
+	var meta struct {
+		DisplayName string `json:"displayName"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Remark      string `json:"remark"`
+	}
+	if json.Unmarshal(encoded, &meta) != nil {
+		return "", ""
+	}
+	display := meta.DisplayName
+	if display == "" {
+		display = meta.Name
+	}
+	description := meta.Description
+	if description == "" {
+		description = meta.Remark
+	}
+	return display, description
+}
+
+func consoleObject() map[string]any {
+	noop := moejs.NativeFunc(func(*moejs.Realm, moejs.Value, []moejs.Value) (moejs.Value, error) {
+		return moejs.Undefined(), nil
+	})
+	return map[string]any{"log": noop, "info": noop, "warn": noop, "error": noop, "debug": noop}
+}
+
+func jsError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var syntax *moejs.SyntaxError
+	if errors.As(err, &syntax) {
+		return syntax
+	}
+	var exc *moejs.Exception
+	if errors.As(err, &exc) {
+		return fmt.Errorf("%s: %s", exc.Name(), exc.Message())
+	}
+	if errors.Is(err, moejs.ErrMemoryLimit) {
+		return errors.New("插件超出内存上限")
+	}
+	var interrupted *moejs.InterruptedError
+	if errors.As(err, &interrupted) {
+		if interrupted.Value != nil {
+			return fmt.Errorf("插件执行超时或被中断: %v", interrupted.Value)
+		}
+		return errors.New("插件执行超时或被中断")
+	}
+	return err
+}

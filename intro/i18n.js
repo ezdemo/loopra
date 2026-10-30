@@ -115,7 +115,7 @@ window.LOOPRA_I18N_EN = {
   'tools.r5d': '<code>tool_search</code> and <code>call_tool</code> find and call MCP tools',
   'tools.note': "Skills come from the built-in SelfSkill, <code>~/.loopra/skills</code>, <code>~/.agents/skills</code> and the project <code>.loopra/skills</code> directory. User MCP lives in <code>~/.loopra/mcp-servers.json</code>; project MCP applies only to that project. Native reaches them through the fixed <code>tool_search</code> and <code>call_tool</code> tools.",
   'tools.pluginsTitle': 'Skills',
-  'tools.plugins': 'The built-in SelfSkill explains where capabilities live and how to troubleshoot them. Skills that share a name are distinguished by their full id. Create a directory after startup and call <code>skillrefresh</code> to pick it up. The skill market installs into <code>~/.loopra/skills</code>. Java plugins and extension packs run through the optional compatibility backend.',
+  'tools.plugins': 'The built-in SelfSkill explains where capabilities live and how to troubleshoot them. Skills that share a name are distinguished by their full id. Create a directory after startup and call <code>skillrefresh</code> to pick it up. The skill market installs into <code>~/.loopra/skills</code>. Plugins install from an npm package or a GitHub address and run on moejs.',
   'tools.publishTitle': 'Publish tools through MCP',
   'tools.publish': 'Publishing enabled tools as an MCP server is off by default. Use Streamable HTTP or SSE. Cloudflare Quick Tunnel proxies only the configured MCP endpoint, needs cloudflared, and does not support SSE, so use Streamable HTTP. Requests require <code>X-Loopra-Key</code>.',
 
@@ -133,7 +133,7 @@ window.LOOPRA_I18N_EN = {
   'arch.p4': 'The website and project docs live in the repository. Configuration and JSONL sessions stay in <code>~/.loopra</code>.',
   'arch.dep': "Web / desktop → HTTP / SSE → Loopra Native → tools, skills, MCP\n                         → external agents\nExternal editor → loopra acp → Loopra Native",
   'arch.pt1': "Change the interface in <b>web/</b>. Change capabilities in <b>internal/</b> and <b>adk/</b>.",
-  'arch.pt2': "Configuration and sessions live in <b>~/.loopra</b> and are shared with Loopra. Java plugins and extension packs run through the optional compatibility backend.",
+  'arch.pt2': "Configuration and sessions live in <b>~/.loopra</b> and are shared with Loopra. Plugins install from npm or GitHub and run on moejs.",
   'arch.pt3': "See the <a href=\"https://github.com/ezdemo/loopra/blob/main/docs/ARCHITECTURE.md\" target=\"_blank\" rel=\"noopener\">architecture guide</a> for wiring, configuration loading and the request path. Installers live in <a href=\"https://github.com/ezdemo/loopra-release\" target=\"_blank\" rel=\"noopener\">loopra-release</a>.",
 
   /* 技术栈 */

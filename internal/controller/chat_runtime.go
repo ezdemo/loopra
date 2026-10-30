@@ -226,6 +226,7 @@ func (s *Controller) prepareWorktree(req *chatRequest) (*Controller, error) {
 		view.cfg.WorkspaceDir = target
 		if s.agent != nil {
 			view.registry = tools.NewRegistry(append(append(tools.FileTools(target), tools.BashTools(target)...), tools.WebTools()...)...)
+			view.attachPluginTools(view.registry)
 			a, err := s.agent.Derive(s.agent.App(), view.cfg, []tool.Toolset{view.registry}, s.systemInstruction(target))
 			if err != nil {
 				return nil, err

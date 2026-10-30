@@ -162,15 +162,15 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 	if sessions == nil {
 		sessions = jsonl.NewService(root)
 	}
-	// 工具完成通知器对所有经由本包组装的 runner 生效；没有安装
-	// ToolResultSink 的调用（静默轮次、离线运行）会直接跳过。
-	notifier, err := ToolResultPlugin()
+	// 钩子和工具完成通知对所有经由本包组装的 runner 生效。
+	// 没有安装宿主或 ToolResultSink 的调用会直接跳过。
+	plugins, err := RuntimePlugins(opts.Model)
 	if err != nil {
-		return nil, fmt.Errorf("install tool result notifier: %w", err)
+		return nil, fmt.Errorf("install runtime plugins: %w", err)
 	}
 	run, err := runner.New(runner.Config{
 		AppName: app, Agent: rootAgent, SessionService: sessions,
-		PluginConfig: runner.PluginConfig{Plugins: []*plugin.Plugin{notifier}},
+		PluginConfig: runner.PluginConfig{Plugins: plugins},
 	})
 	if err != nil {
 		return nil, err

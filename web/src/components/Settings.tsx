@@ -135,7 +135,7 @@ export default function Settings(props: Props) {
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}
-        {(tab === '插件' || tab === '拓展包') && <ExtensionManager key={tab} api={api} plugin={tab === '插件'} />}
+        {tab === '插件' && <ExtensionManager api={api} />}
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
         {['OpenAPI', 'MCP'].includes(tab) && <IntegrationManager key={tab} api={api} kind={tab === 'OpenAPI' ? 'openapi' : 'mcp'} />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}

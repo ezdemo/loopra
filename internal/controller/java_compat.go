@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// Java 字节码插件需要 Java 插件内核。配置本地兼容
-// 后端可以保留该执行边界，而不是在仅保存了 jar 的清单时
-// 就声称该 jar 已启动。
+// LOOPRA_JAVA_BACKEND_URL 非空时，把当前请求转发给可选的 Java 后端。
+// 该地址会接管整条 /api 与 /mcp。原生插件由 moejs 执行，配置了这个地址后本进程不加载它们。
 func (s *Controller) javaCompatibilityProxy(w http.ResponseWriter, r *http.Request) bool {
 	address := os.Getenv("LOOPRA_JAVA_BACKEND_URL")
 	if address == "" {

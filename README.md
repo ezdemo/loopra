@@ -35,7 +35,7 @@
 
 Loopra 把一次编码任务收成一条循环：阅读项目上下文，搜索、编辑或构建，把执行结果收回来再推理，直到完成，或停在需要你决定的地方。
 
-它与 [Loopra](https://github.com/ezdemo/loopra) 读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。Java 的 `.jar` 插件和拓展包由可选的 [Java 兼容后端](#java-兼容后端) 执行。
+它与 [Loopra](https://github.com/ezdemo/loopra) 读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。插件从 npm 包或 GitHub 地址安装，由 [moejs](https://github.com/MoeForge/moejs) 执行，见[插件](#插件)。
 
 新建会话默认使用 Loopra Native。也可以改接 Claude Code、Codex、Pi 或 DeepSeek Harness。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
 
@@ -322,6 +322,53 @@ Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`
 
 目录可以在启动后创建，调用 `skillrefresh` 即可发现。通用技能目录可用 `LOOPRA_AGENTS_SKILLS_DIR` 覆盖。技能市场安装到 `~/.loopra/skills`。
 
+### 插件
+
+插件是 JavaScript 或 TypeScript 模块，运行时是 [moejs](https://github.com/MoeForge/moejs)（Apache-2.0）。在设置 → 插件填写来源，例如 `left-pad@1.3.0`、`@scope/pkg` 或 `https://github.com/owner/repo`。安装位置是 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。写法、钩子、`fetch` 和 `node:fs` 见 [docs/PLUGIN.md](docs/PLUGIN.md)。
+
+入口优先读 package.json 的 `loopra`（字符串，或 `{ "plugin": "./plugin.ts" }`），然后是 `module`、`main`，再否则是 `plugin.ts`、`plugin.js`、`index.ts` 或 `index.js`。
+
+导出的函数会变成工具，公开名称是 `<插件 id>__<导出名>`：
+
+```js
+export function greet(args) {
+  return { text: "hello " + (args.name || "world") };
+}
+```
+
+也可以用清单分发：
+
+```js
+export function tools() {
+  return [{
+    name: "greet",
+    description: "打招呼",
+    readOnly: true,
+    parameters: {
+      type: "object",
+      properties: { name: { type: "string", description: "名字" } },
+      required: ["name"]
+    }
+  }];
+}
+export function call(input) {
+  return { text: "hello " + (input.args.name || "world") };
+}
+```
+
+也可以只导出钩子，或和工具写在同一个模块里。钩子按安装顺序串起来，前一个的返回值会交给下一个。某个插件抛错时跳过它，后面的继续执行。
+
+- `turnBefore`：改用户消息、追加 `context`，或用 `cancel: true` 结束这一轮
+- `systemPrompt`：返回 `text` 替换系统提示词，或用 `append` 追加
+- `llmRequest`：改发给模型的消息、采样和工具列表。返回 `body` 时替换即将 POST 的 JSON，HTTP 仍由宿主发送
+- `llmResponse`：改模型最终回复里的文本、推理和工具调用。已经流式显示的片段不会逐个改
+- `toolBefore`：`allow` 可改参数，审批和路径检查仍然生效；`deny` 直接拒绝；`ask` 进入现有审批。用户批准后会再进一次，此时 `approved` 为 true
+- `toolAfter`：改工具结果，或把失败写成说明
+- `compact`：改压缩摘要。返回 `keep` 会把要留下的片段补进摘要，`drop: true` 丢掉这次摘要
+- `turnAfter`：本轮结束时的清理。`status` 是 `completed`、`cancelled` 或 `error`，改不了已经发出的回复
+
+这些函数的参数和返回值都是一个对象，可以是 async，宿主会等 Promise 完成。子代理走同一套钩子，并带上 `parentSessionId`。可以 `import` 相对路径、随包安装的依赖，以及 `node:fs`、`node:fs/promises`、`node:buffer`。`fetch` 使用 moejs 的 Web API，不按主机名拦截。`node:fs` 可以读写本机文件，不另加路径白名单；Windows 上系统盘挂在 `/`，`C:\Users\a\b.txt` 写成 `/Users/a/b.txt`。插件代码的 `import` 不能越出插件目录，`eval` 不可用。只读工具会自动放行，写入工具仍走审批。
+
 ### MCP
 
 MCP 与 OpenAPI 可为 Agent 注入额外能力。用户级配置在 `~/.loopra/mcp-servers.json`，项目级配置在 `<项目>/.loopra/mcp-servers.json`，只对当前项目生效。两种文件都支持标准的 `mcpServers` 对象，也兼容管理页使用的 `servers` 数组：
@@ -398,6 +445,7 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 | `/continue` | 继续当前任务。 |
 | `/init` | 分析项目并生成 `loopra.md`。 |
 | `/skills` | 为这条消息附加技能。 |
+| `/plugin` | 在设置里安装 npm 或 GitHub 插件。 |
 | `/terminal` | 在右栏打开命令面板。 |
 
 ### 输入
@@ -429,7 +477,7 @@ loopra acp
 
 ### Java 兼容后端
 
-Java `.jar` 插件和拓展包需要 Java 运行时。设置 `LOOPRA_JAVA_BACKEND_URL` 后，全部 `/api` 与 `/mcp` 流量交给该服务，包括聊天、历史、权限与引擎管理；内置调度器不会启动。两边密钥不同时再设置 `LOOPRA_JAVA_BACKEND_KEY`。
+设置 `LOOPRA_JAVA_BACKEND_URL` 后，全部 `/api` 与 `/mcp` 交给该服务，包括聊天、历史、权限与引擎管理；本进程的调度器不会启动，原生插件也不会加载。两边密钥不同时再设置 `LOOPRA_JAVA_BACKEND_KEY`。本进程自己的插件不依赖这个地址。
 
 ## 配置
 

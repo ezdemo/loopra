@@ -69,17 +69,16 @@ Loopra 的技能是包含 `SKILL.md` 的目录，可以带有 `references/`、`s
 - 已直接暴露的 MCP 工具按其 Schema 调用。网关折叠工具时，遵循当前网关说明：按需使用 `search_tools` 搜索、`get_tool_detail` 获取参数 Schema，再通过 `call_tool` 调用。仅使用当前实际提供的这些入口。
 - 能力未出现时，检查是否配置、启用、连接成功，以及是否需要刷新。`skillrefresh` 不负责连接 MCP；读取某个技能也不会自动连接它引用的服务器。
 
-## OpenAPI、插件与拓展包
+## OpenAPI 与插件
 
 - OpenAPI：在设置中配置接口源；使用本轮可用的 `search_apis`、`get_api_detail`、`call_api` 按需发现、读取参数并调用，遵循当前网关说明。
-- 运行时插件：设置中可管理；用户也可通过 `/plugin add <JAR 直链或本地路径>` 安装外置插件。安装后应核实插件是否启用，以及当前会话是否已获得它贡献的工具。
-- 拓展包：通过设置中的拓展包管理入口安装和管理，按实际加载结果确认能力。
+- 插件：在设置 → 插件填写 npm 包名或 GitHub 地址。插件是 JavaScript 或 TypeScript 模块，由 moejs 执行，可以是 async。`export function` 会变成工具；也可以导出 `tools()` 与 `call()`。同一模块还可以导出 `turnBefore`、`systemPrompt`、`llmRequest`、`llmResponse`、`toolBefore`、`toolAfter`、`compact`、`turnAfter`，用来改写这一轮的消息、系统提示词、模型请求或工具参数。`fetch` 可以访问本进程能到达的地址；`node:fs` 可以读写本机文件。入口优先是 package.json 的 `loopra` 字段。安装后确认插件已启用，并且当前会话的工具列表里出现 `<插件 id>__<工具名>`。只读工具会自动放行，写入工具仍走审批。`toolBefore` 返回 `allow` 不会跳过审批。
 - 缺少扩展时，先说明需要哪个扩展、它解决什么问题，再依用户任务范围安装或配置。不能把此说明中的示例当作已安装能力。
 
 ## 能力缺失时的检查顺序
 
 1. 当前工具定义中是否已有合适工具，或网关是否提供了发现入口？
 2. 技能是否存在于正确来源，是否使用了目录返回的完整标识，是否需要 `skillrefresh`？
-3. MCP/OpenAPI/插件/拓展包是否配置、启用并加载成功，是否仍在等待下一轮刷新？
+3. MCP、OpenAPI 或插件是否配置、启用并加载成功，是否仍在等待下一轮刷新？
 4. 技能引用的命令、依赖、凭据或外部服务是否满足环境要求？
 5. 根据实际检查结果说明已完成的步骤、失败原因和仍需的用户操作。
