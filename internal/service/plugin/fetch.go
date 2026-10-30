@@ -34,11 +34,31 @@ type pkgFile struct {
 	Description  string
 	Loopra       string
 	Settings     string
+	Sidebar      string
+	SidebarTitle string
+	SidebarIcon  pkgIcon
+	Icon         pkgIcon
+	MenuTitle    string
+	MenuIcon     pkgIcon
+	MenuPage     string
+	MenuChildren []pkgMenuChild
 	Module       string
 	Main         string
 	Entry        string
 	Exports      json.RawMessage
 	Dependencies map[string]string
+}
+
+type pkgIcon struct {
+	Name string
+	File string
+}
+
+type pkgMenuChild struct {
+	ID    string
+	Title string
+	Icon  pkgIcon
+	Page  string
 }
 
 type versionDoc struct {
@@ -677,11 +697,13 @@ func readPkg(dir string) pkgFile {
 	if json.Unmarshal(data, &raw) != nil {
 		return pkgFile{}
 	}
+	ui := parseLoopraUI(raw.Loopra)
 	return pkgFile{
 		Name: raw.Name, Version: raw.Version, Description: raw.Description,
 		Module: raw.Module, Main: raw.Main, Loopra: loopraPath(raw.Loopra),
-		Settings: loopraSettings(raw.Loopra),
-		Exports:  raw.Exports, Dependencies: raw.Dependencies,
+		Settings: ui.Settings, Sidebar: ui.SidebarPage, SidebarTitle: ui.SidebarTitle, SidebarIcon: ui.SidebarIcon,
+		Icon: ui.Icon, MenuTitle: ui.MenuTitle, MenuIcon: ui.MenuIcon, MenuPage: ui.MenuPage, MenuChildren: ui.Children,
+		Exports: raw.Exports, Dependencies: raw.Dependencies,
 	}
 }
 
@@ -706,19 +728,133 @@ func loopraPath(raw json.RawMessage) string {
 	return ""
 }
 
-func loopraSettings(raw json.RawMessage) string {
+type loopraUI struct {
+	Settings     string
+	SidebarTitle string
+	SidebarPage  string
+	SidebarIcon  pkgIcon
+	Icon         pkgIcon
+	MenuTitle    string
+	MenuIcon     pkgIcon
+	MenuPage     string
+	Children     []pkgMenuChild
+}
+
+func parseLoopraUI(raw json.RawMessage) loopraUI {
 	if len(raw) == 0 || string(raw) == "null" {
-		return ""
+		return loopraUI{}
 	}
-	var obj struct {
-		UI struct {
-			Settings string `json:"settings"`
+	var box struct {
+		Icon json.RawMessage `json:"icon"`
+		UI   struct {
+			Settings string          `json:"settings"`
+			Sidebar  json.RawMessage `json:"sidebar"`
+			Menu     json.RawMessage `json:"menu"`
 		} `json:"ui"`
 	}
-	if json.Unmarshal(raw, &obj) != nil {
-		return ""
+	if json.Unmarshal(raw, &box) != nil {
+		return loopraUI{}
 	}
-	return strings.TrimSpace(obj.UI.Settings)
+	ui := loopraUI{Settings: strings.TrimSpace(box.UI.Settings), Icon: parseIcon(box.Icon)}
+	ui.SidebarTitle, ui.SidebarPage, ui.SidebarIcon = parseSidebar(box.UI.Sidebar)
+	ui.MenuTitle, ui.MenuPage, ui.MenuIcon, ui.Children = parseMenu(box.UI.Menu)
+	return ui
+}
+
+func parseSidebar(raw json.RawMessage) (title, page string, icon pkgIcon) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", "", pkgIcon{}
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return "", strings.TrimSpace(text), pkgIcon{}
+	}
+	var obj struct {
+		Title string          `json:"title"`
+		Page  string          `json:"page"`
+		Icon  json.RawMessage `json:"icon"`
+	}
+	if json.Unmarshal(raw, &obj) != nil {
+		return "", "", pkgIcon{}
+	}
+	return strings.TrimSpace(obj.Title), strings.TrimSpace(obj.Page), parseIcon(obj.Icon)
+}
+
+func parseMenu(raw json.RawMessage) (title, page string, icon pkgIcon, children []pkgMenuChild) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", "", pkgIcon{}, nil
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return "", strings.TrimSpace(text), pkgIcon{}, nil
+	}
+	var obj struct {
+		Title    string          `json:"title"`
+		Icon     json.RawMessage `json:"icon"`
+		Page     string          `json:"page"`
+		Children []struct {
+			ID    string          `json:"id"`
+			Title string          `json:"title"`
+			Icon  json.RawMessage `json:"icon"`
+			Page  string          `json:"page"`
+		} `json:"children"`
+	}
+	if json.Unmarshal(raw, &obj) != nil {
+		return "", "", pkgIcon{}, nil
+	}
+	seen := map[string]bool{}
+	for i, child := range obj.Children {
+		if len(children) >= 12 {
+			break
+		}
+		id := strings.TrimSpace(child.ID)
+		if id == "" {
+			id = strconv.Itoa(i + 1)
+		}
+		title := strings.TrimSpace(child.Title)
+		page := strings.TrimSpace(child.Page)
+		if title == "" || page == "" || !safeID(id) || id == "open" || id == "icons" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		children = append(children, pkgMenuChild{ID: id, Title: title, Icon: parseIcon(child.Icon), Page: page})
+	}
+	return strings.TrimSpace(obj.Title), strings.TrimSpace(obj.Page), parseIcon(obj.Icon), children
+}
+
+func parseIcon(raw json.RawMessage) pkgIcon {
+	if len(raw) == 0 || string(raw) == "null" {
+		return pkgIcon{}
+	}
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return pkgIcon{}
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return pkgIcon{}
+	}
+	if strings.ContainsAny(text, `/\`) || strings.HasPrefix(text, ".") {
+		return pkgIcon{File: text}
+	}
+	if validIconName(text) {
+		return pkgIcon{Name: text}
+	}
+	return pkgIcon{}
+}
+
+func validIconName(name string) bool {
+	if name == "" || len(name) > 40 || name[0] == '-' || name[len(name)-1] == '-' {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func exportDot(raw json.RawMessage) string {

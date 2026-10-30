@@ -93,6 +93,10 @@ svg { flex-shrink: 0; }
 .sidebar-actions > button:hover { background: var(--hover); color: var(--text); }
 .sidebar-actions > button:first-child { color: var(--text); font-weight: 500; }
 .sidebar-actions svg { width: 1rem; height: 1rem; }
+.sidebar-actions > button.sidebar-plugin { min-width: 0; }
+.sidebar-actions > button.sidebar-plugin > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-plugin-mark { display: grid; place-items: center; width: 1rem; height: 1rem; border-radius: .25rem; color: #fff; font-size: .625rem; font-weight: 600; flex: 0 0 1rem; }
+.sidebar-plugin-icon { width: 1rem; height: 1rem; object-fit: contain; flex: 0 0 1rem; }
 
 .session-section { margin-top: .5rem; padding: 0 .5rem; overflow-y: auto; flex: 1; /* Reserve the scrollbar track so the header buttons do not shift when the list starts overflowing. */ scrollbar-gutter: stable; }
 .section-label { color: var(--muted); display: flex; align-items: center; justify-content: space-between; padding: 0 .25rem 0 .5rem; font-size: .6875rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; height: 2rem; }

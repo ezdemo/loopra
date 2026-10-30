@@ -40,20 +40,50 @@ import (
 
 // View 是设置页和 /api/plugins 使用的插件清单项。
 type View struct {
-	ID          string   `json:"id"`
-	DisplayName string   `json:"displayName"`
-	Description string   `json:"description,omitempty"`
-	Remark      string   `json:"remark,omitempty"`
-	Version     string   `json:"version,omitempty"`
-	Source      string   `json:"source"`
-	SourceURL   string   `json:"sourceUrl,omitempty"`
-	Enabled     bool     `json:"enabled"`
-	State       string   `json:"state,omitempty"`
-	Error       string   `json:"error,omitempty"`
-	Tools       []string `json:"tools,omitempty"`
-	Hooks       []string `json:"hooks,omitempty"`
-	Entry       string   `json:"entry,omitempty"`
-	Settings    bool     `json:"settings,omitempty"`
+	ID          string       `json:"id"`
+	DisplayName string       `json:"displayName"`
+	Description string       `json:"description,omitempty"`
+	Remark      string       `json:"remark,omitempty"`
+	Version     string       `json:"version,omitempty"`
+	Source      string       `json:"source"`
+	SourceURL   string       `json:"sourceUrl,omitempty"`
+	Enabled     bool         `json:"enabled"`
+	State       string       `json:"state,omitempty"`
+	Error       string       `json:"error,omitempty"`
+	Tools       []string     `json:"tools,omitempty"`
+	Hooks       []string     `json:"hooks,omitempty"`
+	Entry       string       `json:"entry,omitempty"`
+	Settings    bool         `json:"settings,omitempty"`
+	Icon        *IconRef     `json:"icon,omitempty"`
+	Sidebar     *SidebarLink `json:"sidebar,omitempty"`
+	Menu        *MenuView    `json:"menu,omitempty"`
+}
+
+// IconRef 是插件声明的图标。name 是 Lucide 图标名，key 指向一张包内图片。
+type IconRef struct {
+	Name string `json:"name,omitempty"`
+	Key  string `json:"key,omitempty"`
+}
+
+// SidebarLink 是侧栏「定时任务」下面的插件入口。
+type SidebarLink struct {
+	Title string   `json:"title"`
+	Icon  *IconRef `json:"icon,omitempty"`
+}
+
+// MenuView 是设置页左侧、内置分类下面的插件菜单。
+type MenuView struct {
+	Title    string     `json:"title"`
+	Icon     *IconRef   `json:"icon,omitempty"`
+	Page     bool       `json:"page,omitempty"`
+	Children []MenuItem `json:"children,omitempty"`
+}
+
+// MenuItem 是插件父菜单下的一个子页面。
+type MenuItem struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title"`
+	Icon  *IconRef `json:"icon,omitempty"`
 }
 
 // Hooks 把插件工具挂进宿主的工具注册表。回调不能反过来调用 Host 的安装方法。
@@ -381,6 +411,14 @@ func (h *Host) viewLocked(rec record) View {
 	}
 	if _, err := h.SettingsFile(rec.ID, ""); err == nil {
 		view.Settings = true
+	}
+	info := readPkg(h.pkgDir(rec.ID))
+	view.Icon = h.iconRef(rec.ID, "plugin", info.Icon, pkgIcon{})
+	if rec.Enabled {
+		if title := h.SidebarTitle(rec.ID, view.DisplayName); title != "" {
+			view.Sidebar = &SidebarLink{Title: title, Icon: h.iconRef(rec.ID, "sidebar", info.SidebarIcon, info.Icon)}
+		}
+		view.Menu = h.menuView(rec.ID, view.DisplayName)
 	}
 	return view
 }

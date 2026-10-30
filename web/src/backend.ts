@@ -58,6 +58,16 @@ export class LoopraClient {
   pluginPage(id: string) {
     return `${this.apiBase}/plugins/${encodeURIComponent(id)}/ui/`;
   }
+  pluginSidebar(id: string) {
+    return `${this.apiBase}/plugins/${encodeURIComponent(id)}/sidebar/`;
+  }
+  pluginMenu(id: string, item = '') {
+    const child = item ? `${encodeURIComponent(item)}/` : '';
+    return `${this.apiBase}/plugins/${encodeURIComponent(id)}/menu/${child}`;
+  }
+  pluginIcon(id: string, key: string) {
+    return `${this.apiBase}/plugins/${encodeURIComponent(id)}/icons/${encodeURIComponent(key)}`;
+  }
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
     // Opening an external ACP session has a 60s backend deadline. Keep a
     // matching finite UI deadline even when a view supplies its own signal.

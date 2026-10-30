@@ -50,6 +50,8 @@
 .plugin-card { display: flex; flex-direction: column; min-height: 9.5rem; padding: .875rem .875rem .7rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--surface); box-shadow: var(--shadow-sm); }
 .plugin-card-head { display: flex; align-items: flex-start; gap: .625rem; }
 .plugin-card-mark { display: grid; place-items: center; flex: 0 0 2.25rem; width: 2.25rem; height: 2.25rem; border-radius: .5rem; color: #fff; font-size: .875rem; font-weight: 600; }
+.plugin-card-mark.has-icon { background: var(--sidebar); color: inherit; border: 1px solid var(--line); }
+.plugin-card-icon { width: 1.25rem; height: 1.25rem; object-fit: contain; }
 .plugin-card-id { min-width: 0; flex: 1; padding-top: .2rem; }
 .plugin-card-name { display: flex; align-items: center; gap: .35rem; min-width: 0; }
 .plugin-card-id strong { min-width: 0; overflow: hidden; font-size: .8125rem; font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
@@ -70,6 +72,8 @@
 .plugin-card-remove { color: var(--muted); }
 .plugin-card-remove:hover { color: var(--danger); }
 .plugin-settings-frame { display: block; width: 100%; height: min(36rem, calc(100dvh - 16rem)); min-height: 22rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.plugin-app-page { flex: 1; min-height: 0; display: flex; background: var(--surface); }
+.plugin-app-frame { flex: 1; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; background: var(--surface); }
 .plugin-page .resource-install { align-items: flex-end; background: var(--sidebar); }
 .plugin-page .resource-install .plugin-card-state { margin-bottom: .15rem; }
 .resource-list { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 1.25rem; }

@@ -7,7 +7,16 @@ import type { Workspace } from '../backend';
 import { sessionDate } from '../session-order';
 import { DEFAULT_SIDEBAR_WIDTH, clampSidebarWidth, resizeSidebarWidth } from '../panel-resize';
 import { ProfileAvatar } from '../components/LocalProfile';
+import { PluginGlyph, type PluginIconRef } from '../components/plugin-icons';
 import type { LocalProfile } from '../local-profile';
+import type { LoopraClient } from '../backend';
+
+const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
+function pluginTone(id: string) {
+  let n = 0;
+  for (const ch of id) n = (n + ch.charCodeAt(0)) % pluginTones.length;
+  return pluginTones[n];
+}
 
 /** Sessions a project shows before the list folds behind "展开显示". */
 const SESSION_GROUP_LIMIT = 6;
@@ -39,6 +48,10 @@ export type SidebarProps = {
   skillsOpen?: boolean;
   onSchedules: () => void;
   schedulesOpen?: boolean;
+  api: LoopraClient;
+  plugins?: { id: string; title: string; icon?: PluginIconRef }[];
+  pluginPage?: string;
+  onOpenPlugin?: (id: string) => void;
   onSettings: () => void;
   profile: LocalProfile;
   onRefreshAll: () => void;
@@ -138,6 +151,14 @@ export default function Sidebar(props: SidebarProps) {
       <button onClick={props.onSearch}><SearchIcon />{english ? 'Search' : '搜索'}</button>
       <button className={props.skillsOpen ? 'selected' : undefined} aria-current={props.skillsOpen ? 'page' : undefined} onClick={props.onSkills}><Sparkles />{english ? 'Skills' : '技能'}</button>
       <button className={props.schedulesOpen ? 'selected' : undefined} aria-current={props.schedulesOpen ? 'page' : undefined} onClick={props.onSchedules}><CalendarClock />{english ? 'Scheduled tasks' : '定时任务'}</button>
+      {props.plugins?.map(item => {
+        const selected = props.pluginPage === item.id;
+        const glyph = <PluginGlyph api={props.api} pluginId={item.id} icon={item.icon} className="sidebar-plugin-icon" size="1rem" />;
+        return <button className={selected ? 'selected sidebar-plugin' : 'sidebar-plugin'} aria-current={selected ? 'page' : undefined} key={item.id} onClick={() => props.onOpenPlugin?.(item.id)}>
+          {item.icon ? glyph : <span className="sidebar-plugin-mark" style={{ background: pluginTone(item.id) }} aria-hidden="true">{[...item.title.trim()][0] || '?'}</span>}
+          <span>{item.title}</span>
+        </button>;
+      })}
     </div>
     <div className="session-section">
       <div className="section-label">

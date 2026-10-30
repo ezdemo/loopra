@@ -9,24 +9,36 @@ import (
 	"github.com/ezdemo/looprax/internal/service/plugin"
 )
 
-func (s *Controller) openPluginUI(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Controller) openPluginUI(w http.ResponseWriter, r *http.Request, id, slot string) {
 	if !s.plugins.Installed(id) {
 		writeFail(w, http.StatusNotFound, "插件不存在: "+id)
 		return
 	}
-	if _, err := s.plugins.SettingsFile(id, ""); err != nil {
+	var err error
+	switch slot {
+	case "sidebar":
+		_, err = s.plugins.SidebarFile(id, "")
+	case "menu":
+		_, err = s.plugins.MenuFile(id, s.plugins.MenuOpenPath(id))
+	case "ui":
+		_, err = s.plugins.SettingsFile(id, "")
+	default:
+		writeFail(w, http.StatusNotFound, "未找到路径")
+		return
+	}
+	if err != nil {
 		writeFail(w, http.StatusNotFound, err.Error())
 		return
 	}
 	token, err := plugin.IssueUITicket(id)
 	if err != nil {
-		writeFail(w, http.StatusInternalServerError, "设置页暂时打不开")
+		writeFail(w, http.StatusInternalServerError, "页面暂时打不开")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     plugin.UICookie,
 		Value:    token,
-		Path:     "/api/plugins/" + id + "/ui",
+		Path:     "/api/plugins/" + id + "/" + slot,
 		MaxAge:   3600,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -71,8 +83,49 @@ func (s *Controller) savePluginConfig(w http.ResponseWriter, r *http.Request, id
 	writeOK(w, http.StatusOK, saved)
 }
 
+func (s *Controller) servePluginIcon(w http.ResponseWriter, r *http.Request, path string) bool {
+	parts := strings.Split(path, "/")
+	if len(parts) != 3 || parts[1] != "icons" {
+		return false
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	if !s.plugins.Installed(parts[0]) {
+		writeFail(w, http.StatusNotFound, "插件不存在: "+parts[0])
+		return true
+	}
+	file, err := s.plugins.IconFile(parts[0], parts[2])
+	if err != nil {
+		writeFail(w, http.StatusNotFound, err.Error())
+		return true
+	}
+	body, err := os.Open(file)
+	if err != nil {
+		writeFail(w, http.StatusNotFound, "图标不存在")
+		return true
+	}
+	defer body.Close()
+	stat, err := body.Stat()
+	if err != nil || !stat.Mode().IsRegular() {
+		writeFail(w, http.StatusNotFound, "图标不存在")
+		return true
+	}
+	ctype, ok := plugin.UIContentType(file)
+	if !ok {
+		writeFail(w, http.StatusNotFound, "图标不存在")
+		return true
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	http.ServeContent(w, r, stat.Name(), stat.ModTime(), body)
+	return true
+}
+
 func (s *Controller) servePluginUI(w http.ResponseWriter, r *http.Request, path string) bool {
-	id, rel, ok := plugin.SplitPluginUI(path)
+	id, slot, rel, ok := plugin.SplitPluginUI(path)
 	if !ok {
 		return false
 	}
@@ -80,7 +133,16 @@ func (s *Controller) servePluginUI(w http.ResponseWriter, r *http.Request, path 
 		writeFail(w, http.StatusNotFound, "插件不存在: "+id)
 		return true
 	}
-	file, err := s.plugins.SettingsFile(id, rel)
+	var file string
+	var err error
+	switch slot {
+	case "sidebar":
+		file, err = s.plugins.SidebarFile(id, rel)
+	case "menu":
+		file, err = s.plugins.MenuFile(id, rel)
+	default:
+		file, err = s.plugins.SettingsFile(id, rel)
+	}
 	if err != nil {
 		writeFail(w, http.StatusNotFound, err.Error())
 		return true

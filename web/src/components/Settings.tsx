@@ -15,6 +15,8 @@ import { BackendProjects, BackendServer } from './BackendSettings';
 import { LoopraClient } from '../backend';
 import IntegrationManager, { McpPublishingSettings } from './IntegrationManager';
 import { ExtensionManager, SubAgentManager, ToolManager, UsageDashboard } from './ResourceManagers';
+import { PluginFrame } from './PluginFrame';
+import { PluginGlyph, selectedPluginMenu, type PluginMenu } from './plugin-icons';
 import type { Workspace } from '../backend';
 import { AgentDefaults, PromptSettings } from './AgentSettingsPages';
 import { searchSettings } from '../settings-search';
@@ -53,6 +55,7 @@ type Props = {
   updateCheck?: VersionCheck;
   coreUpdate: CoreServiceUpdateController;
   desktopUpdate?: DesktopUpdateController;
+  onPluginsChange?: () => void;
 };
 
 export default function Settings(props: Props) {
@@ -61,6 +64,8 @@ export default function Settings(props: Props) {
   const onConfig = (next: AgentSettings) => Promise.resolve(saveConfig(next)).catch(error => notify(error instanceof Error ? error.message : '保存配置失败'));
   const [tab, setTab] = useState(() => normalizeSettingsSection(props.initialTab));
   const [expandedCategory, setExpandedCategory] = useState(() => settingsCategoryFor(props.initialTab).name);
+  const [pluginMenus, setPluginMenus] = useState<PluginMenu[]>([]);
+  const [pluginRevision, setPluginRevision] = useState(0);
   const [query, setQuery] = useState('');
   const [focusTarget, setFocusTarget] = useState('');
   const [dialogLock, setDialogLock] = useState(0);
@@ -69,6 +74,22 @@ export default function Settings(props: Props) {
   const closeSettings = useCallback(() => { if (dialogLockRef.current === 0) onClose(); }, [onClose]);
   const setNestedDialog = useCallback((open: boolean) => setDialogLock(count => Math.max(0, count + (open ? 1 : -1))), []);
   useEffect(() => { if (open) { setTab(normalizeSettingsSection(props.initialTab)); setExpandedCategory(settingsCategoryFor(props.initialTab).name); setQuery(''); setFocusTarget(''); } else setDialogLock(0); }, [open, props.initialTab]);
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    void api.request<{ id: string; menu?: PluginMenu }[]>('/plugins', 'GET', undefined, controller.signal)
+      .then(items => {
+        if (controller.signal.aborted) return;
+        setPluginMenus(items.flatMap(item => item.menu?.title ? [{ ...item.menu, id: item.id }] : []));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [open, api, pluginRevision]);
+  useEffect(() => {
+    if (!tab.startsWith('plugin:') || selectedPluginMenu(tab, pluginMenus)) return;
+    setTab('通用');
+    setExpandedCategory('偏好设置');
+  }, [tab, pluginMenus]);
   useEffect(() => {
     if (!open || query.trim() || !focusTarget) return;
     const frame = requestAnimationFrame(() => {
@@ -88,9 +109,19 @@ export default function Settings(props: Props) {
   const openWithNames = visibleApplications(props.availableApplications).map(item => item.name);
   const openWithOptions = openWithNames.includes(prefs.openWith) ? openWithNames : [prefs.openWith, ...openWithNames];
   const results = searchSettings(query, tabs);
-  const category = settingsCategoryFor(tab);
-  const currentSection = category.sections.find(section => section.name === tab)!;
+  const pluginSelection = selectedPluginMenu(tab, pluginMenus);
+  const category = pluginSelection ? { name: pluginSelection.menu.title, sections: [{ name: tab, label: pluginSelection.title }] } : settingsCategoryFor(tab);
+  const currentSection = pluginSelection ? { label: pluginSelection.title } : category.sections.find(section => section.name === tab)!;
   const filtered = query.trim() ? settingsCategories.filter(item => results.some(result => settingsCategoryFor(result.category).name === item.name)) : settingsCategories;
+  const menuQuery = query.trim().toLowerCase();
+  const visibleMenus = pluginMenus.filter(menu => !menuQuery || menu.title.toLowerCase().includes(menuQuery) || menu.children?.some(child => child.title.toLowerCase().includes(menuQuery)));
+  function openPluginMenu(menu: PluginMenu, childId = '') {
+    const child = childId || (menu.page ? '' : menu.children?.[0]?.id || '');
+    setTab(child ? `plugin:${menu.id}:${child}` : `plugin:${menu.id}`);
+    setExpandedCategory(`plugin:${menu.id}`);
+    setQuery('');
+    setFocusTarget('');
+  }
   return <Modal isOpen={open} onClose={closeSettings} isDismissable={dialogLock === 0} isKeyboardDismissDisabled={dialogLock > 0} hideCloseButton backdrop="opaque" placement="center" classNames={{ wrapper: 'settings-wrapper', base: 'settings-modal rich-settings-modal', backdrop: 'modal-backdrop' }} aria-label="设置">
     <ModalContent>
       {/* Keep nested NextUI layout animations isolated from the modal's exit
@@ -103,8 +134,23 @@ export default function Settings(props: Props) {
             <Button variant="light" title={name} aria-label={name} aria-current={active && sections.length === 1 ? 'page' : undefined} aria-expanded={sections.length > 1 ? expanded : undefined} className={active ? 'selected' : ''} onPress={() => active && sections.length > 1 ? setExpandedCategory(expanded ? '' : name) : openCategory(name)}><Icon size="1.125rem" strokeWidth={1.8} /><span>{name}</span>{sections.length > 1 && <ChevronDown size="0.875rem" className="settings-category-chevron" />}</Button>
             {expanded && sections.length > 1 && <div className="settings-submenu" role="group" aria-label={`${name}选项`}>{sections.map(section => <Button key={section.name} variant="light" aria-current={tab === section.name ? 'page' : undefined} className={tab === section.name ? 'selected' : ''} onPress={() => openCategory(section.name)}>{tab === section.name && <SelectionIndicator />}<span>{section.label}</span></Button>)}</div>}
           </section>;
-        })}</div>
-        {!filtered.length && <p className="settings-nav-empty">没有匹配的设置</p>}
+        })}
+        {visibleMenus.map(menu => {
+          const key = `plugin:${menu.id}`;
+          const active = tab === key || tab.startsWith(`${key}:`);
+          const expanded = expandedCategory === key && !!menu.children?.length;
+          const letter = [...menu.title.trim()][0] || '?';
+          return <section key={key} className="settings-nav-category settings-plugin-category">
+            <Button variant="light" title={menu.title} aria-label={menu.title} aria-current={active && !menu.children?.length ? 'page' : undefined} aria-expanded={menu.children?.length ? expanded : undefined} className={active ? 'selected' : ''} onPress={() => active && menu.children?.length ? setExpandedCategory(expanded ? '' : key) : openPluginMenu(menu)}>
+              {menu.icon ? <PluginGlyph api={api} pluginId={menu.id} icon={menu.icon} className="settings-menu-icon" /> : <span className="plugin-menu-letter" aria-hidden="true">{letter}</span>}
+              <span>{menu.title}</span>
+              {!!menu.children?.length && <ChevronDown size="0.875rem" className="settings-category-chevron" />}
+            </Button>
+            {expanded && <div className="settings-submenu" role="group" aria-label={`${menu.title}选项`}>{menu.children?.map(child => <Button key={child.id} variant="light" aria-current={tab === `${key}:${child.id}` ? 'page' : undefined} className={tab === `${key}:${child.id}` ? 'selected' : ''} onPress={() => openPluginMenu(menu, child.id)}>{tab === `${key}:${child.id}` && <SelectionIndicator />}{child.icon ? <PluginGlyph api={api} pluginId={menu.id} icon={child.icon} className="settings-menu-icon" size="0.875rem" /> : null}<span>{child.title}</span></Button>)}</div>}
+          </section>;
+        })}
+        </div>
+        {!filtered.length && !visibleMenus.length && <p className="settings-nav-empty">没有匹配的设置</p>}
       </nav>
       <IconButton label="关闭设置" onClick={onClose} className="settings-close"><X size="1.25rem" /></IconButton>
       <div className="settings-main">
@@ -113,7 +159,7 @@ export default function Settings(props: Props) {
       </header>
       <Enter key={query.trim() ? 'search' : tab} as="section" className={`settings-content rich-settings-content${!query.trim() && tab === '模型供应商' ? ' provider-settings-content' : ''}`}>
         <nav className="settings-mobile-categories" aria-label="设置分类快捷导航">{settingsCategories.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={!query.trim() && category.name === item.name} onPress={() => openCategory(item.name)}>{item.name}</Button>)}</nav>
-        {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{settingsCategoryFor(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : <>
+        {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{settingsCategoryFor(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} /></div> : <>
         {category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
         {tab === '通用' && <>
           <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，仅保存在本机"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
@@ -135,7 +181,7 @@ export default function Settings(props: Props) {
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}
-        {tab === '插件' && <ExtensionManager api={api} />}
+        {tab === '插件' && <ExtensionManager api={api} onChanged={() => { setPluginRevision(value => value + 1); props.onPluginsChange?.(); }} />}
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
         {['OpenAPI', 'MCP'].includes(tab) && <IntegrationManager key={tab} api={api} kind={tab === 'OpenAPI' ? 'openapi' : 'mcp'} />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}

@@ -33,14 +33,14 @@ var uiTickets = struct {
 	items map[string]uiTicket
 }{items: map[string]uiTicket{}}
 
-// SplitPluginUI 从 /api/plugins 之后的路径取出插件 id 和设置页相对路径。
-// id/ui 是入口页，id/ui/app.css 是入口目录里的文件。
-func SplitPluginUI(path string) (id, rel string, ok bool) {
+// SplitPluginUI 从 /api/plugins 之后的路径取出插件 id、页面槽和相对路径。
+// 槽是 ui 或 sidebar。id/ui 是入口页，id/ui/app.css 是入口目录里的文件。
+func SplitPluginUI(path string) (id, slot, rel string, ok bool) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) < 2 || parts[1] != "ui" || !safeID(parts[0]) {
-		return "", "", false
+	if len(parts) < 2 || (parts[1] != "ui" && parts[1] != "sidebar" && parts[1] != "menu") || !safeID(parts[0]) {
+		return "", "", "", false
 	}
-	return parts[0], strings.Join(parts[2:], "/"), true
+	return parts[0], parts[1], strings.Join(parts[2:], "/"), true
 }
 
 // IssueUITicket 签发一小时内有效、只对应这一个插件的设置页票据。
@@ -66,7 +66,7 @@ func ValidUIRequest(r *http.Request) bool {
 	if r == nil || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
 		return false
 	}
-	id, _, ok := SplitPluginUI(strings.TrimPrefix(r.URL.Path, "/api/plugins"))
+	id, _, _, ok := SplitPluginUI(strings.TrimPrefix(r.URL.Path, "/api/plugins"))
 	if !ok {
 		return false
 	}
@@ -114,24 +114,139 @@ func (h *Host) knownPlugin(id string) error {
 // SettingsFile 返回设置页入口，或入口目录内的一个静态文件。
 // 入口目录之外的路径、符号链接和未允许的文件类型都拒绝。
 func (h *Host) SettingsFile(id, rel string) (string, error) {
+	return h.pageFile(id, "ui", rel)
+}
+
+// SidebarFile 返回侧栏页面入口，或入口目录内的一个静态文件。
+func (h *Host) SidebarFile(id, rel string) (string, error) {
+	return h.pageFile(id, "sidebar", rel)
+}
+
+// SidebarTitle 在声明了侧栏页面时返回按钮标题，否则返回空字符串。
+func (h *Host) SidebarTitle(id, fallback string) string {
+	if _, err := h.pageFile(id, "sidebar", ""); err != nil {
+		return ""
+	}
+	title := clipLabel(readPkg(h.pkgDir(id)).SidebarTitle)
+	if title == "" {
+		title = clipLabel(fallback)
+	}
+	return title
+}
+
+// MenuFile 返回设置菜单页面。有子菜单时，rel 的第一段是子菜单 id。
+func (h *Host) MenuFile(id, rel string) (string, error) {
 	if h == nil || !safeID(id) {
-		return "", errText("这个插件没有设置页")
+		return "", errText("这个插件没有设置菜单")
 	}
 	info := readPkg(h.pkgDir(id))
-	entryRel, err := cleanPluginPath(info.Settings)
+	if len(info.MenuChildren) > 0 {
+		childID, rest, _ := strings.Cut(rel, "/")
+		for _, child := range info.MenuChildren {
+			if child.ID == childID {
+				return h.entryFile(id, child.Page, rest, "这个插件没有设置菜单")
+			}
+		}
+		return "", errText("这个插件没有设置菜单")
+	}
+	return h.entryFile(id, info.MenuPage, rel, "这个插件没有设置菜单")
+}
+
+// MenuOpenPath 是打开菜单时用来确认页面存在的相对路径。
+func (h *Host) MenuOpenPath(id string) string {
+	if h == nil || !safeID(id) {
+		return ""
+	}
+	info := readPkg(h.pkgDir(id))
+	if len(info.MenuChildren) > 0 {
+		return info.MenuChildren[0].ID
+	}
+	return ""
+}
+
+// IconFile 返回插件声明的一张图片。key 是 plugin、sidebar、menu 或 item-<子菜单 id>。
+func (h *Host) IconFile(id, key string) (string, error) {
+	if h == nil || !safeID(id) || !validIconKey(key) {
+		return "", errText("图标不存在")
+	}
+	info := readPkg(h.pkgDir(id))
+	rel := ""
+	switch key {
+	case "plugin":
+		rel = info.Icon.File
+	case "sidebar":
+		rel = info.SidebarIcon.File
+	case "menu":
+		rel = info.MenuIcon.File
+	default:
+		if childID, ok := strings.CutPrefix(key, "item-"); ok {
+			for _, child := range info.MenuChildren {
+				if child.ID == childID {
+					rel = child.Icon.File
+					break
+				}
+			}
+		}
+	}
+	if rel == "" {
+		return "", errText("图标不存在")
+	}
+	return h.imageFile(id, rel)
+}
+
+func (h *Host) iconRef(id, key string, icon, fallback pkgIcon) *IconRef {
+	if icon.Name != "" {
+		return &IconRef{Name: icon.Name}
+	}
+	if icon.File != "" {
+		if _, err := h.imageFile(id, icon.File); err == nil {
+			return &IconRef{Key: key}
+		}
+	}
+	if fallback.Name != "" {
+		return &IconRef{Name: fallback.Name}
+	}
+	if fallback.File != "" {
+		if _, err := h.imageFile(id, fallback.File); err == nil {
+			return &IconRef{Key: "plugin"}
+		}
+	}
+	return nil
+}
+
+func (h *Host) pageFile(id, slot, rel string) (string, error) {
+	missing := "这个插件没有设置页"
+	if slot == "sidebar" {
+		missing = "这个插件没有侧栏页面"
+	} else if slot != "ui" {
+		return "", errText("设置页路径无效")
+	}
+	if h == nil || !safeID(id) {
+		return "", errText(missing)
+	}
+	info := readPkg(h.pkgDir(id))
+	entry := info.Settings
+	if slot == "sidebar" {
+		entry = info.Sidebar
+	}
+	return h.entryFile(id, entry, rel, missing)
+}
+
+func (h *Host) entryFile(id, entry, rel, missing string) (string, error) {
+	entryRel, err := cleanPluginPath(entry)
 	if err != nil || entryRel == "" {
-		return "", errText("这个插件没有设置页")
+		return "", errText(missing)
 	}
 	pkgRoot, err := filepath.EvalSymlinks(h.pkgDir(id))
 	if err != nil {
-		return "", errText("这个插件没有设置页")
+		return "", errText(missing)
 	}
-	entry, err := resolveInside(pkgRoot, pkgRoot, entryRel)
+	entryPath, err := resolveInside(pkgRoot, pkgRoot, entryRel)
 	if err != nil {
-		return "", errText("这个插件没有设置页")
+		return "", errText(missing)
 	}
-	root := filepath.Dir(entry)
-	target := entry
+	root := filepath.Dir(entryPath)
+	target := entryPath
 	if rel != "" {
 		target, err = resolveInside(pkgRoot, root, rel)
 		if err != nil {
@@ -146,6 +261,91 @@ func (h *Host) SettingsFile(id, rel string) (string, error) {
 		return "", errText("设置页路径无效")
 	}
 	return target, nil
+}
+
+func (h *Host) imageFile(id, rel string) (string, error) {
+	if h == nil || !safeID(id) {
+		return "", errText("图标不存在")
+	}
+	cleaned, err := cleanPluginPath(rel)
+	if err != nil || cleaned == "" {
+		return "", errText("图标不存在")
+	}
+	pkgRoot, err := filepath.EvalSymlinks(h.pkgDir(id))
+	if err != nil {
+		return "", errText("图标不存在")
+	}
+	target, err := resolveInside(pkgRoot, pkgRoot, cleaned)
+	if err != nil {
+		return "", errText("图标不存在")
+	}
+	stat, err := os.Stat(target)
+	if err != nil || !stat.Mode().IsRegular() || stat.Size() > 256<<10 || !imageType(target) {
+		return "", errText("图标不存在")
+	}
+	return target, nil
+}
+
+func validIconKey(key string) bool {
+	switch key {
+	case "plugin", "sidebar", "menu":
+		return true
+	}
+	child, ok := strings.CutPrefix(key, "item-")
+	return ok && safeID(child) && child != "open" && child != "icons"
+}
+
+func (h *Host) menuView(id, fallback string) *MenuView {
+	info := readPkg(h.pkgDir(id))
+	if len(info.MenuChildren) == 0 && strings.TrimSpace(info.MenuPage) == "" {
+		return nil
+	}
+	title := clipLabel(info.MenuTitle)
+	if title == "" {
+		title = clipLabel(fallback)
+	}
+	if title == "" {
+		return nil
+	}
+	icon := h.iconRef(id, "menu", info.MenuIcon, info.Icon)
+	if len(info.MenuChildren) > 0 {
+		items := make([]MenuItem, 0, len(info.MenuChildren))
+		for _, child := range info.MenuChildren {
+			if _, err := h.MenuFile(id, child.ID); err != nil {
+				continue
+			}
+			items = append(items, MenuItem{
+				ID: child.ID, Title: clipLabel(child.Title),
+				Icon: h.iconRef(id, "item-"+child.ID, child.Icon, info.Icon),
+			})
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		return &MenuView{Title: title, Icon: icon, Children: items}
+	}
+	if _, err := h.MenuFile(id, ""); err != nil {
+		return nil
+	}
+	return &MenuView{Title: title, Icon: icon, Page: true}
+}
+
+func imageType(file string) bool {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif":
+		return true
+	default:
+		return false
+	}
+}
+
+func clipLabel(value string) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) > 40 {
+		return string(runes[:40])
+	}
+	return value
 }
 
 func resolveInside(pkgRoot, root, rel string) (string, error) {

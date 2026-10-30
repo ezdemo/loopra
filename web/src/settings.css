@@ -301,6 +301,11 @@
 .rich-settings-nav .settings-nav-category > button[aria-expanded="true"] { background: transparent; font-weight: 600; }
 .settings-submenu { display: grid; gap: .125rem; padding: .25rem 0 .5rem; }
 .rich-settings-nav .settings-submenu button { height: 2rem; padding: 0 .75rem 0 2.75rem; font-size: .8125rem; font-weight: 400; margin: 0; }
+.settings-plugin-category .plugin-menu-letter { display: grid; place-items: center; width: 1.125rem; height: 1.125rem; border-radius: .25rem; background: var(--soft); color: var(--secondary); font-size: .6875rem; font-weight: 600; flex: 0 0 1.125rem; }
+.rich-settings-nav .settings-plugin-category .settings-submenu button { display: flex; align-items: center; gap: .5rem; padding-left: 2.15rem; }
+.settings-menu-icon { width: 1.125rem; height: 1.125rem; object-fit: contain; flex: 0 0 1.125rem; }
+.rich-settings-nav .settings-submenu .settings-menu-icon { width: .875rem; height: .875rem; flex-basis: .875rem; }
+.plugin-settings-page { min-height: 0; }
 .rich-settings-nav .settings-submenu button.selected { font-weight: 600; }
 .settings-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem; min-width: 0; color: var(--secondary); font-size: .75rem; }
 .settings-breadcrumb > span:last-child { color: var(--text); }

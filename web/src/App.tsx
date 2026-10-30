@@ -19,6 +19,8 @@ import BackgroundTasks from './components/BackgroundTasks';
 import Settings, { defaultPreferences } from './components/Settings';
 import SkillsPage from './components/SkillsPage';
 import SchedulesPage from './components/SchedulesPage';
+import { PluginFrame } from './components/PluginFrame';
+import type { PluginIconRef } from './components/plugin-icons';
 import { CoreServiceUpdateDialog, useCoreServiceUpdate } from './components/CoreServiceUpdate';
 import { DesktopUpdateDialog, useDesktopUpdate } from './components/DesktopUpdate';
 import type { Preferences } from './components/Settings';
@@ -118,6 +120,9 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [searchOpen, setSearchOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const [pluginPage, setPluginPage] = useState('');
+  const [pluginNav, setPluginNav] = useState<{ id: string; title: string; icon?: PluginIconRef }[]>([]);
+  const [pluginNavRevision, setPluginNavRevision] = useState(0);
   const [settingsTab, setSettingsTab] = useState('通用');
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
@@ -126,6 +131,20 @@ export default function App({ startupPending = false, initialServer }: { startup
     void backend.refreshProviders(controller.signal).catch(() => {});
     return () => controller.abort();
   }, [settingsOpen, backend.status, backend.refreshProviders]);
+  useEffect(() => {
+    if (backend.status !== 'connected') return;
+    const controller = new AbortController();
+    void api.request<{ id: string; sidebar?: { title?: string; icon?: PluginIconRef } }[]>('/plugins', 'GET', undefined, controller.signal)
+      .then(items => {
+        if (controller.signal.aborted) return;
+        setPluginNav(items.flatMap(item => item.sidebar?.title ? [{ id: item.id, title: item.sidebar.title, icon: item.sidebar.icon }] : []));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [api, backend.status, settingsOpen, pluginNavRevision]);
+  useEffect(() => {
+    if (pluginPage && !pluginNav.some(item => item.id === pluginPage)) setPluginPage('');
+  }, [pluginNav, pluginPage]);
   const [menu, setMenu] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
@@ -210,7 +229,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const isHome = !session;
   const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
   const [panelOpen, setChanges, changesTab, setChangesTab] = useSessionPanel(server, session?.id, workspace);
-  const changes = panelOpen && !chatMode && !skillsOpen && !schedulesOpen;
+  const surfaceOpen = skillsOpen || schedulesOpen || !!pluginPage;
+  const changes = panelOpen && !chatMode && !surfaceOpen;
   const changesMounted = usePresence(changes);
   const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
   // External ACP engines own their own toolset, so pure chat stays on Native.
@@ -554,6 +574,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') {
     setSkillsOpen(false);
     setSchedulesOpen(false);
+    setPluginPage('');
     agentConfigRequest.current++;
     setAgentDraftRevision(value => value + 1);
     preparedNewSession.current = null;
@@ -626,6 +647,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   async function selectSession(id: string, provided?: Session) {
     setSkillsOpen(false);
     setSchedulesOpen(false);
+    setPluginPage('');
     const selected = provided || sessions.find(item => item.id === id); if (!selected) return;
     selectMainTab(null, selected.workspaceHash || '');
     if (narrow) setSidebar(false);
@@ -1314,7 +1336,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !pluginPage && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => setAgentSettings(current => ({ ...current, petEnabled: false }))} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={composerHistory}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -1339,16 +1361,17 @@ export default function App({ startupPending = false, initialServer }: { startup
     {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={skillsOpen || schedulesOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!skillsOpen && !schedulesOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
+      {sidebarMounted && <Sidebar api={api} open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={visibleSessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
         profile={profile}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
-        skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setSchedulesOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
-        schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
+        skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setSchedulesOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
+        schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
+        plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
       <main className={`main-area ${changes && !chatMode ? 'has-changes' : ''}`}>
-        <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={skillsOpen || schedulesOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
-          chatMode={skillsOpen || schedulesOpen || chatMode}
+        <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={surfaceOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
+          chatMode={surfaceOpen || chatMode}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
@@ -1362,7 +1385,8 @@ export default function App({ startupPending = false, initialServer }: { startup
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
         {skillsOpen && <SkillsPage api={api} onRefresh={() => backend.refresh()} onBack={() => setSkillsOpen(false)} />}
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
-        <div className="app-chat-workspace" hidden={skillsOpen || schedulesOpen}>
+        {pluginPage && <section className="plugin-app-page" aria-label={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage}><PluginFrame api={api} id={pluginPage} name={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage} slot="sidebar" className="plugin-app-frame" /></section>}
+        <div className="app-chat-workspace" hidden={surfaceOpen}>
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
@@ -1416,6 +1440,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       onOptions={saveOptions}
       defaultModel={defaultModel}
       onDefaultModel={saveDefaultModel}
+      onPluginsChange={() => setPluginNavRevision(value => value + 1)}
       open={settingsOpen}
       onClose={() => setSettingsOpen(false)}
       initialTab={settingsTab}

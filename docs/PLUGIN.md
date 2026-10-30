@@ -21,7 +21,7 @@
 
 按这个顺序找入口：
 
-1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`。对象里还可以写 `ui.settings`，见下面的设置页
+1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`。对象里还可以写 `icon`、`ui.settings`、`ui.sidebar` 和 `ui.menu`，见下面的设置页、侧栏入口和设置菜单
 2. `module`、`main`
 3. `plugin.ts`、`plugin.mts`、`plugin.js`、`plugin.mjs`
 4. `index.ts`、`index.mts`、`index.js`、`index.mjs`
@@ -164,6 +164,38 @@ parent.postMessage({ type: "loopra", op: "config:set", id: "2", value: { nicknam
 ```
 
 宿主只接受来自这个 iframe 的消息，并用 `{ type: "loopra", op: "config", id, value }` 或 `error` 回答。设置页不能调用插件工具。停用的插件仍然可以打开设置页。
+
+## 侧栏入口
+
+`ui.sidebar` 在侧栏「定时任务」下面加一个入口。点开后主区域显示页面，沙箱、cookie 和消息跟设置页一样。cookie 的 Path 是 `/api/plugins/<id>/sidebar`。
+
+可以写路径，也可以写标题、图标和路径。没写标题时用插件显示名。没写图标时用插件自己的 `icon`。样式和脚本同样要写在 HTML 里。停用或卸载后，侧栏入口和设置菜单都会去掉。插件卡片上的设置页还可以打开。`plugins/chat-neko` 只挂设置页，用来改纯聊天里的称呼。
+
+```json
+"icon": "./ui/icon.svg",
+"ui": {
+  "settings": "./ui/index.html",
+  "sidebar": { "title": "记事", "icon": "./ui/icon.svg", "page": "./ui/index.html" }
+}
+```
+
+图标可以是包内的 SVG、PNG、JPG、WebP 或 GIF，也可以是 Lucide 图标名，例如 `cat`、`message-circle`。图片不超过 256 KiB。插件卡片用 `loopra.icon`。
+
+## 设置菜单
+
+`ui.menu` 加在设置窗口左侧、内置分类的下面。只有 `page` 时，点父菜单就打开页面。写了 `children` 时，父菜单展开子菜单，每个子菜单有自己的页面。父子都可以带 `icon`。子菜单最多 12 个。`id` 可省略，省略时按顺序用 `1`、`2`。
+
+cookie 的 Path 是 `/api/plugins/<id>/menu`。页面地址是 `/menu/`，有子菜单时是 `/menu/<id>/`。
+
+```json
+"menu": {
+  "title": "记事",
+  "icon": "./ui/icon.svg",
+  "children": [
+    { "id": "nickname", "title": "称呼", "icon": "message-circle", "page": "./ui/index.html" }
+  ]
+}
+```
 
 ## 边界
 

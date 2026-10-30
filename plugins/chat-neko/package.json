@@ -4,6 +4,9 @@
   "description": "只在纯聊天里追加猫娘人物设定",
   "loopra": {
     "plugin": "./plugin.js",
-    "ui": { "settings": "./ui/index.html" }
+    "icon": "./ui/icon.svg",
+    "ui": {
+      "settings": "./ui/index.html"
+    }
   }
 }

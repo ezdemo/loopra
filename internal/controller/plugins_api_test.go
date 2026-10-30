@@ -153,9 +153,10 @@ func TestPluginSettingsPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"package.json":  `{"name":"settingsdemo","version":"1.0.0","description":"settings","loopra":{"plugin":"./plugin.js","ui":{"settings":"./ui/index.html"}}}`,
+		"package.json":  `{"name":"settingsdemo","version":"1.0.0","description":"settings","loopra":{"plugin":"./plugin.js","icon":"./ui/icon.svg","ui":{"settings":"./ui/index.html","sidebar":{"title":"侧栏","icon":"cat","page":"./ui/index.html"},"menu":{"title":"菜单","icon":"cat","children":[{"id":"nickname","title":"称呼","page":"./ui/index.html"}]}}}}`,
 		"plugin.js":     "export const meta = { displayName: \"设置示例\" };\nexport function systemPrompt() { return {}; }\n// secret-module-body\n",
 		"ui/index.html": `<!doctype html><title>settings</title>settings-page-ok`,
+		"ui/icon.svg":   `<svg xmlns="http://www.w3.org/2000/svg"></svg>`,
 		"ui/note.txt":   "hidden-note",
 	}
 	for name, body := range files {
@@ -184,12 +185,24 @@ func TestPluginSettingsPage(t *testing.T) {
 	code, env = call(t, ts, http.MethodGet, "/api/plugins", key, nil)
 	items, _ := env["data"].([]any)
 	row := pluginRow(items, "settingsdemo")
-	if row == nil || row["settings"] != true {
+	var side, menu, icon map[string]any
+	if row != nil {
+		side, _ = row["sidebar"].(map[string]any)
+		menu, _ = row["menu"].(map[string]any)
+		icon, _ = row["icon"].(map[string]any)
+	}
+	if row == nil || row["settings"] != true || side["title"] != "侧栏" || menu["title"] != "菜单" || icon["key"] != "plugin" {
 		t.Fatalf("settings row = %#v", row)
 	}
 	code, env = call(t, ts, http.MethodPost, "/api/plugins/settingsdemo/toggle", key, map[string]any{"enabled": false})
 	if code != http.StatusOK {
 		t.Fatalf("disable = %d %v", code, env["error"])
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/plugins", key, nil)
+	items, _ = env["data"].([]any)
+	row = pluginRow(items, "settingsdemo")
+	if row == nil || row["settings"] != true || row["sidebar"] != nil || row["menu"] != nil {
+		t.Fatalf("disabled row = %#v", row)
 	}
 
 	openReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/plugins/settingsdemo/ui/open", nil)
@@ -287,6 +300,105 @@ func TestPluginSettingsPage(t *testing.T) {
 	escapeResp.Body.Close()
 	if strings.Contains(string(escapeBody), "secret-module-body") {
 		t.Fatal("plugin source leaked")
+	}
+
+	sideOpen, err := http.NewRequest(http.MethodPost, ts.URL+"/api/plugins/settingsdemo/sidebar/open", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sideOpen.Header.Set("X-Loopra-Key", key)
+	sideResp, err := ts.Client().Do(sideOpen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sideResp.Body.Close()
+	var sideCookie *http.Cookie
+	for _, cookie := range sideResp.Cookies() {
+		if cookie.Name == plugin.UICookie {
+			sideCookie = cookie
+		}
+	}
+	if sideResp.StatusCode != http.StatusOK || sideCookie == nil || !sideCookie.HttpOnly || sideCookie.Path != "/api/plugins/settingsdemo/sidebar" {
+		t.Fatalf("sidebar cookie = %d %#v", sideResp.StatusCode, sideCookie)
+	}
+	sidePage, err := http.NewRequest(http.MethodGet, ts.URL+"/api/plugins/settingsdemo/sidebar/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sidePage.AddCookie(sideCookie)
+	sidePageResp, err := ts.Client().Do(sidePage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sideBody, _ := io.ReadAll(sidePageResp.Body)
+	sidePageResp.Body.Close()
+	if sidePageResp.StatusCode != http.StatusOK || !strings.Contains(string(sideBody), "settings-page-ok") {
+		t.Fatalf("sidebar page = %d %s", sidePageResp.StatusCode, sideBody)
+	}
+	anonSide, err := http.Get(ts.URL + "/api/plugins/settingsdemo/sidebar/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonSide.Body.Close()
+	if anonSide.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous sidebar = %d", anonSide.StatusCode)
+	}
+
+	iconReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/plugins/settingsdemo/icons/plugin", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iconReq.Header.Set("X-Loopra-Key", key)
+	iconResp, err := ts.Client().Do(iconReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iconBody, _ := io.ReadAll(iconResp.Body)
+	iconResp.Body.Close()
+	if iconResp.StatusCode != http.StatusOK || !strings.Contains(string(iconBody), "<svg") || !strings.Contains(iconResp.Header.Get("Content-Type"), "image/svg") {
+		t.Fatalf("icon = %d %s", iconResp.StatusCode, iconBody)
+	}
+	anonIcon, err := http.Get(ts.URL + "/api/plugins/settingsdemo/icons/plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonIcon.Body.Close()
+	if anonIcon.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous icon = %d", anonIcon.StatusCode)
+	}
+
+	menuOpen, err := http.NewRequest(http.MethodPost, ts.URL+"/api/plugins/settingsdemo/menu/open", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuOpen.Header.Set("X-Loopra-Key", key)
+	menuResp, err := ts.Client().Do(menuOpen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuResp.Body.Close()
+	var menuCookie *http.Cookie
+	for _, cookie := range menuResp.Cookies() {
+		if cookie.Name == plugin.UICookie {
+			menuCookie = cookie
+		}
+	}
+	if menuResp.StatusCode != http.StatusOK || menuCookie == nil || menuCookie.Path != "/api/plugins/settingsdemo/menu" {
+		t.Fatalf("menu cookie = %d %#v", menuResp.StatusCode, menuCookie)
+	}
+	menuPage, err := http.NewRequest(http.MethodGet, ts.URL+"/api/plugins/settingsdemo/menu/nickname/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuPage.AddCookie(menuCookie)
+	menuPageResp, err := ts.Client().Do(menuPage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuBody, _ := io.ReadAll(menuPageResp.Body)
+	menuPageResp.Body.Close()
+	if menuPageResp.StatusCode != http.StatusOK || !strings.Contains(string(menuBody), "settings-page-ok") {
+		t.Fatalf("menu page = %d %s", menuPageResp.StatusCode, menuBody)
 	}
 
 	code, env = call(t, ts, http.MethodPost, "/api/plugins/settingsdemo/config", key, map[string]any{"nickname": "主人"})

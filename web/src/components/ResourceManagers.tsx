@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { PluginFrame } from './PluginFrame';
+import { PluginGlyph, type PluginIconRef } from './plugin-icons';
 import { Button } from '@nextui-org/react';
 import { Check } from 'lucide-react';
 import type { LoopraClient } from '../backend';
@@ -8,17 +10,7 @@ import { PageActions, Field, SettingDisclosure, ResourceIcon, ResourceEmpty } fr
 type ToolParam = { name: string; description?: string; type?: string; required?: boolean };
 type Tool = { name: string; description: string; readOnly: boolean; readOnlyOverride: boolean | null; stormExempt: boolean; enabled: boolean; autoApproved: boolean; params?: ToolParam[] };
 export { default as SubAgentManager } from './SubAgentManager';
-type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string; settings?: boolean };
-const pluginThemeKeys = ['surface', 'sidebar', 'line', 'text', 'secondary', 'muted', 'blue', 'success', 'danger'] as const;
-function pluginTheme() {
-  const node = document.querySelector('.workspace-theme') ?? document.documentElement;
-  const style = getComputedStyle(node);
-  return Object.fromEntries(pluginThemeKeys.map(key => [key, style.getPropertyValue(`--${key}`).trim()]));
-}
-function pluginConfigValue(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  return value as Record<string, unknown>;
-}
+type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string; settings?: boolean; icon?: PluginIconRef };
 const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
 function pluginTone(id: string) {
   let n = 0;
@@ -36,54 +28,19 @@ function pluginFoot(pack: Pack) {
   if (pack.hooks?.length) return pack.hooks.join('、');
   return '';
 }
-export function ExtensionManager({ api }: { api: LoopraClient }) {
+export function ExtensionManager({ api, onChanged }: { api: LoopraClient; onChanged?: () => void }) {
   const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
-  const frameRef = useRef<HTMLIFrameElement>(null);
   async function act(path: string, body?: unknown, clearSource = false) {
     setBusy(true); setError('');
-    try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) setSource(''); }
+    try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) setSource(''); onChanged?.(); }
     catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); setRevision(value => value + 1); }
   }
-  async function openSettings(pack: Pack) {
-    setBusy(true); setError('');
-    try { await api.request(`/plugins/${encodeURIComponent(pack.id)}/ui/open`, 'POST', {}); setPanel(pack); }
-    catch (cause) { setError(errorText(cause)); }
-    finally { setBusy(false); }
-  }
-  useEffect(() => {
-    if (!panel) return;
-    const current = panel;
-    const frame = frameRef.current;
-    const send = (data: Record<string, unknown>) => frame?.contentWindow?.postMessage(data, '*');
-    const ready = () => send({ type: 'loopra', op: 'ready', plugin: { id: current.id, name: current.displayName || current.id }, theme: pluginTheme() });
-    const node = document.querySelector('.workspace-theme');
-    const observer = node ? new MutationObserver(ready) : undefined;
-    if (node && observer) observer.observe(node, { attributes: true, attributeFilter: ['class', 'data-theme'] });
-    async function onMessage(event: MessageEvent) {
-      if (!frame || event.source !== frame.contentWindow) return;
-      const data = event.data as { type?: string; op?: string; id?: unknown; value?: unknown } | null;
-      if (!data || data.type !== 'loopra') return;
-      if (data.op === 'config:get') {
-        try { send({ type: 'loopra', op: 'config', id: data.id, value: await api.request(`/plugins/${encodeURIComponent(current.id)}/config`) }); }
-        catch (cause) { send({ type: 'loopra', op: 'config', id: data.id, error: errorText(cause) }); }
-      }
-      if (data.op === 'config:set') {
-        const value = pluginConfigValue(data.value);
-        if (!value || JSON.stringify(value).length > 65536) { send({ type: 'loopra', op: 'config', id: data.id, error: '插件配置必须是对象' }); return; }
-        try { send({ type: 'loopra', op: 'config', id: data.id, value: await api.request(`/plugins/${encodeURIComponent(current.id)}/config`, 'POST', value) }); }
-        catch (cause) { send({ type: 'loopra', op: 'config', id: data.id, error: errorText(cause) }); }
-      }
-    }
-    window.addEventListener('message', onMessage);
-    return () => { observer?.disconnect(); window.removeEventListener('message', onMessage); };
-  }, [api, panel]);
   if (panel) {
     const name = panel.displayName || panel.id;
     return <div className="settings-resource-page plugin-page">
       <PageActions title={name} onBack={() => setPanel(undefined)} />
-      {error && <p role="alert" className="settings-error">{error}</p>}
-      <iframe ref={frameRef} className="plugin-settings-frame" title={`${name} 设置`} sandbox="allow-scripts" referrerPolicy="no-referrer" src={api.pluginPage(panel.id)} onLoad={() => frameRef.current?.contentWindow?.postMessage({ type: 'loopra', op: 'ready', plugin: { id: panel.id, name }, theme: pluginTheme() }, '*')} />
+      <PluginFrame api={api} id={panel.id} name={name} slot="ui" title={`${name} 设置`} />
     </div>;
   }
   return <div className="settings-resource-page plugin-page">
@@ -100,7 +57,7 @@ export function ExtensionManager({ api }: { api: LoopraClient }) {
       const on = pack.enabled && !failed;
       return <section className="plugin-card" key={pack.id}>
         <header className="plugin-card-head">
-          <span className="plugin-card-mark" style={{ background: pluginTone(pack.id) }} aria-hidden="true">{[...name.trim()][0] || '?'}</span>
+          <span className={pack.icon ? 'plugin-card-mark has-icon' : 'plugin-card-mark'} style={pack.icon ? undefined : { background: pluginTone(pack.id) }} aria-hidden="true">{pack.icon ? <PluginGlyph api={api} pluginId={pack.id} icon={pack.icon} className="plugin-card-icon" size="1.25rem" /> : ([...name.trim()][0] || '?')}</span>
           <div className="plugin-card-id">
             <div className="plugin-card-name">
               <strong title={name}>{name}</strong>
@@ -117,12 +74,12 @@ export function ExtensionManager({ api }: { api: LoopraClient }) {
         <footer className="plugin-card-foot">
           <span>{pack.version ? `v${pack.version}` : pluginOrigin(pack)}</span>
           {pluginFoot(pack) && <span className="plugin-card-meta" title={pluginFoot(pack)}>{pluginFoot(pack)}</span>}
-          {pack.settings && <button className="plugin-card-open" type="button" disabled={busy} onClick={() => void openSettings(pack)}>设置</button>}
+          {pack.settings && <button className="plugin-card-open" type="button" disabled={busy} onClick={() => setPanel(pack)}>设置</button>}
           <button className="plugin-card-remove" type="button" disabled={busy} onClick={() => setDeleting(pack)}>卸载</button>
         </footer>
       </section>;
     })}</div>
-    {deleting && <ConfirmAction title="卸载插件" onClose={() => setDeleting(undefined)} action={() => api.request(`/plugins/${encodeURIComponent(deleting.id)}/remove`, 'POST')} onDone={() => setRevision(value => value + 1)}><p>卸载 {deleting.displayName || deleting.id}？已安装的文件和它贡献的工具会一起移除。</p></ConfirmAction>}
+    {deleting && <ConfirmAction title="卸载插件" onClose={() => setDeleting(undefined)} action={() => api.request(`/plugins/${encodeURIComponent(deleting.id)}/remove`, 'POST')} onDone={() => { setRevision(value => value + 1); onChanged?.(); }}><p>卸载 {deleting.displayName || deleting.id}？已安装的文件和它贡献的工具会一起移除。</p></ConfirmAction>}
   </div>;
 }
 export function ToolManager({ api, onRefresh }: { api: LoopraClient; onRefresh: () => Promise<void> }) {
