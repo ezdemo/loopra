@@ -252,12 +252,16 @@ func (h *Host) open() {
 }
 
 func (h *Host) chrome(parent *mygo.Window, onTop bool, x, y, width, height int, view func(*ui.Context)) *mygo.Window {
+	// Set an explicit minimum so Windows does not apply its default
+	// tracking size to this small, non-resizable window.
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title:             h.displayName(),
 		X:                 x,
 		Y:                 y,
 		Width:             width,
 		Height:            height,
+		MinWidth:          1,
+		MinHeight:         1,
 		UseContentSize:    true,
 		Frameless:         true,
 		Transparent:       true,
@@ -280,7 +284,10 @@ func (h *Host) chrome(parent *mygo.Window, onTop bool, x, y, width, height int, 
 
 func (h *Host) view(c *ui.Context) {
 	h.ensureTheme(c)
-	ui.Box(c).Grow(1).Justify(ui.End).AlignItems(ui.End).Children(func() {
+	// The OS may still enlarge a frameless window beyond its requested
+	// size. Keep the sprite at the origin used by petOrigin/popOrigin,
+	// rather than shifting it into that extra (possibly off-screen) space.
+	ui.Box(c).Grow(1).Justify(ui.Start).AlignItems(ui.Start).Children(func() {
 		h.sprite(c)
 	})
 }
