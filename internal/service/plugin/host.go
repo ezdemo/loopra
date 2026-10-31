@@ -62,8 +62,9 @@ type View struct {
 
 // IconRef 是插件声明的图标。name 是 Lucide 图标名，key 指向一张包内图片。
 type IconRef struct {
-	Name string `json:"name,omitempty"`
-	Key  string `json:"key,omitempty"`
+	Hidden bool   `json:"hidden,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Key    string `json:"key,omitempty"`
 }
 
 // SidebarLink 是侧栏「定时任务」下面的插件入口。
@@ -74,6 +75,7 @@ type SidebarLink struct {
 
 // MenuView 是设置页左侧、内置分类下面的插件菜单。
 type MenuView struct {
+	Category string     `json:"category,omitempty"`
 	Title    string     `json:"title"`
 	Icon     *IconRef   `json:"icon,omitempty"`
 	Page     bool       `json:"page,omitempty"`
@@ -89,8 +91,9 @@ type MenuItem struct {
 
 // Hooks 把插件工具挂进宿主的工具注册表。回调不能反过来调用 Host 的安装方法。
 type Hooks struct {
-	Bind   func([]BoundTool)
-	Unbind func([]string)
+	Bind    func([]BoundTool)
+	Unbind  func([]string)
+	Request func(context.Context, string, string, map[string]any) (any, error)
 }
 
 type record struct {
@@ -115,6 +118,7 @@ type Host struct {
 	client  *http.Client
 	bind    func([]BoundTool)
 	unbind  func([]string)
+	request func(context.Context, string, string, map[string]any) (any, error)
 	loaded  map[string]*running
 	errors  map[string]string
 	records []record
@@ -126,7 +130,8 @@ type Host struct {
 func New(home string, hooks Hooks) *Host {
 	h := &Host{
 		home: home, client: newClient(), bind: hooks.Bind, unbind: hooks.Unbind,
-		loaded: map[string]*running{}, errors: map[string]string{},
+		request: hooks.Request,
+		loaded:  map[string]*running{}, errors: map[string]string{},
 	}
 	h.mu.Lock()
 	h.ensureManifest()
@@ -310,6 +315,12 @@ func (h *Host) Remove(id string) error {
 
 func (h *Host) reload(ctx context.Context, rec record) error {
 	run, err := openPackage(ctx, h.pkgDir(rec.ID), rec)
+	if err == nil {
+		err = run.setHostRequest(rec.ID, h.request)
+		if err != nil {
+			run.close()
+		}
+	}
 	h.mu.Lock()
 	old := h.loaded[rec.ID]
 	var oldNames []string

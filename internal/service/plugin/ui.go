@@ -195,6 +195,9 @@ func (h *Host) IconFile(id, key string) (string, error) {
 }
 
 func (h *Host) iconRef(id, key string, icon, fallback pkgIcon) *IconRef {
+	if icon.Hidden || (icon.Name == "" && icon.File == "" && fallback.Hidden) {
+		return &IconRef{Hidden: true}
+	}
 	if icon.Name != "" {
 		return &IconRef{Name: icon.Name}
 	}
@@ -322,12 +325,12 @@ func (h *Host) menuView(id, fallback string) *MenuView {
 		if len(items) == 0 {
 			return nil
 		}
-		return &MenuView{Title: title, Icon: icon, Children: items}
+		return &MenuView{Title: title, Category: info.MenuCategory, Icon: icon, Children: items}
 	}
 	if _, err := h.MenuFile(id, ""); err != nil {
 		return nil
 	}
-	return &MenuView{Title: title, Icon: icon, Page: true}
+	return &MenuView{Title: title, Category: info.MenuCategory, Icon: icon, Page: true}
 }
 
 func imageType(file string) bool {

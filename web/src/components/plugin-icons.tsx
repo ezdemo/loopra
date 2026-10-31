@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Bell, BookOpen, Bot, Box, Calendar, Cat, CircleHelp, Clock, Cloud, Code, Compass, Database, File, Folder, Gift, Globe, Heart, House, Image, Inbox, Key, Layers, Library, Link, Mail, Map, MessageCircle, Moon, Music, Package, Palette, PawPrint, Pen, Phone, Plug, Puzzle, Rocket, Search, Server, Settings, Shield, Smile, Sparkles, Star, Sun, Terminal, User, Users, Video, Wand, Wrench, Zap } from 'lucide-react';
+import { Bell, BookOpen, Bot, Box, Braces, Calendar, Cat, CircleHelp, Clock, Cloud, Code, Compass, Database, File, Folder, Gift, Globe, Heart, House, Image, Inbox, Key, Layers, Library, Link, Mail, Map, MessageCircle, Moon, Music, Package, Palette, PawPrint, Pen, Phone, Plug, Puzzle, Rocket, Search, Server, Settings, Shield, Smile, Sparkles, Star, Sun, Terminal, User, Users, Video, Wand, Wrench, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 
-export type PluginIconRef = { name?: string; key?: string };
+export type PluginIconRef = { name?: string; key?: string; hidden?: boolean };
 export type PluginMenuChild = { id: string; title: string; icon?: PluginIconRef };
-export type PluginMenu = { id: string; title: string; icon?: PluginIconRef; page?: boolean; children?: PluginMenuChild[] };
+export type PluginMenu = { id: string; title: string; category?: string; icon?: PluginIconRef; page?: boolean; children?: PluginMenuChild[] };
 
 const pluginLucide: Record<string, LucideIcon> = {
-  bell: Bell, 'book-open': BookOpen, bot: Bot, box: Box, calendar: Calendar, cat: Cat, 'circle-help': CircleHelp,
+  braces: Braces, bell: Bell, 'book-open': BookOpen, bot: Bot, box: Box, calendar: Calendar, cat: Cat, 'circle-help': CircleHelp,
   clock: Clock, cloud: Cloud, code: Code, compass: Compass, database: Database, file: File, folder: Folder,
   gift: Gift, globe: Globe, heart: Heart, house: House, image: Image, inbox: Inbox, key: Key, layers: Layers,
   library: Library, link: Link, mail: Mail, map: Map, 'message-circle': MessageCircle, moon: Moon, music: Music,
@@ -34,6 +34,7 @@ export function PluginGlyph({ api, pluginId, icon, className, size = '1.125rem' 
   className?: string;
   size?: string;
 }) {
+  if (icon?.hidden) return null;
   const Lucide = icon?.name ? pluginLucide[icon.name] : undefined;
   if (Lucide) return <Lucide className={className} size={size} strokeWidth={1.8} aria-hidden="true" />;
   if (icon?.key) return <PluginFileIcon api={api} pluginId={pluginId} iconKey={icon.key} className={className || 'plugin-file-icon'} />;

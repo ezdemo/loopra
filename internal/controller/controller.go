@@ -27,6 +27,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service/acp"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
+	openapiservice "github.com/ezdemo/looprax/internal/service/openapi"
 	"github.com/ezdemo/looprax/internal/service/plugin"
 	"github.com/ezdemo/looprax/internal/service/requirement"
 	"github.com/ezdemo/looprax/internal/service/schedule"
@@ -53,6 +54,7 @@ type FileService interface {
 }
 
 type Controller struct {
+	openapi            *openapiservice.Service
 	agent              *agentpkg.Agent
 	key                AccessKey
 	registry           *tools.Registry
@@ -156,7 +158,8 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s.installSubRunner()
 	s.installControlTools()
 	s.applyToolConfig()
-	s.plugins = plugin.New(s.home, plugin.Hooks{Bind: s.bindPluginTools, Unbind: s.unbindPluginTools})
+	s.openapi = openapiservice.New(s.home)
+	s.plugins = plugin.New(s.home, plugin.Hooks{Bind: s.bindPluginTools, Unbind: s.unbindPluginTools, Request: s.pluginServiceRequest})
 	plugin.SetActive(s.plugins)
 	if os.Getenv("LOOPRA_JAVA_BACKEND_URL") == "" {
 		s.plugins.EnsureBundled(context.Background())

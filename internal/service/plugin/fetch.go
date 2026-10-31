@@ -39,6 +39,7 @@ type pkgFile struct {
 	SidebarIcon          pkgIcon
 	Icon                 pkgIcon
 	MenuTitle            string
+	MenuCategory         string
 	MenuIcon             pkgIcon
 	MenuPage             string
 	MenuChildren         []pkgMenuChild
@@ -62,8 +63,9 @@ type pkgFile struct {
 }
 
 type pkgIcon struct {
-	Name string
-	File string
+	Hidden bool
+	Name   string
+	File   string
 }
 
 type pkgMenuChild struct {
@@ -714,7 +716,7 @@ func readPkg(dir string) pkgFile {
 		Name: raw.Name, Version: raw.Version, Description: raw.Description,
 		Module: raw.Module, Main: raw.Main, Loopra: loopraPath(raw.Loopra),
 		Settings: ui.Settings, Sidebar: ui.SidebarPage, SidebarTitle: ui.SidebarTitle, SidebarIcon: ui.SidebarIcon,
-		Icon: ui.Icon, MenuTitle: ui.MenuTitle, MenuIcon: ui.MenuIcon, MenuPage: ui.MenuPage, MenuChildren: ui.Children,
+		Icon: ui.Icon, MenuTitle: ui.MenuTitle, MenuCategory: ui.MenuCategory, MenuIcon: ui.MenuIcon, MenuPage: ui.MenuPage, MenuChildren: ui.Children,
 		SkillFile: ui.SkillFile, SubagentName: ui.SubagentName, SubagentDescription: ui.SubagentDescription,
 		SubagentFile: ui.SubagentFile, SubagentInstructions: ui.SubagentInstructions, SubagentReadOnly: ui.SubagentReadOnly, SubagentSet: ui.SubagentSet,
 		ScheduleName: ui.ScheduleName, ScheduleMessage: ui.ScheduleMessage, ScheduleCron: ui.ScheduleCron, ScheduleInterval: ui.ScheduleInterval,
@@ -751,6 +753,7 @@ type loopraUI struct {
 	SidebarIcon          pkgIcon
 	Icon                 pkgIcon
 	MenuTitle            string
+	MenuCategory         string
 	MenuIcon             pkgIcon
 	MenuPage             string
 	Children             []pkgMenuChild
@@ -794,7 +797,7 @@ func parseLoopraUI(raw json.RawMessage) loopraUI {
 	ui.Settings = strings.TrimSpace(box.UI.Settings)
 	ui.Icon = parseIcon(box.Icon)
 	ui.SidebarTitle, ui.SidebarPage, ui.SidebarIcon = parseSidebar(box.UI.Sidebar)
-	ui.MenuTitle, ui.MenuPage, ui.MenuIcon, ui.Children = parseMenu(box.UI.Menu)
+	ui.MenuTitle, ui.MenuPage, ui.MenuCategory, ui.MenuIcon, ui.Children = parseMenu(box.UI.Menu)
 	ui.SkillFile = parseSkill(box.Skill)
 	ui.SubagentName, ui.SubagentDescription, ui.SubagentFile, ui.SubagentInstructions, ui.SubagentReadOnly, ui.SubagentSet = parseSubagent(box.Subagent)
 	ui.ScheduleName, ui.ScheduleMessage, ui.ScheduleCron, ui.ScheduleInterval = parseSchedule(box.Schedule)
@@ -877,16 +880,17 @@ func parseSidebar(raw json.RawMessage) (title, page string, icon pkgIcon) {
 	return strings.TrimSpace(obj.Title), strings.TrimSpace(obj.Page), parseIcon(obj.Icon)
 }
 
-func parseMenu(raw json.RawMessage) (title, page string, icon pkgIcon, children []pkgMenuChild) {
+func parseMenu(raw json.RawMessage) (title, page, category string, icon pkgIcon, children []pkgMenuChild) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return "", "", pkgIcon{}, nil
+		return "", "", "", pkgIcon{}, nil
 	}
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return "", strings.TrimSpace(text), pkgIcon{}, nil
+		return "", strings.TrimSpace(text), "", pkgIcon{}, nil
 	}
 	var obj struct {
 		Title    string          `json:"title"`
+		Category string          `json:"category"`
 		Icon     json.RawMessage `json:"icon"`
 		Page     string          `json:"page"`
 		Children []struct {
@@ -897,7 +901,7 @@ func parseMenu(raw json.RawMessage) (title, page string, icon pkgIcon, children 
 		} `json:"children"`
 	}
 	if json.Unmarshal(raw, &obj) != nil {
-		return "", "", pkgIcon{}, nil
+		return "", "", "", pkgIcon{}, nil
 	}
 	seen := map[string]bool{}
 	for i, child := range obj.Children {
@@ -916,10 +920,13 @@ func parseMenu(raw json.RawMessage) (title, page string, icon pkgIcon, children 
 		seen[id] = true
 		children = append(children, pkgMenuChild{ID: id, Title: title, Icon: parseIcon(child.Icon), Page: page})
 	}
-	return strings.TrimSpace(obj.Title), strings.TrimSpace(obj.Page), parseIcon(obj.Icon), children
+	return strings.TrimSpace(obj.Title), strings.TrimSpace(obj.Page), clipLabel(obj.Category), parseIcon(obj.Icon), children
 }
 
 func parseIcon(raw json.RawMessage) pkgIcon {
+	if strings.TrimSpace(string(raw)) == "false" {
+		return pkgIcon{Hidden: true}
+	}
 	if len(raw) == 0 || string(raw) == "null" {
 		return pkgIcon{}
 	}

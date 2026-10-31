@@ -371,7 +371,7 @@ export function call(input) {
 
 ### MCP
 
-MCP 与 OpenAPI 可为 Agent 注入额外能力。用户级配置在 `~/.loopra/mcp-servers.json`，项目级配置在 `<项目>/.loopra/mcp-servers.json`，只对当前项目生效。两种文件都支持标准的 `mcpServers` 对象，也兼容管理页使用的 `servers` 数组：
+MCP 可为 Agent 注入额外能力。用户级配置在 `~/.loopra/mcp-servers.json`，项目级配置在 `<项目>/.loopra/mcp-servers.json`，只对当前项目生效。两种文件都支持标准的 `mcpServers` 对象，也兼容管理页使用的 `servers` 数组：
 
 ```json
 {
@@ -391,6 +391,12 @@ MCP 与 OpenAPI 可为 Agent 注入额外能力。用户级配置在 `~/.loopra/
 Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 → 发布 Loopra 工具」。发布默认关闭，启用后使用 Streamable HTTP（默认 `/mcp`，也可切换 SSE）。选择「全部已启用」发布当前启用工具，选择「手动选择」时只发布白名单中的工具。配置保存在 `~/.loopra/mcp-server.json`。连接地址为当前 Web 服务地址加上 endpoint，例如 `http://127.0.0.1:8080/mcp`，请求需要 `X-Loopra-Key`。
 
 同一设置页可以一键启动 Cloudflare Quick Tunnel。本机需要已安装 `cloudflared` 并加入 PATH，也可以在页面填写可执行文件路径。Quick Tunnel 生成临时公网地址，应用退出后失效；本地代理只转发已配置的 MCP endpoint。该能力适合开发和测试。Quick Tunnel 不支持 SSE，请将 MCP 传输方式设为 Streamable HTTP。
+
+### OpenAPI 插件
+
+内置 `plugins/openapi` 默认启用。在设置 → 工具与集成 → OpenAPI 添加 JSON / YAML 格式的 OpenAPI 3 或 Swagger 2 文档，配置服务地址、请求头以及 Bearer、Basic 或 API Key 认证。原有的 `~/.loopra/openapi-sources.json` 和文档缓存继续使用。
+
+插件提供 `search_apis`、`get_api_detail`、`call_api`，在项目和纯聊天中都可用。先搜索接口，再读取参数详情，最后调用；实际调用经过现有工具审批。支持普通路径、查询、请求头参数与 JSON 请求体、本地 `$ref`；外部引用、表单和文件上传暂不支持。设置 → 工具与集成 → 插件中停用 OpenAPI 后，其菜单和工具一起移除，接口源配置保留。
 
 ## 协作与审批
 

@@ -32,6 +32,7 @@ type BoundTool struct {
 }
 
 type running struct {
+	callContext context.Context
 	mu          sync.Mutex
 	closeOnce   sync.Once
 	rt          *moejs.Runtime

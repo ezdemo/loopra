@@ -27,6 +27,10 @@ type running struct {
 	entry       string
 }
 
+func (p *running) setHostRequest(string, func(context.Context, string, string, map[string]any) (any, error)) error {
+	return nil
+}
+
 func (p *running) close() {
 	if p == nil {
 		return

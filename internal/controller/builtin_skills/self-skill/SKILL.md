@@ -71,7 +71,7 @@ Loopra 的技能是包含 `SKILL.md` 的目录，可以带有 `references/`、`s
 
 ## OpenAPI 与插件
 
-- OpenAPI：在设置中配置接口源；使用本轮可用的 `search_apis`、`get_api_detail`、`call_api` 按需发现、读取参数并调用，遵循当前网关说明。
+- OpenAPI：启用 OpenAPI 插件，在其设置菜单配置接口源；依次使用 `search_apis`、`get_api_detail`、`call_api` 发现、读取参数并调用。实际执行遵循当前审批策略，插件停用时这些工具不可用。
 - 插件：在设置 → 插件填写 npm 包名或 GitHub 地址。插件是 JavaScript 或 TypeScript 模块，由 moejs 执行，可以是 async。`export function` 会变成工具；也可以导出 `tools()` 与 `call()`。同一模块还可以导出 `turnBefore`、`systemPrompt`、`llmRequest`、`llmResponse`、`toolBefore`、`toolAfter`、`compact`、`turnAfter`，用来改写这一轮的消息、系统提示词、模型请求或工具参数。`fetch` 可以访问本进程能到达的地址；`node:fs` 可以读写本机文件。入口优先是 package.json 的 `loopra` 字段。安装后确认插件已启用，并且当前会话的工具列表里出现 `<插件 id>__<工具名>`。只读工具会自动放行，写入工具仍走审批。`toolBefore` 返回 `allow` 不会跳过审批。
 - 缺少扩展时，先说明需要哪个扩展、它解决什么问题，再依用户任务范围安装或配置。不能把此说明中的示例当作已安装能力。
 

@@ -19,6 +19,27 @@ import (
 	"github.com/MoeForge/moejs/webapi"
 )
 
+// setHostRequest exposes only services explicitly supplied by this host.
+// No access key, arbitrary API path or other plugin identity reaches JavaScript.
+func (p *running) setHostRequest(id string, request func(context.Context, string, string, map[string]any) (any, error)) error {
+	return p.rt.SetGlobal("loopra", map[string]any{"request": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+		if request == nil {
+			return moejs.Undefined(), errors.New("宿主未提供此服务")
+		}
+		action := moejs.Arg(args, 0).String()
+		value, err := p.rt.ToGo(moejs.Arg(args, 1))
+		if err != nil {
+			return moejs.Undefined(), err
+		}
+		input, _ := value.(map[string]any)
+		out, err := request(p.callContext, id, action, input)
+		if err != nil {
+			return moejs.Undefined(), err
+		}
+		return p.rt.FromGo(out)
+	})})
+}
+
 // 和 moejs 指南里 Web API 示例用的客户端超时一致。一次工具或钩子调用最多等这么久。
 const pluginCallTimeout = 10 * time.Minute
 
@@ -88,6 +109,8 @@ func (p *running) run(ctx context.Context, fn func(*moejs.Runtime) error) error 
 	}
 	ctx, cancel := context.WithTimeout(ctx, pluginCallTimeout)
 	defer cancel()
+	p.callContext = ctx
+	defer func() { p.callContext = nil }()
 	if p.web != nil {
 		p.web.SetContext(ctx)
 	}

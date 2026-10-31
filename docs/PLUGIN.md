@@ -23,7 +23,7 @@
 
 内置插件可以停用，不能卸载。设置页上来源显示「内置」，没有卸载按钮。接口里这项是 `builtin: true`，`POST /api/plugins/<id>/remove` 会拒绝。
 
-`loopra.defaultEnabled` 只在第一次安装时生效。`false` 表示默认关闭，不写或写 `true` 表示默认开启。用户之后的开关会留下来，以后更新不会改回去。`plugins/web` 和 `plugins/chat-neko` 默认开启，`plugins/daily-review` 默认关闭。
+`loopra.defaultEnabled` 只在第一次安装时生效。`false` 表示默认关闭，不写或写 `true` 表示默认开启。用户之后的开关会留下来，以后更新不会改回去。`plugins/web`、`plugins/chat-neko` 和 `plugins/openapi` 默认开启，`plugins/daily-review` 默认关闭。
 
 插件从 `plugins/` 里去掉之后，已经装上的那份不再是内置，可以卸载。同名但来源不是这个目录的插件保持原样，也不会变成内置。
 
@@ -175,6 +175,14 @@ parent.postMessage({ type: "loopra", op: "config:set", id: "2", value: { nicknam
 
 宿主只接受来自这个 iframe 的消息，并用 `{ type: "loopra", op: "config", id, value }` 或 `error` 回答。设置页不能调用插件工具。停用的插件仍然可以打开设置页。
 
+### 宿主服务桥接
+
+宿主可以按插件 id 提供 `loopra.request(action, value)`。内置 OpenAPI 插件通过它复用文档下载、缓存和认证服务，仍由插件声明工具和审批分类。其他插件不能指定别的插件 id，也不能传任意宿主 API 路径。
+
+页面发送 `{type:"loopra", op:"service:request", id, action, value}`，收到 `{type:"loopra", op:"service:result", id, value, error?}`。工作台用自己的认证请求 `POST /api/plugins/<id>/request`，访问密钥不会发给 iframe。当前只支持已启用的 OpenAPI 插件，以及 `sources`、`save`、`refresh`、`remove`、`search`、`detail`；页面不能调用 `call_api`。实际执行通过插件工具走现有审批。
+
+iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击或键盘事件发消息，不依赖浏览器原生表单提交。
+
 ## 侧栏入口
 
 `ui.sidebar` 在侧栏「定时任务」下面加一个入口。点开后主区域显示页面，沙箱、cookie 和消息跟设置页一样。cookie 的 Path 是 `/api/plugins/<id>/sidebar`。
@@ -189,11 +197,11 @@ parent.postMessage({ type: "loopra", op: "config:set", id: "2", value: { nicknam
 }
 ```
 
-图标可以是包内的 SVG、PNG、JPG、WebP 或 GIF，也可以是 Lucide 图标名，例如 `cat`、`message-circle`。图片不超过 256 KiB。插件卡片用 `loopra.icon`。
+图标可以是包内的 SVG、PNG、JPG、WebP 或 GIF，也可以是 Lucide 图标名，例如 `cat`、`message-circle`。图片不超过 256 KiB。插件卡片用 `loopra.icon`。菜单省略 `icon` 时继承插件图标，显式设置 `icon: false` 时不显示图标；例如 OpenAPI 的 `ui.menu.icon` 为 `false`，卡片仍使用自己的 `braces` 图标。
 
 ## 设置菜单
 
-`ui.menu` 加在设置窗口左侧、内置分类的下面。只有 `page` 时，点父菜单就打开页面。写了 `children` 时，父菜单展开子菜单，每个子菜单有自己的页面。父子都可以带 `icon`。子菜单最多 12 个。`id` 可省略，省略时按顺序用 `1`、`2`。
+`ui.menu` 默认加在设置窗口左侧、内置分类的下面。可通过 `category` 指定挂到现有分类下，例如 `"category": "工具与集成"`。支持偏好设置、模型服务、智能体、工具与集成、工作区与数据、连接与帮助；未填写或分类不存在时保留独立入口。挂载后，搜索、面包屑和窄屏页面导航使用所属分类。带子页面的菜单使用每项声明的 `title`，不添加插件名前缀。每项可独立设置 `icon`：图标名或包内图片路径表示展示该图标，`false` 表示隐藏，省略时继承插件卡片图标，父菜单的图标开关不影响子菜单。只有 `page` 时，点父菜单就打开页面。写了 `children` 时，父菜单展开子菜单，每个子菜单有自己的页面。父子都可以带 `icon`。子菜单最多 12 个。`id` 可省略，省略时按顺序用 `1`、`2`。
 
 cookie 的 Path 是 `/api/plugins/<id>/menu`。页面地址是 `/menu/`，有子菜单时是 `/menu/<id>/`。
 
@@ -203,6 +211,19 @@ cookie 的 Path 是 `/api/plugins/<id>/menu`。页面地址是 `/menu/`，有子
   "icon": "./ui/icon.svg",
   "children": [
     { "id": "nickname", "title": "称呼", "icon": "message-circle", "page": "./ui/index.html" }
+  ]
+}
+```
+
+例如，同一个插件可以在「工具与集成」下声明两个独立入口，分别设置名称、页面和图标：
+
+```json
+"menu": {
+  "title": "业务接口",
+  "category": "工具与集成",
+  "children": [
+    { "id": "orders", "title": "订单查询", "icon": "search", "page": "./ui/orders.html" },
+    { "id": "settings", "title": "接口设置", "icon": false, "page": "./ui/settings.html" }
   ]
 }
 ```

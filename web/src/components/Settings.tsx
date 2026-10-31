@@ -21,6 +21,7 @@ import type { Workspace } from '../backend';
 import { AgentDefaults, PromptSettings } from './AgentSettingsPages';
 import { searchSettings } from '../settings-search';
 import { normalizeSettingsSection, settingsCategories, settingsCategoryFor } from '../settings-navigation';
+import { pluginSettingsCategory, settingsWithPluginMenus } from '../settings-plugin-menu';
 import { visibleApplications } from '../workspace-launcher';
 import PetSettings from './PetSettings';
 import type { PetStore } from '../usePets';
@@ -34,7 +35,6 @@ import type { VersionCheck } from '../version';
 export type Preferences = { theme: string; language: string; fontScale: number; notifications: boolean; sound: boolean; openWith: string; autoContext: boolean; animations: boolean };
 export const defaultPreferences: Preferences = { theme: '浅色', language: '简体中文', fontScale: 100, notifications: true, sound: true, openWith: 'File Explorer', autoContext: true, animations: true };
 const categoryIcons: Record<string, LucideIcon> = { '偏好设置': SlidersHorizontal, '模型服务': Zap, '智能体': Bot, '工具与集成': Plug, '工作区与数据': FolderClosed, '连接与帮助': Server };
-const tabs = settingsCategories.flatMap(category => category.sections.map(section => ({ ...section, keywords: `${category.name} ${section.keywords}` })));
 type Props = {
   onOpenSessions?: () => void;
   onOpenRequirements?: () => void;
@@ -104,24 +104,31 @@ export default function Settings(props: Props) {
     });
     return () => cancelAnimationFrame(frame);
   }, [open, query, tab, focusTarget]);
-  function openCategory(name: string) { setTab(normalizeSettingsSection(name)); setExpandedCategory(settingsCategoryFor(name).name); setQuery(''); setFocusTarget(''); }
+  function openCategory(name: string) {
+    const selection = selectedPluginMenu(name, pluginMenus);
+    if (selection) { openPluginMenu(selection.menu, selection.child?.id); return; }
+    setTab(normalizeSettingsSection(name)); setExpandedCategory(settingsCategoryFor(name).name); setQuery(''); setFocusTarget('');
+  }
   const update = <K extends keyof Preferences>(key: K, value: Preferences[K]) => onPreferences({ ...prefs, [key]: value });
   const pageProps = { config, onConfig, options: props.options, onOptions: props.onOptions, providers, sessions, notify };
   // Only launchers the service host actually has; an already-saved one stays listed even if it
   // has since gone away, so the stored preference still shows what it is set to.
   const openWithNames = visibleApplications(props.availableApplications).map(item => item.name);
   const openWithOptions = openWithNames.includes(prefs.openWith) ? openWithNames : [prefs.openWith, ...openWithNames];
-  const results = searchSettings(query, tabs);
+  const navigationCategories = settingsWithPluginMenus(pluginMenus);
+  const tabs = navigationCategories.flatMap(category => category.sections.map(section => ({ ...section, keywords: `${category.name} ${section.label} ${section.keywords}` })));
+  const categoryForSection = (name: string) => navigationCategories.find(category => category.sections.some(section => section.name === name)) || settingsCategoryFor(name);
+  const results = searchSettings(query, tabs).map(item => ({ ...item, title: tabs.find(section => section.name === item.title)?.label || item.title }));
   const pluginSelection = selectedPluginMenu(tab, pluginMenus);
-  const category = pluginSelection ? { name: pluginSelection.menu.title, sections: [{ name: tab, label: pluginSelection.title }] } : settingsCategoryFor(tab);
-  const currentSection = pluginSelection ? { label: pluginSelection.title } : category.sections.find(section => section.name === tab)!;
-  const filtered = query.trim() ? settingsCategories.filter(item => results.some(result => settingsCategoryFor(result.category).name === item.name)) : settingsCategories;
+  const category = pluginSelection && !pluginSettingsCategory(pluginSelection.menu) ? { name: pluginSelection.menu.title, sections: [{ name: tab, label: pluginSelection.title }] } : categoryForSection(tab);
+  const currentSection = category.sections.find(section => section.name === tab)!;
+  const filtered = query.trim() ? navigationCategories.filter(item => results.some(result => categoryForSection(result.category).name === item.name)) : navigationCategories;
   const menuQuery = query.trim().toLowerCase();
-  const visibleMenus = pluginMenus.filter(menu => !menuQuery || menu.title.toLowerCase().includes(menuQuery) || menu.children?.some(child => child.title.toLowerCase().includes(menuQuery)));
+  const visibleMenus = pluginMenus.filter(menu => !pluginSettingsCategory(menu) && (!menuQuery || menu.title.toLowerCase().includes(menuQuery) || menu.children?.some(child => child.title.toLowerCase().includes(menuQuery))));
   function openPluginMenu(menu: PluginMenu, childId = '') {
     const child = childId || (menu.page ? '' : menu.children?.[0]?.id || '');
     setTab(child ? `plugin:${menu.id}:${child}` : `plugin:${menu.id}`);
-    setExpandedCategory(`plugin:${menu.id}`);
+    setExpandedCategory(pluginSettingsCategory(menu) || `plugin:${menu.id}`);
     setQuery('');
     setFocusTarget('');
   }
@@ -135,7 +142,10 @@ export default function Settings(props: Props) {
           const Icon = categoryIcons[name]; const active = category.name === name && !query.trim(); const expanded = active && expandedCategory === name;
           return <section key={name} className="settings-nav-category">
             <Button variant="light" title={name} aria-label={name} aria-current={active && sections.length === 1 ? 'page' : undefined} aria-expanded={sections.length > 1 ? expanded : undefined} className={active ? 'selected' : ''} onPress={() => active && sections.length > 1 ? setExpandedCategory(expanded ? '' : name) : openCategory(name)}><Icon size="1.125rem" strokeWidth={1.8} /><span>{name}</span>{sections.length > 1 && <ChevronDown size="0.875rem" className="settings-category-chevron" />}</Button>
-            {expanded && sections.length > 1 && <div className="settings-submenu" role="group" aria-label={`${name}选项`}>{sections.map(section => <Button key={section.name} variant="light" aria-current={tab === section.name ? 'page' : undefined} className={tab === section.name ? 'selected' : ''} onPress={() => openCategory(section.name)}>{tab === section.name && <SelectionIndicator />}<span>{section.label}</span></Button>)}</div>}
+            {expanded && sections.length > 1 && <div className="settings-submenu" role="group" aria-label={`${name}选项`}>{sections.map(section => {
+              const plugin = selectedPluginMenu(section.name, pluginMenus);
+              return <Button key={section.name} variant="light" aria-current={tab === section.name ? 'page' : undefined} className={tab === section.name ? 'selected' : ''} onPress={() => openCategory(section.name)}>{tab === section.name && <SelectionIndicator />}{plugin && <PluginGlyph api={api} pluginId={plugin.menu.id} icon={plugin.child?.icon || plugin.menu.icon} className="settings-menu-icon" size="0.875rem" />}<span>{section.label}</span></Button>;
+            })}</div>}
           </section>;
         })}
         {visibleMenus.map(menu => {
@@ -162,8 +172,8 @@ export default function Settings(props: Props) {
       </header>
       <Enter key={query.trim() ? 'search' : tab} as="section" className={`settings-content rich-settings-content${!query.trim() && tab === '模型供应商' ? ' provider-settings-content' : ''}`}>
         <nav className="settings-mobile-categories" aria-label="设置分类快捷导航">{settingsCategories.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={!query.trim() && category.name === item.name} onPress={() => openCategory(item.name)}>{item.name}</Button>)}</nav>
-        {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{settingsCategoryFor(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} /></div> : <>
-        {category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
+        {!query.trim() && category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
+        {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{categoryForSection(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} /></div> : <>
         {tab === '通用' && <>
           <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，保存到服务端"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
           <h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
@@ -186,7 +196,7 @@ export default function Settings(props: Props) {
         {tab === '数据面板' && <UsageDashboard api={api} />}
         {tab === '插件' && <ExtensionManager api={api} onChanged={() => { setPluginRevision(value => value + 1); props.onPluginsChange?.(); }} />}
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
-        {['OpenAPI', 'MCP'].includes(tab) && <IntegrationManager key={tab} api={api} kind={tab === 'OpenAPI' ? 'openapi' : 'mcp'} />}
+        {tab === 'MCP' && <IntegrationManager api={api} kind="mcp" />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}
         {tab === '快捷键' && <><PageActions title="快捷键" /><div className="settings-card">{[['新建会话', 'Ctrl / ⌘ + N'], ['搜索会话或工作区', 'Ctrl / ⌘ + K'], ['打开设置', 'Ctrl / ⌘ + ,'], ['切换侧边栏', 'Ctrl / ⌘ + B'], ['发送消息', 'Enter'], ['消息换行', 'Shift + Enter'], ['输入指令 / 文件引用', '/ 或 @'], ['选择建议', '↑ ↓ / Tab / Enter'], ['关闭弹窗', 'Esc']].map(([name, key]) => <SettingRow key={name} title={name}><kbd>{key}</kbd></SettingRow>)}</div></>}
         {tab === '关于' && <div className="about-settings">

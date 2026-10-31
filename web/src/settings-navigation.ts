@@ -17,7 +17,6 @@ export const settingsCategories = [
     { name: '插件', label: '插件', keywords: 'npm github moejs 工具 钩子' },
     { name: 'MCP', label: 'MCP', keywords: '外部 服务 连接 stdio SSE 工具权限 传输' },
     { name: 'MCP 服务器', label: 'MCP 服务器', keywords: '工具 发布 导出 MCP Server Cloudflare 隧道 连接地址' },
-    { name: 'OpenAPI', label: 'OpenAPI', keywords: '接口 文档 认证' },
   ] },
   { name: '工作区与数据', sections: [
     { name: '项目', label: '工作区', keywords: '路径 工作区 目录' },
@@ -32,6 +31,7 @@ export const settingsCategories = [
 ];
 
 export function normalizeSettingsSection(name: string): string {
+  if (name === 'OpenAPI') return '插件';
   if (name === '实验室') return '通用';
   if (name === '账户') return '关于';
   if (name === '拓展包') return '插件';

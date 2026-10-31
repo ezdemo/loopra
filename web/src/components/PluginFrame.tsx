@@ -41,8 +41,12 @@ export function PluginFrame({ api, id, name, slot, className, title, menuItem = 
     if (node && observer) observer.observe(node, { attributes: true, attributeFilter: ['class', 'data-theme'] });
     async function onMessage(event: MessageEvent) {
       if (!frame() || event.source !== frame()?.contentWindow) return;
-      const data = event.data as { type?: string; op?: string; id?: unknown; value?: unknown } | null;
+      const data = event.data as { type?: string; op?: string; id?: unknown; action?: string; value?: unknown } | null;
       if (!data || data.type !== 'loopra') return;
+      if (data.op === 'service:request') {
+        try { send({ type: 'loopra', op: 'service:result', id: data.id, value: await api.request(`/plugins/${encodeURIComponent(currentId)}/request`, 'POST', { action: data.action, value: pluginConfigValue(data.value) || {} }) }); }
+        catch (cause) { send({ type: 'loopra', op: 'service:result', id: data.id, error: errorText(cause) }); }
+      }
       if (data.op === 'config:get') {
         try { send({ type: 'loopra', op: 'config', id: data.id, value: await api.request(`/plugins/${encodeURIComponent(currentId)}/config`) }); }
         catch (cause) { send({ type: 'loopra', op: 'config', id: data.id, error: errorText(cause) }); }
