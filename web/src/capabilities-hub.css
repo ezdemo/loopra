@@ -80,7 +80,9 @@
 .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: 1rem; }
 .library-card-stream, .library-card-stream > div, .library-grid .skills-hub-grid, .library-grid .plugin-market { display: contents; }
 .library-grid .remote-loading, .library-grid [role="alert"], .library-grid .capability-install-panel, .library-grid .capability-source-panel, .library-detail { grid-column: 1 / -1; }
-.library-grid .remote-loading { display: flex; }
+.library-grid .remote-loading { display: none; }
+.library-loading { display: none; grid-column: 1 / -1; justify-content: center; padding: 1rem; }
+.library-grid:has(.remote-loading) > .library-loading { display: flex; }
 .library-empty { grid-column: 1 / -1; display: grid; justify-items: center; gap: .75rem; padding: 4rem 1rem; color: var(--muted); }
 .library-empty h2 { font-size: .875rem; font-weight: 400; }
 .library-grid:has(.capability-card, .remote-loading, [role="alert"], .library-detail, .capability-install-panel) > .library-empty { display: none; }
