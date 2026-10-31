@@ -33,6 +33,7 @@ type pkgFile struct {
 	Version              string
 	Description          string
 	Loopra               string
+	Services             []string
 	Settings             string
 	Sidebar              string
 	SidebarTitle         string
@@ -712,9 +713,14 @@ func readPkg(dir string) pkgFile {
 		return pkgFile{}
 	}
 	ui := parseLoopraUI(raw.Loopra)
+	var capabilities struct {
+		Services []string `json:"services"`
+	}
+	_ = json.Unmarshal(raw.Loopra, &capabilities)
 	return pkgFile{
 		Name: raw.Name, Version: raw.Version, Description: raw.Description,
 		Module: raw.Module, Main: raw.Main, Loopra: loopraPath(raw.Loopra),
+		Services: capabilities.Services,
 		Settings: ui.Settings, Sidebar: ui.SidebarPage, SidebarTitle: ui.SidebarTitle, SidebarIcon: ui.SidebarIcon,
 		Icon: ui.Icon, MenuTitle: ui.MenuTitle, MenuCategory: ui.MenuCategory, MenuIcon: ui.MenuIcon, MenuPage: ui.MenuPage, MenuChildren: ui.Children,
 		SkillFile: ui.SkillFile, SubagentName: ui.SubagentName, SubagentDescription: ui.SubagentDescription,

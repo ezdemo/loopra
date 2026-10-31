@@ -159,7 +159,9 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s.installControlTools()
 	s.applyToolConfig()
 	s.openapi = openapiservice.New(s.home)
-	s.plugins = plugin.New(s.home, plugin.Hooks{Bind: s.bindPluginTools, Unbind: s.unbindPluginTools, Request: s.pluginServiceRequest})
+	s.plugins = plugin.New(s.home, plugin.Hooks{Bind: s.bindPluginTools, Unbind: s.unbindPluginTools,
+		Services: map[string]plugin.ServiceHandler{"openapi": s.openapi.Request},
+	})
 	plugin.SetActive(s.plugins)
 	if os.Getenv("LOOPRA_JAVA_BACKEND_URL") == "" {
 		s.plugins.EnsureBundled(context.Background())

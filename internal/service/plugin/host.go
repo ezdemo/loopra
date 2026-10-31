@@ -58,6 +58,7 @@ type View struct {
 	Icon        *IconRef     `json:"icon,omitempty"`
 	Sidebar     *SidebarLink `json:"sidebar,omitempty"`
 	Menu        *MenuView    `json:"menu,omitempty"`
+	Requests    bool         `json:"requests,omitempty"`
 }
 
 // IconRef 是插件声明的图标。name 是 Lucide 图标名，key 指向一张包内图片。
@@ -91,10 +92,14 @@ type MenuItem struct {
 
 // Hooks 把插件工具挂进宿主的工具注册表。回调不能反过来调用 Host 的安装方法。
 type Hooks struct {
-	Bind    func([]BoundTool)
-	Unbind  func([]string)
-	Request func(context.Context, string, string, map[string]any) (any, error)
+	Bind     func([]BoundTool)
+	Unbind   func([]string)
+	Services map[string]ServiceHandler
 }
+
+// ServiceHandler is a host capability a plugin explicitly requests in its manifest.
+// It is available to backend code only, never directly to a plugin page.
+type ServiceHandler func(context.Context, string, map[string]any) (any, error)
 
 type record struct {
 	ID          string `json:"id"`
@@ -112,26 +117,26 @@ type record struct {
 // Host 管理已安装插件、清单和 moejs 运行时。
 // Fetcher 非空时替代 HTTPS 下载，测试用它注入安装包。
 type Host struct {
-	mu      sync.Mutex
-	op      sync.Mutex
-	home    string
-	client  *http.Client
-	bind    func([]BoundTool)
-	unbind  func([]string)
-	request func(context.Context, string, string, map[string]any) (any, error)
-	loaded  map[string]*running
-	errors  map[string]string
-	records []record
-	ready   bool
-	Fetcher func(ctx context.Context, rawURL string) ([]byte, error)
+	mu       sync.Mutex
+	op       sync.Mutex
+	home     string
+	client   *http.Client
+	bind     func([]BoundTool)
+	unbind   func([]string)
+	services map[string]ServiceHandler
+	loaded   map[string]*running
+	errors   map[string]string
+	records  []record
+	ready    bool
+	Fetcher  func(ctx context.Context, rawURL string) ([]byte, error)
 }
 
 // New 打开 home/plugins 下的清单。LoadEnabled 才会编译并挂上工具。
 func New(home string, hooks Hooks) *Host {
 	h := &Host{
 		home: home, client: newClient(), bind: hooks.Bind, unbind: hooks.Unbind,
-		request: hooks.Request,
-		loaded:  map[string]*running{}, errors: map[string]string{},
+		services: hooks.Services,
+		loaded:   map[string]*running{}, errors: map[string]string{},
 	}
 	h.mu.Lock()
 	h.ensureManifest()
@@ -316,7 +321,7 @@ func (h *Host) Remove(id string) error {
 func (h *Host) reload(ctx context.Context, rec record) error {
 	run, err := openPackage(ctx, h.pkgDir(rec.ID), rec)
 	if err == nil {
-		err = run.setHostRequest(rec.ID, h.request)
+		err = run.setHostServices(h.services, readPkg(h.pkgDir(rec.ID)).Services)
 		if err != nil {
 			run.close()
 		}
@@ -417,6 +422,7 @@ func (h *Host) viewLocked(rec record) View {
 	if run := h.loaded[rec.ID]; run != nil {
 		view.Tools = append([]string(nil), run.names...)
 		view.Hooks = run.hookNames()
+		view.Requests = run.hasRequest()
 	}
 	if msg := h.errors[rec.ID]; msg != "" {
 		view.Error = msg

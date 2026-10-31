@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,27 +18,69 @@ import (
 	"github.com/MoeForge/moejs/eventloop"
 	"github.com/MoeForge/moejs/node"
 	"github.com/MoeForge/moejs/webapi"
+	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 )
 
-// setHostRequest exposes only services explicitly supplied by this host.
-// No access key, arbitrary API path or other plugin identity reaches JavaScript.
-func (p *running) setHostRequest(id string, request func(context.Context, string, string, map[string]any) (any, error)) error {
-	return p.rt.SetGlobal("loopra", map[string]any{"request": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
-		if request == nil {
-			return moejs.Undefined(), errors.New("宿主未提供此服务")
+// Backend services are named capabilities declared in package.json, not plugin-id exceptions.
+func (p *running) setHostServices(services map[string]ServiceHandler, declared []string) error {
+	return p.rt.SetGlobal("loopra", map[string]any{"services": map[string]any{"request": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+		name := moejs.Arg(args, 0).String()
+		if !slices.Contains(declared, name) {
+			return moejs.Undefined(), fmt.Errorf("插件未声明宿主服务: %s", name)
 		}
-		action := moejs.Arg(args, 0).String()
-		value, err := p.rt.ToGo(moejs.Arg(args, 1))
+		request := services[name]
+		if request == nil {
+			return moejs.Undefined(), fmt.Errorf("宿主未提供此服务: %s", name)
+		}
+		action := moejs.Arg(args, 1).String()
+		value, err := p.rt.ToGo(moejs.Arg(args, 2))
 		if err != nil {
 			return moejs.Undefined(), err
 		}
 		input, _ := value.(map[string]any)
-		out, err := request(p.callContext, id, action, input)
+		out, err := request(p.callContext, action, input)
 		if err != nil {
 			return moejs.Undefined(), err
 		}
 		return p.rt.FromGo(out)
-	})})
+	})}})
+}
+
+func (p *running) hasRequest() bool { return p != nil && p.requestHook != nil }
+
+func (p *running) request(ctx context.Context, input map[string]any) (any, error) {
+	if !p.hasRequest() {
+		return nil, errors.New("插件未提供 onRequest")
+	}
+	return p.eval(ctx, *p.requestHook, input, true)
+}
+
+func consoleObject(id string) map[string]any {
+	out := map[string]any{}
+	for _, level := range []string{"log", "info", "warn", "error", "debug"} {
+		out[level] = moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+			parts := make([]string, 0, len(args))
+			for _, arg := range args {
+				parts = append(parts, arg.String())
+			}
+			message := strings.Join(parts, " ")
+			if len(message) > 8192 {
+				message = message[:8192] + "…"
+			}
+			switch level {
+			case "warn":
+				logging.Warnf("plugin", "%s: %s", id, message)
+			case "error":
+				logging.Errorf("plugin", "%s: %s", id, message)
+			case "debug":
+				logging.Debugf("plugin", "%s: %s", id, message)
+			default:
+				logging.Infof("plugin", "%s: %s", id, message)
+			}
+			return moejs.Undefined(), nil
+		})
+	}
+	return out
 }
 
 // 和 moejs 指南里 Web API 示例用的客户端超时一致。一次工具或钩子调用最多等这么久。
@@ -85,7 +128,7 @@ func newHostRuntime(cache *modCache) (*running, error) {
 		_ = fs.Close()
 		return nil, err
 	}
-	return &running{rt: rt, loop: loop, node: fs, web: web}, nil
+	return &running{rt: rt, loop: loop, node: fs, web: web, gate: make(chan struct{}, 1)}, nil
 }
 
 func (p *running) close() {
@@ -93,6 +136,11 @@ func (p *running) close() {
 		return
 	}
 	p.closeOnce.Do(func() {
+		p.gate <- struct{}{}
+		defer func() { <-p.gate }()
+		p.closed = true
+		p.loop.Terminate()
+		p.rt.ClearInterrupt()
 		if p.web != nil {
 			p.web.Close()
 		}

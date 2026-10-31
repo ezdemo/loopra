@@ -39,6 +39,10 @@ code { overflow-wrap: anywhere; font-size: 12px; font-family: var(--loopra-code,
 #status { min-height: 22px; margin: 8px 0 0; }
 pre { margin: 12px 0 0; padding: 14px 16px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--soft, #f5f5f4); border: 1px solid var(--line, #e7e7e4); border-radius: var(--radius-lg, 12px); font-size: 12px; }
 .back { margin-bottom: 12px; }
+#detail-overview { margin: 12px 0 20px; overflow-x: auto; }
+#detail-overview table { margin: 16px 0; }
+#detail-overview h3 { margin-top: 20px; }
+details > summary { cursor: pointer; color: var(--secondary, #5f5f5a); font-size: 13px; }
 [hidden] { display: none !important; }
 @media (max-width: 640px) {
   body { padding: 16px; }

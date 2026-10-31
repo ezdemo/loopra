@@ -1,9 +1,7 @@
 package controller
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 )
@@ -43,11 +41,4 @@ func (s *Controller) openapiManageController(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeOK(w, http.StatusOK, out)
-}
-
-func (s *Controller) pluginServiceRequest(ctx context.Context, id, action string, input map[string]any) (any, error) {
-	if id != "openapi" {
-		return nil, errors.New("插件没有此宿主服务")
-	}
-	return s.openapi.Request(ctx, action, input)
 }

@@ -15,7 +15,7 @@ import { BackendProjects, BackendServer } from './BackendSettings';
 import { LoopraClient } from '../backend';
 import IntegrationManager, { McpPublishingSettings } from './IntegrationManager';
 import { ExtensionManager, SubAgentManager, ToolManager, UsageDashboard } from './ResourceManagers';
-import { PluginFrame } from './PluginFrame';
+import { PluginFrame, type PluginContext } from './PluginFrame';
 import { PluginGlyph, selectedPluginMenu, type PluginMenu } from './plugin-icons';
 import type { Workspace } from '../backend';
 import { AgentDefaults, PromptSettings } from './AgentSettingsPages';
@@ -36,6 +36,7 @@ export type Preferences = { theme: string; language: string; fontScale: number; 
 export const defaultPreferences: Preferences = { theme: '浅色', language: '简体中文', fontScale: 100, notifications: true, sound: true, openWith: 'File Explorer', autoContext: true, animations: true };
 const categoryIcons: Record<string, LucideIcon> = { '偏好设置': SlidersHorizontal, '模型服务': Zap, '智能体': Bot, '工具与集成': Plug, '工作区与数据': FolderClosed, '连接与帮助': Server };
 type Props = {
+  pluginContext?: PluginContext;
   onOpenSessions?: () => void;
   onOpenRequirements?: () => void;
   onOpenHelp?: () => void;
@@ -173,7 +174,7 @@ export default function Settings(props: Props) {
       <Enter key={query.trim() ? 'search' : tab} as="section" className={`settings-content rich-settings-content${!query.trim() && tab === '模型供应商' ? ' provider-settings-content' : ''}`}>
         <nav className="settings-mobile-categories" aria-label="设置分类快捷导航">{settingsCategories.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={!query.trim() && category.name === item.name} onPress={() => openCategory(item.name)}>{item.name}</Button>)}</nav>
         {!query.trim() && category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
-        {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{categoryForSection(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} /></div> : <>
+        {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{categoryForSection(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} context={props.pluginContext} /></div> : <>
         {tab === '通用' && <>
           <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，保存到服务端"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
           <h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
@@ -194,7 +195,7 @@ export default function Settings(props: Props) {
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}
-        {tab === '插件' && <ExtensionManager api={api} onChanged={() => { setPluginRevision(value => value + 1); props.onPluginsChange?.(); }} />}
+        {tab === '插件' && <ExtensionManager api={api} context={props.pluginContext} onChanged={() => { setPluginRevision(value => value + 1); props.onPluginsChange?.(); }} />}
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
         {tab === 'MCP' && <IntegrationManager api={api} kind="mcp" />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}

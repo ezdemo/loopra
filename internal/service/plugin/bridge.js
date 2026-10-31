@@ -14,6 +14,7 @@
   const waiting = new Map();
   let next = 0;
   const themed = [];
+  const contextual = [];
   const skip = { dark: 1, font: 1, code: 1 };
   function call(op, extra) {
     const id = String(++next);
@@ -42,9 +43,13 @@
   function settle(data) {
     api.theme = data.theme || {};
     api.plugin = data.plugin || null;
+    api.context = data.context || {};
     paint(api.theme);
     for (const fn of themed) {
-      try { fn(api.theme); } catch { /* a page's listener doesn't stop the next */ }
+      try { fn(api.theme); } catch (error) { report(error); }
+    }
+    for (const fn of contextual) {
+      try { fn(api.context); } catch (error) { report(error); }
     }
     if (!api.ready.settled) {
       api.ready.settled = true;
@@ -72,7 +77,9 @@
   const api = {
     theme: null,
     plugin: null,
+    context: {},
     onTheme(fn) { themed.push(fn); },
+    onContext(fn) { contextual.push(fn); },
     config: {
       get: () => call("config:get"),
       set: (value) => call("config:set", { value }),
@@ -82,6 +89,14 @@
   api.ready = ready;
   api.ready.resolve = resolveReady;
   api.ready.settled = false;
+  function report(error) {
+    parent.postMessage({ type: "loopra", op: "error", message: String(error?.message || error || "页面运行出错") }, "*");
+  }
+  addEventListener("error", event => {
+    if (/ResizeObserver loop/.test(event.message)) return;
+    report(event.error || event.message);
+  });
+  addEventListener("unhandledrejection", event => report(event.reason));
   const base = document.createElement("style");
   base.dataset.loopra = "base";
   base.textContent = `
@@ -116,4 +131,5 @@
 `;
   (document.head || document.documentElement).prepend(base);
   window.loopra = api;
+  parent.postMessage({ type: "loopra", op: "hello" }, "*");
 })();

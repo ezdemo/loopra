@@ -67,22 +67,18 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 	id, action := parts[0], parts[1]
 	switch action {
 	case "request":
-		// Pages can manage sources and inspect documentation; execution is
-		// available only as an agent tool, through the normal approval policy.
+		// Every plugin supplies its own page handler. This never dispatches tools.
 		var input struct {
-			Action string         `json:"action"`
-			Value  map[string]any `json:"value"`
+			Action  string             `json:"action"`
+			Value   map[string]any     `json:"value"`
+			Context plugin.PageContext `json:"context"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		if json.NewDecoder(r.Body).Decode(&input) != nil {
 			writeFail(w, http.StatusBadRequest, "请求格式无效")
 			return
 		}
-		if id != "openapi" || !containsString([]string{"sources", "save", "refresh", "remove", "search", "detail"}, input.Action) {
-			writeFail(w, http.StatusBadRequest, "页面不支持此操作")
-			return
-		}
-		out, err := s.plugins.Request(r.Context(), id, input.Action, input.Value)
+		out, err := s.plugins.Request(r.Context(), id, input.Action, input.Value, input.Context)
 		if err != nil {
 			writeFail(w, http.StatusBadRequest, err.Error())
 			return

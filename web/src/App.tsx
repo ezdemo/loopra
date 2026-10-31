@@ -332,6 +332,9 @@ export default function App({ startupPending = false, initialServer }: { startup
   // session messages (not demo history) so mock/offline sessions never pop it.
   const pendingChoices = useMemo(() => collectPendingChoices(session?.messages || []), [session?.messages]);
   const currentWorkspace = workspaces.find(item => item.hash === workspace);
+  const pluginContext = useMemo(() => ({ workspaceHash: currentWorkspace?.hash, workspaceDir: currentWorkspace?.path,
+    sessionId: session?.id, filePath: editorTabs.files.find(file => file.path === editorTabs.active)?.path,
+  }), [currentWorkspace?.hash, currentWorkspace?.path, session?.id, editorTabs.files, editorTabs.active]);
   const projectWorkspaces = useMemo(() => workspaces.filter(item => !isChatWorkspace(item)), [workspaces]);
   const workspaceName = currentWorkspace?.name || '选择工作区';
   useEffect(() => {
@@ -1455,7 +1458,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
         {skillsOpen && <SkillsPage api={api} onRefresh={() => backend.refresh()} onBack={() => setSkillsOpen(false)} />}
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
-        {pluginPage && <section className="plugin-app-page" aria-label={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage}><PluginFrame api={api} id={pluginPage} name={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage} slot="sidebar" className="plugin-app-frame" /></section>}
+        {pluginPage && <section className="plugin-app-page" aria-label={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage}><PluginFrame api={api} id={pluginPage} name={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage} slot="sidebar" className="plugin-app-frame" context={pluginContext} /></section>}
         <div className="app-chat-workspace" hidden={surfaceOpen}>
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
@@ -1492,6 +1495,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     {discardPlan && <ConfirmAction title="退出计划模式" onClose={() => setDiscardPlan(false)} action={exitPlanMode}><p>{pendingPlan ? '待审查计划将被丢弃，且无法恢复。' : '将退出计划模式并恢复全部工具。'}</p></ConfirmAction>}
     <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={sessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
     <Settings
+      pluginContext={pluginContext}
       onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }}
       onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }}
       onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}

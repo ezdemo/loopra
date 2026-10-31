@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -83,5 +85,55 @@ func TestOpenapiPluginToolsAndPageBridge(t *testing.T) {
 	code, env = call(t, ts, "POST", "/api/plugins/openapi/request", key, map[string]any{"action": "sources"})
 	if code != 200 || len(env["data"].([]any)) != 1 {
 		t.Fatal("plugin toggle lost source configuration")
+	}
+}
+
+func TestThirdPartyPageBackendAndDeclaredOpenAPIService(t *testing.T) {
+	ts, key, _, _ := parityServer(t, "")
+	dir := t.TempDir()
+	for file, source := range map[string]string{
+		"package.json": `{"name":"business-page","loopra":{"plugin":"plugin.js","services":["openapi"]}}`,
+		"plugin.js": `export async function onRequest(input) {
+  if (input.action === "sources") return loopra.services.request("openapi", "sources", {});
+  if (input.action !== "echo") throw new Error("unknown action");
+  return { value: input.value, config: input.config, context: input.context };
+}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(source), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, env := call(t, ts, "POST", "/api/plugins/install", key, map[string]any{"source": dir})
+	if code != 200 || env["data"].(map[string]any)["requests"] != true {
+		t.Fatalf("install=%d %v", code, env)
+	}
+	call(t, ts, "POST", "/api/plugins/business_page/config", key, map[string]any{"focus": "orders"})
+	code, env = call(t, ts, "POST", "/api/plugins/business_page/request", key, map[string]any{
+		"action": "echo", "value": map[string]any{"plugin": "openapi"}, "config": map[string]any{"focus": "forged"},
+		"context": map[string]any{"workspaceHash": "project", "sessionId": "project/session"},
+	})
+	if code != 200 {
+		t.Fatalf("request=%d %v", code, env)
+	}
+	data := env["data"].(map[string]any)
+	if data["config"].(map[string]any)["focus"] != "orders" || data["context"].(map[string]any)["sessionId"] != "project/session" {
+		t.Fatalf("payload=%v", data)
+	}
+	code, env = call(t, ts, "POST", "/api/plugins/business_page/request", key, map[string]any{"action": "sources"})
+	if code != 200 {
+		t.Fatalf("declared host service=%d %v", code, env)
+	}
+	code, _ = call(t, ts, "POST", "/api/plugins/business_page/request", "", map[string]any{"action": "echo"})
+	if code != 401 {
+		t.Fatalf("unauthenticated request=%d", code)
+	}
+	code, _ = call(t, ts, "POST", "/api/plugins/business_page/request", key, map[string]any{"action": "call_api"})
+	if code != 400 {
+		t.Fatalf("unknown action=%d", code)
+	}
+	call(t, ts, "POST", "/api/plugins/business_page/toggle", key, map[string]any{"enabled": false})
+	code, _ = call(t, ts, "POST", "/api/plugins/business_page/request", key, map[string]any{"action": "echo"})
+	if code != 400 {
+		t.Fatalf("disabled page=%d", code)
 	}
 }

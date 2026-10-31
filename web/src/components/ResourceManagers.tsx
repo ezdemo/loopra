@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PluginFrame } from './PluginFrame';
+import { PluginFrame, type PluginContext } from './PluginFrame';
 import { PluginGlyph, type PluginIconRef } from './plugin-icons';
 import { Button } from '@nextui-org/react';
 import { Check } from 'lucide-react';
@@ -29,7 +29,7 @@ function pluginFoot(pack: Pack) {
   if (pack.hooks?.length) return pack.hooks.join('、');
   return '';
 }
-export function ExtensionManager({ api, onChanged }: { api: LoopraClient; onChanged?: () => void }) {
+export function ExtensionManager({ api, onChanged, context }: { api: LoopraClient; onChanged?: () => void; context?: PluginContext }) {
   const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
   async function act(path: string, body?: unknown, clearSource = false) {
     setBusy(true); setError('');
@@ -41,7 +41,7 @@ export function ExtensionManager({ api, onChanged }: { api: LoopraClient; onChan
     const name = panel.displayName || panel.id;
     return <div className="settings-resource-page plugin-page">
       <PageActions title={name} onBack={() => setPanel(undefined)} />
-      <PluginFrame api={api} id={panel.id} name={name} slot="ui" title={`${name} 设置`} />
+      <PluginFrame api={api} id={panel.id} name={name} slot="ui" title={`${name} 设置`} context={context} />
     </div>;
   }
   return <div className="settings-resource-page plugin-page">

@@ -1,13 +1,6 @@
-const $ = id => document.getElementById(id), pending = new Map();
-let seq = 0, sources = [], editing = null, started = false, busy = false;
-function ask(action, value = {}) {
-  const id = String(++seq);
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error("请求超时，请重试")); }, 45000);
-    pending.set(id, { resolve, reject, timer });
-    parent.postMessage({ type: "loopra", op: "service:request", id, action, value }, "*");
-  });
-}
+const $ = id => document.getElementById(id);
+let sources = [], editing = null, busy = false;
+const ask = (action, value = {}) => loopra.request(action, value);
 function status(message = "", error = false) { $("status").textContent = message; $("status").className = error ? "error" : ""; }
 async function run(task) {
   if (busy) return;
@@ -31,6 +24,35 @@ function button(text, action, className) {
   return el;
 }
 function home() { $("home").hidden = false; $("editor").hidden = true; $("detail").hidden = true; $("toolbar").hidden = false; $("title").textContent = "OpenAPI"; }
+function renderDetail(detail) {
+  const container = $("detail-overview");
+  container.replaceChildren();
+  container.append(node("code", detail.endpoint));
+  if (detail.baseUrl) container.append(node("p", detail.baseUrl, "url"));
+  if (detail.description || detail.summary) container.append(node("p", detail.description || detail.summary, "description"));
+  const parameters = detail.parameters || [];
+  if (parameters.length) {
+    const table = node("table"), head = node("tr");
+    for (const text of ["参数", "位置", "类型", "必填", "说明"]) head.append(node("th", text));
+    const thead = node("thead"), tbody = node("tbody");
+    thead.append(head);
+    for (const parameter of parameters) {
+      const row = node("tr");
+      for (const text of [parameter.name, parameter.in, parameter.schema?.type || parameter.type || "—", parameter.required ? "是" : "否", parameter.description || "—"]) row.append(node("td", text));
+      tbody.append(row);
+    }
+    table.append(thead, tbody);
+    container.append(table);
+  }
+  if (detail.requestBody) {
+    container.append(node("h3", "请求体"), node("pre", JSON.stringify(detail.requestBody, null, 2)));
+  }
+  if (detail.responses && Object.keys(detail.responses).length) {
+    container.append(node("h3", "响应"));
+    for (const [code, response] of Object.entries(detail.responses)) container.append(node("p", `${code}  ${response.description || ""}`));
+  }
+  $("detail-content").textContent = JSON.stringify(detail, null, 2);
+}
 async function load() { sources = await ask("sources"); renderSources(); }
 function renderSources() {
   const container = $("sources");
@@ -116,7 +138,7 @@ $("search-form").onsubmit = event => {
         $("toolbar").hidden = true;
         $("detail").hidden = false;
         $("detail-title").textContent = item.api_name;
-        $("detail-content").textContent = JSON.stringify(detail, null, 2);
+        renderDetail(detail);
       }));
       article.append(heading, node("code", item.endpoint));
       if (item.description || item.summary) article.append(node("p", item.description || item.summary, "description"));
@@ -129,21 +151,7 @@ $("reload").onclick = () => run(load);
 $("cancel").onclick = () => { home(); status(); };
 $("back").onclick = home;
 $("auth-type").onchange = authFields;
-window.addEventListener("message", event => {
-  if (event.source !== parent || event.data?.type !== "loopra") return;
-  const data = event.data;
-  if (data.op === "ready") {
-    for (const [key, value] of Object.entries(data.theme || {})) if (typeof value === "string" && value) document.documentElement.style.setProperty("--" + key, value);
-    if (!started) { started = true; run(load); }
-  }
-  if (data.op !== "service:result") return;
-  const wait = pending.get(String(data.id));
-  if (!wait) return;
-  pending.delete(String(data.id));
-  clearTimeout(wait.timer);
-  if (data.error) wait.reject(new Error(data.error));
-  else wait.resolve(data.value);
-});
+loopra.ready.then(() => run(load));
 for (const [formId, buttonId] of [["editor", "save"], ["search-form", "search"]]) {
   const form = $(formId), submit = () => { if (form.reportValidity()) form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); };
   $(buttonId).onclick = submit;

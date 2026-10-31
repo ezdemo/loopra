@@ -4,6 +4,7 @@
   "description": "连接 OpenAPI / Swagger 接口，按需搜索、查看参数并调用",
   "loopra": {
     "plugin": "./plugin.js",
+    "services": ["openapi"],
     "icon": "braces",
     "ui": {
       "settings": "./ui/index.html",

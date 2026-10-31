@@ -71,7 +71,7 @@ export function call(input) {
 
 `export const meta = { displayName, description }` 或 `{ name, remark }` 用来显示名称和说明。`readOnly: true` 的工具自动放行，其他工具仍走现有审批。`chat: true` 的工具可以在纯聊天里使用；不写则只在项目里可用。两种写法里，只有 `tools()` 返回的清单能带上 `chat`。
 
-`tools`、`call`、`meta`、`default`、`plugin`，以及下面的钩子名，不会注册成工具。只有钩子、没有工具的模块也可以加载。
+`tools`、`call`、`meta`、`default`、`plugin`、`onRequest`，以及下面的钩子名，不会注册成工具。只有钩子或 `onRequest`、没有工具的模块也可以加载。
 
 函数可以是 `async`。宿主会等返回的 Promise 完成，再把结果交给对话。
 
@@ -188,11 +188,56 @@ parent.postMessage({ type: "loopra", op: "config:set", id: "2", value: { nicknam
 
 宿主只接受来自这个 iframe 的消息，并用 `{ type: "loopra", op: "config", id, value }` 或 `error` 回答。设置页不能调用插件工具。停用的插件仍然可以打开设置页。
 
-### 宿主服务桥接
+### 页面后端
 
-宿主可以按插件 id 提供 `loopra.request(action, value)`。内置 OpenAPI 插件通过它复用文档下载、缓存和认证服务，仍由插件声明工具和审批分类。其他插件不能指定别的插件 id，也不能传任意宿主 API 路径。
+任何插件都可以导出 `onRequest(input)`，也可以写在 `export default` 上。页面用统一桥调用自己的后端，不需要改 Loopra 的控制器：
 
-页面发送 `{type:"loopra", op:"service:request", id, action, value}`，收到 `{type:"loopra", op:"service:result", id, value, error?}`。工作台用自己的认证请求 `POST /api/plugins/<id>/request`，访问密钥不会发给 iframe。当前只支持已启用的 OpenAPI 插件，以及 `sources`、`save`、`refresh`、`remove`、`search`、`detail`；页面不能调用 `call_api`。实际执行通过插件工具走现有审批。
+```js
+// plugin.js — 运行在后端，可以使用 fetch、node:fs 和随包依赖。
+export async function onRequest({ action, value, config, context }) {
+  if (action !== "checklist") throw new Error("不支持的操作");
+  return { topic: value.topic || config.focus || "当前改动", workspace: context.workspaceDir };
+}
+```
+
+```js
+// ui/app.js — 运行在沙箱页面。
+await loopra.ready;
+const result = await loopra.request("checklist", { topic: "失败路径" });
+```
+
+`input` 包含 `action`、`value`（JSON 对象）、插件自己的最新 `config` 和工作台选择的 `context`。处理函数可以返回 JSON 值，抛出的错误会让页面的 Promise reject。只有 `onRequest` 的模块也可以安装；它不会被注册为模型工具。只有已启用且成功加载的插件可被调用。
+
+页面发送 `{type:"loopra", op:"service:request", id, action, value}`，收到 `{type:"loopra", op:"service:result", id, value, error?}`。工作台固定使用当前 iframe 的插件 id 请求 `POST /api/plugins/<id>/request`，并附上当前上下文；页面不能指定其他插件身份，访问密钥不会发给 iframe。单次请求体不超过 64 KiB，操作名不超过 128 字节，处理时间最多 30 秒，离开页面或重试会取消请求。执行中的页面请求被取消或超时后，宿主会重新加载该插件后端，清掉遗留的异步任务；模块内存状态随之重置，持久数据应存到文件或配置中。
+
+页面操作由插件显式分发。宿主不会把动作名称自动映射到工具，不能通过这条通道直接调用模型工具或跳过其审批。插件作者应只开放页面需要的动作；页面后端和现有插件工具一样拥有文件与网络能力，`context` 只代表用户选择，不是文件权限边界。
+
+### 上下文和页面故障
+
+`await loopra.ready` 后可以读取 `loopra.context`，包括可用的 `workspaceHash`、`workspaceDir`、`sessionId`、`filePath`。这里只传项目、会话和当前文件的位置，不传会话正文或访问密钥。没有选择的字段会省略。设置页、设置菜单和侧栏使用同一份上下文。选择变化不会重载页面，使用 `loopra.onContext(context => {})` 监听；后端请求始终携带发起时的当前选择。
+
+桥会报告页面脚本错误和未处理的 Promise rejection。10 秒内未完成握手的页面显示错误和「重试」，重试会重新打开页面并取消旧请求；其他页面继续工作。后端的 `console.log/info/warn/error/debug` 会按插件 id 写入宿主日志，单条正文最多 8 KiB；调试日志沿用 `LOOPRA_DEBUG`。不要在日志里输出认证信息。
+
+### 声明宿主服务
+
+页面里的 `loopra.request` 调用自己的 `onRequest`。后端如果需要复用宿主能力，在 `package.json` 声明服务名，再用后端专用的 `loopra.services.request(service, action, value)`：
+
+```json
+{ "loopra": { "plugin": "./plugin.js", "services": ["openapi"] } }
+```
+
+```js
+export function onRequest({ action, value }) {
+  if (!["sources", "save", "refresh", "remove", "search", "detail"].includes(action)) {
+    throw new Error("页面不支持此操作");
+  }
+  return loopra.services.request("openapi", action, value);
+}
+```
+
+当前宿主提供 `openapi`：文档下载、JSON / YAML 解析、缓存、源认证、搜索、接口详情与调用，沿用 `~/.loopra/openapi-sources.json` 和原有缓存。服务按声明提供，不按插件 id 特判，第三方插件同样可以声明使用。未声明或宿主未提供的服务会报错；iframe 不能直接调用宿主服务，也不能传任意宿主 API 路径。
+
+内置 `plugins/openapi` 是完整示例：插件设置页和「工具与集成 → OpenAPI」设置菜单复用同一份页面；UI 使用统一桥；`onRequest` 只开放源管理、搜索和详情；`call_api` 工具在后端调用同一服务的 `call`，仍经过现有工具审批。文档解析和认证实现在 Go 宿主服务中，页面和操作分发属于插件。
 
 iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击或键盘事件发消息，不依赖浏览器原生表单提交。
 

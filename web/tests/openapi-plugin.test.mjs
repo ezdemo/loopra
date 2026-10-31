@@ -5,15 +5,20 @@ import { JSDOM } from 'jsdom';
 
 const html = await readFile(new URL('../../plugins/openapi/ui/index.html', import.meta.url), 'utf8');
 const script = await readFile(new URL('../../plugins/openapi/ui/app.js', import.meta.url), 'utf8');
+const bridge = await readFile(new URL('../../internal/service/plugin/bridge.js', import.meta.url), 'utf8');
 const page = html
-  .replace('<script src="_loopra/bridge.js"></script>', '')
+  .replace('<script src="_loopra/bridge.js"></script>', () => `<script>${bridge.replaceAll('</script', '<\\/script')}</script>`)
   .replace('<script src="app.js"></script>', () => `<script>${script}</script>`);
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 function setup(service) {
-  const dom = new JSDOM(page, { runScripts: 'dangerously', url: 'https://plugin.test/' });
-  const { window } = dom;
   const requests = [];
-  window.postMessage = data => {
+  const dom = new JSDOM(page, { runScripts: 'dangerously', url: 'https://plugin.test/', beforeParse(window) {
+   window.postMessage = data => {
+    if (data.op === 'hello') {
+      queueMicrotask(() => window.dispatchEvent(new window.MessageEvent('message', { source: window, data: { type: 'loopra', op: 'ready', theme: { text: '#222' }, context: { workspaceHash: 'demo' } } })));
+      return;
+    }
+    if (data.op !== 'service:request') return;
     requests.push(data);
     Promise.resolve().then(() => service(data.action, data.value)).then(value => {
       window.dispatchEvent(new window.MessageEvent('message', { source: window, data: { type: 'loopra', op: 'service:result', id: data.id, value } }));
@@ -21,7 +26,8 @@ function setup(service) {
       window.dispatchEvent(new window.MessageEvent('message', { source: window, data: { type: 'loopra', op: 'service:result', id: data.id, error: error.message } }));
     });
   };
-  window.dispatchEvent(new window.MessageEvent('message', { source: window, data: { type: 'loopra', op: 'ready', theme: { text: '#222' } } }));
+  } });
+  const { window } = dom;
   return { dom, window, document: window.document, requests, close: () => dom.window.close() };
 }
 
@@ -31,7 +37,7 @@ test('OpenAPI plugin saves credentials, searches and reads API details', async (
     if (action === 'sources') return sources;
     if (action === 'save') { sources = [{ ...value, status: 'loaded' }]; return sources[0]; }
     if (action === 'search') return [{ api_name: '查询订单', endpoint: 'GET /orders/{id}', docUrl: sources[0].docUrl, method: 'GET', path: '/orders/{id}' }];
-    if (action === 'detail') return { parameters: [{ name: 'id', required: true }] };
+    if (action === 'detail') return { endpoint: 'GET /orders/{id}', baseUrl: 'https://service.test', description: '<img src=x onerror=alert(1)>', parameters: [{ name: 'id', in: 'path', schema: { type: 'string' }, required: true }], responses: { 200: { description: '成功' } } };
     throw new Error(action);
   });
   try {
@@ -60,6 +66,9 @@ test('OpenAPI plugin saves credentials, searches and reads API details', async (
     await settle();
     assert.equal(d.querySelector('#detail').hidden, false);
     assert.match(d.querySelector('#detail-content').textContent, /required/);
+    assert.match(d.querySelector('#detail-overview table').textContent, /idpathstring是/);
+    assert.match(d.querySelector('#detail-overview').textContent, /200  成功/);
+    assert.equal(d.querySelector('#detail-overview img'), null, 'document text must remain inert');
     assert.ok(ui.requests.every(item => !JSON.stringify(item).includes('accessKey')));
   } finally { ui.close(); }
 });

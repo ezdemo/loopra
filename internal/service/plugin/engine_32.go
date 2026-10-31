@@ -27,8 +27,13 @@ type running struct {
 	entry       string
 }
 
-func (p *running) setHostRequest(string, func(context.Context, string, string, map[string]any) (any, error)) error {
+func (p *running) setHostServices(map[string]ServiceHandler, []string) error {
 	return nil
+}
+
+func (*running) hasRequest() bool { return false }
+func (*running) request(context.Context, map[string]any) (any, error) {
+	return nil, errors.New("32 位安装包不能运行插件")
 }
 
 func (p *running) close() {

@@ -33,7 +33,7 @@ type BoundTool struct {
 
 type running struct {
 	callContext context.Context
-	mu          sync.Mutex
+	gate        chan struct{}
 	closeOnce   sync.Once
 	rt          *moejs.Runtime
 	loop        *eventloop.Loop
@@ -42,6 +42,8 @@ type running struct {
 	names       []string
 	bound       []BoundTool
 	hooks       map[string]moejs.Hook
+	requestHook *moejs.Hook
+	closed      bool
 	displayName string
 	description string
 	entry       string
@@ -97,7 +99,7 @@ func openPackage(ctx context.Context, dir string, rec record) (*running, error) 
 			discard.close()
 		}
 	}()
-	if err := run.rt.SetGlobal("console", consoleObject()); err != nil {
+	if err := run.rt.SetGlobal("console", consoleObject(rec.ID)); err != nil {
 		return nil, err
 	}
 	if err := run.run(ctx, func(rt *moejs.Runtime) error {
@@ -132,11 +134,18 @@ func openPackage(ctx context.Context, dir string, rec record) (*running, error) 
 		return nil, jsError(err)
 	}
 	run.hooks = hooks
+	requestHook, hasRequest, err := findHandler(run.rt, linked, "onRequest")
+	if err != nil {
+		return nil, jsError(err)
+	}
+	if hasRequest {
+		run.requestHook = &requestHook
+	}
 	if err := bindTools(run, rec.ID, display, defs, explicit, callHook, hasCall, linked, run.rt); err != nil {
 		return nil, err
 	}
-	if len(run.bound) == 0 && len(run.hooks) == 0 {
-		return nil, fmt.Errorf("插件没有导出工具或钩子")
+	if len(run.bound) == 0 && len(run.hooks) == 0 && !hasRequest {
+		return nil, fmt.Errorf("插件没有导出工具、钩子或 onRequest")
 	}
 	discard = nil
 	return run, nil
@@ -250,12 +259,16 @@ func readToolDefs(rt *moejs.Runtime, mod *moejs.Module) ([]toolDef, bool, error)
 }
 
 func findCall(rt *moejs.Runtime, mod *moejs.Module) (moejs.Hook, bool, error) {
+	return findHandler(rt, mod, "call")
+}
+
+func findHandler(rt *moejs.Runtime, mod *moejs.Module, name string) (moejs.Hook, bool, error) {
 	for _, item := range []struct {
 		export  string
 		members []string
 	}{
-		{"call", nil},
-		{"default", []string{"call"}},
+		{name, nil},
+		{"default", []string{name}},
 	} {
 		hook, err := mod.Hook(item.export, item.members...)
 		if err != nil {
@@ -323,7 +336,7 @@ func validToolName(name string) bool {
 
 func reserved(name string) bool {
 	switch name {
-	case "tools", "call", "meta", "default", "plugin":
+	case "tools", "call", "meta", "default", "plugin", "onRequest":
 		return true
 	}
 	for _, hook := range hookOrder {
@@ -459,9 +472,29 @@ func (p *running) invoke(ctx context.Context, b toolBinding, args map[string]any
 	return asResult(out), nil
 }
 
-func (p *running) eval(ctx context.Context, hook moejs.Hook, payload any) (any, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *running) eval(ctx context.Context, hook moejs.Hook, payload any, discardOnCancel ...bool) (any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case p.gate <- struct{}{}:
+		defer func() { <-p.gate }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %v", errPluginBusy, ctx.Err())
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %v", errPluginBusy, err)
+	}
+	if p.closed {
+		return nil, errors.New("插件已停用或重新加载，请重试")
+	}
+	if len(discardOnCancel) > 0 && discardOnCancel[0] {
+		defer func() {
+			if ctx.Err() != nil {
+				p.closed = true
+			}
+		}()
+	}
 	defer p.rt.ReleaseCallData()
 	var res moejs.Value
 	err := p.run(ctx, func(rt *moejs.Runtime) error {
@@ -540,13 +573,6 @@ func readMeta(rt *moejs.Runtime) (string, string) {
 		description = meta.Remark
 	}
 	return display, description
-}
-
-func consoleObject() map[string]any {
-	noop := moejs.NativeFunc(func(*moejs.Realm, moejs.Value, []moejs.Value) (moejs.Value, error) {
-		return moejs.Undefined(), nil
-	})
-	return map[string]any{"log": noop, "info": noop, "warn": noop, "error": noop, "debug": noop}
 }
 
 func jsError(err error) error {
