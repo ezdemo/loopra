@@ -324,11 +324,13 @@ Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`
 
 ### 插件
 
-插件是 JavaScript 或 TypeScript 模块，运行时是 [moejs](https://github.com/MoeForge/moejs)（Apache-2.0）。从侧栏「技能与插件」进入「我的内容」并筛选「插件」填写来源，例如 `left-pad@1.3.0`、`@scope/pkg`、`https://github.com/owner/repo`，或本地目录与 `.js` / `.ts` 文件。安装位置是 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。插件页面可以通过 `loopra.request()` 调用自己的 `onRequest` 后端，接收当前项目、会话和文件上下文。写法、钩子、页面后端、`fetch` 和 `node:fs` 见 [docs/PLUGIN.md](docs/PLUGIN.md)。
+插件是 JavaScript 或 TypeScript 模块，运行时是 [moejs](https://github.com/MoeForge/moejs)（Apache-2.0）。从侧栏「技能与插件」点击「添加 → 安装插件」填写来源，例如 `left-pad@1.3.0`、`@scope/pkg`、`https://github.com/owner/repo`，或本地目录与 `.js` / `.ts` 文件。安装位置是 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。插件页面可以通过 `loopra.request()` 调用自己的 `onRequest` 后端，接收当前项目、会话和文件上下文。写法、钩子、页面后端、`fetch` 和 `node:fs` 见 [docs/PLUGIN.md](docs/PLUGIN.md)。
 
 入口优先读 package.json 的 `loopra`（字符串，或 `{ "plugin": "./plugin.ts" }`），然后是 `module`、`main`，再否则是 `plugin.ts`、`plugin.js`、`index.ts` 或 `index.js`。
 
 技能与插件 → 发现 → 插件支持把公开 GitHub 仓库作为插件源，默认加入 [ezdemo/loopra-plugins](https://github.com/ezdemo/loopra-plugins)。可以添加、移除和切换源，浏览仓库里的插件后分别安装，在「我的内容」里卸载。「我的内容」统一管理已安装的技能和插件，「发现」浏览更多内容。源自动扫描每个插件目录的 `package.json` 和入口文件，无需索引；目录示例见 [examples/plugin-source](examples/plugin-source/)，规则和接口见 [GitHub 插件源](docs/PLUGIN.md#github-插件源)。
+
+发现页已安装的外部插件可直接卸载，安装和卸载保留当前列表与滚动位置。纯聊天右侧栏支持「能力」和插件面板。多个插件的 `systemPrompt.append` 会依次累加；`meta.hookPriority` 为每个 Hook 指定整数优先级，数值小的先执行，默认 `0`，同级按安装顺序执行，详见[钩子](docs/PLUGIN.md#钩子)。
 
 导出的函数会变成工具，公开名称是 `<插件 id>__<导出名>`：
 

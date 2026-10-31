@@ -1,6 +1,6 @@
 # 插件
 
-插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。从侧栏「技能与插件」进入「我的内容」并筛选「插件」，填写来源即可安装。主仓库只保留内置 `plugins/web` 联网工具，名字仍然是 `web`。聊天猫娘、每日回顾、OpenAPI 和上下文透视已迁到 [loopra-plugins](https://github.com/ezdemo/loopra-plugins)，可在「发现」中筛选「插件」并安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
+插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。从侧栏「技能与插件」点击「添加 → 安装插件」，填写来源即可安装。主仓库只保留内置 `plugins/web` 联网工具，名字仍然是 `web`。聊天猫娘、每日回顾、OpenAPI 和上下文透视已迁到 [loopra-plugins](https://github.com/ezdemo/loopra-plugins)，可在「发现」中筛选「插件」并安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
 
 安装后的文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。设置了 `LOOPRA_JAVA_BACKEND_URL` 时，本进程不加载这些插件。
 
@@ -19,7 +19,7 @@
 
 ## GitHub 插件源
 
-技能与插件 → 发现 → 插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。可添加其他公开仓库、切换来源和刷新列表；在「已安装」里启停、设置或卸载插件。移除源只取消订阅，已经安装的插件继续保留。
+技能与插件 → 发现 → 插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。在「管理源」中添加或移除公开仓库，用下拉框切换来源。在「我的内容 → 插件」中启停、设置或卸载；发现页已安装的外部插件也可以直接卸载，确认后按钮恢复「安装」。安装、卸载只更新安装状态，保留发现列表和滚动位置。内置插件只能停用。移除源只取消订阅，已经安装的插件继续保留。
 
 仓库不需要额外的索引文件，推荐按下面的目录组织：
 
@@ -125,6 +125,8 @@ export function call(input) {
 
 `export const meta = { displayName, description }` 或 `{ name, remark }` 用来显示名称和说明。`readOnly: true` 的工具自动放行，其他工具仍走现有审批。`chat: true` 的工具可以在纯聊天里使用；不写则只在项目里可用。两种写法里，只有 `tools()` 返回的清单能带上 `chat`。
 
+`tools()` 的条目还可以设置 `expose`，指定模型看到的公开工具名，例如 OpenAPI 使用 `expose: "search_apis"`。未设置时仍使用 `<插件 id>__<工具名>`。`expose` 使用工具名字符规则，多个插件共享公开命名空间，应避免重复命名；`call(input).name` 仍是条目原来的 `name`。
+
 `tools`、`call`、`meta`、`default`、`plugin`、`onRequest`，以及下面的钩子名，不会注册成工具。只有钩子或 `onRequest`、没有工具的模块也可以加载。
 
 函数可以是 `async`。宿主会等返回的 Promise 完成，再把结果交给对话。
@@ -141,6 +143,21 @@ export const meta = {
 ```
 
 `systemPrompt` 的多个 `append` 会按执行顺序累加，每个插件的 `input.text` 都包含此前的追加内容。返回 `text` 表示明确替换当前全文（包括此前的追加），同次返回的 `append` 再接到替换结果后面。其他替换字段仍由后执行的插件覆盖；优先级只控制同名钩子的顺序，`llmRequest` 在全部 `systemPrompt` 完成后执行，`llmRequestSent` 最后只读观察实际发送内容。
+
+只补充规则时返回新增片段即可，不要把 `input.text` 再放进 `append`，否则会重复全文。需要在 `llmRequest` 中补充系统内容时，应从 `input.system` 继续追加，保留此前插件的结果：
+
+```js
+export function systemPrompt(input) {
+  if (input.app !== "__loopra_chat__") return {};
+  return { append: "\n仅用于纯聊天的补充规则。" };
+}
+
+export function llmRequest(input) {
+  return { system: (input.system || "") + "\n本次请求的补充信息。" };
+}
+```
+
+优先级写在入口模块的 `meta` 中，不是 `package.json`；未声明或不是有效整数的单项按 `0` 处理。不同钩子的优先级互不影响。以上提示词合并和优先级由宿主实现，旧版宿主需要更新并重启 Loopra，现有插件无需重装。聊天猫娘、OpenAPI 和上下文透视可同时启用：人设、接口规则及透镜固定内容依次保留。
 
 每次调用都会带上当时能确定的 `invocationId`、`sessionId`、`app`、`agent`，以及这个插件自己的 `config`。`config` 就是设置页保存的对象，没有保存过时是 `{}`。
 
@@ -301,7 +318,7 @@ export function onRequest({ action, value }) {
 }
 ```
 
-当前宿主提供 `openapi`：文档下载、JSON / YAML 解析、缓存、源认证、搜索、接口详情与调用，沿用 `~/.loopra/openapi-sources.json` 和原有缓存。服务按声明提供，不按插件 id 特判，第三方插件同样可以声明使用。未声明或宿主未提供的服务会报错；iframe 不能直接调用宿主服务，也不能传任意宿主 API 路径。
+当前宿主提供 `openapi` 和 `sessions`。`openapi` 支持文档下载、JSON / YAML 解析、缓存、源认证、搜索、接口详情与调用，沿用 `~/.loopra/openapi-sources.json` 和原有缓存；`sessions` 提供只读会话历史，参数见[右侧面板](#右侧面板)。服务按声明提供，不按插件 id 特判，第三方插件同样可以声明使用。未声明或宿主未提供的服务会报错；iframe 不能直接调用宿主服务，也不能传任意宿主 API 路径。
 
 [OpenAPI 插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/openapi) 是完整示例：插件设置页和「工具与集成 → OpenAPI」设置菜单复用同一份页面；UI 使用统一桥；`onRequest` 只开放源管理、搜索和详情；`call_api` 工具在后端调用同一服务的 `call`，仍经过现有工具审批。文档解析和认证实现在 Go 宿主服务中，页面和操作分发属于插件。
 
@@ -325,6 +342,8 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
 
 `ui.panel` 在右侧「文件 / Git / 能力」后面增加一个插件页签，适合需要和当前会话并排使用的工具。支持路径字符串，或标题、图标和页面对象：
 
+纯聊天同样可以通过右上角开关打开右侧栏，显示「能力」和已启用插件的面板，隐藏文件与 Git。插件仍通过 `loopra.context` 接收当前纯聊天会话的上下文。
+
 ```json
 {
   "loopra": {
@@ -335,7 +354,7 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
 }
 ```
 
-标题和图标省略时沿用插件名称与图标。页面通过 `/api/plugins/<id>/panel/open` 打开，使用独立的 `/panel/t/<票据>/` 路径，复用设置页的沙箱、主题、配置、上下文和 `loopra.request()`。页签选择按会话保存；页签过多可横向滚动；刷新按钮重新打开当前插件页。停用或卸载后入口移除，当前页退回文件页。
+标题和图标省略时沿用插件名称与图标。页面通过 `/api/plugins/<id>/panel/open` 打开，使用独立的 `/panel/t/<票据>/` 路径，复用设置页的沙箱、主题、配置、上下文和 `loopra.request()`。页签选择按会话保存；页签过多可横向滚动；刷新按钮重新打开当前插件页。停用或卸载后入口移除；当前页已不可用时退回有效页签，没有其他已选页时项目退回文件页、纯聊天退回能力页。
 
 [上下文透视插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/context-lens) 使用这个插入点，不占用左侧主导航。它通过 `llmRequestSent` 记录 Loopra Native 的实际发送前快照，覆盖 Chat Completions、Responses 和 Anthropic。最近 16 次请求、约 6 MiB 的记录会原子写入插件数据目录，重启、重新加载和升级插件后仍可查看，超长段落明确标为截断。清空快照只删除透镜记录，不改动会话日志。
 
