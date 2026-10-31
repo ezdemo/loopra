@@ -9,12 +9,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/ezdemo/looprax/internal/repository"
 )
 
 const uiPreferencesFile = "ui-preferences.json"
+
+// uiPreferencesMu 不放在 Controller 上。请求会按值复制控制器，
+// 结构体里的锁会被一起复制，go vet 会拒绝，锁也不再是同一把。
+var uiPreferencesMu sync.Mutex
 
 // uiPreferences 是还没有单独接口的工作台设置。主题用 light、dark、system，
 // 语言用 zh、en。个人资料和宠物开关缺省时不写出，便于区分
@@ -50,8 +55,8 @@ func defaultUIPreferences() uiPreferences {
 // notePetDismissed records that the native pet window was closed, so the
 // workbench toggle matches the window the next time preferences are read.
 func (s *Controller) notePetDismissed() {
-	s.uiPreferencesMu.Lock()
-	defer s.uiPreferencesMu.Unlock()
+	uiPreferencesMu.Lock()
+	defer uiPreferencesMu.Unlock()
 	current, _ := loadUIPreferences(s.uiPreferencesPath())
 	off := false
 	current.PetEnabled = &off
@@ -101,9 +106,9 @@ func loadUIPreferences(path string) (uiPreferences, bool) {
 func (s *Controller) uiPreferences(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		s.uiPreferencesMu.Lock()
+		uiPreferencesMu.Lock()
 		prefs, ok := loadUIPreferences(s.uiPreferencesPath())
-		s.uiPreferencesMu.Unlock()
+		uiPreferencesMu.Unlock()
 		prefs.Persisted = ok
 		writeOK(w, http.StatusOK, prefs)
 	case http.MethodPut:
@@ -112,8 +117,8 @@ func (s *Controller) uiPreferences(w http.ResponseWriter, r *http.Request) {
 			writeFail(w, http.StatusBadRequest, "配置格式不正确")
 			return
 		}
-		s.uiPreferencesMu.Lock()
-		defer s.uiPreferencesMu.Unlock()
+		uiPreferencesMu.Lock()
+		defer uiPreferencesMu.Unlock()
 		current, _ := loadUIPreferences(s.uiPreferencesPath())
 		if err := current.apply(patch); err != nil {
 			writeFail(w, http.StatusBadRequest, err.Error())

@@ -79,7 +79,6 @@ type Controller struct {
 	files              FileService
 	acp                *acp.Manager
 	plugins            *plugin.Host
-	uiPreferencesMu    sync.Mutex
 	onUITheme          func(theme string)
 	petDesktop         petdesk.Surface
 }
