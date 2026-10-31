@@ -20,6 +20,7 @@ export default function SkillsAndPluginsPage({ api, tab, onTabChange, onRefresh,
   const [query, setQuery] = useState('');
   const [committedQuery, setCommittedQuery] = useState('');
   const [revision, setRevision] = useState(0);
+  const [skillsRevision, setSkillsRevision] = useState(0);
   const [controls, setControls] = useState<HTMLDivElement | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
   useEffect(() => { const timer = setTimeout(() => setCommittedQuery(query), 350); return () => clearTimeout(timer); }, [query]);
@@ -37,8 +38,8 @@ export default function SkillsAndPluginsPage({ api, tab, onTabChange, onRefresh,
       </nav><CapabilitySearch label="搜索技能与插件" value={query} onChange={setQuery} placeholder="搜索技能与插件…" /></div>
       <div className="library-filter-row"><div className="library-type-filter" role="group" aria-label="内容类型">{([['all', '全部'], ['skills', '技能'], ['plugins', '插件']] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => { onTabChange(id); setInstallOpen(false); }}>{label}</button>)}</div><div className="library-extra-controls" ref={setControls} /><CapabilityRefresh onClick={() => setRevision(value => value + 1)} /></div>
       <div className="library-grid">
-        {tab !== 'plugins' && <SkillsPage key={`skills-${discover}`} {...libraryProps} toolbarTarget={tab === 'skills' ? controls : null} api={api} onRefresh={async () => { setRevision(value => value + 1); await onRefresh(); }} onBack={onBack} embedded view={discover ? 'market' : 'installed'} onViewChange={value => changeView(value === 'market')} />}
-        {tab !== 'skills' && <ExtensionManager key={`plugins-${discover}`} {...libraryProps} toolbarTarget={tab === 'plugins' ? controls : null} installOpen={installOpen} onInstallOpenChange={setInstallOpen} onOpenSettings={() => onTabChange('plugins')} api={api} context={context} onChanged={() => { setRevision(value => value + 1); onPluginsChanged(); }} embedded view={discover ? 'catalog' : 'installed'} />}
+        {tab !== 'plugins' && <SkillsPage key={`skills-${discover}`} {...libraryProps} installedRefreshKey={skillsRevision} toolbarTarget={tab === 'skills' ? controls : null} api={api} onRefresh={onRefresh} onBack={onBack} embedded view={discover ? 'market' : 'installed'} onViewChange={value => changeView(value === 'market')} />}
+        {tab !== 'skills' && <ExtensionManager key={`plugins-${discover}`} {...libraryProps} toolbarTarget={tab === 'plugins' ? controls : null} installOpen={installOpen} onInstallOpenChange={setInstallOpen} onOpenSettings={() => onTabChange('plugins')} api={api} context={context} onChanged={() => { setSkillsRevision(value => value + 1); onPluginsChanged(); }} embedded view={discover ? 'catalog' : 'installed'} />}
         <div className="library-empty"><PackageOpen size={28} /><h2>{query ? '没有找到匹配的内容' : discover ? '暂无可发现的内容' : '内容库还是空的'}</h2></div>
       </div>
     </div>

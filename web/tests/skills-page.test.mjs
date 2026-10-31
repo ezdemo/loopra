@@ -35,23 +35,80 @@ const { default: SkillsPage } = await import(await sourceUrl('SkillsPage', { '@n
 const button = (element, text) => [...element.querySelectorAll('button')].find(item => item.textContent.trim() === text || item.title === text);
 async function click(element) { assert.ok(element); await act(async () => element.click()); }
 async function input(element, value) { await act(async () => { Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(element, value); element.dispatchEvent(new dom.window.Event('input', { bubbles: true })); }); }
-async function mount({ failInstall = false, marketUrl = 'https://skillhub.cn/skills/author/code-review', extraSkills = [], marketSkills } = {}) {
+async function mount({ failInstall = false, failUninstall = false, deferSkillsRefresh = false, marketUrl = 'https://skillhub.cn/skills/author/code-review', extraSkills = [], marketSkills } = {}) {
   const calls = []; let refreshes = 0, backs = 0;
+  const pendingSkills = [];
   let installed = [{ name: 'self-skill', description: '内置技能完整说明', scope: '@builtin-skills/self-skill' }, { name: 'ego-browser', description: '浏览器自动化' }, ...extraSkills];
   const api = { request: async (path, method = 'GET') => {
     calls.push({ path, method }); const url = new URL(path, 'http://test.invalid');
-    if (url.pathname === '/agent/skills') return installed;
+    if (url.pathname === '/agent/skills') return deferSkillsRefresh && calls.filter(call => call.path === '/agent/skills').length > 1 ? new Promise(resolve => pendingSkills.push(() => resolve(installed))) : installed;
     if (url.pathname === '/skill-market/markets') return [{ name: 'community' }];
     if (url.pathname === '/skill-market/proxy') return marketSkills ?? [{ slug: 'author/code-review', displayName: '代码审查', summary: '检查代码质量', url: marketUrl }];
     if (url.pathname === '/skill-market/detail') return { slug: 'author/code-review', installSlug: 'code-review', displayName: '代码审查', description: '完整技能文档' };
     if (url.pathname === '/skill-market/install') { if (failInstall) throw new Error('安装失败，请重试'); installed = [...installed, { name: url.searchParams.get('slug'), description: '新技能' }]; return 'ok'; }
-    if (url.pathname === '/skill-market/uninstall') { installed = installed.filter(skill => url.searchParams.has('scope') ? skill.scope !== url.searchParams.get('scope') : (skill.directoryName || skill.name) !== url.searchParams.get('slug')); return null; }
+    if (url.pathname === '/skill-market/uninstall') { if (failUninstall) throw new Error('删除失败，请重试'); installed = installed.filter(skill => url.searchParams.has('scope') ? skill.scope !== url.searchParams.get('scope') : (skill.directoryName || skill.name) !== url.searchParams.get('slug')); return null; }
     throw new Error(`Unexpected ${path}`);
   }};
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(createElement(SkillsPage, { api, onRefresh: async () => { refreshes++; }, onBack: () => { backs++; } })));
-  return { container, calls, get refreshes() { return refreshes; }, get backs() { return backs; }, async close() { await act(async () => root.unmount()); container.remove(); } };
+  return { container, calls, get refreshes() { return refreshes; }, get backs() { return backs; }, async settleSkillsRefresh() { await act(async () => { for (const resolve of pendingSkills.splice(0)) resolve(); }); }, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
+
+test('market install and delete preserve the cards and do not reload discovery results', async () => {
+  const view = await mount({ deferSkillsRefresh: true, marketSkills: [{ slug: 'writer', displayName: 'Writer' }] });
+  try {
+    await click(button(view.container, '技能市场'));
+    const card = view.container.querySelector('.skills-hub-card');
+    const requests = view.calls.filter(call => call.path.startsWith('/skill-market/proxy')).length;
+    await click(button(card, '安装'));
+    assert.equal(view.container.querySelector('.skills-hub-card'), card);
+    assert.equal(view.container.querySelector('.remote-loading'), null);
+    await view.settleSkillsRefresh();
+    await click(button(card, '删除'));
+    assert.equal(view.calls.some(call => call.path.startsWith('/skill-market/uninstall')), false);
+    await click(button(view.container.querySelector('[role="dialog"]'), '取消'));
+    assert.ok(button(card, '删除'));
+    await click(button(card, '删除'));
+    await click(button(view.container.querySelector('[role="dialog"]'), '确认'));
+    assert.equal(view.container.querySelector('.skills-hub-card'), card);
+    assert.equal(view.container.querySelector('.remote-loading'), null);
+    await view.settleSkillsRefresh();
+    assert.ok(button(card, '安装'));
+    assert.equal(view.calls.filter(call => call.path.startsWith('/skill-market/proxy')).length, requests);
+    assert.equal(view.refreshes, 2);
+  } finally { await view.close(); }
+});
+
+test('market delete uses the installed directory and scope while protecting built-in and plugin skills', async () => {
+  const scope = '@loopra-skills/writer';
+  const view = await mount({ extraSkills: [{ name: 'Friendly name', directoryName: 'writer', scope }, { name: 'plugin-skill', scope: '@plugin-skills/demo' }], marketSkills: [{ slug: 'writer' }, { slug: 'self-skill' }, { slug: 'plugin-skill' }] });
+  try {
+    await click(button(view.container, '技能市场'));
+    const cards = view.container.querySelectorAll('.skills-hub-card');
+    assert.equal(button(cards[1], '已安装').disabled, true);
+    assert.equal(button(cards[2], '已安装').disabled, true);
+    await click(button(cards[0], '删除'));
+    await click(button(view.container.querySelector('[role="dialog"]'), '确认'));
+    const request = new URL(view.calls.find(call => call.path.startsWith('/skill-market/uninstall')).path, 'http://test.invalid');
+    assert.equal(request.searchParams.get('slug'), 'writer');
+    assert.equal(request.searchParams.get('scope'), scope);
+    assert.ok(button(cards[0], '安装'));
+  } finally { await view.close(); }
+});
+
+test('failed market delete retains the installed action and shows the error', async () => {
+  const view = await mount({ failUninstall: true, marketSkills: [{ slug: 'ego-browser' }] });
+  try {
+    await click(button(view.container, '技能市场'));
+    const card = view.container.querySelector('.skills-hub-card');
+    await click(button(card, '删除'));
+    await click(button(view.container.querySelector('[role="dialog"]'), '确认'));
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /删除失败/);
+    assert.equal(view.container.querySelector('.skills-hub-card'), card);
+    assert.ok(button(card, '删除'));
+    assert.equal(view.refreshes, 0);
+  } finally { await view.close(); }
+});
 test('installed skills filter locally, expose full details and return to the conversation', async () => {
   const view = await mount();
   try {

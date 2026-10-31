@@ -57,6 +57,23 @@ test('slow tool and skill discovery cannot keep a healthy session backend in con
     assert.equal(backend.skills.length, 1);
     assert.equal(backend.prompt, 'prompt');
     assert.equal(backend.status, 'connected');
+    const sessions = backend.sessions;
+    const start = requests.length;
+    let refreshing;
+    await act(async () => { refreshing = backend.refreshCapabilities(); });
+    assert.equal(backend.status, 'connected');
+    assert.equal(backend.sessions, sessions);
+    assert.deepEqual(requests.slice(start), ['/tools', '/agent/skills']);
+    await act(async () => {
+      pending.get('/tools')([{ name: 'plugin-tool', readOnly: false }]);
+      pending.get('/agent/skills')([{ name: 'installed-skill', description: 'New' }]);
+      await refreshing;
+    });
+    assert.equal(backend.tools[0].name, 'plugin-tool');
+    assert.equal(backend.tools[0].category, '写入工具');
+    assert.equal(backend.skills[0].name, 'installed-skill');
+    assert.equal(backend.sessions, sessions);
+    assert.equal(backend.status, 'connected');
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

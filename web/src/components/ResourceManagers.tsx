@@ -28,7 +28,7 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
   const [localAdding, setLocalAdding] = useState(false);
   const adding = installOpen ?? localAdding;
   function setAdding(open: boolean) { setLocalAdding(open); onInstallOpenChange?.(open); }
-  const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision + refreshKey); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
+  const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision + refreshKey, true); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
   async function act(path: string, body?: unknown, clearSource = false) {
     setBusy(true); setError('');
     try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) { setSource(''); setAdding(false); } onChanged?.(); }
@@ -51,8 +51,8 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
       {embedded && tab === 'installed' && <Button className="settings-outlined-action capabilities-refresh" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button>}
     </div>}
     {error && <p role="alert" className="settings-error">{error}</p>}
-    <RemoteState {...state} />
-    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || !state.data} onInstall={value => act('/install', { source: value })} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
+    <RemoteState {...state} loading={state.loading && !state.data} />
+    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || state.loading || !state.data} onInstall={value => act('/install', { source: value })} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
     {!library && <div className="capability-toolbar">
       <CapabilitySearch label="搜索已安装插件" value={filter} onChange={setFilter} />
       <select className="capability-select" aria-label="插件状态" value={status} onChange={event => setStatus(event.target.value)}><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">已停用</option><option value="failed">加载失败</option></select>

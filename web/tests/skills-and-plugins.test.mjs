@@ -24,8 +24,8 @@ const { default: Hub } = await import(await compile('components/SkillsAndPlugins
   'lucide-react': import.meta.resolve('lucide-react'),
   './CapabilityUI': await compile('components/CapabilityUI.tsx'),
   '@nextui-org/react': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const Button = ({children, onPress}) => h('button', {onClick:onPress}, children);`),
-  './SkillsPage': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export default ({embedded, onRefresh, view}) => h('button', {onClick:onRefresh, 'data-skills':embedded, 'data-view':view}, '技能列表');`),
-  './ResourceManagers': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const ExtensionManager = ({embedded, onChanged, context, view}) => h('button', {onClick:onChanged, 'data-plugins':embedded, 'data-view':view, 'data-session':context?.sessionId}, '安装插件');`),
+  './SkillsPage': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export default ({embedded, onRefresh, view, refreshKey, installedRefreshKey}) => h('button', {onClick:onRefresh, 'data-skills':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-installed-refresh':installedRefreshKey}, '技能列表');`),
+  './ResourceManagers': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const ExtensionManager = ({embedded, onChanged, context, view, refreshKey}) => h('button', {onClick:onChanged, 'data-plugins':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-session':context?.sessionId}, '安装插件');`),
 }));
 const { capabilitiesTabForSection } = await import(await compile('capabilities-navigation.ts'));
 
@@ -45,10 +45,19 @@ test('one hub switches between skills and plugins while preserving refresh and p
     assert.ok(container.querySelector('[data-plugins]'));
     assert.equal(container.querySelector('[data-skills]').getAttribute('data-skills'), 'true');
     await click('技能列表'); assert.equal(refreshes, 1);
+    assert.equal(container.querySelector('[data-skills]').getAttribute('data-refresh'), '0');
+    assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '0');
+    await act(async () => container.querySelector('[data-plugins]').click());
+    assert.equal(container.querySelector('[data-skills]').getAttribute('data-installed-refresh'), '1');
+    assert.equal(container.querySelector('[data-skills]').getAttribute('data-refresh'), '0');
+    assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '0');
+    await click('刷新');
+    assert.equal(container.querySelector('[data-skills]').getAttribute('data-refresh'), '1');
+    assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '1');
     await click('插件');
     assert.equal(container.querySelector('[data-skills]'), null);
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-session'), 'project/session');
-    await act(async () => container.querySelector('[data-plugins]').click()); assert.equal(changes, 1);
+    await act(async () => container.querySelector('[data-plugins]').click()); assert.equal(changes, 2);
     await click('发现'); assert.equal(container.querySelector('[data-plugins]').getAttribute('data-view'), 'catalog');
     await click('技能'); assert.equal(container.querySelector('[data-skills]').getAttribute('data-view'), 'market');
     await click('我的内容'); await click('全部'); assert.ok(container.querySelector('[data-skills]')); assert.ok(container.querySelector('[data-plugins]'));

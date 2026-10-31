@@ -29,6 +29,14 @@ export default function useLoopra(server: string, enabled = true) {
     // Refresh the catalog without reapplying global defaults over session/composer settings.
     setProviders(configProviders(nextConfig));
   }, [api]);
+  const refreshCapabilities = useCallback(async () => {
+    const [nextTools, nextSkills] = await Promise.all([
+      api.request<Omit<ToolConfig, 'category'>[]>('/tools'),
+      api.request<{ name: string; description: string }[]>('/agent/skills'),
+    ]);
+    setTools(nextTools.map(tool => ({ ...tool, category: tool.readOnly ? '只读工具' : '写入工具' })));
+    setSkills(nextSkills.map(skill => ({ ...skill, id: skill.name, enabled: true })));
+  }, [api]);
   const refreshSessions = useCallback(async (projects: Workspace[], signal?: AbortSignal) => {
     const lists = await Promise.all(projects.map(async project => (await api.request<RemoteSession[]>(`/sessions?workspaceHash=${encodeURIComponent(project.hash)}`, 'GET', undefined, signal)).map(item => remoteSession(item, project))));
     if (signal?.aborted) return;
@@ -101,5 +109,5 @@ export default function useLoopra(server: string, enabled = true) {
     const timer = setInterval(check, VERSION_CHECK_INTERVAL_MS);
     return () => { clearInterval(timer); controller.abort(); };
   }, [api, status, version]);
-  return { api, sessions, setSessions, sessionsLoading, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshProviders, refreshSessions, refreshWorkspaces };
+  return { api, sessions, setSessions, sessionsLoading, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshCapabilities, refreshProviders, refreshSessions, refreshWorkspaces };
 }

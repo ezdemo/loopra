@@ -1,18 +1,22 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Spinner } from '@nextui-org/react';
 import type { LoopraClient } from '../backend';
 
-export function useRemote<T>(api: LoopraClient, path: string | null, revision = 0) {
+export function useRemote<T>(api: LoopraClient, path: string | null, revision = 0, keepData = false) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const previousPath = useRef(path);
   useEffect(() => {
-    const controller = new AbortController(); setData(undefined); setError('');
+    const controller = new AbortController();
+    if (!keepData || !path || path !== previousPath.current) setData(undefined);
+    previousPath.current = path;
+    setError('');
     if (!path) { setLoading(false); return; }
     setLoading(true);
     void api.request<T>(path, 'GET', undefined, controller.signal).then(value => { if (!controller.signal.aborted) setData(value); }).catch(cause => { if (!controller.signal.aborted) setError(errorText(cause)); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [api, path, revision]);
+  }, [api, path, revision, keepData]);
   return { data, error, loading, setData };
 }
 export const errorText = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
