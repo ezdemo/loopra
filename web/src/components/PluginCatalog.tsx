@@ -8,11 +8,12 @@ import { CapabilityCard, CapabilityControls, CapabilityRefresh, CapabilitySearch
 
 type CatalogEntry = { id: string; name: string; description?: string; version?: string; source: string; icon?: PluginIconRef };
 
-export function PluginCatalog({ api, installed, busy, onInstall, library = false, searchQuery, refreshKey = 0, toolbarTarget, showType }: {
+export function PluginCatalog({ api, installed, busy, onInstall, onUninstall, library = false, searchQuery, refreshKey = 0, toolbarTarget, showType }: {
   api: LoopraClient;
-  installed: { id: string }[];
+  installed: { id: string; builtin?: boolean }[];
   busy: boolean;
   onInstall: (source: string) => Promise<void>;
+  onUninstall: (id: string) => void;
 } & CapabilityLibraryProps) {
   const sources = useRemote<string[]>(api, '/plugins/sources', refreshKey);
   const [selected, setSelected] = useState('');
@@ -67,12 +68,12 @@ export function PluginCatalog({ api, installed, busy, onInstall, library = false
     {!library && catalog.data?.length === 0 && <ResourceEmpty kind="plugin" title="仓库中暂无插件">每个插件目录需要包含 package.json 和插件入口文件。</ResourceEmpty>}
     {!library && !!catalog.data?.length && visible?.length === 0 && <ResourceEmpty kind="plugin" title="没有匹配的插件">试试其他关键词。</ResourceEmpty>}
     <div className="plugin-market">{visible?.map(entry => {
-      const exists = installed.some(pack => pack.id === entry.id);
+      const existing = installed.find(pack => pack.id === entry.id);
       return <CapabilityCard key={entry.source} className="plugin-card" title={entry.name} description={entry.description} badge={showType ? '插件' : undefined}
         iconClassName={entry.icon ? 'plugin-card-mark has-icon' : 'plugin-card-mark'} iconStyle={entry.icon ? undefined : { background: pluginTone(entry.id), color: '#fff' }}
         icon={entry.icon ? <PluginGlyph api={api} pluginId={entry.id} icon={entry.icon} className="plugin-card-icon" size="1.25rem" /> : ([...entry.name.trim()][0] || '?')}
         meta={entry.version ? `v${entry.version}` : undefined}
-        actions={<button type="button" className={exists ? 'capability-secondary' : 'capability-primary'} disabled={busy || !!installing || exists} onClick={() => void install(entry)}>{exists ? '已安装' : installing === entry.source ? '安装中' : '安装'}</button>} />;
+        actions={<button type="button" className={existing ? 'capability-secondary' : 'capability-primary'} disabled={busy || !!installing || !!existing?.builtin} onClick={() => existing ? onUninstall(existing.id) : void install(entry)}>{existing ? existing.builtin ? '已安装' : '卸载' : installing === entry.source ? '安装中' : '安装'}</button>} />;
     })}</div>
   </>;
 }

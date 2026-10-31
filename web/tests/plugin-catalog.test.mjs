@@ -35,7 +35,7 @@ const entries = [{ id: 'alpha', name: 'Alpha', source: `${first}?path=plugins%2F
 
 async function mount(override) {
   const container = document.createElement('div'); document.body.append(container);
-  const root = createRoot(container), calls = [], installations = [];
+  const root = createRoot(container), calls = [], installations = [], uninstallations = [];
   let sources = [first], installed = [{ id: 'alpha' }];
   const api = { request: async (path, method = 'GET', body, signal) => {
     calls.push({ path, method, body, signal });
@@ -46,21 +46,26 @@ async function mount(override) {
     if (path.startsWith('/plugins/catalog?')) return path.includes(encodeURIComponent(first)) ? entries : [];
     throw new Error(`Unexpected request: ${path}`);
   } };
-  const render = () => root.render(createElement(PluginCatalog, { api, installed, busy: false, onInstall: async source => { installations.push(source); installed = [...installed, { id: 'beta' }]; render(); } }));
+  const render = () => root.render(createElement(PluginCatalog, { api, installed, busy: false, onInstall: async source => { installations.push(source); installed = [...installed, { id: 'beta' }]; render(); }, onUninstall: id => { uninstallations.push(id); installed = installed.filter(pack => pack.id !== id); render(); } }));
   await act(async () => render());
   const click = text => act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === text || button.getAttribute('aria-label') === text).click());
-  return { container, calls, installations, click, close: () => act(async () => { root.unmount(); container.remove(); }) };
+  return { container, calls, installations, uninstallations, click, close: () => act(async () => { root.unmount(); container.remove(); }) };
 }
 
-test('catalog installs only the chosen plugin and prevents reinstalling installed IDs', async () => {
+test('catalog installs and uninstalls the chosen plugin and updates its action', async () => {
   const view = await mount();
   try {
     const cards = view.container.querySelectorAll('.plugin-card');
     assert.equal(cards.length, 2);
-    assert.equal(cards[0].querySelector('button').disabled, true);
-    await view.click('安装');
+    assert.equal(cards[0].querySelector('button').textContent, '卸载');
+    assert.equal(cards[0].querySelector('button').disabled, false);
+    await view.click('卸载');
+    assert.deepEqual(view.uninstallations, ['alpha']);
+    assert.equal(view.container.querySelector('.plugin-card button').textContent, '安装');
+    await act(async () => view.container.querySelectorAll('.plugin-card button')[1].click());
     assert.deepEqual(view.installations, [entries[1].source]);
-    assert.equal(view.container.querySelectorAll('.plugin-card button:disabled').length, 2);
+    assert.equal(view.container.querySelectorAll('.plugin-card button')[1].textContent, '卸载');
+    assert.equal(view.container.querySelector('.plugin-card button').textContent, '安装');
     await view.click('刷新');
     assert.equal(view.calls.filter(call => call.path.startsWith('/plugins/catalog?')).length, 2);
   } finally { await view.close(); }
@@ -81,7 +86,7 @@ test('adding, switching and removing a source preserve installed plugins', async
     assert.equal(view.calls.find(call => call.method === 'POST').body.source, second);
     await view.click('移除 acme/other');
     assert.equal(view.container.querySelector('select').value, first);
-    assert.equal(view.container.querySelectorAll('.plugin-card button:disabled').length, 1);
+    assert.equal([...view.container.querySelectorAll('.plugin-card button')].filter(button => button.textContent === '卸载').length, 1);
     await view.click('移除 acme/plugins');
     assert.match(view.container.textContent, /添加插件源/);
     assert.equal(view.calls.some(call => /\/install|\/uninstall|\/toggle/.test(call.path)), false);

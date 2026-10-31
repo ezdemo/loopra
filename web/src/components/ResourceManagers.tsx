@@ -52,7 +52,7 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
     </div>}
     {error && <p role="alert" className="settings-error">{error}</p>}
     <RemoteState {...state} />
-    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || !state.data} onInstall={value => act('/install', { source: value })} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
+    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || !state.data} onInstall={value => act('/install', { source: value })} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
     {!library && <div className="capability-toolbar">
       <CapabilitySearch label="搜索已安装插件" value={filter} onChange={setFilter} />
       <select className="capability-select" aria-label="插件状态" value={status} onChange={event => setStatus(event.target.value)}><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">已停用</option><option value="failed">加载失败</option></select>
