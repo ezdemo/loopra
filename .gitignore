@@ -11,3 +11,4 @@ bin/looprax.exe
 # Workbench
 web/node_modules/
 web/dist/
+.cache
