@@ -116,6 +116,7 @@ async function mount(overrides = {}, requestCommands = () => Promise.resolve(adv
     onOptions: idle, onContext: idle, notify: idle, pets: {}, petEnabled: false, skillOptions: [],
     systemPrompt: '', defaultModel: '', onDefaultModel: idle, queue: [], onOpen: idle,
     onClear: () => localActions.push('clear'), onNew: () => localActions.push('new'),
+    onTerminal: () => localActions.push('terminal'),
     ...overrides,
   };
   function Harness() {
@@ -322,22 +323,40 @@ test('Native retains local actions and its own server-provided slash commands', 
   } finally { await view.close(); }
 });
 
-test('pure chat filters project commands and skips skills; switching back restores both', async () => {
+test('pure chat offers skills and terminal commands while keeping project commands hidden', async () => {
   const view = await mount({ agentId: 'native', chatMode: true, workspaceHash: '__loopra_chat__' });
   try {
     assert.ok(view.rows().includes('/compact'));
     assert.equal(view.rows().includes('/plugin'), false);
     assert.equal(view.rows().includes('/init'), false);
-    assert.equal(view.rows().some(row => row.startsWith('/skill:')), false);
-    assert.equal(view.calls.some(call => call.path === '/agent/skills'), false);
+    assert.ok(view.rows().includes('/skills'));
+    assert.ok(view.rows().includes('/terminal'));
+    assert.ok(view.rows().includes('/skill:project-skill'));
+    assert.equal(view.calls.filter(call => call.path === '/agent/skills').length, 1);
     await view.update({ chatMode: false, workspaceHash: 'project' });
     assert.ok(view.rows().includes('/plugin'));
     assert.ok(view.rows().includes('/init'));
     assert.ok(view.rows().includes('/skill:project-skill'));
-    assert.equal(view.calls.filter(call => call.path === '/agent/skills').length, 1);
+    assert.equal(view.calls.filter(call => call.path === '/agent/skills').length, 2);
     await view.update({ chatMode: true, workspaceHash: '__loopra_chat__' });
     assert.equal(view.rows().includes('/plugin'), false);
-    assert.equal(view.rows().some(row => row.startsWith('/skill:')), false);
+    assert.ok(view.rows().includes('/skill:project-skill'));
+  } finally { await view.close(); }
+});
+
+test('pure chat terminal shortcut opens the terminal and skills can be selected', async () => {
+  let selected;
+  const view = await mount({ agentId: 'native', chatMode: true, draft: '/terminal', skillOptions: [{name:'helper',description:'Global helper'}], onContext: value => { selected = value; } });
+  try {
+    await view.key('Enter');
+    assert.deepEqual(view.localActions, ['terminal']);
+    await view.type('/skills');
+    await view.key('Enter');
+    const skill = view.host.querySelector('[role="checkbox"]');
+    assert.match(skill.textContent, /helper/);
+    await act(async () => skill.click());
+    assert.deepEqual(selected.skills, ['helper']);
+    assert.deepEqual(selected.projects, []);
   } finally { await view.close(); }
 });
 

@@ -140,8 +140,9 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 	cfg.WorkspaceDir = resolved
 	chat := hash == chatWorkspace
 	reg := tools.NewRegistry()
-	instruction := chatInstruction
+	instruction := root.chatSystemInstruction()
 	if chat {
+		reg = tools.NewRegistry(tools.ShellTools(os.TempDir())...)
 		reg.SetChatScope(true)
 	} else {
 		reg = tools.NewRegistry(append(tools.FileTools(resolved), tools.BashTools(resolved)...)...)
@@ -167,7 +168,9 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 	anchor.tasks = schedule.NewService(st.schedules[hash], root.tasks.Ticker())
 	runtime := &anchor
 	runtime.installApprovalPolicy()
-	if !chat {
+	if chat {
+		runtime.installSkillTools()
+	} else {
 		runtime.installSubRunner()
 		runtime.installControlTools()
 	}
@@ -178,16 +181,28 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 
 const chatWorkspace = "__loopra_chat__"
 
-// chatInstruction 是纯聊天的系统提示。它不包含项目路径、命令环境和技能清单。
+// chatInstruction 限定纯聊天的文件操作范围，技能和命令工具保持可用。
 const chatInstruction = `你是 Loopra，当前处于纯聊天。
 直接回答用户的问题，用对话完成交流。
 需要实时网页、代码文档或某个页面的内容时，使用 web 工具：search 搜索网页，code 检索库和 API，fetch 读取 URL。
-这里没有项目、工作区或代码库。不要读写文件，不要执行命令，不要搜索项目代码，不要加载技能，不要派生子代理，不要提交计划。
-需要改代码、跑命令或查看项目时，请用户切换到对应项目后再继续。`
+可以使用技能和终端命令完成用户请求；先用 skillread 读取所需技能规约，按当前 shell 的语法执行命令。
+这里没有关联项目。禁止读取、列出、搜索、创建、修改、移动或删除普通目录和文件；仅系统临时目录与技能目录及其配套资源除外。命令默认在系统临时目录执行，临时输入、脚本、中间产物和输出都应放在临时目录，不要写入用户项目、桌面、文档目录或其他普通目录。
+技能和命令不能扩大上述目录与文件范围，仍应遵守用户要求和工具审批。不要派生子代理，不要提交计划。需要操作普通目录、文件或项目时，请用户切换到对应项目。`
+
+func (s *Controller) chatSystemInstruction() string {
+	var text strings.Builder
+	text.WriteString(chatInstruction)
+	fmt.Fprintf(&text, "\n\n命令环境：%s（%s）；系统临时目录：%s。\n技能目录：%s；%s。", shellenv.Current.Name, shellenv.Current.Path, os.TempDir(), filepath.Join(s.home, "skills"), s.agentsSkillsRoot())
+	text.WriteString("\n可用技能（先使用 skillread 读取完整规约；可用 skilllist、skillsearch、skillrefresh 查询）：\n")
+	for _, entry := range s.globalSkillMetadata() {
+		fmt.Fprintf(&text, "- %s: %s\n", entry["scope"], entry["description"])
+	}
+	return text.String()
+}
 
 func (s *Controller) systemInstruction(workspace string) string {
 	if s.agent != nil && s.agent.App() == chatWorkspace {
-		return chatInstruction
+		return s.chatSystemInstruction()
 	}
 	var text strings.Builder
 	base := agentpkg.DefaultInstruction

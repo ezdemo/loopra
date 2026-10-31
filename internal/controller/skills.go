@@ -57,6 +57,9 @@ func (s *Controller) globalSkillMetadata() []map[string]any {
 
 func (s *Controller) availableSkillMetadata() []map[string]any {
 	out := s.globalSkillMetadata()
+	if s.agent != nil && s.agent.App() == chatWorkspace {
+		return out
+	}
 	for _, entry := range scanSkills(filepath.Join(s.workspaceRoot(), ".loopra", "skills"), "@project-skills") {
 		out = append(out, map[string]any{"name": entry["name"], "description": entry["description"], "scope": entry["scope"], "runAs": "", "directoryName": entry["directoryName"]})
 	}

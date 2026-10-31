@@ -125,6 +125,8 @@ export function call(input) {
 
 `export const meta = { displayName, description }` 或 `{ name, remark }` 用来显示名称和说明。`readOnly: true` 的工具自动放行，其他工具仍走现有审批。`chat: true` 的工具可以在纯聊天里使用；不写则只在项目里可用。两种写法里，只有 `tools()` 返回的清单能带上 `chat`。
 
+纯聊天也提供 `skillread`、`skilllist`、`skillsearch`、`skillrefresh`、一次性命令和交互终端，终端默认工作目录为系统临时目录。目录与文件范围由纯聊天提示词约定：只允许临时目录、技能目录与配套资源，禁止操作其他普通目录和文件，命令沿用现有审批。插件人设应继承这些宿主规则，避免追加旧的「禁止命令、禁止技能」约束。项目文件引用、关联项目、Git、计划模式和子代理仍不在纯聊天入口中提供。
+
 `tools()` 的条目还可以设置 `expose`，指定模型看到的公开工具名，例如 OpenAPI 使用 `expose: "search_apis"`。未设置时仍使用 `<插件 id>__<工具名>`。`expose` 使用工具名字符规则，多个插件共享公开命名空间，应避免重复命名；`call(input).name` 仍是条目原来的 `name`。
 
 `tools`、`call`、`meta`、`default`、`plugin`、`onRequest`，以及下面的钩子名，不会注册成工具。只有钩子或 `onRequest`、没有工具的模块也可以加载。

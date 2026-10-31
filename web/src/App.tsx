@@ -343,9 +343,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const projectWorkspaces = useMemo(() => workspaces.filter(item => !isChatWorkspace(item)), [workspaces]);
   const workspaceName = currentWorkspace?.name || '选择工作区';
   useEffect(() => {
-    if (!chatMode) return;
     setTerminal(false);
-  }, [chatMode]);
+  }, [workspace]);
   // A new chat has no session yet, but the Agent's choices are already known:
   // prepare them in the background so the composer never asks for a manual step.
   useEffect(() => {
@@ -898,7 +897,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     setDraft('调用 npx petdex@latest install boba 初始化一个宠物');
     notify('已新建会话，确认后发送即可初始化宠物');
   }
-  function openTerminal() { if (chatMode) { notify('纯聊天模式不提供终端'); return; } setTerminal(true); setMenu(null); }
+  function openTerminal() { setTerminal(true); setMenu(null); }
   async function openWorkspace(application = preferences.openWith) {
     setMenu(null);
     try { await launchWorkspace(api, currentWorkspace?.hash || '', application); }
@@ -1131,7 +1130,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     }
     if (preferences.sound) prepareCompletionSound();
     const sourceContext = overrideContext || composerContext;
-    const context = isChatWorkspace(sendWorkspace) ? withoutWorkspaceContext(sourceContext) : { ...sourceContext };
+    const context = isChatWorkspace(sendWorkspace) ? { ...withoutWorkspaceContext(sourceContext), skills: [...sourceContext.skills] } : { ...sourceContext };
     const text = action ? prompt : composeOutgoing(prompt, context, savedInput);
     const controller = new AbortController(); const requestId = crypto.randomUUID();
     const request = runs.claim(requestKey, { controller, requestId, server, workspaceHash: sendWorkspace.hash, session: fresh ? undefined : sendSession });
@@ -1416,7 +1415,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     latest: petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1)),
     onDismiss: () => { void saveAgentSettings({ ...agentSettingsRef.current, petEnabled: false }); },
   });
-  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready && !chatMode} open={terminal && !chatMode} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
+  const composer = <BackgroundTasks key={workspace} api={api} workspaceHash={workspace} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} /> : undefined}>{session && isSessionOccupied(session.id)
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
     : <Composer home={isHome} loading={workspaceLoading} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}

@@ -446,7 +446,7 @@ test('loading Agent configuration blocks sending without clearing the draft, the
   await sending;
 });
 
-test('a queued pure-chat send strips old project context and preserves uploaded content', async () => {
+test('a queued pure-chat send strips project paths and preserves selected skills and uploads', async () => {
   const h = harness();
   const chat = { ...original, id: '__loopra_chat__/first', workspaceHash: '__loopra_chat__', agentId: 'external' };
   h.shared.workspaces.push({ hash: '__loopra_chat__', kind: 'chat', name: '纯聊天' });
@@ -463,7 +463,10 @@ test('a queued pure-chat send strips old project context and preserves uploaded 
   assert.equal(body.agentId, 'native');
   assert.equal(body.workspaceHash, '__loopra_chat__');
   assert.deepEqual(body.linkedProjectHashes, []);
-  assert.equal(body.message, 'x'.repeat(10001) + '\n\n附件：report.pdf\nuploaded document');
+  assert.ok(body.message.includes('/skill:old-skill'));
+  assert.ok(body.message.includes('x'.repeat(10001)));
+  assert.ok(body.message.includes('附件：report.pdf\nuploaded document'));
+  assert.equal(body.message.includes('src/private.ts'), false);
   assert.equal(h.requests.some(item => item.path === '/files/paste'), false);
   h.streams[0].finish();
   await sending;

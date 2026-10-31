@@ -422,6 +422,11 @@ func FileTools(root string) []Tool {
 	}
 }
 
+// ShellTools 提供一次性命令和交互终端，不注册项目文件工具。
+func ShellTools(root string) []Tool {
+	return append([]Tool{{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout）", ReadOnly: false, AutoApprove: false}}}, BashTools(root)...)
+}
+
 func readTool(root string) tool.Tool {
 	t, _ := functiontool.New[struct {
 		Path    string `json:"path" jsonschema:"项目内相对路径"`

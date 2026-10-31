@@ -198,10 +198,8 @@ export default function Composer(props: Props) {
     if (external || !props.connected) return () => controller.abort();
     void props.api.request<ServerCommand[]>('/agent/commands', 'GET', undefined, controller.signal)
       .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteCommands(list); }).catch(() => {});
-    if (!chatMode) {
-      void props.api.request<ServerSkill[]>('/agent/skills', 'GET', undefined, controller.signal)
-        .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteSkills(list); }).catch(() => {});
-    }
+    void props.api.request<ServerSkill[]>('/agent/skills', 'GET', undefined, controller.signal)
+      .then(list => { if (!controller.signal.aborted && Array.isArray(list)) setRemoteSkills(list); }).catch(() => {});
     return () => controller.abort();
   }, [props.api, external, chatMode, props.connected]);
   useEffect(() => { close(); setFileSuggestions([]); }, [props.workspaceHash, props.agentId, chatMode]);
@@ -265,7 +263,7 @@ export default function Composer(props: Props) {
     onTerminal: props.onTerminal,
     onClear: props.onClear,
     hasHistory: !!props.history.length, busy: props.busy, notify,
-  }).filter(command => (!external || command.id !== '/skills') && (!chatMode || !['/skills', '/terminal'].includes(command.id)))
+  }).filter(command => !external || command.id !== '/skills')
     .map(command => ({ ...command,
       ...(chatMode && command.id === '/help' ? { description: '/ 调用指令 · Shift + Enter 换行' } : {}),
       action: () => { onDraft(''); command.action?.(); } }));
@@ -274,7 +272,7 @@ export default function Composer(props: Props) {
   const agentCommands = (props.generating ? props.acpCommands : undefined) ?? discovered?.commands ?? [];
   const chatCommands = new Set(['/help', '/compact', '/continue', '/agree', '/deny']);
   const remoteSlash = (external ? acpSlashCommands(agentCommands) : serverSlashCommands(
-    chatMode ? remoteCommands.filter(command => chatCommands.has(command.cmd)) : remoteCommands, chatMode ? [] : remoteSkills))
+    chatMode ? remoteCommands.filter(command => chatCommands.has(command.cmd)) : remoteCommands, remoteSkills))
     .map(command => ({ ...command, title: external ? agentEngineName : command.title, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
   const commands = external ? remoteSlash : mergeSlashCommands(localCommands, remoteSlash);
   const mention = chatMode ? null : draft.match(/(?:^|\s)@([^\s]*)$/);
@@ -331,7 +329,7 @@ export default function Composer(props: Props) {
         <img className="composer-image-preview" src={image.src} alt={image.name} />
         <button type="button" className="composer-image-remove" aria-label={`移除图片：${image.name}`} title="移除图片" onClick={() => removeAttachment(image.name)}><X size="0.75rem" /></button>
       </div>)}
-      {!chatMode && (['projects', 'skills'] as const).flatMap(key => context[key].map(name => <Chip size="sm" variant="flat" key={`${key}:${name}`} classNames={{ base: `context-chip chip-${key}` }}
+      {(['projects', 'skills'] as const).filter(key => !chatMode || key === 'skills').flatMap(key => context[key].map(name => <Chip size="sm" variant="flat" key={`${key}:${name}`} classNames={{ base: `context-chip chip-${key}` }}
         startContent={key === 'projects' ? <FolderClosed size="0.8125rem" /> : <Sparkles size="0.8125rem" />}
         endContent={<button className="context-chip-remove" aria-label={`移除${key === 'projects' ? '项目' : '技能'}：${name}`} onClick={() => onContext({ ...context, [key]: context[key].filter(item => item !== name) })}><X size="0.75rem" /></button>}>{name}</Chip>))}
       {contextFiles.map(file => <Chip size="sm" variant="flat" key={`files:${file.name}`} classNames={{ base: 'context-chip chip-files' }}
@@ -396,11 +394,11 @@ export default function Composer(props: Props) {
           {!chatMode && (agentPlan ? <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>
             : !external && !props.agentConfig && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={options.plan} onChange={value => update('plan', value)} /></div>)}
           {!chatMode && <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>}
-          {!chatMode && !external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
+          {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
             : !external && !props.agentConfig && <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{options.mode}</small></span><ChevronRight size="0.9375rem" /></button>}
           <div className="composer-menu-divider" />
-          {!chatMode && <button onClick={() => { close(); props.onTerminal(); }}><SquareTerminal size="1.0625rem" /><span>打开终端</span><ChevronRight size="0.9375rem" /></button>}
+          <button onClick={() => { close(); props.onTerminal(); }}><SquareTerminal size="1.0625rem" /><span>打开终端</span><ChevronRight size="0.9375rem" /></button>
           <button onClick={() => { onDraft('/'); close(); setDismissedDraft(null); focusInput(); }}><CircleHelp size="1.0625rem" /><span>查看输入指令</span><span className="keycap">/</span></button>
         </div>}
 
