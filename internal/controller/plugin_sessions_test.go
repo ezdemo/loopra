@@ -6,10 +6,16 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/ezdemo/looprax/internal/testutil"
 )
 
 func TestLensReadsSavedExternalHistoryThroughDeclaredSessionService(t *testing.T) {
+	pluginDir := testutil.ExternalPlugin(t, "context-lens")
 	ts, key, s, _ := parityServer(t, "")
+	if code, env := call(t, ts, "POST", "/api/plugins/install", key, map[string]any{"source": pluginDir}); code != 200 {
+		t.Fatalf("install context lens = %d %v", code, env)
+	}
 	rows := []map[string]any{
 		{"role": "user", "content": []any{map[string]any{"type": "text", "text": "HISTORICAL QUESTION"}, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,SECRET_IMAGE_BYTES"}}}, "timestamp": 123},
 		{"role": "assistant", "reasoning_content": "SAVED THOUGHT", "tool_calls": []any{map[string]any{"id": "read-old", "function": map[string]any{"name": "read", "arguments": `{"path":"old.go"}`}}}},

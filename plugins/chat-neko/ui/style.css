@@ -1,6 +1,0 @@
-main { max-width: 28rem; }
-p { color: var(--secondary); }
-label { margin-top: 16px; }
-button { margin-top: 14px; }
-#status { min-height: 1.4rem; }
-#status.ok { color: var(--success); }

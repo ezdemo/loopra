@@ -9,13 +9,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ezdemo/looprax/internal/testutil"
 )
 
 func TestContextLensCapturesScopesAndBoundsRealRuntime(t *testing.T) {
 	h := New(t.TempDir(), Hooks{Services: map[string]ServiceHandler{"sessions": func(context.Context, string, map[string]any) (any, error) {
 		return map[string]any{"messages": []any{}}, nil
 	}}})
-	view, err := h.Install(context.Background(), filepath.Join(findBundledRoot(), "context-lens"))
+	view, err := h.Install(context.Background(), testutil.ExternalPlugin(t, "context-lens"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestContextLensHistoryFallbackAndDurableSnapshots(t *testing.T) {
 			map[string]any{"role": "assistant", "content": "OLD ANSWER", "reasoning_content": "SAVED REASONING"},
 		}}, nil
 	}}})
-	view, err := h.Install(ctx, filepath.Join(findBundledRoot(), "context-lens"))
+	view, err := h.Install(ctx, testutil.ExternalPlugin(t, "context-lens"))
 	if err != nil {
 		t.Fatal(err)
 	}

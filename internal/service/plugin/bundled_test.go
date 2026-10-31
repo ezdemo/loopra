@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ezdemo/looprax/internal/testutil"
 )
 
 func TestBundledWebFetch(t *testing.T) {
@@ -103,12 +105,8 @@ func callWeb(t *testing.T, tool BoundTool, args map[string]any) string {
 }
 
 func TestChatNekoAppendsOnlyInChat(t *testing.T) {
-	root := findBundledRoot()
-	if root == "" {
-		t.Fatal("没有找到 plugins")
-	}
 	h := New(t.TempDir(), Hooks{})
-	if _, err := h.Install(context.Background(), filepath.Join(root, "chat-neko")); err != nil {
+	if _, err := h.Install(context.Background(), testutil.ExternalPlugin(t, "chat-neko")); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.Bound()) != 0 {
@@ -140,12 +138,8 @@ func TestChatNekoAppendsOnlyInChat(t *testing.T) {
 }
 
 func TestDailyReviewDeclaresContributions(t *testing.T) {
-	root := findBundledRoot()
-	if root == "" {
-		t.Fatal("没有找到 plugins")
-	}
 	h := New(t.TempDir(), Hooks{})
-	view, err := h.Install(context.Background(), filepath.Join(root, "daily-review"))
+	view, err := h.Install(context.Background(), testutil.ExternalPlugin(t, "daily-review"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +212,7 @@ func TestBundledPluginsCanDisableButNotRemove(t *testing.T) {
 	if err := h.Remove("retired"); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"web", "chat_neko"} {
+	for _, id := range []string{"web"} {
 		rec, ok := h.pluginRecord(id)
 		if !ok || !rec.Builtin || !rec.Enabled {
 			t.Fatalf("%s = %+v ok=%v", id, rec, ok)
@@ -227,32 +221,17 @@ func TestBundledPluginsCanDisableButNotRemove(t *testing.T) {
 			t.Fatalf("remove %s: %v", id, err)
 		}
 	}
-	daily, ok := h.pluginRecord("daily_review")
-	if !ok || !daily.Builtin || daily.Enabled {
-		t.Fatalf("daily = %+v ok=%v", daily, ok)
-	}
-	seen := false
-	for _, view := range h.List() {
-		if view.ID == "daily_review" {
-			seen = view.Builtin && !view.Enabled && view.Settings && view.Sidebar == nil && view.Menu == nil
+	for _, id := range []string{"chat_neko", "daily_review", "openapi", "context_lens"} {
+		if h.Installed(id) {
+			t.Fatalf("external plugin %s was still installed as a builtin", id)
 		}
-	}
-	if !seen {
-		t.Fatal("清单里没有默认关闭的内置每日回顾")
-	}
-	if _, err := h.SetEnabled(ctx, "daily_review", true); err != nil {
-		t.Fatal(err)
 	}
 	if _, err := h.SetEnabled(ctx, "web", false); err != nil {
 		t.Fatal(err)
 	}
 	h.EnsureBundled(ctx)
-	daily, _ = h.pluginRecord("daily_review")
 	web, webOK := h.pluginRecord("web")
-	if !webOK || !daily.Enabled || !daily.Builtin || web.Enabled || !web.Builtin {
-		t.Fatalf("daily=%+v web=%+v", daily, web)
-	}
-	if err := h.Remove("daily_review"); err == nil || err.Error() != "内置插件不能卸载" {
-		t.Fatalf("remove daily: %v", err)
+	if !webOK || web.Enabled || !web.Builtin {
+		t.Fatalf("web=%+v", web)
 	}
 }

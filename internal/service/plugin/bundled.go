@@ -85,11 +85,33 @@ func (h *Host) releaseBuiltin(keep map[string]bool) {
 	for i := range h.records {
 		if h.records[i].Builtin && !keep[h.records[i].ID] {
 			h.records[i].Builtin = false
+			if name := externalizedPlugin(h.records[i].ID); name != "" {
+				src, _ := parseGitHub(DefaultSource)
+				src.Subdir = "plugins/" + name
+				h.records[i].Source = githubSourceURL(src)
+			}
 			changed = true
 		}
 	}
 	if changed {
 		_ = h.saveLocked()
+	}
+}
+
+// Existing installations keep their copied files, configuration, data and
+// enabled state when these plugins move to the external source repository.
+func externalizedPlugin(id string) string {
+	switch id {
+	case "chat_neko":
+		return "chat-neko"
+	case "daily_review":
+		return "daily-review"
+	case "openapi":
+		return "openapi"
+	case "context_lens":
+		return "context-lens"
+	default:
+		return ""
 	}
 }
 

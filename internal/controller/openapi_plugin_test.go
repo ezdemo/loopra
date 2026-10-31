@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ezdemo/looprax/internal/testutil"
 )
 
 func TestOpenapiPluginToolsAndPageBridge(t *testing.T) {
+	pluginDir := testutil.ExternalPlugin(t, "openapi")
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/spec" {
 			io.WriteString(w, `{"openapi":"3.0.3","paths":{"/ping":{"get":{"operationId":"ping","summary":"测试接口"}}}}`)
@@ -20,6 +23,10 @@ func TestOpenapiPluginToolsAndPageBridge(t *testing.T) {
 	}))
 	defer upstream.Close()
 	ts, key, s, _ := parityServer(t, "")
+	code, installed := call(t, ts, "POST", "/api/plugins/install", key, map[string]any{"source": pluginDir})
+	if code != http.StatusOK {
+		t.Fatalf("install external OpenAPI plugin = %d %v", code, installed)
+	}
 	_, env := call(t, ts, "GET", "/api/plugins", key, nil)
 	row := pluginRow(env["data"].([]any), "openapi")
 	if row == nil || row["settings"] != true || row["menu"] == nil || row["enabled"] != true {
@@ -38,7 +45,7 @@ func TestOpenapiPluginToolsAndPageBridge(t *testing.T) {
 		}
 	}
 	source := map[string]any{"docUrl": upstream.URL + "/spec"}
-	code, env := call(t, ts, "POST", "/api/plugins/openapi/request", key, map[string]any{"action": "save", "value": source})
+	code, env = call(t, ts, "POST", "/api/plugins/openapi/request", key, map[string]any{"action": "save", "value": source})
 	if code != 200 || env["success"] != true {
 		t.Fatalf("save=%d %v", code, env)
 	}

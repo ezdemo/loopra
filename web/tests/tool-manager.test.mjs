@@ -63,6 +63,10 @@ const subAgentsUrl = await sourceUrl('components/SubAgentManager.tsx', {
 });
 const { ToolManager, SubAgentManager } = await import(await sourceUrl('components/ResourceManagers.tsx', {
   '@nextui-org/react': nextuiStub,
+  'lucide-react': import.meta.resolve('lucide-react'),
+  './PluginFrame': dataUrl('export const PluginFrame = () => null;'),
+  './PluginCatalog': dataUrl('export const PluginCatalog = () => null;'),
+  './plugin-icons': dataUrl('export const PluginGlyph = () => null;'),
   './RemoteControls': controlsStub,
   './SettingControls': settingControlsStub,
   './UsageDashboard': usageStub,

@@ -25,8 +25,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      LOOPRA_PLUGIN_SOURCE_DIR: ${{ github.workspace }}/.plugin-source
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ezdemo/loopra-plugins
+          path: .plugin-source
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

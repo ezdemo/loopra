@@ -23,6 +23,10 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/plugins"), "/")
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		if path == "sources" || path == "catalog" {
+			s.pluginSourceController(w, r, path)
+			return
+		}
 		if path == "" || path == "external" {
 			writeOK(w, http.StatusOK, s.plugins.List())
 			return
@@ -46,6 +50,10 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 	}
 	if path == "install" || path == "external/install" {
 		s.installPlugin(w, r)
+		return
+	}
+	if path == "sources" || path == "sources/remove" {
+		s.pluginSourceController(w, r, path)
 		return
 	}
 	parts := strings.Split(path, "/")

@@ -36,7 +36,7 @@ func TestPureChatUsesConversationPromptAndNoProjectTools(t *testing.T) {
 	for _, entry := range turn.registry.Entries() {
 		names[entry.Meta.Name] = true
 	}
-	if !names["web"] || !names["search_apis"] || !names["get_api_detail"] || !names["call_api"] || names["read"] || names["skillread"] || len(names) != 4 {
+	if !names["web"] || names["search_apis"] || names["get_api_detail"] || names["call_api"] || names["read"] || names["skillread"] || len(names) != 1 {
 		t.Fatalf("chat tools = %v", names)
 	}
 	project, err := s.prepareTurn(&chatRequest{SessionName: "project"})

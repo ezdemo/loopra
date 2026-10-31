@@ -1,6 +1,6 @@
 # 插件
 
-插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。`plugins/` 里的是内置插件：`plugins/web` 提供联网工具，名字仍然是 `web`；`plugins/chat-neko` 只在纯聊天里用 `systemPrompt` 追加猫娘人物设定；`plugins/daily-review` 是一份默认关闭的示例，启用后能看到设置页、侧栏、设置菜单、只读工具、技能、子代理和定时任务。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
+插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。主仓库只保留内置 `plugins/web` 联网工具，名字仍然是 `web`。聊天猫娘、每日回顾、OpenAPI 和上下文透视已迁到 [loopra-plugins](https://github.com/ezdemo/loopra-plugins)，可在「发现插件」中安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
 
 安装后的文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。设置了 `LOOPRA_JAVA_BACKEND_URL` 时，本进程不加载这些插件。
 
@@ -17,15 +17,69 @@
 
 插件 id 会去掉开头的 `@`，把 `/` 换成 `__`，再把其余非字母数字字符收成 `_`。`demo-plugin` 的工具 `greet` 公开名称是 `demo_plugin__greet`。`@scope/pkg` 的 id 是 `scope_pkg`。
 
+## GitHub 插件源
+
+设置 → 插件 → 发现插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。可添加其他公开仓库、切换来源和刷新列表；在「已安装」里启停、设置或卸载插件。移除源只取消订阅，已经安装的插件继续保留。
+
+仓库不需要额外的索引文件，推荐按下面的目录组织：
+
+```text
+loopra-plugins/
+  README.md
+  plugins/
+    hello/
+      package.json
+      plugin.js
+    another-plugin/
+      package.json
+      plugin.ts
+      ui/
+        index.html
+```
+
+每个插件的 `package.json` 需要一个唯一的 `name`，可填写 `description`、`version`，并用 `loopra` 指定入口。列表从这些字段读取信息，不执行插件代码。扫描跳过隐藏目录、`node_modules` 和已识别插件的子目录；入口规则与单独安装一致，也支持根目录就是一个插件的仓库。同一源中生成相同 id 的插件会报错。
+
+```json
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "description": "打招呼示例",
+  "loopra": "./plugin.js"
+}
+```
+
+```js
+export function greet(args) {
+  return { text: "你好，" + (args.name || "世界") };
+}
+```
+
+可以将 [examples/plugin-source](../examples/plugin-source/) 的内容复制到新仓库后提交。空仓库需要先创建一次提交，添加插件后刷新列表即可。仓库下载和解压沿用插件安装限制：压缩包不超过 32 MiB，解压后不超过 64 MiB、4000 个文件，单文件不超过 8 MiB。
+
+插件源保存在 `~/.loopra/plugins/sources.json`，移除默认源后重启也不会自动加回。支持 `owner/repo#ref` 指定分支或标签，未指定时依次尝试 `main`、`master`。限定子目录时可使用 `https://github.com/owner/repo/tree/main/plugins`；分支名包含 `/` 时使用 `https://github.com/owner/repo?path=plugins#feature/plugins`，安装时生成的来源也使用这一格式。
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /api/plugins/sources` | 列出已添加的插件源 |
+| `POST /api/plugins/sources`，`{ "source": "https://github.com/owner/repo" }` | 添加源，重复添加会去重 |
+| `POST /api/plugins/sources/remove`，`{ "source": "https://github.com/owner/repo" }` | 移除源，保留已安装插件 |
+| `GET /api/plugins/catalog?source=<编码后的仓库地址>` | 浏览源中的插件 |
+| `POST /api/plugins/install`，`{ "source": "<列表项的 source>" }` | 安装选中的插件 |
+| `POST /api/plugins/<id>/remove` | 卸载并移除插件文件、配置、数据和工具 |
+
 ## 内置插件
 
 `plugins/` 目录里，`package.json` 写了名字的插件是内置插件。程序启动时安装；目录还在、来源没变时，按当前文件更新。
 
 内置插件可以停用，不能卸载。设置页上来源显示「内置」，没有卸载按钮。接口里这项是 `builtin: true`，`POST /api/plugins/<id>/remove` 会拒绝。
 
-`loopra.defaultEnabled` 只在第一次安装时生效。`false` 表示默认关闭，不写或写 `true` 表示默认开启。用户之后的开关会留下来，以后更新不会改回去。`plugins/web`、`plugins/chat-neko` 和 `plugins/openapi` 默认开启，`plugins/daily-review` 默认关闭。
+内置插件的 `loopra.defaultEnabled` 只在第一次安装时生效。`false` 表示默认关闭，不写或写 `true` 表示默认开启。用户之后的开关会留下来，以后更新不会改回去。`plugins/web` 默认开启；用户主动安装的外部插件在安装后启用。
 
 插件从 `plugins/` 里去掉之后，已经装上的那份不再是内置，可以卸载。同名但来源不是这个目录的插件保持原样，也不会变成内置。
+
+聊天猫娘、每日回顾、OpenAPI 和上下文透视从内置迁出时，已安装副本的文件、配置、数据和启停状态都会保留；来源改为 `loopra-plugins` 中对应的目录，取消内置标记后支持卸载。新安装的 Loopra 不再自动安装这四个插件。
+
+这四个插件的页面测试在插件仓库中运行。主仓库保留宿主集成测试；将 `loopra-plugins` 克隆到主仓库同一级目录，或设置 `LOOPRA_PLUGIN_SOURCE_DIR` 指向插件仓库根目录，即可运行。CI 会检出插件仓库运行这些集成测试。
 
 ## 入口
 
@@ -148,7 +202,7 @@ export async function load(args) {
 
 ## 设置页
 
-`loopra` 写成对象时可以声明一个设置页。`plugins/chat-neko` 带了一份示例。
+`loopra` 写成对象时可以声明一个设置页。[chat-neko](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/chat-neko) 带了一份示例。
 
 ```json
 {
@@ -240,7 +294,7 @@ export function onRequest({ action, value }) {
 
 当前宿主提供 `openapi`：文档下载、JSON / YAML 解析、缓存、源认证、搜索、接口详情与调用，沿用 `~/.loopra/openapi-sources.json` 和原有缓存。服务按声明提供，不按插件 id 特判，第三方插件同样可以声明使用。未声明或宿主未提供的服务会报错；iframe 不能直接调用宿主服务，也不能传任意宿主 API 路径。
 
-内置 `plugins/openapi` 是完整示例：插件设置页和「工具与集成 → OpenAPI」设置菜单复用同一份页面；UI 使用统一桥；`onRequest` 只开放源管理、搜索和详情；`call_api` 工具在后端调用同一服务的 `call`，仍经过现有工具审批。文档解析和认证实现在 Go 宿主服务中，页面和操作分发属于插件。
+[OpenAPI 插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/openapi) 是完整示例：插件设置页和「工具与集成 → OpenAPI」设置菜单复用同一份页面；UI 使用统一桥；`onRequest` 只开放源管理、搜索和详情；`call_api` 工具在后端调用同一服务的 `call`，仍经过现有工具审批。文档解析和认证实现在 Go 宿主服务中，页面和操作分发属于插件。
 
 iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击或键盘事件发消息，不依赖浏览器原生表单提交。
 
@@ -248,7 +302,7 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
 
 `ui.sidebar` 在侧栏「定时任务」下面加一个入口。点开后主区域显示页面，沙箱、cookie 和消息跟设置页一样。cookie 的 Path 是 `/api/plugins/<id>/sidebar`。
 
-可以写路径，也可以写标题、图标和路径。没写标题时用插件显示名。没写图标时用插件自己的 `icon`。样式和脚本跟设置页一样，可以写在 HTML 里，也可以放在入口目录的文件里。停用或卸载后，侧栏入口和设置菜单都会去掉。插件卡片上的设置页还可以打开。`plugins/chat-neko` 只挂设置页，用来改纯聊天里的称呼。`plugins/daily-review` 同时挂了设置页、侧栏和带两个子菜单的设置菜单，并且默认关闭。
+可以写路径，也可以写标题、图标和路径。没写标题时用插件显示名。没写图标时用插件自己的 `icon`。样式和脚本跟设置页一样，可以写在 HTML 里，也可以放在入口目录的文件里。停用或卸载后，侧栏入口和设置菜单都会去掉。插件卡片上的设置页还可以打开。[chat-neko](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/chat-neko) 只挂设置页，用来改纯聊天里的称呼。[daily-review](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/daily-review) 同时挂了设置页、侧栏和带两个子菜单的设置菜单。
 
 ```json
 "icon": "./ui/icon.svg",
@@ -274,7 +328,7 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
 
 标题和图标省略时沿用插件名称与图标。页面通过 `/api/plugins/<id>/panel/open` 打开，使用独立的 `/panel/t/<票据>/` 路径，复用设置页的沙箱、主题、配置、上下文和 `loopra.request()`。页签选择按会话保存；页签过多可横向滚动；刷新按钮重新打开当前插件页。停用或卸载后入口移除，当前页退回文件页。
 
-内置 `plugins/context-lens` 使用这个插入点，不占用左侧主导航。它通过 `llmRequestSent` 记录 Loopra Native 的实际发送前快照，覆盖 Chat Completions、Responses 和 Anthropic。最近 16 次请求、约 6 MiB 的记录会原子写入插件数据目录，重启、重新加载和升级插件后仍可查看，超长段落明确标为截断。清空快照只删除透镜记录，不改动会话日志。
+[上下文透视插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/context-lens) 使用这个插入点，不占用左侧主导航。它通过 `llmRequestSent` 记录 Loopra Native 的实际发送前快照，覆盖 Chat Completions、Responses 和 Anthropic。最近 16 次请求、约 6 MiB 的记录会原子写入插件数据目录，重启、重新加载和升级插件后仍可查看，超长段落明确标为截断。清空快照只删除透镜记录，不改动会话日志。
 
 当前会话没有请求快照时，透镜通过只读 `sessions` 宿主服务展示已保存的用户消息、助手消息、思考记录、工具调用与结果；外部 ACP Agent 的历史会话也支持。历史视图明确标为「会话历史」，不补入当前的系统提示或工具定义，不声称还原当时的完整请求。读取保留最近 1200 行、最多约 3 MiB，超出时标明截断。历史工具结果不能直接折叠；外部 Agent 隐藏仅对 Native 生效的固定操作。
 
@@ -315,7 +369,7 @@ cookie 的 Path 是 `/api/plugins/<id>/menu`。页面地址是 `/menu/`，有子
 
 ## 技能、子代理、定时任务
 
-已启用的插件可以各声明一条。它们出现在现有的技能、子代理和定时任务列表里。停用或卸载后一起消失，也不会写进用户自己的技能目录、`sub-agents.json` 或某个项目的定时任务文件。`plugins/daily-review` 把这三项和设置页、侧栏、菜单、只读工具放在同一个插件里，默认关闭。
+已启用的插件可以各声明一条。它们出现在现有的技能、子代理和定时任务列表里。停用或卸载后一起消失，也不会写进用户自己的技能目录、`sub-agents.json` 或某个项目的定时任务文件。[daily-review](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/daily-review) 把这三项和设置页、侧栏、菜单、只读工具放在同一个插件里。
 
 ```json
 "skill": "./SKILL.md",

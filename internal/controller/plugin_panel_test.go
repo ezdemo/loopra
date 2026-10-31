@@ -5,10 +5,16 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/ezdemo/looprax/internal/testutil"
 )
 
 func TestContextLensPanelTicketAndLifecycle(t *testing.T) {
+	pluginDir := testutil.ExternalPlugin(t, "context-lens")
 	ts, key, _, _ := parityServer(t, "")
+	if code, env := call(t, ts, "POST", "/api/plugins/install", key, map[string]any{"source": pluginDir}); code != http.StatusOK {
+		t.Fatalf("install context lens = %d %v", code, env)
+	}
 	code, env := call(t, ts, "GET", "/api/plugins", key, nil)
 	if code != 200 {
 		t.Fatal(env)

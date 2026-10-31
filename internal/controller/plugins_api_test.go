@@ -100,6 +100,53 @@ export function call(input) { return { text: "hello " + input.args.name }; }
 	if code != http.StatusBadRequest {
 		t.Fatalf("extpack install = %d", code)
 	}
+
+	// Browse a repository with multiple plugins, install just one, and keep it
+	// installed when the source subscription is removed.
+	srv.plugins.Fetcher = func(ctx context.Context, rawURL string) ([]byte, error) {
+		if !strings.Contains(rawURL, "codeload.github.com/acme/plugins/") {
+			return nil, fmt.Errorf("unexpected %s", rawURL)
+		}
+		return pluginTarGz(map[string]string{
+			"repo/plugins/one/package.json": `{"name":"source-one","loopra":"plugin.js"}`,
+			"repo/plugins/one/plugin.js":    `export function ping() { return { text: "one" }; }`,
+			"repo/plugins/two/package.json": `{"name":"source-two","loopra":"plugin.js"}`,
+			"repo/plugins/two/plugin.js":    `export function ping() { return { text: "two" }; }`,
+		}), nil
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/sources", key, map[string]string{"source": "github:acme/plugins"})
+	if code != http.StatusOK {
+		t.Fatalf("add source = %d %v", code, env)
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/plugins/sources", key, nil)
+	if code != http.StatusOK || !strings.Contains(fmt.Sprint(env["data"]), "https://github.com/acme/plugins") {
+		t.Fatalf("list sources = %d %v", code, env)
+	}
+	code, env = call(t, ts, http.MethodGet, "/api/plugins/catalog?source=github%3Aacme%2Fplugins", key, nil)
+	items, _ = env["data"].([]any)
+	if code != http.StatusOK || len(items) != 2 {
+		t.Fatalf("catalog = %d %v", code, env)
+	}
+	row := pluginRow(items, "source_one")
+	if row == nil {
+		t.Fatal("source_one missing from catalog")
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/install", key, map[string]any{"source": row["source"]})
+	if code != http.StatusOK || !toolListed(t, ts, key, "source_one__ping") || toolListed(t, ts, key, "source_two__ping") {
+		t.Fatalf("install catalog entry = %d %v", code, env)
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/sources/remove", key, map[string]string{"source": "github:acme/plugins"})
+	if code != http.StatusOK || !toolListed(t, ts, key, "source_one__ping") {
+		t.Fatalf("remove source = %d %v", code, env)
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/source_one/uninstall", key, nil)
+	if code != http.StatusOK || toolListed(t, ts, key, "source_one__ping") {
+		t.Fatalf("uninstall catalog entry = %d %v", code, env)
+	}
+	code, _ = call(t, ts, http.MethodGet, "/api/plugins/catalog?source=left-pad", key, nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("non-repository catalog = %d", code)
+	}
 }
 
 func pluginRow(items []any, id string) map[string]any {

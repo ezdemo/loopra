@@ -1,0 +1,6 @@
+{
+  "name": "loopra-hello",
+  "version": "1.0.0",
+  "description": "一个最小的打招呼插件",
+  "loopra": "./plugin.js"
+}

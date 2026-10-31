@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PluginFrame, type PluginContext } from './PluginFrame';
+import { PluginCatalog } from './PluginCatalog';
 import { PluginGlyph, type PluginIconRef } from './plugin-icons';
 import { Button } from '@nextui-org/react';
 import { Check } from 'lucide-react';
@@ -30,6 +31,7 @@ function pluginFoot(pack: Pack) {
   return '';
 }
 export function ExtensionManager({ api, onChanged, context }: { api: LoopraClient; onChanged?: () => void; context?: PluginContext }) {
+  const [tab, setTab] = useState<'installed' | 'catalog'>('installed');
   const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
   async function act(path: string, body?: unknown, clearSource = false) {
     setBusy(true); setError('');
@@ -45,12 +47,18 @@ export function ExtensionManager({ api, onChanged, context }: { api: LoopraClien
     </div>;
   }
   return <div className="settings-resource-page plugin-page">
-    <PageActions title="插件"><Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button></PageActions>
+    <PageActions title="插件">{tab === 'installed' && <Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button>}</PageActions>
+    <div className="tools-filters" role="group" aria-label="插件视图">
+      <Button size="sm" variant="light" className={`tools-filter ${tab === 'installed' ? 'active' : ''}`} aria-pressed={tab === 'installed'} onPress={() => setTab('installed')}>已安装</Button>
+      <Button size="sm" variant="light" className={`tools-filter ${tab === 'catalog' ? 'active' : ''}`} aria-pressed={tab === 'catalog'} onPress={() => setTab('catalog')}>发现插件</Button>
+    </div>
+    {error && <p role="alert" className="settings-error">{error}</p>}
+    <RemoteState {...state} />
+    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || !state.data} onInstall={value => act('/install', { source: value })} /> : <>
     <form className="resource-toolbar resource-install" onSubmit={event => { event.preventDefault(); const value = source.trim(); if (value) void act('/install', { source: value }, true); }}>
       <Field label="npm 包、GitHub 或本地路径" required value={source} onChange={setSource} placeholder="left-pad、GitHub 地址，或本地目录 / .tgz / .js" />
       <button className="plugin-card-state" type="submit" disabled={busy || !source.trim()}>{busy ? '安装中' : '安装'}</button>
     </form>
-    <RemoteState {...state} />{error && <p role="alert" className="settings-error">{error}</p>}
     {state.data?.length === 0 && <ResourceEmpty kind="plugin" title="尚未安装插件">填写 npm 包名、GitHub 地址，或本地目录。</ResourceEmpty>}
     <div className="plugin-market">{state.data?.map(pack => {
       const name = pack.displayName || pack.id;
@@ -80,6 +88,7 @@ export function ExtensionManager({ api, onChanged, context }: { api: LoopraClien
         </footer>
       </section>;
     })}</div>
+    </>}
     {deleting && <ConfirmAction title="卸载插件" onClose={() => setDeleting(undefined)} action={() => api.request(`/plugins/${encodeURIComponent(deleting.id)}/remove`, 'POST')} onDone={() => { setRevision(value => value + 1); onChanged?.(); }}><p>卸载 {deleting.displayName || deleting.id}？已安装的文件和它贡献的工具会一起移除。</p></ConfirmAction>}
   </div>;
 }

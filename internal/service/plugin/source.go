@@ -152,7 +152,7 @@ func parseGitHub(raw string) (origin, bool) {
 	}
 	if strings.HasPrefix(source, "https://") {
 		u, err := url.Parse(source)
-		if err != nil || !strings.EqualFold(u.Hostname(), "github.com") {
+		if err != nil || !strings.EqualFold(u.Host, "github.com") || u.User != nil {
 			return origin{}, false
 		}
 		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
@@ -161,8 +161,11 @@ func parseGitHub(raw string) (origin, bool) {
 		}
 		owner, repo := parts[0], strings.TrimSuffix(parts[1], ".git")
 		ref := u.Fragment
-		sub := ""
+		sub := u.Query().Get("path")
 		if len(parts) >= 4 && parts[2] == "tree" {
+			if sub != "" {
+				return origin{}, false
+			}
 			ref = parts[3]
 			if len(parts) > 4 {
 				sub = strings.Join(parts[4:], "/")
@@ -170,7 +173,7 @@ func parseGitHub(raw string) (origin, bool) {
 		} else if len(parts) > 2 {
 			return origin{}, false
 		}
-		if !validGitName(owner) || !validGitName(repo) || strings.Contains(ref, "..") || strings.Contains(sub, "..") {
+		if !validGitName(owner) || !validGitName(repo) || strings.Contains(ref, "..") || strings.Contains(ref, `\`) || !validGitSubdir(sub) {
 			return origin{}, false
 		}
 		return origin{Kind: "github", Owner: owner, Repo: repo, Ref: ref, Subdir: sub}, true
