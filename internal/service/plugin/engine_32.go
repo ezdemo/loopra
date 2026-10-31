@@ -27,7 +27,7 @@ type running struct {
 	entry       string
 }
 
-func (p *running) setHostServices(map[string]ServiceHandler, []string) error {
+func (p *running) setHostServices(map[string]ServiceHandler, []string, string) error {
 	return nil
 }
 

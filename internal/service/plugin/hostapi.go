@@ -22,8 +22,15 @@ import (
 )
 
 // Backend services are named capabilities declared in package.json, not plugin-id exceptions.
-func (p *running) setHostServices(services map[string]ServiceHandler, declared []string) error {
-	return p.rt.SetGlobal("loopra", map[string]any{"services": map[string]any{"request": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+func (p *running) setHostServices(services map[string]ServiceHandler, declared []string, dataDir string) error {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+	dataPath, err := jsPath(dataDir)
+	if err != nil {
+		return err
+	}
+	return p.rt.SetGlobal("loopra", map[string]any{"dataDir": dataPath, "services": map[string]any{"request": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
 		name := moejs.Arg(args, 0).String()
 		if !slices.Contains(declared, name) {
 			return moejs.Undefined(), fmt.Errorf("插件未声明宿主服务: %s", name)

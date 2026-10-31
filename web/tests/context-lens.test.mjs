@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { buildSnapshot, PIN_START, PIN_END } from '../../plugins/context-lens/snapshot.js';
+import { buildSnapshot, buildHistory, PIN_START, PIN_END } from '../../plugins/context-lens/snapshot.js';
 import { llmRequest } from '../../plugins/context-lens/plugin.js';
 
 const body = { model: 'fixture-model', messages: [
@@ -42,7 +42,7 @@ const html = await readFile(new URL('../../plugins/context-lens/ui/index.html', 
 const script = await readFile(new URL('../../plugins/context-lens/ui/app.js', import.meta.url), 'utf8');
 const page = html.replace('<script src="_loopra/bridge.js"></script>', '').replace('<script src="app.js"></script>', () => `<script>${script}</script>`);
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
-function setup({ holdDetail = false } = {}) {
+function setup({ holdDetail = false, recorded = snapshot } = {}) {
   let config = {}, release, context = { workspaceHash: 'project', sessionId: 'project/one' };
   const listeners = [], requests = [];
   const dom = new JSDOM(page, { runScripts: 'dangerously', beforeParse(window) {
@@ -50,8 +50,8 @@ function setup({ holdDetail = false } = {}) {
       config: { get: async () => structuredClone(config), set: async value => { config = JSON.parse(JSON.stringify(value)); return config; } },
       request: async (action, value) => {
         requests.push({ action, value });
-        if (action === 'list') return { records: context.workspaceHash === 'project' ? [{ ...snapshot, blocks: undefined }] : [] };
-        if (action === 'detail') { if (holdDetail) await new Promise(resolve => { release = resolve; }); return snapshot; }
+        if (action === 'list') return { records: context.workspaceHash === 'project' ? [{ ...recorded, blocks: undefined }] : [] };
+        if (action === 'detail') { if (holdDetail) await new Promise(resolve => { release = resolve; }); return recorded; }
         if (action === 'clear') return { ok: true };
         throw new Error(action);
       },
@@ -87,6 +87,48 @@ test('lens UI filters real blocks, inspects inert text, and saves scoped pin/fol
     assert.deepEqual(llmRequest({ app: 'project', sessionId: 'two', system: 'BASE', config: ui.config }), {});
     assert.match(d.querySelector('#status').textContent, /下一次模型请求/);
   } finally { ui.close(); }
+});
+
+test('historical sessions project saved reasoning and calls without inventing request fields', () => {
+  const record = buildHistory({ messages: [...body.messages.slice(1), { role: 'assistant', content: 'DONE', reasoning_content: 'PERSISTED THOUGHT' }], at: 123, revision: 'r1', agentId: 'pi', native: false }, { app: 'project', session: 'one' });
+  assert.equal(record.origin, 'history');
+  assert.equal(record.at, 123);
+  assert.equal(record.native, false);
+  assert.equal(record.model, '');
+  assert.ok(record.blocks.every(block => block.source.startsWith('history[')));
+  assert.ok(record.blocks.some(block => block.title === '已保存的思考记录' && block.text === 'PERSISTED THOUGHT'));
+  assert.ok(record.blocks.some(block => block.title === 'read · main.go'));
+  assert.ok(record.blocks.every(block => !block.foldable));
+  assert.ok(!record.groups.some(group => ['tools', 'system'].includes(group.kind)));
+});
+
+test('external history is labelled and hides controls that only work on native requests', async () => {
+  const recorded = buildHistory({ messages: body.messages.slice(1), at: 123, revision: 'r1', agentId: 'pi', native: false, truncated: true }, { app: 'project', session: 'one' });
+  const ui = setup({ recorded });
+  try {
+    await settle(); await settle();
+    const d = ui.document;
+    assert.equal(d.querySelector('#overview').hidden, false);
+    assert.match(d.querySelector('#requests').textContent, /会话历史/);
+    assert.match(d.querySelector('#capture-note').textContent, /不代表当时的完整模型请求.*截断/);
+    assert.equal(d.querySelector('#pin-editor').hidden, true);
+    assert.equal(d.querySelector('#clear').hidden, true, 'snapshot clearing cannot imply deleting conversation history');
+    d.querySelector('.map-cell[aria-label^="工具结果"]').click();
+    d.querySelector('.block').click();
+    assert.equal(d.querySelector('#fold-block').hidden, true);
+    assert.equal(d.querySelector('#pin-block').hidden, true);
+    assert.match(d.querySelector('#inspect-text').textContent, /real tool output/);
+  } finally { ui.close(); }
+});
+
+test('long historical sessions retain the most recent blocks with unique identities', () => {
+  const record = buildHistory({ messages: Array.from({ length: 810 }, (_, i) => ({ role: 'user', content: `message-${i}` })), revision: 'long' }, { app: 'project', session: 'one' });
+  assert.equal(record.blocks.length, 800);
+  assert.equal(record.blocks[0].text, 'message-10');
+  assert.equal(record.blocks.at(-1).text, 'message-809');
+  assert.equal(new Set(record.blocks.map(block => block.id)).size, 800);
+  assert.equal(record.omitted, 10);
+  assert.equal(record.truncated, true);
 });
 
 test('a late detail response cannot show the previous workspace snapshot', async () => {

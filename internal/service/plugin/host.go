@@ -315,6 +315,9 @@ func (h *Host) Remove(id string) error {
 	if removeErr := os.Remove(h.uiConfigPath(id)); removeErr != nil && !os.IsNotExist(removeErr) && err == nil {
 		err = removeErr
 	}
+	if removeErr := os.RemoveAll(h.dataDir(id)); err == nil {
+		err = removeErr
+	}
 	h.forgetSchedule(contributionID(id))
 	return err
 }
@@ -322,7 +325,7 @@ func (h *Host) Remove(id string) error {
 func (h *Host) reload(ctx context.Context, rec record) error {
 	run, err := openPackage(ctx, h.pkgDir(rec.ID), rec)
 	if err == nil {
-		err = run.setHostServices(h.services, readPkg(h.pkgDir(rec.ID)).Services)
+		err = run.setHostServices(h.services, readPkg(h.pkgDir(rec.ID)).Services, h.dataDir(rec.ID))
 		if err != nil {
 			run.close()
 		}
@@ -509,6 +512,10 @@ func (h *Host) base() string { return filepath.Join(h.home, "plugins") }
 
 func (h *Host) pkgDir(id string) string {
 	return filepath.Join(h.home, "plugins", "packages", id)
+}
+
+func (h *Host) dataDir(id string) string {
+	return filepath.Join(h.home, "plugins", "data", id)
 }
 
 func (h *Host) manifestPath() string {

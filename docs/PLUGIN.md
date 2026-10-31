@@ -274,7 +274,11 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
 
 标题和图标省略时沿用插件名称与图标。页面通过 `/api/plugins/<id>/panel/open` 打开，使用独立的 `/panel/t/<票据>/` 路径，复用设置页的沙箱、主题、配置、上下文和 `loopra.request()`。页签选择按会话保存；页签过多可横向滚动；刷新按钮重新打开当前插件页。停用或卸载后入口移除，当前页退回文件页。
 
-内置 `plugins/context-lens` 使用这个插入点，不占用左侧主导航。它通过 `llmRequestSent` 记录 Loopra Native 的实际发送前快照，覆盖 Chat Completions、Responses 和 Anthropic；外部 ACP Agent 不提供请求体，因此不从历史消息推测快照。保留最近 16 次请求、约 6 MiB 的内存记录，超长段落明确标为截断，重启或重新加载插件会清空快照。
+内置 `plugins/context-lens` 使用这个插入点，不占用左侧主导航。它通过 `llmRequestSent` 记录 Loopra Native 的实际发送前快照，覆盖 Chat Completions、Responses 和 Anthropic。最近 16 次请求、约 6 MiB 的记录会原子写入插件数据目录，重启、重新加载和升级插件后仍可查看，超长段落明确标为截断。清空快照只删除透镜记录，不改动会话日志。
+
+当前会话没有请求快照时，透镜通过只读 `sessions` 宿主服务展示已保存的用户消息、助手消息、思考记录、工具调用与结果；外部 ACP Agent 的历史会话也支持。历史视图明确标为「会话历史」，不补入当前的系统提示或工具定义，不声称还原当时的完整请求。读取保留最近 1200 行、最多约 3 MiB，超出时标明截断。历史工具结果不能直接折叠；外部 Agent 隐藏仅对 Native 生效的固定操作。
+
+插件后端可在 `loopra.services` 中声明 `"sessions"`，然后调用 `loopra.services.request("sessions", "history", { workspaceHash, sessionName, revision? })` 读取已登记项目的可见会话记录，传入相同 `revision` 时返回 `unchanged: true`。这是读取能力，不会运行 Agent 或工具。后端的 `loopra.dataDir` 是独立于插件包的可写数据目录，可使用 `node:fs` 保存数据，升级时保留、卸载时删除；此路径不传给 iframe。
 
 透镜可以按类别筛选、搜索并查看原文，工具结果会关联实际调用名称。界面 token 数按 UTF-8 文本字节数约算，不含媒体和协议开销；媒体不保留原始二进制数据。固定内容和折叠设置按项目与会话保存在插件配置中，下一次请求生效，不会自动重新发送消息。固定内容每个会话最多 2000 字符，最多折叠 64 条结果，配置保留最近 12 段会话。
 

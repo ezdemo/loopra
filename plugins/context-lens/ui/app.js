@@ -4,7 +4,10 @@
   const labels = { system: "系统与项目规则", tools: "工具定义", user: "用户消息", assistant: "助手消息", result: "工具结果", media: "媒体", pin: "固定上下文" };
   let records = [], snapshot = null, selectedBlock = null, filter = "", following = true, generation = 0, pending = 0, picking = 0, scope = "", dirty = false, saving = false, rule = { note: "", folded: [] };
   const number = value => value >= 1000 ? (value / 1000).toFixed(value >= 10000 ? 1 : 2).replace(/\.?0+$/, "") + "k" : String(value);
-  const time = value => new Date(value).toLocaleTimeString("zh-CN", { hour12: false });
+  const time = value => {
+    const date = new Date(value);
+    return date.toDateString() === new Date().toDateString() ? date.toLocaleTimeString("zh-CN", { hour12: false }) : date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  };
   const keyOf = record => JSON.stringify([record.app || "", record.session || ""]);
   function node(tag, text, className) { const el = document.createElement(tag); if (text !== undefined) el.textContent = String(text); if (className) el.className = className; return el; }
   function status(text = "", error = false) { $("status").hidden = !text; $("status").textContent = text; $("status").className = error ? "error" : ""; }
@@ -12,7 +15,7 @@
   function showEmpty() {
     snapshot = null; selectedBlock = null;
     $("empty").hidden = false; $("overview").hidden = true; $("inspector").hidden = true;
-    $("empty-text").textContent = "使用 Loopra Native 发起一次对话，模型发送前的上下文会出现在这里。快照从启用插件后开始记录。";
+    $("empty-text").textContent = "选择一段已有消息的会话，即可查看历史内容。Loopra Native 的新请求还会记录发送前快照。";
   }
   function back() { selectedBlock = null; $("inspector").hidden = true; $("overview").hidden = false; }
   function syncRule(next) {
@@ -70,6 +73,7 @@
     $("fold-block").hidden = !selectedBlock.foldable;
     $("fold-block").textContent = folded ? "恢复下次发送原文" : "下次折叠此结果";
     $("fold-block").disabled = saving;
+    $("pin-block").hidden = snapshot.native === false;
   }
   function inspect(block) {
     following = false; selectedBlock = block;
@@ -93,8 +97,11 @@
     if (!selectedBlock) $("overview").hidden = false;
     $("requests").value = next.id;
     $("total").textContent = "~" + number(next.tokens); $("time").textContent = time(next.at);
-    $("model").textContent = next.model + " · " + ({ chat_completions: "Chat Completions", responses: "Responses", anthropic: "Anthropic" }[next.protocol] || next.protocol);
-    $("capture-note").textContent = "发送前快照 · 未计媒体与协议开销" + (next.truncated ? " · 部分内容已截断" : "");
+    const historical = next.origin === "history";
+    $("model").textContent = [next.model, historical ? next.agent : ({ chat_completions: "Chat Completions", responses: "Responses", anthropic: "Anthropic" }[next.protocol] || next.protocol)].filter(Boolean).join(" · ");
+    $("pin-editor").hidden = next.native === false;
+    $("clear").hidden = historical;
+    $("capture-note").textContent = (historical ? "会话历史 · 不代表当时的完整模型请求" : "发送前快照 · 未计媒体与协议开销") + (next.truncated ? " · 部分内容已截断" : "");
     const config = await loopra.config.get();
     if (version !== generation || snapshot?.id !== next.id) return;
     syncRule((Array.isArray(config.rules) ? config.rules : []).find(rule => rule.key === keyOf(next)));
@@ -106,14 +113,15 @@
     try {
       const data = await loopra.request("list");
       if (version !== generation) return;
+      status(data.warning || "", !!data.warning);
       records = data.records;
       if (!records.length) { showEmpty(); return; }
       const selected = following || !records.some(record => record.id === snapshot?.id) ? records[0].id : snapshot.id;
       $("requests").replaceChildren(...records.map((record, index) => {
-        const option = node("option", `${time(record.at)}${index === 0 ? " · 最新请求" : ""} · ~${number(record.tokens)}`); option.value = record.id; return option;
+        const option = node("option", `${record.origin === "history" ? "会话历史 · " + time(record.at) : time(record.at) + (index === 0 ? " · 最新请求" : "")} · ~${number(record.tokens)}`); option.value = record.id; return option;
       }));
       $("requests").value = selected;
-      document.querySelector(".live-dot").classList.toggle("paused", !following);
+      document.querySelector(".live-dot").classList.toggle("paused", !following || records.find(record => record.id === selected)?.origin === "history");
       if (selected !== snapshot?.id) await pick(selected);
     } catch (error) { if (version === generation) status(error.message || String(error), true); }
     finally { if (version === generation && pending === request) pending = 0; }

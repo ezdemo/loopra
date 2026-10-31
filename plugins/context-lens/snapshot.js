@@ -14,6 +14,17 @@ export function selection(context = {}) {
 export function policy(config, app, session) {
   return (Array.isArray(config?.rules) ? config.rules : []).find(rule => rule?.key === scopeKey(app, session)) || { note: "", folded: [] };
 }
+
+export function buildHistory(data, scope) {
+  const record = buildSnapshot({ app: scope.app, sessionId: scope.session, protocol: "history", body: { messages: data.messages } }, "history:" + scopeKey(scope.app, scope.session) + ":" + data.revision, data.at || 0);
+  record.origin = "history";
+  record.revision = data.revision;
+  record.model = data.model || "";
+  record.agent = data.agentId || "";
+  record.native = data.native !== false;
+  record.truncated ||= !!data.truncated;
+  return record;
+}
 function printable(value) {
   if (typeof value === "string") return value;
   return JSON.stringify(value ?? null, function(key, item) {
@@ -26,12 +37,16 @@ function printable(value) {
 // A skills directory remains a directory, not a claim that a skill was read.
 export function buildSnapshot(input, id, now = Date.now()) {
   const body = input.body || {}, blocks = [];
-  let omitted = 0;
+  let omitted = 0, blockSequence = 0;
   function add(kind, text, source, title, callId = "", name = "") {
     if (text === undefined || text === null || text === "") return;
-    if (blocks.length >= 800) { omitted++; return; }
+    if (blocks.length >= 800) {
+      omitted++;
+      if (input.protocol === "history") blocks.shift();
+      else return;
+    }
     const full = printable(text), bytes = Buffer.byteLength(full, "utf8");
-    blocks.push({ id: "block-" + blocks.length, kind, title: title || labels[kind], source, name, callId,
+    blocks.push({ id: "block-" + blockSequence++, kind, title: title || labels[kind], source, name, callId,
       foldable: kind === "result" && !!callId && (input.foldableCalls || []).includes(callId),
       folded: kind === "result" && full.includes(FOLDED), text: full.slice(0, MAX_TEXT), truncated: full.length > MAX_TEXT,
       bytes, tokens: kind === "media" ? 0 : Math.ceil(bytes / 4) });
@@ -87,10 +102,10 @@ export function buildSnapshot(input, id, now = Date.now()) {
   }
   if (typeof body.input === "string") add("user", body.input, "input");
   messages.forEach((message, index) => {
-    const path = `${Array.isArray(body.messages) ? "messages" : "input"}[${index}]`;
+    const path = `${input.protocol === "history" ? "history" : Array.isArray(body.messages) ? "messages" : "input"}[${index}]`;
     if (typeof message === "string") { add("user", message, path); return; }
     if (message.role === "system" || message.role === "developer") system(message.content, path + ".content");
-    else if (message.role === "tool") add("result", message.content, path + ".content", calls.get(message.tool_call_id)?.title || message.name || "工具结果", message.tool_call_id, calls.get(message.tool_call_id)?.name || message.name);
+    else if (message.role === "tool") add("result", message.content, path + ".content", calls.get(message.tool_call_id)?.title || message.tool_name || message.name || "工具结果", message.tool_call_id, calls.get(message.tool_call_id)?.name || message.tool_name || message.name);
     else if (message.type === "function_call_output") add("result", message.output, path + ".output", calls.get(message.call_id)?.title || "工具结果", message.call_id, calls.get(message.call_id)?.name);
     else if (message.type === "function_call") add("assistant", { name: message.name, arguments: message.arguments }, path, "调用 " + message.name);
     else if (message.type === "reasoning") {
@@ -99,6 +114,7 @@ export function buildSnapshot(input, id, now = Date.now()) {
       if (message.encrypted_content) add("media", "不透明推理载荷（无法估算 token，未保存载荷原文）", path + ".encrypted_content", "推理载荷");
     }
     else content(message.content, message.role, path + ".content");
+    if (input.protocol === "history" && message.reasoning_content) add("assistant", message.reasoning_content, path + ".reasoning_content", "已保存的思考记录");
     (message.tool_calls || []).forEach((call, n) => add("assistant", call.function, `${path}.tool_calls[${n}]`, "调用 " + (call.function?.name || "工具")));
   });
   (body.tools || []).forEach((tool, index) => add("tools", tool, `tools[${index}]`, tool.function?.name || tool.name || tool.type || "工具定义"));

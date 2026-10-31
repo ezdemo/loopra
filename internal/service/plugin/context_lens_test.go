@@ -5,13 +5,16 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestContextLensCapturesScopesAndBoundsRealRuntime(t *testing.T) {
-	h := New(t.TempDir(), Hooks{})
+	h := New(t.TempDir(), Hooks{Services: map[string]ServiceHandler{"sessions": func(context.Context, string, map[string]any) (any, error) {
+		return map[string]any{"messages": []any{}}, nil
+	}}})
 	view, err := h.Install(context.Background(), filepath.Join(findBundledRoot(), "context-lens"))
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +74,83 @@ func TestContextLensCapturesScopesAndBoundsRealRuntime(t *testing.T) {
 	raw, _ = json.Marshal(list)
 	if !strings.Contains(string(raw), `"records":[]`) {
 		t.Fatalf("clear=%s", raw)
+	}
+}
+
+func TestContextLensHistoryFallbackAndDurableSnapshots(t *testing.T) {
+	ctx, home := context.Background(), t.TempDir()
+	historyReads := 0
+	h := New(home, Hooks{Services: map[string]ServiceHandler{"sessions": func(_ context.Context, action string, value map[string]any) (any, error) {
+		historyReads++
+		if action != "history" || value["workspaceHash"] != "project" || value["sessionName"] != "old" {
+			return map[string]any{"messages": []any{}}, nil
+		}
+		if value["revision"] == "r1" {
+			return map[string]any{"unchanged": true}, nil
+		}
+		return map[string]any{"revision": "r1", "at": 1234, "agentId": "magpie", "native": false, "messages": []any{
+			map[string]any{"role": "user", "content": "OLD USER"},
+			map[string]any{"role": "assistant", "content": "OLD ANSWER", "reasoning_content": "SAVED REASONING"},
+		}}, nil
+	}}})
+	view, err := h.Install(ctx, filepath.Join(findBundledRoot(), "context-lens"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.SetEnabled(ctx, view.ID, false)
+	scope := PageContext{WorkspaceHash: "project", SessionID: "project/old"}
+	list := func() map[string]any {
+		t.Helper()
+		out, err := h.Request(ctx, view.ID, "list", nil, scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)
+	}
+	rows := list()["records"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["origin"] != "history" {
+		t.Fatalf("history=%v", rows)
+	}
+	historyID := rows[0].(map[string]any)["id"]
+	detail, err := h.Request(ctx, view.ID, "detail", map[string]any{"id": historyID}, scope)
+	raw, _ := json.Marshal(detail)
+	if err != nil || !strings.Contains(string(raw), "OLD ANSWER") || !strings.Contains(string(raw), "SAVED REASONING") || !strings.Contains(string(raw), `"native":false`) {
+		t.Fatalf("detail=%s err=%v", raw, err)
+	}
+	if _, err := h.Request(ctx, view.ID, "detail", map[string]any{"id": historyID}, PageContext{WorkspaceHash: "other", SessionID: "other/old"}); err == nil {
+		t.Fatal("history leaked across workspaces")
+	}
+	h.RunObserver(ctx, HookLLMRequestSent, map[string]any{"app": "project", "sessionId": "old", "body": map[string]any{"messages": []any{map[string]any{"role": "user", "content": "REAL REQUEST"}}}})
+	rows = list()["records"].([]any)
+	id := rows[0].(map[string]any)["id"]
+	if rows[0].(map[string]any)["origin"] != "request" {
+		t.Fatal("actual request must take precedence over history")
+	}
+	if _, err := os.Stat(filepath.Join(h.dataDir(view.ID), "requests.json")); err != nil {
+		t.Fatal("snapshot was not persisted:", err)
+	}
+	readsBeforeReload := historyReads
+	if _, err := h.SetEnabled(ctx, view.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.SetEnabled(ctx, view.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	rows = list()["records"].([]any)
+	if rows[0].(map[string]any)["id"] != id || historyReads != readsBeforeReload {
+		t.Fatalf("request did not survive backend reload: %v", rows)
+	}
+	detail, err = h.Request(ctx, view.ID, "detail", map[string]any{"id": id}, scope)
+	raw, _ = json.Marshal(detail)
+	if err != nil || !strings.Contains(string(raw), "REAL REQUEST") {
+		t.Fatalf("restored detail=%s err=%v", raw, err)
+	}
+	if _, err := h.Request(ctx, view.ID, "clear", nil, scope); err != nil {
+		t.Fatal(err)
+	}
+	rows = list()["records"].([]any)
+	if rows[0].(map[string]any)["origin"] != "history" {
+		t.Fatal("clearing snapshots must preserve conversation history")
 	}
 }
 
