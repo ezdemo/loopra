@@ -56,7 +56,7 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 		s.runPluginSchedule(w, r, parts[1])
 		return
 	}
-	if len(parts) == 3 && parts[2] == "open" && (parts[1] == "ui" || parts[1] == "sidebar" || parts[1] == "menu") {
+	if len(parts) == 3 && parts[2] == "open" && (parts[1] == "ui" || parts[1] == "sidebar" || parts[1] == "menu" || parts[1] == "panel") {
 		s.openPluginUI(w, r, parts[0], parts[1])
 		return
 	}

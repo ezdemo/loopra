@@ -43,11 +43,11 @@ var uiTickets = struct {
 }{items: map[string]uiTicket{}}
 
 // SplitPluginUI 从 /api/plugins 之后的路径取出插件 id、页面槽和相对路径。
-// 槽是 ui、sidebar 或 menu。id/ui 是入口页，id/ui/app.css 是入口目录里的文件。
+// 槽是 ui、sidebar、menu 或 panel。id/ui 是入口页，id/ui/app.css 是入口目录里的文件。
 // id/ui/t/<票据>/app.css 是同一份文件，票据写在路径里，沙箱页的子资源不必带 cookie。
 func SplitPluginUI(path string) (id, slot, rel string, ok bool) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) < 2 || (parts[1] != "ui" && parts[1] != "sidebar" && parts[1] != "menu") || !safeID(parts[0]) {
+	if len(parts) < 2 || (parts[1] != "ui" && parts[1] != "sidebar" && parts[1] != "menu" && parts[1] != "panel") || !safeID(parts[0]) {
 		return "", "", "", false
 	}
 	relParts := parts[2:]
@@ -218,6 +218,11 @@ func (h *Host) SidebarFile(id, rel string) (string, error) {
 	return h.pageFile(id, "sidebar", rel)
 }
 
+// PanelFile returns a plugin's tab in the right workbench panel.
+func (h *Host) PanelFile(id, rel string) (string, error) {
+	return h.pageFile(id, "panel", rel)
+}
+
 // SidebarTitle 在声明了侧栏页面时返回按钮标题，否则返回空字符串。
 func (h *Host) SidebarTitle(id, fallback string) string {
 	if _, err := h.pageFile(id, "sidebar", ""); err != nil {
@@ -272,6 +277,8 @@ func (h *Host) IconFile(id, key string) (string, error) {
 		rel = info.Icon.File
 	case "sidebar":
 		rel = info.SidebarIcon.File
+	case "panel":
+		rel = info.PanelIcon.File
 	case "menu":
 		rel = info.MenuIcon.File
 	default:
@@ -317,6 +324,8 @@ func (h *Host) pageFile(id, slot, rel string) (string, error) {
 	missing := "这个插件没有设置页"
 	if slot == "sidebar" {
 		missing = "这个插件没有侧栏页面"
+	} else if slot == "panel" {
+		missing = "这个插件没有右侧面板"
 	} else if slot != "ui" {
 		return "", errText("设置页路径无效")
 	}
@@ -327,6 +336,8 @@ func (h *Host) pageFile(id, slot, rel string) (string, error) {
 	entry := info.Settings
 	if slot == "sidebar" {
 		entry = info.Sidebar
+	} else if slot == "panel" {
+		entry = info.Panel
 	}
 	return h.entryFile(id, entry, rel, missing)
 }
@@ -387,7 +398,7 @@ func (h *Host) imageFile(id, rel string) (string, error) {
 
 func validIconKey(key string) bool {
 	switch key {
-	case "plugin", "sidebar", "menu":
+	case "plugin", "sidebar", "menu", "panel":
 		return true
 	}
 	child, ok := strings.CutPrefix(key, "item-")

@@ -57,6 +57,7 @@ type View struct {
 	Builtin     bool         `json:"builtin,omitempty"`
 	Icon        *IconRef     `json:"icon,omitempty"`
 	Sidebar     *SidebarLink `json:"sidebar,omitempty"`
+	Panel       *SidebarLink `json:"panel,omitempty"`
 	Menu        *MenuView    `json:"menu,omitempty"`
 	Requests    bool         `json:"requests,omitempty"`
 }
@@ -440,6 +441,13 @@ func (h *Host) viewLocked(rec record) View {
 	info := readPkg(h.pkgDir(rec.ID))
 	view.Icon = h.iconRef(rec.ID, "plugin", info.Icon, pkgIcon{})
 	if rec.Enabled {
+		if _, err := h.PanelFile(rec.ID, ""); err == nil {
+			title := clipLabel(info.PanelTitle)
+			if title == "" {
+				title = clipLabel(view.DisplayName)
+			}
+			view.Panel = &SidebarLink{Title: title, Icon: h.iconRef(rec.ID, "panel", info.PanelIcon, info.Icon)}
+		}
 		if title := h.SidebarTitle(rec.ID, view.DisplayName); title != "" {
 			view.Sidebar = &SidebarLink{Title: title, Icon: h.iconRef(rec.ID, "sidebar", info.SidebarIcon, info.Icon)}
 		}

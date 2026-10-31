@@ -62,6 +62,7 @@ func postJSON(ctx context.Context, client *http.Client, method, endpoint string,
 	if client == nil {
 		client = &http.Client{Timeout: 120 * time.Second}
 	}
+	observeRequest(ctx, raw)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call %s: %w", endpoint, err)

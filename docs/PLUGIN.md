@@ -85,7 +85,8 @@ export function call(input) {
 | --- | --- | --- |
 | `turnBefore` | `{ message?, context?, cancel?, reason? }` | 改用户消息，或用 `cancel: true` 结束这一轮。默认说明是「这一轮已取消」 |
 | `systemPrompt` | `{ text?, append? }` | `text` 替换已组装的系统提示词，`append` 接在后面 |
-| `llmRequest` | `{ system?, messages?, temperature?, maxOutputTokens?, dropTools?, body? }` | 改这一次模型调用。`body` 替换即将 POST 的 JSON，HTTP 仍由宿主发送 |
+| `llmRequest` | `{ system?, messages?, temperature?, maxOutputTokens?, dropTools?, foldToolResults?, body? }` | 改这一次模型调用。`body` 替换即将 POST 的 JSON，HTTP 仍由宿主发送 |
+| `llmRequestSent` | 忽略 | 在适配器完成序列化、发送 HTTP 前只读观察最终 `body`、`requestBytes`、`protocol` 和请求身份。每个观察者独立接收，不采集认证请求头 |
 | `llmResponse` | `{ text?, thought?, toolCalls? }` | 改模型最终回复。流式过程中的片段不会逐个改 |
 | `toolBefore` | `{ decision?, args?, reason? }` | `allow` 可改参数，审批和路径检查仍然生效；`deny` 直接拒绝；`ask` 进入现有审批 |
 | `toolAfter` | `{ result?, error? }` | 改工具结果，或把失败写成说明 |
@@ -93,6 +94,8 @@ export function call(input) {
 | `turnAfter` | 忽略 | 本轮结束时的清理。`status` 是 `completed`、`cancelled` 或 `error` |
 
 `toolBefore` 在用户批准后会再进一次，这时 `approved` 为 `true`。`llmRequest.messages` 的每一项是 `{ role, text, parts }`，`parts` 里可以有 `text`、`thought`、`functionCall`、`functionResponse`。
+
+`llmRequest` 还可以返回 `foldToolResults: ["工具调用 id"]`，只折叠本次请求中对应的工具响应正文，保留响应名称、调用 id 和其余消息部分。宿主按写入时复制处理，历史会话内容不变。`llmRequestSent.foldableCalls` 是本次请求中可按 id 折叠的调用；没有稳定 id 的结果不提供折叠操作。
 
 ## 网络
 
@@ -254,6 +257,26 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
   "sidebar": { "title": "记事", "icon": "./ui/icon.svg", "page": "./ui/index.html" }
 }
 ```
+
+## 右侧面板
+
+`ui.panel` 在右侧「文件 / Git / 能力」后面增加一个插件页签，适合需要和当前会话并排使用的工具。支持路径字符串，或标题、图标和页面对象：
+
+```json
+{
+  "loopra": {
+    "plugin": "./plugin.js",
+    "icon": "search",
+    "ui": { "panel": { "title": "透镜", "page": "./ui/index.html" } }
+  }
+}
+```
+
+标题和图标省略时沿用插件名称与图标。页面通过 `/api/plugins/<id>/panel/open` 打开，使用独立的 `/panel/t/<票据>/` 路径，复用设置页的沙箱、主题、配置、上下文和 `loopra.request()`。页签选择按会话保存；页签过多可横向滚动；刷新按钮重新打开当前插件页。停用或卸载后入口移除，当前页退回文件页。
+
+内置 `plugins/context-lens` 使用这个插入点，不占用左侧主导航。它通过 `llmRequestSent` 记录 Loopra Native 的实际发送前快照，覆盖 Chat Completions、Responses 和 Anthropic；外部 ACP Agent 不提供请求体，因此不从历史消息推测快照。保留最近 16 次请求、约 6 MiB 的内存记录，超长段落明确标为截断，重启或重新加载插件会清空快照。
+
+透镜可以按类别筛选、搜索并查看原文，工具结果会关联实际调用名称。界面 token 数按 UTF-8 文本字节数约算，不含媒体和协议开销；媒体不保留原始二进制数据。固定内容和折叠设置按项目与会话保存在插件配置中，下一次请求生效，不会自动重新发送消息。固定内容每个会话最多 2000 字符，最多折叠 64 条结果，配置保留最近 12 段会话。
 
 图标可以是包内的 SVG、PNG、JPG、WebP 或 GIF，也可以是 Lucide 图标名，例如 `cat`、`message-circle`。图片不超过 256 KiB。插件卡片用 `loopra.icon`。菜单省略 `icon` 时继承插件图标，显式设置 `icon: false` 时不显示图标；例如 OpenAPI 的 `ui.menu.icon` 为 `false`，卡片仍使用自己的 `braces` 图标。
 

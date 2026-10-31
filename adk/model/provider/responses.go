@@ -41,7 +41,7 @@ func (a *responsesAdapter) GenerateContent(ctx context.Context, req *model.LLMRe
 			return
 		}
 		start := time.Now()
-		resp, err := postJSON(ctx, a.config.Client, "POST", a.config.Endpoint, headers, body)
+		resp, err := postJSON(withRequestObserver(ctx, req), a.config.Client, "POST", a.config.Endpoint, headers, body)
 		logModelCall("responses", start, a.config.modelName(req), stream, err)
 		if err != nil {
 			yield(nil, err)

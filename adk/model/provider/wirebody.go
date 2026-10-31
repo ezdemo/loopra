@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"sync"
 
 	"google.golang.org/adk/v2/model"
@@ -10,6 +11,39 @@ import (
 // 键是这次的请求指针。适配器通过 outgoingBody 取走；没人取的话，
 // 钩子会在本轮结束时清掉。
 var wireBodies sync.Map
+var wireObservers sync.Map
+
+type wireObserverKey struct{}
+
+// SetRequestObserver observes the final serialized body, without headers or any
+// ability to change it. The callback runs once, just before the HTTP request.
+func SetRequestObserver(req *model.LLMRequest, observe func(string)) {
+	if req == nil {
+		return
+	}
+	if observe == nil {
+		wireObservers.Delete(req)
+	} else {
+		wireObservers.Store(req, observe)
+	}
+}
+
+func withRequestObserver(ctx context.Context, req *model.LLMRequest) context.Context {
+	if value, ok := wireObservers.LoadAndDelete(req); ok {
+		return context.WithValue(ctx, wireObserverKey{}, value)
+	}
+	return ctx
+}
+
+func observeRequest(ctx context.Context, body []byte) {
+	observe, _ := ctx.Value(wireObserverKey{}).(func(string))
+	if observe == nil {
+		return
+	}
+	// An optional observer must never prevent a model request from being sent.
+	defer func() { _ = recover() }()
+	observe(string(body))
+}
 
 // SetWireBody 登记这一次请求要发出去的 JSON。body 为 nil 时删掉已有记录。
 func SetWireBody(req *model.LLMRequest, body map[string]any) {

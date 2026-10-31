@@ -224,6 +224,36 @@ func (h *hookBridge) beforeModel(ctx agent.Context, req *model.LLMRequest) (*mod
 	}
 	h.rewriteSystem(ctx, host, req)
 	h.rewriteRequest(ctx, host, req)
+	if host.HasHook(svcplugin.HookLLMRequestSent) {
+		base := callbackBase(ctx)
+		base["protocol"], base["model"] = h.protocol, req.Model
+		ids := []string{}
+		for _, content := range req.Contents {
+			if content == nil {
+				continue
+			}
+			for _, part := range content.Parts {
+				if part != nil && part.FunctionResponse != nil && part.FunctionResponse.ID != "" {
+					ids = append(ids, part.FunctionResponse.ID)
+				}
+			}
+		}
+		base["foldableCalls"] = ids
+		provider.SetRequestObserver(req, func(raw string) {
+			var body map[string]any
+			if json.Unmarshal([]byte(raw), &body) != nil {
+				return
+			}
+			input := make(map[string]any, len(base)+1)
+			for key, value := range base {
+				input[key] = value
+			}
+			input["body"] = body
+			input["requestBytes"] = len(raw)
+			// Observer return values are deliberately ignored.
+			host.RunObserver(ctx, svcplugin.HookLLMRequestSent, input)
+		})
+	}
 	return nil, nil
 }
 
@@ -426,6 +456,9 @@ func (h *hookBridge) rewriteRequest(ctx agent.Context, host *svcplugin.Host, req
 	if touched["dropTools"] {
 		dropRequestedTools(req, asStrings(out["dropTools"]))
 	}
+	if touched["foldToolResults"] {
+		foldRequestToolResults(req, asStrings(out["foldToolResults"]))
+	}
 	if touched["body"] {
 		if body, ok := out["body"].(map[string]any); ok {
 			provider.SetWireBody(req, body)
@@ -440,6 +473,7 @@ func (h *hookBridge) rememberWire(id string, req *model.LLMRequest) {
 	if prev, ok := h.wires.Load(id); ok {
 		if old, _ := prev.(*model.LLMRequest); old != nil && old != req {
 			provider.TakeWireBody(old)
+			provider.SetRequestObserver(old, nil)
 		}
 	}
 	h.wires.Store(id, req)
@@ -452,6 +486,45 @@ func (h *hookBridge) releaseWire(id string) {
 	}
 	req, _ := value.(*model.LLMRequest)
 	provider.TakeWireBody(req)
+	provider.SetRequestObserver(req, nil)
+}
+
+// Copy on write: fold only the outgoing response payload, preserving call IDs,
+// other parts (including images), and the original session transcript.
+func foldRequestToolResults(req *model.LLMRequest, ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		if id != "" {
+			wanted[id] = true
+		}
+	}
+	contents := append([]*genai.Content(nil), req.Contents...)
+	for i, content := range contents {
+		if content == nil {
+			continue
+		}
+		var copied *genai.Content
+		for j, part := range content.Parts {
+			if part == nil || part.FunctionResponse == nil || !wanted[part.FunctionResponse.ID] {
+				continue
+			}
+			if copied == nil {
+				value := *content
+				value.Parts = append([]*genai.Part(nil), content.Parts...)
+				copied = &value
+				contents[i] = copied
+			}
+			value := *part
+			response := *part.FunctionResponse
+			response.Response = map[string]any{"text": "[此工具结果已由用户在上下文透镜中折叠；原始结果保留在会话记录。]"}
+			value.FunctionResponse = &response
+			copied.Parts[j] = &value
+		}
+	}
+	req.Contents = contents
 }
 
 func invocationBase(ctx agent.InvocationContext) map[string]any {

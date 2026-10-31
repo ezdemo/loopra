@@ -1,4 +1,5 @@
-import { useEffect, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@nextui-org/react';
 import { FolderTree, GitBranch, Maximize, Puzzle, RefreshCw, SquareTerminal, X, type LucideIcon } from 'lucide-react';
 import { IconButton } from './ui';
@@ -14,37 +15,83 @@ import EnvironmentPanel, { EnvironmentBar, useEnvironmentController } from './En
 import { bashSessionState, bashSessionSummary, formatBashUptime } from '../bash-sessions';
 import { useBashSessions, type BashSessionsState } from '../useBashSessions';
 import { watchWorkspaceChanges } from '../workspace-events';
+import { PluginFrame, type PluginContext } from './PluginFrame';
+import { PluginGlyph, type PluginIconRef } from './plugin-icons';
 
 type TabDef = [id: string, label: string, icon: LucideIcon];
 const PRIMARY_TABS: TabDef[] = [['files', '文件', FolderTree], ['git', 'Git', GitBranch], ['capabilities', '能力', Puzzle]];
 
 type PanelProps = { api: LoopraClient; workspaceHash: string; onClose: () => void };
-type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; onTabChange?: (tab: string) => void; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void };
-export default function ChangesPanel({ open, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'files', onTabChange, sessionName, sessions, onAdd }: WorkbenchProps) {
-  const requestedTab = PRIMARY_TABS.some(([id]) => id === initialTab) ? initialTab : 'files';
+type WorkbenchProps = PanelProps & { open: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; onTabChange?: (tab: string) => void; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void; plugins?: { id: string; title: string; icon?: PluginIconRef }[]; context?: PluginContext };
+export default function ChangesPanel({ open, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'files', onTabChange, sessionName, sessions, onAdd, plugins = [], context }: WorkbenchProps) {
+  const requestedTab = PRIMARY_TABS.some(([id]) => id === initialTab) || plugins.some(item => `plugin:${item.id}` === initialTab) ? initialTab : 'files';
   const [tab, setTab] = useState(requestedTab); const [revision, setRevision] = useState(0);
+  const selectedPlugin = plugins.find(item => `plugin:${item.id}` === tab);
   useEffect(() => watchWorkspaceChanges(workspaceHash, () => setRevision(value => value + 1)), [workspaceHash]);
   const [panelWidth, setPanelWidth] = useLocalState<number>('right-panel-width', DEFAULT_PANEL_WIDTH);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const strip = tabsRef.current;
+    const selected = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!strip || !selected) return;
+    const bounds = strip.getBoundingClientRect(), active = selected.getBoundingClientRect();
+    // scrollIntoView also scrolls the overflow:hidden app shell while the
+    // panel slides in, clipping the left sidebar. Move only this tab strip.
+    if (active.left < bounds.left) strip.scrollLeft += active.left - bounds.left;
+    else if (active.right > bounds.right) strip.scrollLeft += active.right - bounds.right;
+  }, [open, tab, panelWidth, plugins]);
   const [dragging, setDragging] = useState(false);
+  const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number; handle: HTMLDivElement } | null>(null);
   const [docked, setDocked] = useState(() => typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1101px)').matches : true);
   const wide = panelWidth > DEFAULT_PANEL_WIDTH + 1;
   useEffect(() => { setTab(requestedTab); }, [requestedTab]);
   useEffect(() => { const mq = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1101px)') : null; if (!mq) return; const onChange = () => setDocked(mq.matches); onChange(); mq.addEventListener('change', onChange); return () => mq.removeEventListener('change', onChange); }, []);
-  // Drag the panel's left edge to resize, mirroring legacy RightPanel.vue.
-  function startResize(event: ReactMouseEvent<HTMLDivElement>) { event.preventDefault(); const startX = event.clientX; const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width || panelWidth; setDragging(true); const onMove = (move: MouseEvent) => setPanelWidth(resizePanelWidth(startWidth, move.clientX - startX, window.innerWidth)); const onUp = () => { setDragging(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); }; window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp); }
+  const stopResize = useCallback(() => {
+    const drag = resizeRef.current;
+    resizeRef.current = null;
+    if (drag?.handle.hasPointerCapture(drag.pointerId)) drag.handle.releasePointerCapture(drag.pointerId);
+    setDragging(false);
+  }, []);
+  useEffect(() => {
+    window.addEventListener('blur', stopResize);
+    return () => { window.removeEventListener('blur', stopResize); stopResize(); };
+  }, [stopResize]);
+  useEffect(() => { if (!open || !docked) stopResize(); }, [open, docked, stopResize]);
+  // Capture the pointer and shield embedded pages: iframe events do not bubble
+  // to this window, so a fast drag over a plugin would otherwise stall.
+  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || resizeRef.current) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    resizeRef.current = { pointerId: event.pointerId, startX: event.clientX, startWidth: handle.parentElement?.getBoundingClientRect().width || panelWidth, handle };
+    handle.setPointerCapture(event.pointerId);
+    setDragging(true);
+  }
+  function moveResize(move: ReactPointerEvent<HTMLDivElement>) {
+    const drag = resizeRef.current;
+    if (!drag || move.pointerId !== drag.pointerId) return;
+    const { startX, startWidth } = drag;
+    setPanelWidth(resizePanelWidth(startWidth, move.clientX - startX, window.innerWidth));
+  }
+  function endResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerId === resizeRef.current?.pointerId) stopResize();
+  }
   const refresh = () => setRevision(value => value + 1);
   // `--panel-width` is what the slide collapses to when closed (see `.changes-panel`
   // in styles.css); it tracks the resize handle because the inline width overrides
   // the static one.
-  return <aside className={`changes-panel ${wide ? 'wide' : ''}${dragging ? ' resizing' : ''}`} data-open={open} style={docked ? ({ width: panelWidth, flexBasis: panelWidth, '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined} aria-label="工作区面板">
-    {docked && <div className="panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="拖动调整右侧面板宽度" title="拖动调整右侧面板宽度" onMouseDown={startResize} />}
+  return <><aside className={`changes-panel ${wide ? 'wide' : ''}${dragging ? ' resizing' : ''}`} data-open={open} style={docked ? ({ width: panelWidth, flexBasis: panelWidth, '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined} aria-label="工作区面板">
+    {docked && <div className="panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="拖动调整右侧面板宽度" title="拖动调整右侧面板宽度" onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} onLostPointerCapture={endResize} />}
     <header className="panel-header">
-      <div className="workbench-tabs" role="tablist" aria-label="工作区工具">
+      <div className="workbench-tabs" ref={tabsRef} role="tablist" aria-label="工作区工具">
         {PRIMARY_TABS.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><Icon size={14} />{label}</button>)}
+        {plugins.map(item => { const id = `plugin:${item.id}`; return <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><PluginGlyph api={api} pluginId={item.id} icon={item.icon} size=".875rem" />{item.title}</button>; })}
       </div>
       <div className="panel-actions"><IconButton label="刷新工作区面板" onClick={refresh}><RefreshCw size={15} /></IconButton><IconButton label="展开工作区面板" onClick={() => setPanelWidth(wide ? DEFAULT_PANEL_WIDTH : WIDE_PANEL_WIDTH)}><Maximize size={15} /></IconButton><IconButton label="收起工作区面板" onClick={onClose}><X size={16} /></IconButton></div>
     </header>
-    <div className="workbench-body" data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitWorkspace key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} onOpenFile={onOpenFile} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, revision, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <p className="panel-empty">未知的工作区工具。</p>}</div></aside>;
+    <div className={`workbench-body${selectedPlugin ? ' workbench-plugin' : ''}`} data-tab={tab}>{!workspaceHash ? <p className="panel-empty">请先选择工作区</p> : selectedPlugin ? <PluginFrame key={`${selectedPlugin.id}/${revision}`} api={api} id={selectedPlugin.id} name={selectedPlugin.title} slot="panel" className="plugin-panel-frame" context={context} /> : tab === 'files' ? <FilesPanel key={workspaceHash} {...{ api, workspaceHash, revision, onAdd }} activePath={activeFile} onPathChange={onPathChange} onOpen={path => onOpenFile({ path, mode: 'content' })} /> : tab === 'git' ? <GitWorkspace key={`${workspaceHash}/${sessionName}`} {...{ api, workspaceHash, sessionName, revision, notify }} onRefresh={refresh} onOpenFile={onOpenFile} /> : tab === 'capabilities' ? <ProjectCapabilities key={workspaceHash} {...{ api, workspaceHash, revision, notify }} workspaceName={sessions.find(item => item.workspaceHash === workspaceHash)?.workspace} /> : <p className="panel-empty">未知的工作区工具。</p>}</div></aside>
+    {dragging && createPortal(<div className="panel-resize-shield" aria-hidden="true" />, document.body)}</>;
 }
 // Git and the session environment share one tab: the environment strip states
 // which checkout is active, and isolation mode swaps the main-project Git tools

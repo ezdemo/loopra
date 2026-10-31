@@ -133,9 +133,11 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [pluginPage, setPluginPage] = useState('');
   const [pluginNav, setPluginNav] = useState<{ id: string; title: string; icon?: PluginIconRef }[]>([]);
+  const [pluginPanels, setPluginPanels] = useState<{ id: string; title: string; icon?: PluginIconRef }[]>([]);
   const [pluginNavRevision, setPluginNavRevision] = useState(0);
   const [settingsTab, setSettingsTab] = useState('通用');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => { setPluginPanels([]); setPluginNav([]); }, [api]);
   useEffect(() => {
     if (!settingsOpen || backend.status !== 'connected') return;
     const controller = new AbortController();
@@ -145,10 +147,11 @@ export default function App({ startupPending = false, initialServer }: { startup
   useEffect(() => {
     if (backend.status !== 'connected') return;
     const controller = new AbortController();
-    void api.request<{ id: string; sidebar?: { title?: string; icon?: PluginIconRef } }[]>('/plugins', 'GET', undefined, controller.signal)
+    void api.request<{ id: string; sidebar?: { title?: string; icon?: PluginIconRef }; panel?: { title?: string; icon?: PluginIconRef } }[]>('/plugins', 'GET', undefined, controller.signal)
       .then(items => {
         if (controller.signal.aborted) return;
         setPluginNav(items.flatMap(item => item.sidebar?.title ? [{ id: item.id, title: item.sidebar.title, icon: item.sidebar.icon }] : []));
+        setPluginPanels(items.flatMap(item => item.panel?.title ? [{ id: item.id, title: item.panel.title, icon: item.panel.icon }] : []));
       })
       .catch(() => {});
     return () => controller.abort();
@@ -1478,7 +1481,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         </div>
       </main>
       {!chatMode && changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {!chatMode && changesMounted && <ChangesPanel open={changes} api={api} workspaceHash={workspace} key={`${server}/${session?.id || `draft:${workspace}`}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {!chatMode && changesMounted && <ChangesPanel open={changes} plugins={pluginPanels} context={pluginContext} api={api} workspaceHash={workspace} key={`${server}/${session?.id || `draft:${workspace}`}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}

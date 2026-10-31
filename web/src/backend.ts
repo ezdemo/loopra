@@ -61,6 +61,9 @@ export class LoopraClient {
   pluginSidebar(id: string) {
     return `${this.apiBase}/plugins/${encodeURIComponent(id)}/sidebar/`;
   }
+  pluginPanel(id: string) {
+    return `${this.apiBase}/plugins/${encodeURIComponent(id)}/panel/`;
+  }
   pluginMenu(id: string, item = '') {
     const child = item ? `${encodeURIComponent(item)}/` : '';
     return `${this.apiBase}/plugins/${encodeURIComponent(id)}/menu/${child}`;

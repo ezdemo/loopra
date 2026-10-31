@@ -1,5 +1,9 @@
 .remote-loading { display: flex; justify-content: center; padding: 1rem; }
-.workbench-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.workbench-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.workbench-tabs button[role="tab"] { flex-shrink: 0; }
+.workbench-tabs .plugin-file-icon { width: .875rem; height: .875rem; object-fit: contain; }
+.workbench-body.workbench-plugin { display: flex; flex-direction: column; overflow: hidden; scrollbar-gutter: auto; }
+.plugin-panel-frame { display: block; flex: 1; width: 100%; min-height: 0; border: 0; background: var(--surface); }
 .workbench-tabs button[role="tab"] { display: inline-flex; align-items: center; gap: .375rem; height: 1.75rem; padding: 0 .625rem; border-radius: var(--radius-md); color: var(--muted); font-size: .8125rem; white-space: nowrap; transition: background .12s, color .12s; }
 .workbench-tabs button[role="tab"]:hover { background: var(--hover); color: var(--text); }
 .workbench-tabs button[role="tab"][aria-selected="true"] { background: var(--selected); color: var(--text); font-weight: 500; }
@@ -27,7 +31,8 @@
 .workbench-card pre { overflow: auto; max-height: 22rem; font-size: .75rem; white-space: pre-wrap; }
 .changes-panel { display: flex; flex-direction: column; }
 .changes-panel > .panel-header { border-bottom: 0; }
-.panel-resize-handle { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; flex: none; cursor: ew-resize; z-index: 2; border-radius: var(--radius-sm); }
+.panel-resize-handle { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; flex: none; cursor: ew-resize; touch-action: none; z-index: 2; border-radius: var(--radius-sm); }
+.panel-resize-shield { position: fixed; inset: 0; z-index: 2147483647; cursor: ew-resize; user-select: none; }
 .panel-resize-handle:hover, .changes-panel.resizing .panel-resize-handle { background: color-mix(in srgb, var(--accent, #2563eb) 30%, transparent); }
 .workbench-panel-heading { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }
 .workbench-panel-heading strong { margin-right: auto; }

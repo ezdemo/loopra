@@ -16,6 +16,27 @@ type hookTarget struct {
 	hook moejs.Hook
 }
 
+func (h *Host) HasHook(name string) bool {
+	return h != nil && len(h.hookTargets(name)) > 0
+}
+
+// RunObserver gives every observer its own input. Return values cannot rewrite
+// a request or contaminate the next observer's view of what was actually sent.
+func (h *Host) RunObserver(ctx context.Context, name string, input map[string]any) {
+	if h == nil {
+		return
+	}
+	for _, target := range h.hookTargets(name) {
+		payload := cloneMap(input)
+		if config, err := h.UIConfig(target.id); err == nil {
+			payload["config"] = config
+		}
+		if _, err := target.run.eval(ctx, target.hook, payload); err != nil {
+			logging.Warnf("plugin", "observer %s plugin=%s: %v", name, target.id, err)
+		}
+	}
+}
+
 // RunHook 按安装顺序调用已启用插件的同名钩子。
 // 每个插件看到的是上一个插件改过的输入。stop 返回 true 时不再往后传。
 // 插件抛错会被记下并跳过，这一轮继续。返回值是合并后的对象，以及插件实际写过的字段。

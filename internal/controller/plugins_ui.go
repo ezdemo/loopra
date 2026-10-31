@@ -18,6 +18,8 @@ func (s *Controller) openPluginUI(w http.ResponseWriter, r *http.Request, id, sl
 	}
 	var err error
 	switch slot {
+	case "panel":
+		_, err = s.plugins.PanelFile(id, "")
 	case "sidebar":
 		_, err = s.plugins.SidebarFile(id, "")
 	case "menu":
@@ -142,6 +144,8 @@ func (s *Controller) servePluginUI(w http.ResponseWriter, r *http.Request, path 
 	var file string
 	var err error
 	switch slot {
+	case "panel":
+		file, err = s.plugins.PanelFile(id, rel)
 	case "sidebar":
 		file, err = s.plugins.SidebarFile(id, rel)
 	case "menu":

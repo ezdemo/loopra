@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>上下文透镜</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <div id="status" role="status" aria-live="polite" hidden></div>
+    <section id="empty" class="empty">
+      <div class="lens-mark" aria-hidden="true"><span></span></div>
+      <h1>看看 Agent 看见了什么</h1>
+      <p id="empty-text">正在读取请求快照…</p>
+      <button id="empty-refresh" type="button">刷新</button>
+    </section>
+    <div id="overview" hidden>
+      <header class="request-picker"><span class="live-dot" aria-hidden="true"></span><select id="requests" aria-label="请求快照"></select><button id="latest" type="button" title="跟随最新请求">最新</button></header>
+      <section class="composition">
+        <div class="metric"><div><strong id="total">—</strong><span>tokens · 文本估算</span></div><span id="time"></span></div>
+        <div id="map" class="context-map" role="group" aria-label="上下文组成，点击筛选"></div>
+        <div id="legend" class="legend"></div>
+        <p id="model" class="model"></p>
+      </section>
+      <details id="pin-editor" class="pin-editor"><summary><span>固定上下文</span><span id="pin-indicator"></span></summary><div class="pin-content"><textarea id="pin-note" rows="4" maxlength="2000" placeholder="希望 Agent 始终记住的补充信息，仅用于这段会话…" aria-label="固定上下文"></textarea><div class="pin-footer"><span id="pin-count">0 / 2000</span><button id="pin-save" type="button" class="primary">保存</button></div></div></details>
+      <section class="blocks-section"><div class="block-toolbar"><button id="filter-reset" type="button">全部内容</button><span id="block-count"></span></div><input id="search" type="search" placeholder="查找指令、工具、消息…" aria-label="搜索上下文"><div id="blocks" class="blocks"></div><p id="no-results" class="no-results" hidden>没有匹配的上下文</p></section>
+      <footer class="footnote"><span id="capture-note">发送前快照 · 最近 16 次请求保留在内存中</span><button id="clear" type="button">清空快照</button></footer>
+    </div>
+    <section id="inspector" class="inspector" hidden>
+      <header class="inspect-header"><button id="back" type="button">← 返回快照</button><span id="inspect-tokens"></span></header>
+      <div class="inspect-heading"><span id="inspect-kind" class="kind-mark"></span><h2 id="inspect-title"></h2></div>
+      <p id="inspect-source" class="source"></p>
+      <div class="inspect-actions"><button id="pin-block" type="button">固定这段</button><button id="fold-block" type="button" hidden>下次折叠此结果</button></div>
+      <p id="inspect-note" class="inspect-note" hidden></p>
+      <pre id="inspect-text" tabindex="0"></pre>
+    </section>
+  </main>
+  <script src="_loopra/bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -50,7 +50,7 @@ export const RemoteState = () => null;
 const stubPanel = dataUrl('export default () => null;');
 const environmentPanelStub = dataUrl('export default () => null; export const EnvironmentBar = () => null; export const useEnvironmentController = () => ({ mode: undefined });');
 const workspaceEventsStub = dataUrl('export const watchWorkspaceChanges = () => () => {};');
-const panelResizeStub = dataUrl('export const DEFAULT_PANEL_WIDTH = 452; export const WIDE_PANEL_WIDTH = 560; export const resizePanelWidth = width => width;');
+const panelResizeStub = await sourceUrl('panel-resize.ts');
 const libStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
 export function useLocalState(_key, initial) { return React.useState(initial); }
@@ -58,11 +58,14 @@ export function useLocalState(_key, initial) { return React.useState(initial); }
 const bashUrl = await sourceUrl('bash-sessions.ts');
 const bashStateUrl = await sourceUrl('useBashSessions.ts', { './bash-sessions': bashUrl });
 const panelsUrl = await sourceUrl('components/Panels.tsx', {
+  './PluginFrame': dataUrl(`const {createElement} = await import(${JSON.stringify(reactUrl)}); export const PluginFrame = props => createElement('div', { 'data-plugin': props.id, 'data-slot': props.slot, 'data-session': props.context?.sessionId }, props.name);`),
+  './plugin-icons': dataUrl('export const PluginGlyph = () => null;'),
   '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub, './ui': uiStub, './Motion': motionStub, './RemoteControls': controlsStub,
   './FilesPanel': stubPanel, './GitTools': stubPanel, './SchedulePanel': stubPanel, './SubAgentsPanel': stubPanel,
   './ProjectCapabilities': stubPanel, './EnvironmentPanel': environmentPanelStub, './DiffView': stubPanel, '../bash-sessions': bashUrl, '../lib': libStub, '../panel-resize': panelResizeStub, '../useBashSessions': bashStateUrl, '../workspace-events': workspaceEventsStub,
 });
-const { TerminalPanel } = await import(panelsUrl);
+const { TerminalPanel, default: ChangesPanel } = await import(panelsUrl);
+
 const taskLogUrl = await sourceUrl('components/BackgroundTaskLog.tsx', { '@nextui-org/react': nextuiStub, '../bash-sessions': bashUrl });
 const { default: BackgroundTasks } = await import(await sourceUrl('components/BackgroundTasks.tsx', {
   'lucide-react': iconsStub, './Panels': panelsUrl, '../useBashSessions': bashStateUrl, './BackgroundTaskLog': taskLogUrl,
@@ -230,4 +233,120 @@ test('clearing all background tasks hides the entry again', async () => {
     assert.equal(view.container.textContent.match(/暂无后台命令/g)?.length, 1);
     assert.equal(view.container.querySelector('.terminal-output'), null);
   } finally { await view.close(); }
+});
+
+test('right-panel plugin tabs share context, refresh and disappear when removed', async () => {
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container), selections = [];
+  const props = { open: true, api: {}, workspaceHash: 'project', onClose() {}, notify() {}, onOpenFile() {}, sessions: [], onAdd() {}, context: { sessionId: 'project/one' }, initialTab: 'plugin:lens', onTabChange: tab => selections.push(tab) };
+  try {
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, plugins: [{ id: 'lens', title: '透镜' }] })));
+    const tabs = [...container.querySelectorAll('[role="tab"]')];
+    assert.deepEqual(tabs.map(tab => tab.textContent), ['文件', 'Git', '能力', '透镜']);
+    assert.equal(container.querySelector('[data-plugin]').dataset.slot, 'panel');
+    assert.equal(container.querySelector('[data-plugin]').dataset.session, 'project/one');
+    await act(async () => tabs[0].click());
+    assert.equal(selections.at(-1), 'files');
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, plugins: [] })));
+    assert.equal(container.querySelector('[data-plugin]'), null);
+    assert.equal(container.querySelector('[aria-selected="true"]').textContent, '文件');
+  } finally { await act(async () => root.unmount()); container.remove(); }
+});
+
+test('right-panel tab reveal scrolls only the tab strip and never the app shell', async () => {
+  const shell = document.createElement('div'); shell.className = 'desktop-app'; document.body.append(shell);
+  const root = createRoot(shell), prototype = window.HTMLElement.prototype;
+  const previousRect = prototype.getBoundingClientRect;
+  const previousScroll = Object.getOwnPropertyDescriptor(prototype, 'scrollIntoView');
+  let contentLeft = 730;
+  prototype.getBoundingClientRect = function() {
+    if (this.classList.contains('workbench-tabs')) return new window.DOMRect(500, 0, 120, 30);
+    if (this.matches('[role="tab"][aria-selected="true"]')) return new window.DOMRect(contentLeft - shell.querySelector('.workbench-tabs').scrollLeft, 0, 60, 30);
+    return previousRect.call(this);
+  };
+  // Native scrollIntoView also scrolls overflow:hidden ancestors. Reproduce
+  // that browser behavior rather than jsdom's otherwise missing implementation.
+  Object.defineProperty(prototype, 'scrollIntoView', { configurable: true, value() { shell.scrollLeft = 90; } });
+  const props = { open: true, api: {}, workspaceHash: 'project', onClose() {}, notify() {}, onOpenFile() {}, sessions: [], onAdd() {}, plugins: [{ id: 'lens', title: '透镜' }] };
+  try {
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, initialTab: 'plugin:lens' })));
+    const strip = shell.querySelector('.workbench-tabs');
+    assert.equal(shell.scrollLeft, 0, 'revealing a right-panel tab must not move the left sidebar');
+    assert.equal(strip.scrollLeft, 170, 'a clipped right edge should scroll into the strip');
+    contentLeft = 550;
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, initialTab: 'files' })));
+    assert.equal(strip.scrollLeft, 50, 'a clipped left edge should scroll back inside the strip');
+    contentLeft = 580;
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, initialTab: 'capabilities' })));
+    assert.equal(strip.scrollLeft, 50, 'an already visible tab should not scroll');
+    assert.equal(shell.scrollLeft, 0);
+  } finally {
+    await act(async () => root.unmount()); shell.remove();
+    prototype.getBoundingClientRect = previousRect;
+    if (previousScroll) Object.defineProperty(prototype, 'scrollIntoView', previousScroll); else delete prototype.scrollIntoView;
+  }
+});
+
+async function mountResizablePanel() {
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  const props = { open: true, api: {}, workspaceHash: 'project', onClose() {}, notify() {}, onOpenFile() {}, sessions: [], onAdd() {}, plugins: [{ id: 'lens', title: '透镜' }], initialTab: 'plugin:lens' };
+  await act(async () => root.render(createElement(ChangesPanel, props)));
+  const handle = container.querySelector('.panel-resize-handle'), panel = container.querySelector('.changes-panel');
+  const captured = new Set();
+  handle.setPointerCapture = id => captured.add(id);
+  handle.hasPointerCapture = id => captured.has(id);
+  handle.releasePointerCapture = id => captured.delete(id);
+  panel.getBoundingClientRect = () => new window.DOMRect(500, 0, Number.parseFloat(panel.style.width), 800);
+  return {
+    container, panel, captured,
+    async pointer(type, x, id = 1, button = 0) {
+      const event = new window.MouseEvent(type, { bubbles: true, clientX: x, button });
+      Object.defineProperty(event, 'pointerId', { value: id });
+      await act(async () => handle.dispatchEvent(event));
+    },
+    async hide() { await act(async () => root.render(createElement(ChangesPanel, { ...props, open: false }))); },
+    async close() { await act(async () => root.unmount()); container.remove(); },
+  };
+}
+
+test('panel resizing captures the pointer and shields plugin pages until release', async () => {
+  const view = await mountResizablePanel();
+  const plugin = view.container.querySelector('[data-plugin]');
+  try {
+    await view.pointer('pointerdown', 500, 1, 2);
+    assert.equal(document.querySelector('.panel-resize-shield'), null, 'right clicks must not start resizing');
+    await view.pointer('pointerdown', 500);
+    assert.ok(view.captured.has(1));
+    assert.equal(document.querySelector('.panel-resize-shield').parentElement, document.body, 'the shield covers every iframe, outside panel clipping');
+    await view.pointer('pointermove', 650, 2);
+    assert.equal(view.panel.style.width, '452px', 'other pointers cannot change the width');
+    await view.pointer('pointerup', 650, 2);
+    assert.ok(view.captured.has(1), 'another pointer cannot finish this drag');
+    await view.pointer('pointermove', 650);
+    assert.equal(view.panel.style.width, '302px', 'moving over the original plugin bounds shrinks the panel continuously');
+    await view.pointer('pointermove', 300);
+    assert.equal(view.panel.style.width, '652px', 'reversing direction continues from the original grab point');
+    assert.equal(view.container.querySelector('[data-plugin]'), plugin, 'resizing preserves the mounted plugin');
+    await view.pointer('pointerup', 300);
+    assert.equal(view.captured.size, 0);
+    assert.equal(document.querySelector('.panel-resize-shield'), null);
+    await view.pointer('pointermove', 600);
+    assert.equal(view.panel.style.width, '652px', 'moving after release must not keep resizing');
+  } finally { await view.close(); }
+});
+
+test('interrupted panel drags release capture and never leave a page-blocking shield', async () => {
+  for (const end of ['pointercancel', 'lostpointercapture', 'blur', 'hide', 'unmount']) {
+    const view = await mountResizablePanel();
+    try {
+      await view.pointer('pointerdown', 500);
+      if (end === 'blur') await act(async () => window.dispatchEvent(new window.Event('blur')));
+      else if (end === 'hide') await view.hide();
+      else if (end === 'unmount') await view.close();
+      else await view.pointer(end, 500);
+      assert.equal(view.captured.size, 0, `${end} releases the pointer`);
+      assert.equal(document.querySelector('.panel-resize-shield'), null, `${end} restores plugin interaction`);
+    } finally { if (end !== 'unmount') await view.close(); }
+  }
 });

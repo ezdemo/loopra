@@ -42,6 +42,8 @@ test('the right workbench panel inherits the legacy drag-to-resize behaviour', (
   assert.match(panels, /style=\{docked \? \(\{ width: panelWidth, flexBasis: panelWidth, '--panel-width': `\$\{panelWidth\}px` \} as CSSProperties\) : undefined\}/);
   assert.match(workbenchCss, /\.panel-resize-handle \{/);
   assert.match(workbenchCss, /cursor: ew-resize;/);
+  assert.match(workbenchCss, /\.panel-resize-shield \{[^}]*position: fixed;[^}]*inset: 0;[^}]*cursor: ew-resize;/);
+  assert.match(workbenchCss, /\.panel-resize-handle \{[^}]*touch-action: none;/);
 });
 
 test('panel width clamps to the legacy 240px floor and 70% viewport cap', () => {

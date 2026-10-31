@@ -1,0 +1,11 @@
+{
+  "name": "context-lens",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "查看模型发送前的上下文快照，固定补充上下文，折叠冗长工具结果",
+  "loopra": {
+    "plugin": "./plugin.js",
+    "icon": "search",
+    "ui": { "panel": { "title": "透镜", "page": "./ui/index.html" } }
+  }
+}

@@ -27,7 +27,7 @@ export function PluginFrame({ api, id, name, slot, className, title, menuItem = 
   api: LoopraClient;
   id: string;
   name: string;
-  slot: 'ui' | 'sidebar' | 'menu';
+  slot: 'ui' | 'sidebar' | 'menu' | 'panel';
   className?: string;
   title?: string;
   menuItem?: string;
@@ -79,7 +79,7 @@ export function PluginFrame({ api, id, name, slot, className, title, menuItem = 
       }
     }
     window.addEventListener('message', onMessage);
-    const page = slot === 'sidebar' ? api.pluginSidebar(currentId) : slot === 'menu' ? api.pluginMenu(currentId, menuItem) : api.pluginPage(currentId);
+    const page = slot === 'panel' ? api.pluginPanel(currentId) : slot === 'sidebar' ? api.pluginSidebar(currentId) : slot === 'menu' ? api.pluginMenu(currentId, menuItem) : api.pluginPage(currentId);
     void api.request<{ page?: string }>(`/plugins/${encodeURIComponent(currentId)}/${slot}/open`, 'POST', {}, controller.signal)
       .then(opened => {
         if (gone) return;

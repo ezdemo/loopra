@@ -5,20 +5,22 @@ import (
 )
 
 const (
-	HookTurnBefore   = "turnBefore"
-	HookSystemPrompt = "systemPrompt"
-	HookLLMRequest   = "llmRequest"
-	HookLLMResponse  = "llmResponse"
-	HookToolBefore   = "toolBefore"
-	HookToolAfter    = "toolAfter"
-	HookCompact      = "compact"
-	HookTurnAfter    = "turnAfter"
+	HookTurnBefore     = "turnBefore"
+	HookSystemPrompt   = "systemPrompt"
+	HookLLMRequest     = "llmRequest"
+	HookLLMRequestSent = "llmRequestSent"
+	HookLLMResponse    = "llmResponse"
+	HookToolBefore     = "toolBefore"
+	HookToolAfter      = "toolAfter"
+	HookCompact        = "compact"
+	HookTurnAfter      = "turnAfter"
 )
 
 var hookOrder = []string{
 	HookTurnBefore,
 	HookSystemPrompt,
 	HookLLMRequest,
+	HookLLMRequestSent,
 	HookLLMResponse,
 	HookToolBefore,
 	HookToolAfter,

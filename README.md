@@ -392,6 +392,10 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 同一设置页可以一键启动 Cloudflare Quick Tunnel。本机需要已安装 `cloudflared` 并加入 PATH，也可以在页面填写可执行文件路径。Quick Tunnel 生成临时公网地址，应用退出后失效；本地代理只转发已配置的 MCP endpoint。该能力适合开发和测试。Quick Tunnel 不支持 SSE，请将 MCP 传输方式设为 Streamable HTTP。
 
+### 上下文透镜
+
+内置「上下文透镜」位于右侧面板的「透镜」页签，可查看 Loopra Native 每次模型请求发送前的实际上下文组成与原文，按会话固定补充信息、折叠冗长工具结果。用量标为文本估算，快照保留在内存中，原始会话记录不变。插件可通过 `ui.panel` 声明同样的右侧页签，见 [插件文档](docs/PLUGIN.md#右侧面板)。
+
 ### OpenAPI 插件
 
 内置 `plugins/openapi` 默认启用。在设置 → 工具与集成 → OpenAPI 添加 JSON / YAML 格式的 OpenAPI 3 或 Swagger 2 文档，配置服务地址、请求头以及 Bearer、Basic 或 API Key 认证。原有的 `~/.loopra/openapi-sources.json` 和文档缓存继续使用。

@@ -38,6 +38,9 @@ type pkgFile struct {
 	Sidebar              string
 	SidebarTitle         string
 	SidebarIcon          pkgIcon
+	Panel                string
+	PanelTitle           string
+	PanelIcon            pkgIcon
 	Icon                 pkgIcon
 	MenuTitle            string
 	MenuCategory         string
@@ -722,6 +725,7 @@ func readPkg(dir string) pkgFile {
 		Module: raw.Module, Main: raw.Main, Loopra: loopraPath(raw.Loopra),
 		Services: capabilities.Services,
 		Settings: ui.Settings, Sidebar: ui.SidebarPage, SidebarTitle: ui.SidebarTitle, SidebarIcon: ui.SidebarIcon,
+		Panel: ui.PanelPage, PanelTitle: ui.PanelTitle, PanelIcon: ui.PanelIcon,
 		Icon: ui.Icon, MenuTitle: ui.MenuTitle, MenuCategory: ui.MenuCategory, MenuIcon: ui.MenuIcon, MenuPage: ui.MenuPage, MenuChildren: ui.Children,
 		SkillFile: ui.SkillFile, SubagentName: ui.SubagentName, SubagentDescription: ui.SubagentDescription,
 		SubagentFile: ui.SubagentFile, SubagentInstructions: ui.SubagentInstructions, SubagentReadOnly: ui.SubagentReadOnly, SubagentSet: ui.SubagentSet,
@@ -757,6 +761,9 @@ type loopraUI struct {
 	SidebarTitle         string
 	SidebarPage          string
 	SidebarIcon          pkgIcon
+	PanelTitle           string
+	PanelPage            string
+	PanelIcon            pkgIcon
 	Icon                 pkgIcon
 	MenuTitle            string
 	MenuCategory         string
@@ -791,6 +798,7 @@ func parseLoopraUI(raw json.RawMessage) loopraUI {
 		UI             struct {
 			Settings string          `json:"settings"`
 			Sidebar  json.RawMessage `json:"sidebar"`
+			Panel    json.RawMessage `json:"panel"`
 			Menu     json.RawMessage `json:"menu"`
 		} `json:"ui"`
 	}
@@ -803,6 +811,7 @@ func parseLoopraUI(raw json.RawMessage) loopraUI {
 	ui.Settings = strings.TrimSpace(box.UI.Settings)
 	ui.Icon = parseIcon(box.Icon)
 	ui.SidebarTitle, ui.SidebarPage, ui.SidebarIcon = parseSidebar(box.UI.Sidebar)
+	ui.PanelTitle, ui.PanelPage, ui.PanelIcon = parseSidebar(box.UI.Panel)
 	ui.MenuTitle, ui.MenuPage, ui.MenuCategory, ui.MenuIcon, ui.Children = parseMenu(box.UI.Menu)
 	ui.SkillFile = parseSkill(box.Skill)
 	ui.SubagentName, ui.SubagentDescription, ui.SubagentFile, ui.SubagentInstructions, ui.SubagentReadOnly, ui.SubagentSet = parseSubagent(box.Subagent)
