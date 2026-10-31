@@ -235,18 +235,26 @@ test('clearing all background tasks hides the entry again', async () => {
   } finally { await view.close(); }
 });
 
-test('pure chat forces the capabilities panel and hides file, Git and plugin tabs', async () => {
+test('pure chat shows capabilities and plugin panels while hiding file and Git tabs', async () => {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
-  const props = { open: true, api: {}, workspaceHash: '__loopra_chat__', onClose() {}, notify() {}, onOpenFile() {}, sessions: [], onAdd() {}, plugins: [{ id: 'lens', title: '透镜' }] };
+  const props = { open: true, api: {}, workspaceHash: '__loopra_chat__', onClose() {}, notify() {}, onOpenFile() {}, sessions: [], onAdd() {}, context: {sessionId:'chat/one'}, plugins: [{ id: 'lens', title: '透镜' }] };
   try {
-    for (const initialTab of ['files', 'git', 'plugin:lens', 'capabilities']) {
+    for (const initialTab of ['files', 'git', 'capabilities']) {
       await act(async () => root.render(createElement(ChangesPanel, { ...props, chatMode: true, initialTab })));
-      assert.deepEqual([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent), ['能力']);
+      assert.deepEqual([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent), ['能力', '透镜']);
       assert.equal(container.querySelector('.workbench-body').dataset.tab, 'capabilities');
       assert.equal(container.querySelector('[data-capabilities]').dataset.capabilities, '__loopra_chat__');
       assert.equal(container.querySelector('[data-plugin]'), null);
     }
+    await act(async () => container.querySelectorAll('[role="tab"]')[1].click());
+    assert.equal(container.querySelector('[data-plugin]').dataset.session, 'chat/one');
+    assert.equal(container.querySelector('[data-plugin]').dataset.slot, 'panel');
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, chatMode: true, initialTab: 'plugin:lens' })));
+    assert.equal(container.querySelector('.workbench-body').dataset.tab, 'plugin:lens');
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, plugins: [], chatMode: true, initialTab: 'plugin:lens' })));
+    assert.equal(container.querySelector('[data-plugin]'), null);
+    assert.equal(container.querySelector('.workbench-body').dataset.tab, 'capabilities');
     await act(async () => root.render(createElement(ChangesPanel, { ...props, chatMode: false, workspaceHash: 'project', initialTab: 'files' })));
     assert.deepEqual([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent), ['文件', 'Git', '能力', '透镜']);
     assert.equal(container.querySelector('.workbench-body').dataset.tab, 'files');

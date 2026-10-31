@@ -25,11 +25,11 @@ type PanelProps = { api: LoopraClient; workspaceHash: string; onClose: () => voi
 type WorkbenchProps = PanelProps & { open: boolean; chatMode?: boolean; notify: (message: string) => void; onOpenFile: (file: WorkspaceFile) => void; activeFile?: string | null; onPathChange?: (from: string, to?: string) => void; initialTab?: string; onTabChange?: (tab: string) => void; sessionName?: string; sessions: Session[]; onAdd: (path: string, selection?: string) => void; plugins?: { id: string; title: string; icon?: PluginIconRef }[]; context?: PluginContext };
 export default function ChangesPanel({ open, chatMode = false, api, workspaceHash, onClose, notify, onOpenFile, activeFile, onPathChange, initialTab = 'files', onTabChange, sessionName, sessions, onAdd, plugins = [], context }: WorkbenchProps) {
   const primaryTabs = chatMode ? PRIMARY_TABS.filter(([id]) => id === 'capabilities') : PRIMARY_TABS;
-  const panelPlugins = chatMode ? [] : plugins;
-  const requestedTab = chatMode ? 'capabilities' : PRIMARY_TABS.some(([id]) => id === initialTab) || panelPlugins.some(item => `plugin:${item.id}` === initialTab) ? initialTab : 'files';
+  const validTab = (value: string) => primaryTabs.some(([id]) => id === value) || plugins.some(item => `plugin:${item.id}` === value);
+  const requestedTab = validTab(initialTab) ? initialTab : chatMode ? 'capabilities' : 'files';
   const [selectedTab, setTab] = useState(requestedTab); const [revision, setRevision] = useState(0);
-  const tab = chatMode ? 'capabilities' : selectedTab;
-  const selectedPlugin = panelPlugins.find(item => `plugin:${item.id}` === tab);
+  const tab = validTab(selectedTab) ? selectedTab : requestedTab;
+  const selectedPlugin = plugins.find(item => `plugin:${item.id}` === tab);
   useEffect(() => chatMode ? undefined : watchWorkspaceChanges(workspaceHash, () => setRevision(value => value + 1)), [workspaceHash, chatMode]);
   const [panelWidth, setPanelWidth] = useLocalState<number>('right-panel-width', DEFAULT_PANEL_WIDTH);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -89,7 +89,7 @@ export default function ChangesPanel({ open, chatMode = false, api, workspaceHas
     <header className="panel-header">
       <div className="workbench-tabs" ref={tabsRef} role="tablist" aria-label="工作区工具">
         {primaryTabs.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><Icon size={14} />{label}</button>)}
-        {panelPlugins.map(item => { const id = `plugin:${item.id}`; return <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><PluginGlyph api={api} pluginId={item.id} icon={item.icon} size=".875rem" />{item.title}</button>; })}
+        {plugins.map(item => { const id = `plugin:${item.id}`; return <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><PluginGlyph api={api} pluginId={item.id} icon={item.icon} size=".875rem" />{item.title}</button>; })}
       </div>
       <div className="panel-actions"><IconButton label="刷新工作区面板" onClick={refresh}><RefreshCw size={15} /></IconButton><IconButton label="展开工作区面板" onClick={() => setPanelWidth(wide ? DEFAULT_PANEL_WIDTH : WIDE_PANEL_WIDTH)}><Maximize size={15} /></IconButton><IconButton label="收起工作区面板" onClick={onClose}><X size={16} /></IconButton></div>
     </header>
