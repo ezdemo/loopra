@@ -11,6 +11,7 @@ export type HeaderProps = {
   onOpenSidebar: () => void;
   isHome: boolean;
   chatMode?: boolean;
+  panelAvailable?: boolean;
   workspaceName: string;
   session?: Session;
   menu: string | null;
@@ -111,7 +112,7 @@ export default function Header(p: HeaderProps) {
           <Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
         </div>
       </>}
-      {!p.chatMode && <IconButton label={p.changesOpen ? '关闭改动面板' : '打开改动面板'} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>}
+      {p.panelAvailable !== false && <IconButton label={p.chatMode ? p.changesOpen ? '关闭能力面板' : '打开能力面板' : p.changesOpen ? '关闭改动面板' : '打开改动面板'} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>}
     </DesktopHeaderActions>
   </header>;
 }

@@ -62,7 +62,7 @@ const panelsUrl = await sourceUrl('components/Panels.tsx', {
   './plugin-icons': dataUrl('export const PluginGlyph = () => null;'),
   '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub, './ui': uiStub, './Motion': motionStub, './RemoteControls': controlsStub,
   './FilesPanel': stubPanel, './GitTools': stubPanel, './SchedulePanel': stubPanel, './SubAgentsPanel': stubPanel,
-  './ProjectCapabilities': stubPanel, './EnvironmentPanel': environmentPanelStub, './DiffView': stubPanel, '../bash-sessions': bashUrl, '../lib': libStub, '../panel-resize': panelResizeStub, '../useBashSessions': bashStateUrl, '../workspace-events': workspaceEventsStub,
+  './ProjectCapabilities': dataUrl(`import {createElement} from ${JSON.stringify(reactUrl)}; export default ({workspaceHash}) => createElement('div', {'data-capabilities':workspaceHash});`), './EnvironmentPanel': environmentPanelStub, './DiffView': stubPanel, '../bash-sessions': bashUrl, '../lib': libStub, '../panel-resize': panelResizeStub, '../useBashSessions': bashStateUrl, '../workspace-events': workspaceEventsStub,
 });
 const { TerminalPanel, default: ChangesPanel } = await import(panelsUrl);
 
@@ -233,6 +233,24 @@ test('clearing all background tasks hides the entry again', async () => {
     assert.equal(view.container.textContent.match(/暂无后台命令/g)?.length, 1);
     assert.equal(view.container.querySelector('.terminal-output'), null);
   } finally { await view.close(); }
+});
+
+test('pure chat forces the capabilities panel and hides file, Git and plugin tabs', async () => {
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  const props = { open: true, api: {}, workspaceHash: '__loopra_chat__', onClose() {}, notify() {}, onOpenFile() {}, sessions: [], onAdd() {}, plugins: [{ id: 'lens', title: '透镜' }] };
+  try {
+    for (const initialTab of ['files', 'git', 'plugin:lens', 'capabilities']) {
+      await act(async () => root.render(createElement(ChangesPanel, { ...props, chatMode: true, initialTab })));
+      assert.deepEqual([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent), ['能力']);
+      assert.equal(container.querySelector('.workbench-body').dataset.tab, 'capabilities');
+      assert.equal(container.querySelector('[data-capabilities]').dataset.capabilities, '__loopra_chat__');
+      assert.equal(container.querySelector('[data-plugin]'), null);
+    }
+    await act(async () => root.render(createElement(ChangesPanel, { ...props, chatMode: false, workspaceHash: 'project', initialTab: 'files' })));
+    assert.deepEqual([...container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent), ['文件', 'Git', '能力', '透镜']);
+    assert.equal(container.querySelector('.workbench-body').dataset.tab, 'files');
+  } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
 test('right-panel plugin tabs share context, refresh and disappear when removed', async () => {

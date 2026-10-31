@@ -98,6 +98,25 @@ const { DesktopUpdateDialog, useDesktopUpdate } = await import(await sourceUrl('
   '../desktop-update': await sourceUrl('desktop-update.ts'),
 }));
 
+test('pure chat exposes the capabilities toggle while full-page surfaces hide it', async () => {
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  let toggles = 0;
+  const props = { sidebarOpen: true, isHome: false, chatMode: true, backend: {status: 'connected', ready: true, version: '1.0.0', error: ''}, server: 'local', applications: [], onToggleChanges: () => toggles++ };
+  try {
+    await act(async () => root.render(createElement(Header, {...props, changesOpen: false})));
+    const toggle = container.querySelector('[aria-label="打开能力面板"]');
+    assert.ok(toggle);
+    assert.equal(container.querySelector('[aria-label="在系统应用中打开项目"]'), null);
+    await act(async () => toggle.click());
+    assert.equal(toggles, 1);
+    await act(async () => root.render(createElement(Header, {...props, changesOpen: true})));
+    assert.ok(container.querySelector('[aria-label="关闭能力面板"]'));
+    await act(async () => root.render(createElement(Header, {...props, panelAvailable: false})));
+    assert.equal(container.querySelector('[aria-label="打开能力面板"]'), null);
+  } finally { await act(async () => root.unmount()); container.remove(); }
+});
+
 async function mount(initialCheck, Component = VersionInfo, scenario = {}) {
   globalThis.__calls = []; globalThis.__notify = []; globalThis.__copied = null;
   globalThis.__loadWebReleaseNotes = scenario.loadReleaseNotes || (async (currentVersion, latestVersion) => ({ currentVersion, latestVersion, releases: [], complete: true }));

@@ -246,7 +246,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
   const [panelOpen, setChanges, changesTab, setChangesTab] = useSessionPanel(server, session?.id, workspace);
   const surfaceOpen = skillsOpen || schedulesOpen || !!pluginPage;
-  const changes = panelOpen && !chatMode && !surfaceOpen;
+  const changes = panelOpen && !surfaceOpen;
   const changesMounted = usePresence(changes);
   const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
   // External ACP engines own their own toolset, so pure chat stays on Native.
@@ -1443,7 +1443,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const desktopShell = isDesktopWindow();
   const nativeWindowControls = desktopShell && usesNativeWindowControls(desktopPlatform());
   const toolImageUrl = useCallback((path: string) => api.assetUrl(`/files/image?${new URLSearchParams({ path, workspaceHash: workspace })}`), [api, workspace]);
-  return <ToolImageSourceProvider value={toolImageUrl}><AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes && !chatMode ? 'open' : 'closed'}>
+  return <ToolImageSourceProvider value={toolImageUrl}><AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
     {desktopShell && <DesktopTitleBar />}
     <div className="app-body">
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
@@ -1455,9 +1455,9 @@ export default function App({ startupPending = false, initialServer }: { startup
         plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
-      <main className={`main-area ${changes && !chatMode ? 'has-changes' : ''}`}>
+      <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={surfaceOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
-          chatMode={surfaceOpen || chatMode}
+          chatMode={chatMode} panelAvailable={!surfaceOpen}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
@@ -1490,8 +1490,8 @@ export default function App({ startupPending = false, initialServer }: { startup
         </div></WorkspaceTabs>
         </div>
       </main>
-      {!chatMode && changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {!chatMode && changesMounted && <ChangesPanel open={changes} plugins={pluginPanels} context={pluginContext} api={api} workspaceHash={workspace} key={`${server}/${session?.id || `draft:${workspace}`}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
+      {changesMounted && <ChangesPanel open={changes} chatMode={chatMode} plugins={pluginPanels} context={pluginContext} api={api} workspaceHash={workspace} key={`${server}/${session?.id || `draft:${workspace}`}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
