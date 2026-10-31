@@ -22,6 +22,7 @@ import './environment.css';
 import './resources.css';
 import './subagents.css';
 import './skills.css';
+import './capabilities-hub.css';
 import './capabilities.css';
 import './requirements.css';
 import './dialogs.css';

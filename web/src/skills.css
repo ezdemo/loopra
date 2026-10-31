@@ -112,10 +112,6 @@
 .skills-hub-tabs { display: flex; gap: 1.25rem; border-bottom: 1px solid var(--line); }
 .skills-hub-tabs > button { display: inline-flex; align-items: center; gap: .375rem; min-height: 2.25rem; border-bottom: 2px solid transparent; color: var(--secondary); font-size: .8125rem; }
 .skills-hub-tabs > button[aria-current="page"] { border-color: var(--text); color: var(--text); font-weight: 600; }
-.capabilities-hub-tabs { margin-bottom: 1.25rem; }
-.capabilities-section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
-.capabilities-section-toolbar > .skills-hub-tabs { flex: 1; }
-.capabilities-refresh { margin-left: auto; }
 .skills-hub-count { padding: .0625rem .375rem; border-radius: .375rem; background: var(--soft); color: var(--muted); font-size: .6875rem; font-weight: 400; }
 .skills-hub-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: 1rem 0; }
 .skills-hub-toolbar > .settings-field { width: min(24rem, 80%); }

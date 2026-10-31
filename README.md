@@ -324,11 +324,11 @@ Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`
 
 ### 插件
 
-插件是 JavaScript 或 TypeScript 模块，运行时是 [moejs](https://github.com/MoeForge/moejs)（Apache-2.0）。从侧栏「技能与插件」进入「插件」页填写来源，例如 `left-pad@1.3.0`、`@scope/pkg`、`https://github.com/owner/repo`，或本地目录与 `.js` / `.ts` 文件。安装位置是 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。插件页面可以通过 `loopra.request()` 调用自己的 `onRequest` 后端，接收当前项目、会话和文件上下文。写法、钩子、页面后端、`fetch` 和 `node:fs` 见 [docs/PLUGIN.md](docs/PLUGIN.md)。
+插件是 JavaScript 或 TypeScript 模块，运行时是 [moejs](https://github.com/MoeForge/moejs)（Apache-2.0）。从侧栏「技能与插件」进入「我的内容」并筛选「插件」填写来源，例如 `left-pad@1.3.0`、`@scope/pkg`、`https://github.com/owner/repo`，或本地目录与 `.js` / `.ts` 文件。安装位置是 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。插件页面可以通过 `loopra.request()` 调用自己的 `onRequest` 后端，接收当前项目、会话和文件上下文。写法、钩子、页面后端、`fetch` 和 `node:fs` 见 [docs/PLUGIN.md](docs/PLUGIN.md)。
 
 入口优先读 package.json 的 `loopra`（字符串，或 `{ "plugin": "./plugin.ts" }`），然后是 `module`、`main`，再否则是 `plugin.ts`、`plugin.js`、`index.ts` 或 `index.js`。
 
-技能与插件 → 插件 → 发现插件支持把公开 GitHub 仓库作为插件源，默认加入 [ezdemo/loopra-plugins](https://github.com/ezdemo/loopra-plugins)。可以添加、移除和切换源，浏览仓库里的插件后分别安装，在「已安装」里卸载。「技能」页保留已安装技能和技能市场。源自动扫描每个插件目录的 `package.json` 和入口文件，无需索引；目录示例见 [examples/plugin-source](examples/plugin-source/)，规则和接口见 [GitHub 插件源](docs/PLUGIN.md#github-插件源)。
+技能与插件 → 发现 → 插件支持把公开 GitHub 仓库作为插件源，默认加入 [ezdemo/loopra-plugins](https://github.com/ezdemo/loopra-plugins)。可以添加、移除和切换源，浏览仓库里的插件后分别安装，在「我的内容」里卸载。「我的内容」统一管理已安装的技能和插件，「发现」浏览更多内容。源自动扫描每个插件目录的 `package.json` 和入口文件，无需索引；目录示例见 [examples/plugin-source](examples/plugin-source/)，规则和接口见 [GitHub 插件源](docs/PLUGIN.md#github-插件源)。
 
 导出的函数会变成工具，公开名称是 `<插件 id>__<导出名>`：
 
@@ -400,9 +400,9 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 ### OpenAPI 插件
 
-从技能与插件 → 插件 → 发现插件安装 [OpenAPI 插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/openapi)，然后在设置 → 工具与集成 → OpenAPI 添加 JSON / YAML 格式的 OpenAPI 3 或 Swagger 2 文档，配置服务地址、请求头以及 Bearer、Basic 或 API Key 认证。原有的 `~/.loopra/openapi-sources.json` 和文档缓存继续使用。
+从技能与插件 → 发现 → 插件安装 [OpenAPI 插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/openapi)，然后在设置 → 工具与集成 → OpenAPI 添加 JSON / YAML 格式的 OpenAPI 3 或 Swagger 2 文档，配置服务地址、请求头以及 Bearer、Basic 或 API Key 认证。原有的 `~/.loopra/openapi-sources.json` 和文档缓存继续使用。
 
-插件提供 `search_apis`、`get_api_detail`、`call_api`，在项目和纯聊天中都可用。先搜索接口，再读取参数详情，最后调用；实际调用经过现有工具审批。支持普通路径、查询、请求头参数与 JSON 请求体、本地 `$ref`；外部引用、表单和文件上传暂不支持。在技能与插件 → 插件中停用 OpenAPI 后，其菜单和工具一起移除，接口源配置保留。
+插件提供 `search_apis`、`get_api_detail`、`call_api`，在项目和纯聊天中都可用。先搜索接口，再读取参数详情，最后调用；实际调用经过现有工具审批。支持普通路径、查询、请求头参数与 JSON 请求体、本地 `$ref`；外部引用、表单和文件上传暂不支持。在技能与插件 → 我的内容中停用 OpenAPI 后，其菜单和工具一起移除，接口源配置保留。
 
 ## 协作与审批
 

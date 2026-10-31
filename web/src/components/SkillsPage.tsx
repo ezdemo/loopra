@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
-import { ArrowUpRight, Check, Download, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowUpRight, Check, Download, Sparkles, Trash2, X } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { ConfirmAction, errorText, query, RemoteState, useRemote } from './RemoteControls';
-import { Field, SelectField } from './SettingControls';
+import { CapabilityCard, CapabilityControls, CapabilityRefresh, CapabilitySearch, type CapabilityLibraryProps } from './CapabilityUI';
 
 type Skill = { name: string; description?: string; slug?: string; displayName?: string; summary?: string; installSlug?: string; url?: string; scope?: string; directoryName?: string };
 type Selection = { skill: Skill; installed: boolean; market: string };
@@ -21,16 +21,19 @@ function skillWebsite(skill?: Skill) {
   } catch { return ''; }
 }
 
-export default function SkillsPage({ api, onRefresh, onBack, embedded = false }: { api: LoopraClient; onRefresh: () => Promise<void>; onBack: () => void; embedded?: boolean }) {
+export default function SkillsPage({ api, onRefresh, onBack, embedded = false, view, onViewChange, library = false, searchQuery, refreshKey = 0, toolbarTarget, showType }: { api: LoopraClient; onRefresh: () => Promise<void>; onBack: () => void; embedded?: boolean; view?: 'installed' | 'market'; onViewChange?: (view: 'installed' | 'market') => void } & CapabilityLibraryProps) {
   const [revision, setRevision] = useState(0);
-  const installed = useRemote<Skill[]>(api, '/agent/skills', revision);
+  const installed = useRemote<Skill[]>(api, '/agent/skills', revision + refreshKey);
   const markets = useRemote<{ name: string; description: string }[]>(api, '/skill-market/markets');
-  const [tab, setTab] = useState<'installed' | 'market'>('installed');
+  const [localTab, setLocalTab] = useState<'installed' | 'market'>('installed');
+  const tab = view || localTab;
+  function setTab(next: 'installed' | 'market') { setLocalTab(next); onViewChange?.(next); setSelected(undefined); }
   const [filter, setFilter] = useState('');
   const [market, setMarket] = useState('');
   const [text, setText] = useState('');
   const [search, setSearch] = useState('');
-  const results = useRemote<Skill[]>(api, tab === 'market' ? `/skill-market/proxy?${query({ action: search ? 'search' : 'trending', q: search, marketName: market, limit: 30 })}` : null, revision);
+  const activeSearch = searchQuery ?? search;
+  const results = useRemote<Skill[]>(api, tab === 'market' ? `/skill-market/proxy?${query({ action: activeSearch ? 'search' : 'trending', q: activeSearch, marketName: market, limit: 30 })}` : null, revision + refreshKey);
   const [selected, setSelected] = useState<Selection>();
   const detail = useRemote<Skill>(api, selected && !selected.installed ? `/skill-market/detail?${query({ slug: selected.skill.slug || selected.skill.name, marketName: selected.market })}` : null);
   const [busy, setBusy] = useState(false);
@@ -39,7 +42,7 @@ export default function SkillsPage({ api, onRefresh, onBack, embedded = false }:
   const skills = installed.data || [];
   const isInstalled = (skill: Skill) => skills.some(item => item.name === skillSlug(skill) || item.name === (skill.slug || skill.name));
   const marketSkills = [...new Map((results.data || []).map(skill => [skillKey(skill), skill])).values()];
-  const visible = tab === 'installed' ? skills.filter(skill => `${skillName(skill)} ${skill.name} ${skill.description || ''}`.toLowerCase().includes(filter.trim().toLowerCase())) : marketSkills;
+  const visible = tab === 'installed' ? skills.filter(skill => `${skillName(skill)} ${skill.name} ${skill.description || ''}`.toLowerCase().includes((searchQuery ?? filter).trim().toLowerCase())) : marketSkills;
   const state = tab === 'installed' ? installed : results;
   async function install(skill: Skill, source: string) {
     setBusy(true); setError('');
@@ -52,17 +55,18 @@ export default function SkillsPage({ api, onRefresh, onBack, embedded = false }:
   }
   const selectedSkill = selected?.installed ? selected.skill : detail.data && { ...selected?.skill, ...detail.data };
   const selectedWebsite = skillWebsite(selectedSkill) || skillWebsite(selected?.skill);
-  return <section className={embedded ? 'skills-hub-content' : 'skills-hub'} aria-label="技能">
+  return <section className={library ? 'library-card-stream' : embedded ? 'skills-hub-content' : 'skills-hub'} aria-label="技能">
     <div className={embedded ? undefined : 'skills-hub-inner'}>
       {!embedded && <header className="skills-hub-heading"><div><h1>技能</h1></div><div className="skills-hub-actions"><Button size="sm" variant="light" onPress={onBack}>返回会话</Button></div></header>}
-      <div className="capabilities-section-toolbar"><nav className="skills-hub-tabs" aria-label="技能分类">{([['installed', '已安装'], ['market', '技能市场']] as const).map(([id, label]) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => { setTab(id); setSelected(undefined); }}><span>{label}</span>{id === 'installed' && installed.data && <span className="skills-hub-count">{skills.length}</span>}</button>)}</nav><Button size="sm" variant="light" isDisabled={busy} onPress={() => setRevision(value => value + 1)} startContent={<RefreshCw size={14} />}>刷新</Button></div>
-      {tab === 'installed' ? <div className="skills-hub-toolbar"><Field label="搜索已安装技能" value={filter} onChange={setFilter} placeholder="搜索名称或说明…" startContent={<Search size={16} />} /><span>{visible.length} 个技能</span></div> : <form className="skills-hub-market-search" onSubmit={event => { event.preventDefault(); setSearch(text.trim()); setSelected(undefined); setRevision(value => value + 1); }}><Field label="搜索技能" value={text} onChange={setText} placeholder="你想让智能体学会什么？" startContent={<Search size={16} />} /><SelectField label="技能市场" value={market} onChange={value => { setMarket(value); setSelected(undefined); }} options={[{ value: '', label: '默认市场' }, ...(markets.data?.map(item => ({ value: item.name, label: item.name })) || [])]} /><Button size="md" color="primary" type="submit">{text.trim() ? '搜索技能' : '浏览热门'}</Button></form>}
+      {!view && <nav className="skills-hub-tabs" aria-label="技能分类">{([['installed', '已安装'], ['market', '技能市场']] as const).map(([id, label]) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}><span>{label}</span>{id === 'installed' && installed.data && <span className="skills-hub-count">{skills.length}</span>}</button>)}</nav>}
+      {!library && (tab === 'installed' ? <div className="capability-toolbar"><CapabilitySearch label="搜索已安装技能" value={filter} onChange={setFilter} /><span className="capability-result-count">{visible.length} 个技能</span><CapabilityRefresh disabled={busy} onClick={() => setRevision(value => value + 1)} /></div> : <form className="capability-toolbar" onSubmit={event => { event.preventDefault(); setSearch(text.trim()); setSelected(undefined); setRevision(value => value + 1); }}><CapabilitySearch label="搜索技能" value={text} onChange={setText} placeholder="搜索技能…" /><select className="capability-select" aria-label="技能市场" value={market} onChange={event => { setMarket(event.target.value); setSelected(undefined); }}><option value="">默认市场</option>{markets.data?.map(item => <option value={item.name} key={item.name}>{item.name}</option>)}</select><CapabilityRefresh disabled={busy} onClick={() => setRevision(value => value + 1)} /><button className="capability-primary" type="submit">{text.trim() ? '搜索技能' : '浏览热门'}</button></form>)}
+      {library && tab === 'market' && <CapabilityControls library target={toolbarTarget}><select className="capability-select" aria-label="技能市场" value={market} onChange={event => setMarket(event.target.value)}><option value="">默认市场</option>{markets.data?.map(item => <option value={item.name} key={item.name}>{item.name}</option>)}</select></CapabilityControls>}
       <RemoteState {...state} />{tab === 'market' && markets.error && <p role="alert" className="settings-error">市场列表加载失败：{markets.error}</p>}{error && <p role="alert" className="settings-error">{error}</p>}
-      {tab === 'market' && !state.loading && !state.error && <div className="skills-hub-section-label"><h2>{search ? `“${search}”的搜索结果` : '热门推荐'}</h2><span>{visible.length} 个技能</span></div>}
-      {!state.loading && !state.error && visible.length === 0 && <div className="skills-hub-empty"><Sparkles size={30} strokeWidth={1.5} /><h2>{tab === 'installed' && !filter ? '从一个技能开始' : '没有找到匹配的技能'}</h2><p>{tab === 'installed' && !filter ? '前往技能市场，为智能体添加新的工作能力。' : '试试其他关键词，或切换技能市场。'}</p>{tab === 'installed' && !filter && <Button color="primary" size="sm" onPress={() => setTab('market')}>发现技能<ArrowUpRight size={14} /></Button>}</div>}
+      {!library && tab === 'market' && !state.loading && !state.error && <div className="skills-hub-section-label"><h2>{search ? `“${search}”的搜索结果` : '热门推荐'}</h2><span>{visible.length} 个技能</span></div>}
+      {!library && !state.loading && !state.error && visible.length === 0 && <div className="skills-hub-empty"><Sparkles size={30} strokeWidth={1.5} /><h2>{tab === 'installed' && !filter ? '从一个技能开始' : '没有找到匹配的技能'}</h2><p>{tab === 'installed' && !filter ? '前往技能市场，为智能体添加新的工作能力。' : '试试其他关键词，或切换技能市场。'}</p>{tab === 'installed' && !filter && <Button color="primary" size="sm" onPress={() => setTab('market')}>发现技能<ArrowUpRight size={14} /></Button>}</div>}
       <div className="skills-hub-grid" key={tab === 'market' ? `market:${market}` : 'installed'}>{visible.map(skill => {
         const added = tab === 'installed' || isInstalled(skill);
-        return <article className="skills-hub-card" key={skillKey(skill)}><div className="skills-hub-card-top"><span className="skills-hub-avatar" aria-hidden="true">{skillName(skill).slice(0, 2).toUpperCase()}</span>{added && <span className="skills-hub-badge"><Check size={12} />{skillBadge(skill)}</span>}</div><h2 title={skillName(skill)}>{skillName(skill)}</h2><p className="skills-hub-summary">{skill.summary || skill.description || '暂无技能说明'}</p><footer><Button size="sm" variant="light" onPress={() => { setError(''); setSelected({ skill, installed: tab === 'installed', market }); }}>查看详情<ArrowUpRight size={13} /></Button>{tab === 'installed' ? !isBuiltinSkill(skill) && !isPluginSkill(skill) && <Button size="sm" variant="light" className="skills-hub-remove" isDisabled={busy} onPress={() => setUninstall(skill)} startContent={<Trash2 size={13} />}>卸载</Button> : <Button size="sm" color={added ? 'default' : 'primary'} variant={added ? 'flat' : 'solid'} isDisabled={added || busy} onPress={() => void install(skill, market)} startContent={added ? <Check size={13} /> : <Download size={13} />}>{added ? '已安装' : '安装'}</Button>}</footer></article>;
+        return <CapabilityCard key={skillKey(skill)} className="skills-hub-card" title={skillName(skill)} description={skill.summary || skill.description} icon={skillName(skill).slice(0, 2).toUpperCase()} badge={[showType && '技能', isBuiltinSkill(skill) ? '内置' : isPluginSkill(skill) ? '插件提供' : ''].filter(Boolean).join(' · ')} meta={tab === 'market' ? market : undefined} actions={<><button type="button" className="capability-text-button" onClick={() => { setError(''); setSelected({ skill, installed: tab === 'installed', market }); }}>查看详情<ArrowUpRight size={13} /></button>{tab === 'installed' ? !isBuiltinSkill(skill) && !isPluginSkill(skill) && <button type="button" className="capability-icon-button capability-remove" aria-label={`卸载 ${skillName(skill)}`} title="卸载" disabled={busy} onClick={() => setUninstall(skill)}><Trash2 size={15} /></button> : <button type="button" className={added ? 'capability-secondary' : 'capability-primary'} disabled={added || busy} onClick={() => void install(skill, market)}>{added ? '已安装' : '安装'}</button>}</>} />;
       })}</div>
       {selected && <Modal isOpen onClose={() => setSelected(undefined)} hideCloseButton placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog skills-hub-detail', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop' }} aria-label="技能详情">
         <ModalContent>

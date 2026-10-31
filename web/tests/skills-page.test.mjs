@@ -17,7 +17,7 @@ const reactUrl = import.meta.resolve('react');
 async function sourceUrl(name, dependencies = {}) {
   const source = await readFile(new URL(`../src/components/${name}.tsx`, import.meta.url), 'utf8');
   let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } });
-  for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'lucide-react': import.meta.resolve('lucide-react'), ...dependencies })) outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
+  for (const [specifier, url] of Object.entries({ react: reactUrl, 'react-dom': import.meta.resolve('react-dom'), 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'lucide-react': import.meta.resolve('lucide-react'), ...dependencies })) outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
   return dataUrl(outputText);
 }
 const ui = dataUrl(`
@@ -30,8 +30,9 @@ export const Spinner = () => createElement('span', null, 'loading');
 `);
 const controls = await sourceUrl('RemoteControls', { '@nextui-org/react': ui });
 const fields = dataUrl(`import {createElement} from ${JSON.stringify(reactUrl)}; ${fieldStubs.replace('onChange, readOnly, disabled, ...props', 'onChange, readOnly, disabled, startContent, ...props')}`);
-const { default: SkillsPage } = await import(await sourceUrl('SkillsPage', { '@nextui-org/react': ui, './RemoteControls': controls, './SettingControls': fields }));
-const button = (element, text) => [...element.querySelectorAll('button')].find(item => item.textContent.trim() === text);
+const capabilityUI = await sourceUrl('CapabilityUI');
+const { default: SkillsPage } = await import(await sourceUrl('SkillsPage', { '@nextui-org/react': ui, './RemoteControls': controls, './SettingControls': fields, './CapabilityUI': capabilityUI }));
+const button = (element, text) => [...element.querySelectorAll('button')].find(item => item.textContent.trim() === text || item.title === text);
 async function click(element) { assert.ok(element); await act(async () => element.click()); }
 async function input(element, value) { await act(async () => { Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(element, value); element.dispatchEvent(new dom.window.Event('input', { bubbles: true })); }); }
 async function mount({ failInstall = false, marketUrl = 'https://skillhub.cn/skills/author/code-review', extraSkills = [], marketSkills } = {}) {
@@ -104,7 +105,7 @@ test('built-in skills show their source and offer details without uninstalling',
   const view = await mount();
   try {
     const card = view.container.querySelector('.skills-hub-card');
-    assert.equal(card.querySelector('.skills-hub-badge').textContent, '内置');
+    assert.equal(card.querySelector('.capability-card-badge').textContent, '内置');
     assert.equal(button(card, '卸载'), undefined);
     await click(button(card, '查看详情'));
     assert.equal(view.container.querySelector('[role="dialog"] .skills-hub-badge').textContent, '内置');
@@ -119,14 +120,14 @@ test('a user skill sharing a built-in name remains removable using its directory
   try {
     const cards = view.container.querySelectorAll('.skills-hub-card');
     assert.equal(button(cards[0], '卸载'), undefined);
-    assert.equal(cards[2].querySelector('.skills-hub-badge').textContent, '已安装');
+    assert.equal(cards[2].querySelector('.capability-card-badge'), null);
     await click(button(cards[2], '卸载'));
     await click(button(view.container.querySelector('[role="dialog"]'), '确认'));
     const request = new URL(view.calls.find(call => call.method === 'POST').path, 'http://test.invalid');
     assert.equal(request.searchParams.get('slug'), 'author-self-skill');
     assert.equal(request.searchParams.get('scope'), scope);
     assert.equal(view.container.querySelectorAll('.skills-hub-card').length, 2);
-    assert.equal(view.container.querySelector('.skills-hub-badge').textContent, '内置');
+    assert.equal(view.container.querySelector('.capability-card-badge').textContent, '内置');
   } finally { await view.close(); }
 });
 test('failed installs display the server error and leave installed skills unchanged', async () => {

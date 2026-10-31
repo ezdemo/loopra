@@ -16,7 +16,7 @@ const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toStr
 async function compile(name, dependencies) {
   const source = await readFile(new URL(`../src/components/${name}.tsx`, import.meta.url), 'utf8');
   let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } });
-  for (const [name, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), ...dependencies })) {
+  for (const [name, url] of Object.entries({ react: reactUrl, 'react-dom': import.meta.resolve('react-dom'), 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), ...dependencies })) {
     outputText = outputText.replaceAll(`'${name}'`, JSON.stringify(url)).replaceAll(`"${name}"`, JSON.stringify(url));
   }
   return dataUrl(outputText);
@@ -27,7 +27,8 @@ const fields = dataUrl(`import { createElement as h } from ${JSON.stringify(reac
 export const Field = ({ label, value, onChange }) => h('label', null, label, h('input', { value, onChange: event => onChange(event.target.value) }));
 export const ResourceEmpty = ({ title, children }) => h('section', null, h('h3', null, title), children);`);
 const icons = await compile('plugin-icons', { 'lucide-react': import.meta.resolve('lucide-react') });
-const { PluginCatalog } = await import(await compile('PluginCatalog', { './RemoteControls': remote, './SettingControls': fields, './plugin-icons': icons }));
+const capabilityUI = await compile('CapabilityUI', { 'lucide-react': import.meta.resolve('lucide-react') });
+const { PluginCatalog } = await import(await compile('PluginCatalog', { './RemoteControls': remote, './SettingControls': fields, './plugin-icons': icons, './CapabilityUI': capabilityUI, 'lucide-react': import.meta.resolve('lucide-react') }));
 const first = 'https://github.com/acme/plugins';
 const second = 'https://github.com/acme/other';
 const entries = [{ id: 'alpha', name: 'Alpha', source: `${first}?path=plugins%2Falpha`, version: '1.0.0' }, { id: 'beta', name: 'Beta', source: `${first}?path=plugins%2Fbeta` }];
@@ -47,7 +48,7 @@ async function mount(override) {
   } };
   const render = () => root.render(createElement(PluginCatalog, { api, installed, busy: false, onInstall: async source => { installations.push(source); installed = [...installed, { id: 'beta' }]; render(); } }));
   await act(async () => render());
-  const click = text => act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === text).click());
+  const click = text => act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === text || button.getAttribute('aria-label') === text).click());
   return { container, calls, installations, click, close: () => act(async () => { root.unmount(); container.remove(); }) };
 }
 
@@ -68,9 +69,9 @@ test('catalog installs only the chosen plugin and prevents reinstalling installe
 test('adding, switching and removing a source preserve installed plugins', async () => {
   const view = await mount();
   try {
-    await view.click('添加源');
+    await view.click('管理源');
     await act(async () => {
-      const input = view.container.querySelector('input');
+      const input = view.container.querySelector('form input');
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, second);
       input.dispatchEvent(new window.Event('input', { bubbles: true }));
     });
@@ -78,10 +79,10 @@ test('adding, switching and removing a source preserve installed plugins', async
     assert.equal(view.container.querySelector('select').value, second);
     assert.match(view.container.textContent, /仓库中暂无插件/);
     assert.equal(view.calls.find(call => call.method === 'POST').body.source, second);
-    await view.click('移除源');
+    await view.click('移除 acme/other');
     assert.equal(view.container.querySelector('select').value, first);
     assert.equal(view.container.querySelectorAll('.plugin-card button:disabled').length, 1);
-    await view.click('移除源');
+    await view.click('移除 acme/plugins');
     assert.match(view.container.textContent, /添加插件源/);
     assert.equal(view.calls.some(call => /\/install|\/uninstall|\/toggle/.test(call.path)), false);
   } finally { await view.close(); }
@@ -117,5 +118,23 @@ test('uninstalled catalog cards render Lucide and bundled image icons with a let
     assert.equal(cards[2].querySelector('.plugin-card-mark').textContent.trim(), 'G');
     assert.equal(cards[3].querySelector('.plugin-card-mark').childElementCount, 0);
     assert.equal(view.calls.some(call => call.path.includes('/icons/')), false);
+  } finally { await view.close(); }
+});
+
+test('catalog search filters locally and keeps source management out of the main toolbar', async () => {
+  const view = await mount();
+  try {
+    assert.equal(view.container.querySelector('.capability-source-panel'), null);
+    const requests = view.calls.length;
+    await act(async () => {
+      const input = view.container.querySelector('input[type="search"]');
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'beta');
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    assert.equal(view.container.querySelectorAll('.plugin-card').length, 1);
+    assert.equal(view.container.querySelector('.plugin-card h2').textContent, 'Beta');
+    assert.equal(view.calls.length, requests);
+    await view.click('管理源');
+    assert.ok(view.container.querySelector('.capability-source-panel'));
   } finally { await view.close(); }
 });
