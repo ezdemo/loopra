@@ -21,7 +21,8 @@
 //
 // 钩子是可选导出，可以和工具写在同一个模块里，也可以只有钩子。名字是
 // turnBefore、systemPrompt、llmRequest、llmResponse、toolBefore、toolAfter、
-// compact、turnAfter。宿主按安装顺序调用，前一个的返回值会交给下一个；
+// compact、turnAfter。宿主按 meta.hookPriority 从小到大调用，同优先级保留
+// 安装顺序，前一个的返回值会交给下一个；systemPrompt.append 会逐个累加。
 // 某个插件抛错时跳过它，不中断这一轮。
 package plugin
 

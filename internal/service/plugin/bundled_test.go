@@ -137,6 +137,31 @@ func TestChatNekoAppendsOnlyInChat(t *testing.T) {
 	}
 }
 
+func TestChatNekoCoexistsWithOpenAPIAndContextLens(t *testing.T) {
+	for _, order := range [][]string{{"chat-neko", "context-lens", "openapi"}, {"openapi", "context-lens", "chat-neko"}} {
+		t.Run(strings.Join(order, "+"), func(t *testing.T) {
+			h := New(t.TempDir(), Hooks{})
+			for _, name := range order {
+				if _, err := h.Install(context.Background(), testutil.ExternalPlugin(t, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := h.SetUIConfig("context_lens", map[string]any{"rules": []any{map[string]any{"key": `["__loopra_chat__","one"]`, "note": "PINNED"}}}); err != nil {
+				t.Fatal(err)
+			}
+			out, _ := h.RunHook(context.Background(), HookSystemPrompt, map[string]any{"app": "__loopra_chat__", "text": "BASE"}, nil)
+			text := out["text"].(string) + out["append"].(string)
+			request, _ := h.RunHook(context.Background(), HookLLMRequest, map[string]any{"app": "__loopra_chat__", "sessionId": "one", "system": text}, nil)
+			text, _ = request["system"].(string)
+			for _, want := range []string{"BASE", "猫娘「小环」", "search_apis", "PINNED"} {
+				if strings.Count(text, want) != 1 {
+					t.Fatalf("combined system missing or duplicating %q: %q", want, text)
+				}
+			}
+		})
+	}
+}
+
 func TestDailyReviewDeclaresContributions(t *testing.T) {
 	h := New(t.TempDir(), Hooks{})
 	view, err := h.Install(context.Background(), testutil.ExternalPlugin(t, "daily-review"))

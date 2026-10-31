@@ -37,6 +37,20 @@ func TestApplyCompactKeepsFragments(t *testing.T) {
 	}
 }
 
+func TestSystemPromptChainReachesRequestWithoutLosingOrDuplicatingAppends(t *testing.T) {
+	host := plugin.New(t.TempDir(), plugin.Hooks{})
+	installAgentPlugin(t, host, "persona", `export function systemPrompt() { return {append: "|PERSONA"}; }`)
+	installAgentPlugin(t, host, "api-guidance", `export function systemPrompt() { return {append: "|API"}; }`)
+	installAgentPlugin(t, host, "context-pin", `export function llmRequest(input) { return {system: input.system + "|PIN"}; }`)
+	req := &model.LLMRequest{Config: &genai.GenerateContentConfig{SystemInstruction: genai.NewContentFromText("BASE", genai.RoleUser)}}
+	bridge := &hookBridge{}
+	bridge.rewriteSystem(nil, host, req)
+	bridge.rewriteRequest(nil, host, req)
+	if got := instructionText(req); got != "BASE|PERSONA|API|PIN" {
+		t.Fatalf("model system = %q", got)
+	}
+}
+
 func TestPluginHooksRewriteTurn(t *testing.T) {
 	host := plugin.New(t.TempDir(), plugin.Hooks{})
 	installAgentPlugin(t, host, "hook-plugin", rewritePluginJS)

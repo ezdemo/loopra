@@ -32,21 +32,22 @@ type BoundTool struct {
 }
 
 type running struct {
-	callContext context.Context
-	gate        chan struct{}
-	closeOnce   sync.Once
-	rt          *moejs.Runtime
-	loop        *eventloop.Loop
-	node        *node.API
-	web         *webapi.API
-	names       []string
-	bound       []BoundTool
-	hooks       map[string]moejs.Hook
-	requestHook *moejs.Hook
-	closed      bool
-	displayName string
-	description string
-	entry       string
+	callContext  context.Context
+	gate         chan struct{}
+	closeOnce    sync.Once
+	rt           *moejs.Runtime
+	loop         *eventloop.Loop
+	node         *node.API
+	web          *webapi.API
+	names        []string
+	bound        []BoundTool
+	hooks        map[string]moejs.Hook
+	hookPriority map[string]int
+	requestHook  *moejs.Hook
+	closed       bool
+	displayName  string
+	description  string
+	entry        string
 }
 
 type toolBinding struct {
@@ -111,7 +112,8 @@ func openPackage(ctx context.Context, dir string, rec record) (*running, error) 
 	}); err != nil {
 		return nil, jsError(err)
 	}
-	display, description := readMeta(run.rt)
+	display, description, priority := readMeta(run.rt)
+	run.hookPriority = priority
 	if display == "" {
 		display = rec.DisplayName
 	}
@@ -542,27 +544,28 @@ func asResult(v any) map[string]any {
 	}
 }
 
-func readMeta(rt *moejs.Runtime) (string, string) {
+func readMeta(rt *moejs.Runtime) (string, string, map[string]int) {
 	value, ok := rt.Export("meta")
 	if !ok {
-		return "", ""
+		return "", "", nil
 	}
 	raw, err := rt.ToGo(value)
 	if err != nil {
-		return "", ""
+		return "", "", nil
 	}
 	encoded, err := json.Marshal(raw)
 	if err != nil {
-		return "", ""
+		return "", "", nil
 	}
 	var meta struct {
-		DisplayName string `json:"displayName"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Remark      string `json:"remark"`
+		DisplayName  string                     `json:"displayName"`
+		Name         string                     `json:"name"`
+		Description  string                     `json:"description"`
+		Remark       string                     `json:"remark"`
+		HookPriority map[string]json.RawMessage `json:"hookPriority"`
 	}
 	if json.Unmarshal(encoded, &meta) != nil {
-		return "", ""
+		return "", "", nil
 	}
 	display := meta.DisplayName
 	if display == "" {
@@ -572,7 +575,14 @@ func readMeta(rt *moejs.Runtime) (string, string) {
 	if description == "" {
 		description = meta.Remark
 	}
-	return display, description
+	priority := map[string]int{}
+	for name, raw := range meta.HookPriority {
+		var value int
+		if json.Unmarshal(raw, &value) == nil {
+			priority[name] = value
+		}
+	}
+	return display, description, priority
 }
 
 func jsError(err error) error {

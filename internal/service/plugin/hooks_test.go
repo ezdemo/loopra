@@ -63,6 +63,64 @@ func TestHooksChainInInstallOrder(t *testing.T) {
 	}
 }
 
+func TestSystemPromptAppendsAccumulateAndFeedNextHook(t *testing.T) {
+	h := New(t.TempDir(), Hooks{})
+	installJS(t, h, "prompt-a", `export function systemPrompt() { return { append: "A" }; }`)
+	installJS(t, h, "prompt-b", `export function systemPrompt(input) { return { append: "[" + input.text + "]" }; }`)
+	installJS(t, h, "prompt-invalid", `export function systemPrompt() { return { append: 42 }; }`)
+	out, touched := h.RunHook(context.Background(), HookSystemPrompt, map[string]any{"text": "BASE"}, nil)
+	if out["text"] != "BASE" || out["append"] != "A[BASEA]" || !touched["append"] || touched["text"] {
+		t.Fatalf("prompt = %#v touched=%v", out, touched)
+	}
+}
+
+func TestSystemPromptReplacementConsumesEarlierAppends(t *testing.T) {
+	h := New(t.TempDir(), Hooks{})
+	installJS(t, h, "prompt-a", `export function systemPrompt() { return { append: "A" }; }`)
+	installJS(t, h, "prompt-b", `export function systemPrompt(input) { return { text: input.text + "B", append: "C" }; }`)
+	installJS(t, h, "prompt-c", `export function systemPrompt() { return { append: "D" }; }`)
+	out, _ := h.RunHook(context.Background(), HookSystemPrompt, map[string]any{"text": "BASE"}, nil)
+	if out["text"] != "BASEAB" || out["append"] != "CD" {
+		t.Fatalf("prompt = %#v", out)
+	}
+}
+
+func TestHookPrioritiesArePerHookStableAndSurviveReload(t *testing.T) {
+	home := t.TempDir()
+	h := New(home, Hooks{})
+	installJS(t, h, "priority-a", `
+export const meta = {hookPriority: {systemPrompt: 10, turnBefore: -10}};
+export function systemPrompt() { return {append: "A"}; }
+export function turnBefore(input) { return {message: input.message + "A"}; }`)
+	installJS(t, h, "priority-b", `
+export function systemPrompt() { return {append: "B"}; }
+export function turnBefore(input) { return {message: input.message + "B"}; }`)
+	installJS(t, h, "priority-c", `
+export const meta = {hookPriority: {systemPrompt: -10, turnBefore: 10}};
+export function systemPrompt() { return {append: "C"}; }
+export function turnBefore(input) { return {message: input.message + "C"}; }`)
+	installJS(t, h, "priority-d", `
+export const meta = {hookPriority: {systemPrompt: "invalid", turnBefore: 0.5}};
+export function systemPrompt() { return {append: "D"}; }
+export function turnBefore(input) { return {message: input.message + "D"}; }`)
+	for round := 0; round < 2; round++ {
+		out, _ := h.RunHook(context.Background(), HookSystemPrompt, map[string]any{"text": "BASE"}, nil)
+		if out["append"] != "CBDA" {
+			t.Fatalf("round %d prompt = %#v", round, out)
+		}
+		out, _ = h.RunHook(context.Background(), HookTurnBefore, map[string]any{"message": ""}, nil)
+		if out["message"] != "ABDC" {
+			t.Fatalf("round %d turn = %#v", round, out)
+		}
+		out, _ = h.RunHook(context.Background(), HookTurnBefore, map[string]any{"message": ""}, func(out map[string]any) bool { return out["message"] == "AB" })
+		if out["message"] != "AB" {
+			t.Fatalf("stop ignored: %#v", out)
+		}
+		h = New(home, Hooks{})
+		h.LoadEnabled(context.Background())
+	}
+}
+
 func TestHookThrowIsSkipped(t *testing.T) {
 	h := New(t.TempDir(), Hooks{})
 	installJS(t, h, "hook-bad", `export function turnBefore() { throw new Error("boom"); }`)

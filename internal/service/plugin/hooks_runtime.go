@@ -4,6 +4,7 @@ package plugin
 
 import (
 	"context"
+	"sort"
 
 	"github.com/MoeForge/moejs"
 
@@ -37,7 +38,7 @@ func (h *Host) RunObserver(ctx context.Context, name string, input map[string]an
 	}
 }
 
-// RunHook 按安装顺序调用已启用插件的同名钩子。
+// RunHook 按 Hook 优先级调用，同优先级保留安装顺序。
 // 每个插件看到的是上一个插件改过的输入。stop 返回 true 时不再往后传。
 // 插件抛错会被记下并跳过，这一轮继续。返回值是合并后的对象，以及插件实际写过的字段。
 func (h *Host) RunHook(ctx context.Context, name string, input map[string]any, stop func(map[string]any) bool) (map[string]any, map[string]bool) {
@@ -51,6 +52,12 @@ func (h *Host) RunHook(ctx context.Context, name string, input map[string]any, s
 	}
 	for _, target := range h.hookTargets(name) {
 		callInput := cloneMap(merged)
+		if name == HookSystemPrompt {
+			text, _ := merged["text"].(string)
+			extra, _ := merged["append"].(string)
+			callInput["text"] = text + extra
+			delete(callInput, "append")
+		}
 		if cfg, err := h.UIConfig(target.id); err == nil {
 			callInput["config"] = cfg
 		}
@@ -63,7 +70,24 @@ func (h *Host) RunHook(ctx context.Context, name string, input map[string]any, s
 		if !ok {
 			continue
 		}
+		if name == HookSystemPrompt {
+			// An explicit replacement consumes earlier appends. Append-only
+			// plugins accumulate, and the next plugin sees the effective text.
+			if text, ok := obj["text"].(string); ok {
+				merged["text"] = text
+				merged["append"] = ""
+				touched["text"] = true
+			}
+			if extra, ok := obj["append"].(string); ok {
+				previous, _ := merged["append"].(string)
+				merged["append"] = previous + extra
+				touched["append"] = true
+			}
+		}
 		for key, value := range obj {
+			if name == HookSystemPrompt && (key == "text" || key == "append") {
+				continue
+			}
 			if value == nil {
 				continue
 			}
@@ -95,5 +119,8 @@ func (h *Host) hookTargets(name string) []hookTarget {
 		}
 		out = append(out, hookTarget{id: rec.ID, run: run, hook: hook})
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].run.hookPriority[name] < out[j].run.hookPriority[name]
+	})
 	return out
 }

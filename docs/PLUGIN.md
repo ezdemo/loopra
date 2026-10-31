@@ -131,7 +131,16 @@ export function call(input) {
 
 ## 钩子
 
-钩子和工具可以写在同一个模块里，也可以写在 `export default` 上。多个插件按安装顺序串行，前一个的返回值交给下一个。某个插件抛错时跳过它，后面的继续。子代理用同一套钩子，并带上 `parentSessionId`。
+钩子和工具可以写在同一个模块里，也可以写在 `export default` 上。多个插件串行执行，前一个的返回值交给下一个。可在 `meta.hookPriority` 中分别指定各个钩子的整数优先级：数值小的先执行，默认 `0`，相同优先级保留安装顺序。某个插件抛错时跳过它，后面的继续。子代理用同一套钩子，并带上 `parentSessionId`。
+
+```js
+export const meta = {
+  displayName: "我的插件",
+  hookPriority: { systemPrompt: -10, llmRequest: 20 }
+};
+```
+
+`systemPrompt` 的多个 `append` 会按执行顺序累加，每个插件的 `input.text` 都包含此前的追加内容。返回 `text` 表示明确替换当前全文（包括此前的追加），同次返回的 `append` 再接到替换结果后面。其他替换字段仍由后执行的插件覆盖；优先级只控制同名钩子的顺序，`llmRequest` 在全部 `systemPrompt` 完成后执行，`llmRequestSent` 最后只读观察实际发送内容。
 
 每次调用都会带上当时能确定的 `invocationId`、`sessionId`、`app`、`agent`，以及这个插件自己的 `config`。`config` 就是设置页保存的对象，没有保存过时是 `{}`。
 
