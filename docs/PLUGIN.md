@@ -1,6 +1,6 @@
 # 插件
 
-插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。在设置 → 插件填写来源即可安装。主仓库只保留内置 `plugins/web` 联网工具，名字仍然是 `web`。聊天猫娘、每日回顾、OpenAPI 和上下文透视已迁到 [loopra-plugins](https://github.com/ezdemo/loopra-plugins)，可在「发现插件」中安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
+插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。从侧栏「技能与插件」进入「插件」页，填写来源即可安装。主仓库只保留内置 `plugins/web` 联网工具，名字仍然是 `web`。聊天猫娘、每日回顾、OpenAPI 和上下文透视已迁到 [loopra-plugins](https://github.com/ezdemo/loopra-plugins)，可在「发现插件」中安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
 
 安装后的文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。设置了 `LOOPRA_JAVA_BACKEND_URL` 时，本进程不加载这些插件。
 
@@ -19,7 +19,7 @@
 
 ## GitHub 插件源
 
-设置 → 插件 → 发现插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。可添加其他公开仓库、切换来源和刷新列表；在「已安装」里启停、设置或卸载插件。移除源只取消订阅，已经安装的插件继续保留。
+技能与插件 → 插件 → 发现插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。可添加其他公开仓库、切换来源和刷新列表；在「已安装」里启停、设置或卸载插件。移除源只取消订阅，已经安装的插件继续保留。
 
 仓库不需要额外的索引文件，推荐按下面的目录组织：
 

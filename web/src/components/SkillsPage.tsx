@@ -21,7 +21,7 @@ function skillWebsite(skill?: Skill) {
   } catch { return ''; }
 }
 
-export default function SkillsPage({ api, onRefresh, onBack }: { api: LoopraClient; onRefresh: () => Promise<void>; onBack: () => void }) {
+export default function SkillsPage({ api, onRefresh, onBack, embedded = false }: { api: LoopraClient; onRefresh: () => Promise<void>; onBack: () => void; embedded?: boolean }) {
   const [revision, setRevision] = useState(0);
   const installed = useRemote<Skill[]>(api, '/agent/skills', revision);
   const markets = useRemote<{ name: string; description: string }[]>(api, '/skill-market/markets');
@@ -52,10 +52,10 @@ export default function SkillsPage({ api, onRefresh, onBack }: { api: LoopraClie
   }
   const selectedSkill = selected?.installed ? selected.skill : detail.data && { ...selected?.skill, ...detail.data };
   const selectedWebsite = skillWebsite(selectedSkill) || skillWebsite(selected?.skill);
-  return <section className="skills-hub" aria-label="技能">
-    <div className="skills-hub-inner">
-      <header className="skills-hub-heading"><div><h1>技能</h1><p>管理常用技能，发现适合你工作方式的新能力。</p></div><div className="skills-hub-actions"><Button size="sm" variant="light" onPress={onBack}>返回会话</Button><Button size="sm" variant="bordered" isDisabled={busy} onPress={() => setRevision(value => value + 1)} startContent={<RefreshCw size={14} />}>刷新</Button></div></header>
-      <nav className="skills-hub-tabs" aria-label="技能分类">{([['installed', '已安装'], ['market', '技能市场']] as const).map(([id, label]) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => { setTab(id); setSelected(undefined); }}><span>{label}</span>{id === 'installed' && installed.data && <span className="skills-hub-count">{skills.length}</span>}</button>)}</nav>
+  return <section className={embedded ? 'skills-hub-content' : 'skills-hub'} aria-label="技能">
+    <div className={embedded ? undefined : 'skills-hub-inner'}>
+      {!embedded && <header className="skills-hub-heading"><div><h1>技能</h1></div><div className="skills-hub-actions"><Button size="sm" variant="light" onPress={onBack}>返回会话</Button></div></header>}
+      <div className="capabilities-section-toolbar"><nav className="skills-hub-tabs" aria-label="技能分类">{([['installed', '已安装'], ['market', '技能市场']] as const).map(([id, label]) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => { setTab(id); setSelected(undefined); }}><span>{label}</span>{id === 'installed' && installed.data && <span className="skills-hub-count">{skills.length}</span>}</button>)}</nav><Button size="sm" variant="light" isDisabled={busy} onPress={() => setRevision(value => value + 1)} startContent={<RefreshCw size={14} />}>刷新</Button></div>
       {tab === 'installed' ? <div className="skills-hub-toolbar"><Field label="搜索已安装技能" value={filter} onChange={setFilter} placeholder="搜索名称或说明…" startContent={<Search size={16} />} /><span>{visible.length} 个技能</span></div> : <form className="skills-hub-market-search" onSubmit={event => { event.preventDefault(); setSearch(text.trim()); setSelected(undefined); setRevision(value => value + 1); }}><Field label="搜索技能" value={text} onChange={setText} placeholder="你想让智能体学会什么？" startContent={<Search size={16} />} /><SelectField label="技能市场" value={market} onChange={value => { setMarket(value); setSelected(undefined); }} options={[{ value: '', label: '默认市场' }, ...(markets.data?.map(item => ({ value: item.name, label: item.name })) || [])]} /><Button size="md" color="primary" type="submit">{text.trim() ? '搜索技能' : '浏览热门'}</Button></form>}
       <RemoteState {...state} />{tab === 'market' && markets.error && <p role="alert" className="settings-error">市场列表加载失败：{markets.error}</p>}{error && <p role="alert" className="settings-error">{error}</p>}
       {tab === 'market' && !state.loading && !state.error && <div className="skills-hub-section-label"><h2>{search ? `“${search}”的搜索结果` : '热门推荐'}</h2><span>{visible.length} 个技能</span></div>}

@@ -149,7 +149,7 @@ export default function Sidebar(props: SidebarProps) {
     <div className="sidebar-actions">
       <button onClick={() => props.onNewSession()}><MessageCirclePlus />{english ? 'New chat' : '新建会话'}</button>
       <button onClick={props.onSearch}><SearchIcon />{english ? 'Search' : '搜索'}</button>
-      <button className={props.skillsOpen ? 'selected' : undefined} aria-current={props.skillsOpen ? 'page' : undefined} onClick={props.onSkills}><Sparkles />{english ? 'Skills' : '技能'}</button>
+      <button className={props.skillsOpen ? 'selected' : undefined} aria-current={props.skillsOpen ? 'page' : undefined} onClick={props.onSkills}><Sparkles />{english ? 'Skills & Plugins' : '技能与插件'}</button>
       <button className={props.schedulesOpen ? 'selected' : undefined} aria-current={props.schedulesOpen ? 'page' : undefined} onClick={props.onSchedules}><CalendarClock />{english ? 'Scheduled tasks' : '定时任务'}</button>
       {props.plugins?.map(item => {
         const selected = props.pluginPage === item.id;

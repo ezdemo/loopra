@@ -14,7 +14,7 @@ import ModelUsageSettings from './ModelUsageSettings';
 import { BackendProjects, BackendServer } from './BackendSettings';
 import { LoopraClient } from '../backend';
 import IntegrationManager, { McpPublishingSettings } from './IntegrationManager';
-import { ExtensionManager, SubAgentManager, ToolManager, UsageDashboard } from './ResourceManagers';
+import { SubAgentManager, ToolManager, UsageDashboard } from './ResourceManagers';
 import { PluginFrame, type PluginContext } from './PluginFrame';
 import { PluginGlyph, selectedPluginMenu, type PluginMenu } from './plugin-icons';
 import type { Workspace } from '../backend';
@@ -59,7 +59,6 @@ type Props = {
   updateCheck?: VersionCheck;
   coreUpdate: CoreServiceUpdateController;
   desktopUpdate?: DesktopUpdateController;
-  onPluginsChange?: () => void;
 };
 
 export default function Settings(props: Props) {
@@ -69,7 +68,6 @@ export default function Settings(props: Props) {
   const [tab, setTab] = useState(() => normalizeSettingsSection(props.initialTab));
   const [expandedCategory, setExpandedCategory] = useState(() => settingsCategoryFor(props.initialTab).name);
   const [pluginMenus, setPluginMenus] = useState<PluginMenu[]>([]);
-  const [pluginRevision, setPluginRevision] = useState(0);
   const [query, setQuery] = useState('');
   const [focusTarget, setFocusTarget] = useState('');
   const [dialogLock, setDialogLock] = useState(0);
@@ -88,7 +86,7 @@ export default function Settings(props: Props) {
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [open, api, pluginRevision]);
+  }, [open, api]);
   useEffect(() => {
     if (!tab.startsWith('plugin:') || selectedPluginMenu(tab, pluginMenus)) return;
     setTab('通用');
@@ -195,7 +193,6 @@ export default function Settings(props: Props) {
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}
-        {tab === '插件' && <ExtensionManager api={api} context={props.pluginContext} onChanged={() => { setPluginRevision(value => value + 1); props.onPluginsChange?.(); }} />}
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
         {tab === 'MCP' && <IntegrationManager api={api} kind="mcp" />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}

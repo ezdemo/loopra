@@ -16,7 +16,7 @@ test('plugin page joins its requested category without changing the built-in pag
   const menus = [{ id: 'openapi', title: 'OpenAPI', category: '工具与集成', page: true }];
   const categories = settingsWithPluginMenus(menus);
   const sections = categories.find(category => category.name === '工具与集成').sections;
-  assert.deepEqual(sections.map(section => section.label), ['工具', '插件', 'MCP', 'MCP 服务器', 'OpenAPI']);
+  assert.deepEqual(sections.map(section => section.label), ['工具', 'MCP', 'MCP 服务器', 'OpenAPI']);
   assert.equal(sections.at(-1).name, 'plugin:openapi');
   assert.equal(categories.flatMap(category => category.sections).filter(section => section.name === 'plugin:openapi').length, 1);
   assert.equal(pluginSettingsCategory(menus[0]), '工具与集成');

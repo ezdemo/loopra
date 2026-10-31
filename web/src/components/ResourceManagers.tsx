@@ -24,7 +24,7 @@ function pluginFoot(pack: Pack) {
   if (pack.hooks?.length) return pack.hooks.join('、');
   return '';
 }
-export function ExtensionManager({ api, onChanged, context }: { api: LoopraClient; onChanged?: () => void; context?: PluginContext }) {
+export function ExtensionManager({ api, onChanged, context, embedded = false }: { api: LoopraClient; onChanged?: () => void; context?: PluginContext; embedded?: boolean }) {
   const [tab, setTab] = useState<'installed' | 'catalog'>('installed');
   const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
   async function act(path: string, body?: unknown, clearSource = false) {
@@ -41,10 +41,11 @@ export function ExtensionManager({ api, onChanged, context }: { api: LoopraClien
     </div>;
   }
   return <div className="settings-resource-page plugin-page">
-    <PageActions title="插件">{tab === 'installed' && <Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button>}</PageActions>
+    {!embedded && <PageActions title="插件">{tab === 'installed' && <Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button>}</PageActions>}
     <div className="tools-filters" role="group" aria-label="插件视图">
       <Button size="sm" variant="light" className={`tools-filter ${tab === 'installed' ? 'active' : ''}`} aria-pressed={tab === 'installed'} onPress={() => setTab('installed')}>已安装</Button>
       <Button size="sm" variant="light" className={`tools-filter ${tab === 'catalog' ? 'active' : ''}`} aria-pressed={tab === 'catalog'} onPress={() => setTab('catalog')}>发现插件</Button>
+      {embedded && tab === 'installed' && <Button className="settings-outlined-action capabilities-refresh" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button>}
     </div>
     {error && <p role="alert" className="settings-error">{error}</p>}
     <RemoteState {...state} />

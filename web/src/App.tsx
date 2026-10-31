@@ -18,7 +18,8 @@ import SessionHistoryState from './components/SessionHistoryState';
 import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
 import Settings, { defaultPreferences } from './components/Settings';
-import SkillsPage from './components/SkillsPage';
+import SkillsAndPluginsPage from './components/SkillsAndPluginsPage';
+import { capabilitiesTabForSection, type CapabilitiesTab } from './capabilities-navigation';
 import SchedulesPage from './components/SchedulesPage';
 import { PluginFrame } from './components/PluginFrame';
 import type { PluginIconRef } from './components/plugin-icons';
@@ -130,6 +131,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [gitBranch, setGitBranch] = useState('工作区');
   const [searchOpen, setSearchOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [capabilitiesTab, setCapabilitiesTab] = useState<CapabilitiesTab>('skills');
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [pluginPage, setPluginPage] = useState('');
   const [pluginNav, setPluginNav] = useState<{ id: string; title: string; icon?: PluginIconRef }[]>([]);
@@ -760,7 +762,15 @@ export default function App({ startupPending = false, initialServer }: { startup
     await selectSession(target.id, target);
   }
   function toggleMenu(name: string) { setMenu(current => current === name ? null : name); }
-  function openSettings(tab = '通用') { setSettingsTab(tab); setSettingsOpen(true); setMenu(null); }
+  function openSettings(tab = '通用') {
+    const capabilities = capabilitiesTabForSection(tab);
+    if (capabilities) {
+      setCapabilitiesTab(capabilities); setSkillsOpen(true); setSchedulesOpen(false); setPluginPage(''); setSettingsOpen(false); setMenu(null);
+      if (narrow) setSidebar(false);
+      return;
+    }
+    setSettingsTab(tab); setSettingsOpen(true); setMenu(null);
+  }
   function openCoreUpdate() {
     if (isDesktopWindow()) { desktopUpdate.show(); return; }
     if (coreUpdate.update?.running || coreUpdate.startingUpdate) coreUpdate.show();
@@ -1459,7 +1469,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
           onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
-        {skillsOpen && <SkillsPage api={api} onRefresh={() => backend.refresh()} onBack={() => setSkillsOpen(false)} />}
+        {skillsOpen && <SkillsAndPluginsPage api={api} tab={capabilitiesTab} onTabChange={setCapabilitiesTab} context={pluginContext} onRefresh={() => backend.refresh()} onPluginsChanged={() => { setPluginNavRevision(value => value + 1); void backend.refresh().catch(cause => notify(`刷新能力失败：${cause instanceof Error ? cause.message : String(cause)}`)); }} onBack={() => setSkillsOpen(false)} />}
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
         {pluginPage && <section className="plugin-app-page" aria-label={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage}><PluginFrame api={api} id={pluginPage} name={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage} slot="sidebar" className="plugin-app-frame" context={pluginContext} /></section>}
         <div className="app-chat-workspace" hidden={surfaceOpen}>
@@ -1519,7 +1529,6 @@ export default function App({ startupPending = false, initialServer }: { startup
       onOptions={saveOptions}
       defaultModel={defaultModel}
       onDefaultModel={saveDefaultModel}
-      onPluginsChange={() => setPluginNavRevision(value => value + 1)}
       open={settingsOpen}
       onClose={() => setSettingsOpen(false)}
       initialTab={settingsTab}

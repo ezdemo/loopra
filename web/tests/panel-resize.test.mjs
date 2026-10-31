@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 
-// Skills have a dedicated main-page entry in the sidebar.
+// Skills and plugins share one main-page entry in the sidebar.
 // The right dock retains the legacy resize behaviour.
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const sidebar = await readFile(new URL('../src/layout/Sidebar.tsx', import.meta.url), 'utf8');
@@ -14,13 +14,16 @@ const panelResizeSource = await readFile(new URL('../src/panel-resize.ts', impor
 const { outputText } = ts.transpileModule(panelResizeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 const { clampPanelWidth, clampSidebarWidth, resizePanelWidth, resizeSidebarWidth } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
-test('skills open in the main area from the sidebar instead of settings', async () => {
+test('skills and plugins open in the main area from one sidebar entry', async () => {
   const settings = await readFile(new URL('../src/components/Settings.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(settings, /SkillManager/);
+  assert.doesNotMatch(settings, /ExtensionManager/);
+  assert.match(sidebar, /Skills & Plugins.*技能与插件/);
   assert.match(sidebar, /onClick=\{props.onSkills\}/);
   assert.ok(sidebar.indexOf('onClick={props.onSearch}') < sidebar.indexOf('onClick={props.onSkills}'));
-  assert.match(app, /skillsOpen && <SkillsPage/);
-  assert.match(app, /className="app-chat-workspace" hidden=\{skillsOpen \|\| schedulesOpen\}/);
+  assert.match(app, /skillsOpen && <SkillsAndPluginsPage/);
+  assert.match(app, /const surfaceOpen = skillsOpen \|\| schedulesOpen \|\| !!pluginPage/);
+  assert.match(app, /className="app-chat-workspace" hidden=\{surfaceOpen\}/);
 });
 
 test('the sidebar keeps refresh and fold-all but drops locate and sort controls', () => {

@@ -14,7 +14,6 @@ export const settingsCategories = [
   ] },
   { name: '工具与集成', sections: [
     { name: '工具', label: '工具', keywords: 'tools 只读 写入' },
-    { name: '插件', label: '插件', keywords: 'npm github moejs 工具 钩子' },
     { name: 'MCP', label: 'MCP', keywords: '外部 服务 连接 stdio SSE 工具权限 传输' },
     { name: 'MCP 服务器', label: 'MCP 服务器', keywords: '工具 发布 导出 MCP Server Cloudflare 隧道 连接地址' },
   ] },
@@ -31,10 +30,9 @@ export const settingsCategories = [
 ];
 
 export function normalizeSettingsSection(name: string): string {
-  if (name === 'OpenAPI') return '插件';
+  if (name === 'OpenAPI' || name === '插件' || name === '拓展包') return '工具';
   if (name === '实验室') return '通用';
   if (name === '账户') return '关于';
-  if (name === '拓展包') return '插件';
   if (name === '已归档的会话' || name === '已隐藏会话') return '项目';
   const category = settingsCategories.find(item => item.name === name);
   if (category) return category.sections[0].name;
