@@ -43,6 +43,10 @@ func TestSkillsMetadataAndReadingThroughRuntime(t *testing.T) {
 	if err != nil || text != "fixture skill reference" {
 		t.Fatalf("skill reference = %q %v", text, err)
 	}
+	_, err = s.readSkill("@loopra-skills/fixture", "references")
+	if err == nil || !strings.Contains(err.Error(), "SKILL.md") || !strings.Contains(err.Error(), "references/guide.txt") || strings.Contains(err.Error(), "GetFileAttributesEx") {
+		t.Fatalf("missing skill file = %v", err)
+	}
 	if _, err := s.readSkill("@loopra-skills/fixture", "../../config.json"); err == nil {
 		t.Fatal("skill resource escaped its directory")
 	}
@@ -53,6 +57,9 @@ func TestSkillsMetadataAndReadingThroughRuntime(t *testing.T) {
 		item := entry.(map[string]any)
 		if item["name"] == "name" && item["required"] == true {
 			found = true
+		}
+		if item["name"] == "path" && !strings.Contains(fmt.Sprint(item["description"]), "SKILL.md") {
+			t.Fatalf("path description = %v", item["description"])
 		}
 	}
 	if !found {

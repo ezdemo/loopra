@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	acpsdk "github.com/coder/acp-go-sdk"
@@ -66,15 +67,9 @@ func (s *liveSession) installSessionTools(r *Runtime) {
 		}
 		return map[string]any{"result": answer, "status": "answered"}, nil
 	})
-	read, _ := functiontool.New[struct {
-		Name string `json:"name"`
-		Path string `json:"path,omitempty"`
-	}, map[string]any](functiontool.Config{
-		Name: "skillread", Description: "使用清单中的完整标识读取技能规约；path 可读取该技能内的配套文件，默认 SKILL.md。",
-	}, func(_ agentctx.Context, in struct {
-		Name string `json:"name"`
-		Path string `json:"path,omitempty"`
-	}) (map[string]any, error) {
+	read, _ := functiontool.New[skillReadInput, map[string]any](functiontool.Config{
+		Name: "skillread", Description: skillReadDescription,
+	}, func(_ agentctx.Context, in skillReadInput) (map[string]any, error) {
 		text, err := readSkill(r.home, s.cwd, in.Name, in.Path)
 		if err != nil {
 			return nil, err
@@ -156,6 +151,53 @@ func jsonUnmarshalStrings(raw string, out *[]string) error {
 	return yaml.Unmarshal([]byte(raw), out)
 }
 
+type skillReadInput struct {
+	Name string `json:"name" jsonschema:"清单中的完整标识，例如 @loopra-skills/find-skills"`
+	Path string `json:"path,omitempty" jsonschema:"可选。省略则读取 SKILL.md。只能填该技能目录里已有文件的相对路径，例如 README.md 或 references/guide.txt。不要填目录，也不要猜测 SKILL.md 没点名的路径"`
+}
+
+const skillReadDescription = "读取技能规约。name 用清单中的完整标识。省略 path 读取 SKILL.md。path 只能是该技能目录内已存在的文件相对路径，且仅当 SKILL.md 点名了该文件时才传；必须是文件，不能是目录，不要猜测 references 这类路径。"
+
+func missingSkillFile(directory, path string) error {
+	names := skillFiles(directory)
+	if len(names) == 0 {
+		return fmt.Errorf("技能内没有文件 %q。省略 path 读取 SKILL.md；path 必须是技能目录内已存在的文件，不能是目录，不要猜测路径", path)
+	}
+	return fmt.Errorf("技能内没有文件 %q。可读取：%s。省略 path 即读取 SKILL.md；path 必须是其中的文件，不能是目录", path, strings.Join(names, ", "))
+}
+
+func skillFiles(directory string) []string {
+	names := []string{}
+	var walk func(string)
+	walk = func(dir string) {
+		if len(names) >= 40 {
+			return
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			if len(names) >= 40 {
+				return
+			}
+			next := filepath.Join(dir, entry.Name())
+			if entry.IsDir() {
+				walk(next)
+				continue
+			}
+			rel, err := filepath.Rel(directory, next)
+			if err != nil {
+				continue
+			}
+			names = append(names, filepath.ToSlash(rel))
+		}
+	}
+	walk(directory)
+	sort.Strings(names)
+	return names
+}
+
 func skillMetadata(home, workspace string) []map[string]any {
 	out := []map[string]any{}
 	for _, source := range skillRoots(home, workspace) {
@@ -204,10 +246,16 @@ func readSkill(home, workspace, name, path string) (string, error) {
 	}
 	info, err := os.Stat(target)
 	if err != nil {
-		return "", err
+		if os.IsNotExist(err) {
+			return "", missingSkillFile(directory, path)
+		}
+		return "", fmt.Errorf("技能文件 %q 不可读取", path)
 	}
-	if !info.Mode().IsRegular() || info.Size() > 4<<20 {
-		return "", fmt.Errorf("技能文件不可读取或超过 4 MiB")
+	if !info.Mode().IsRegular() {
+		return "", missingSkillFile(directory, path)
+	}
+	if info.Size() > 4<<20 {
+		return "", fmt.Errorf("技能文件超过 4 MiB")
 	}
 	data, err := os.ReadFile(target)
 	return string(data), err
