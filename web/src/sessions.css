@@ -13,9 +13,11 @@
 .session-more { display: flex; align-items: center; width: 100%; height: 1.75rem; margin-top: 0.125rem; padding: 0 0.5rem 0 1.75rem; border: none; border-radius: var(--radius-md); background: transparent; color: var(--muted); font-size: 0.75rem; text-align: left; cursor: pointer; transition: color 0.12s, background 0.12s; }
 .session-more:hover { color: var(--text); background: var(--hover); }
 .session-row .session-item { flex: 1; min-width: 0; }
-.session-row-tools { position: absolute; right: 0.25rem; display: flex; gap: 0.0625rem; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
-.session-row:hover .session-row-tools, .session-row-tools:focus-within { opacity: 0.9; pointer-events: auto; }
-.session-row-tools .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; color: var(--muted); background: var(--selected); }
+.session-row-tools { position: absolute; right: 0.25rem; display: flex; gap: 0; border-radius: var(--radius-sm); background: var(--selected); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.session-row:hover .session-row-tools, .session-row:focus-within .session-row-tools { opacity: 1; pointer-events: auto; }
+.session-row:hover .session-item, .session-row:focus-within .session-item { padding-right: 3.5rem; }
+.session-row:hover .session-item time, .session-row:focus-within .session-item time { display: none; }
+.session-row-tools .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; color: var(--muted); background: transparent; }
 .session-row-tools .icon-button:hover { color: var(--text); background: var(--hover); }
 .session-item .wt-badge { flex-shrink: 0; font-style: normal; font-size: 0.75rem; }
 /* A clipped session title slides sideways on hover so the full name is readable
@@ -26,7 +28,7 @@
 .session-item:hover .session-title.marquee > span { max-width: none; animation: session-title-marquee var(--marquee-duration, 4s) ease-in-out infinite alternate; }
 @keyframes session-title-marquee { from { transform: translateX(0); } to { transform: translateX(var(--marquee-distance, 0)); } }
 @media (prefers-reduced-motion: reduce) { .session-item:hover .session-title.marquee > span { animation: none; } }
-@media (hover: none) { .session-row-tools { opacity: 0.75; pointer-events: auto; } }
+@media (hover: none) { .session-row-tools { opacity: 1; pointer-events: auto; } .session-row .session-item { padding-right: 3.5rem; } .session-row .session-item time { display: none; } }
 
 .sessions-manager { width: min(56rem, calc(100vw - 3rem)) !important; max-width: 56rem !important; height: min(42rem, calc(100dvh - 4rem)); }
 .sessions-manager-body { display: flex; flex-direction: column; gap: 1rem; height: 100%; min-height: 0; padding: 1.5rem 1.75rem 1.25rem; overflow: hidden; }
