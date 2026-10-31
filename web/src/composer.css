@@ -213,7 +213,9 @@
    derived from `--effort-level` (0–5, written by ReasoningControl), so the higher
    the level the tighter, brighter and quicker the stream — and the fill it lives in
    widens at the same time. */
-.effort-slider { --effort-level: 0; padding: 0.1875rem 0; }
+/* Match the track's endpoint centres to the first and last label cells, accounting
+   for the track's transparent 0.25rem borders. Both rows share the same scale. */
+.effort-slider { --effort-level: 0; padding: 0.1875rem max(0px, calc(50% / var(--effort-count) - 0.25rem)); }
 /* Saving disables input, but must not flash the selected strength at half opacity. */
 .effort-slider .effort-range { opacity: 1; }
 .effort-slider [data-slot="track"] { height: 0.875rem; margin-top: 0; margin-bottom: 0; border-left-width: 0.25rem; border-right-width: 0.25rem; }
@@ -284,7 +286,7 @@
   background: #fff;
   box-shadow: 0 0.0625rem 0.375rem #0000002b, 0 0 0 1px #0000000f, 0 0 calc(var(--effort-level) * 0.16rem) color-mix(in srgb, var(--blue) 34%, transparent);
 }
-.effort-levels { display: flex; justify-content: space-between; padding: 0.5625rem 0 0.5rem; }
+.effort-levels { display: grid; grid-template-columns: repeat(var(--effort-count), minmax(0, 1fr)); justify-items: center; padding: 0.5625rem 0 0.5rem; }
 .effort-levels button { padding: 0.1875rem 0.3125rem; min-width: 1.75rem; font-size: 0.75rem; color: var(--muted); }
 .effort-levels button[aria-pressed="true"] { background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.5rem; }
