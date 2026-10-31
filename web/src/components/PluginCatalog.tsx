@@ -2,8 +2,9 @@ import { useState } from 'react';
 import type { LoopraClient } from '../backend';
 import { Field, ResourceEmpty } from './SettingControls';
 import { errorText, RemoteState, useRemote } from './RemoteControls';
+import { PluginGlyph, pluginTone, type PluginIconRef } from './plugin-icons';
 
-type CatalogEntry = { id: string; name: string; description?: string; version?: string; source: string };
+type CatalogEntry = { id: string; name: string; description?: string; version?: string; source: string; icon?: PluginIconRef };
 
 export function PluginCatalog({ api, installed, busy, onInstall }: {
   api: LoopraClient;
@@ -59,6 +60,9 @@ export function PluginCatalog({ api, installed, busy, onInstall }: {
       const exists = installed.some(pack => pack.id === entry.id);
       return <section className="plugin-card" key={entry.source}>
         <header className="plugin-card-head">
+          <span className={entry.icon ? 'plugin-card-mark has-icon' : 'plugin-card-mark'} style={entry.icon ? undefined : { background: pluginTone(entry.id) }} aria-hidden="true">
+            {entry.icon ? <PluginGlyph api={api} pluginId={entry.id} icon={entry.icon} className="plugin-card-icon" size="1.25rem" /> : ([...entry.name.trim()][0] || '?')}
+          </span>
           <div className="plugin-card-id"><div className="plugin-card-name"><strong title={entry.name}>{entry.name}</strong></div></div>
           <button type="button" className={`plugin-card-state ${exists ? 'is-on' : ''}`} disabled={busy || !!installing || exists} onClick={() => void install(entry)}>
             {exists ? '已安装' : installing === entry.source ? '安装中' : '安装'}

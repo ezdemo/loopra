@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,6 +41,63 @@ func TestPluginSourcesPersist(t *testing.T) {
 		if _, err := h.SetSource(source, false); err == nil {
 			t.Errorf("accepted invalid repository %q", source)
 		}
+	}
+}
+
+func TestCatalogIncludesIconsBeforeInstallation(t *testing.T) {
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2 2h20v20H2z"/></svg>`
+	for _, tc := range []struct {
+		name, declaration, file, data string
+		wantName                      string
+		wantImage, wantHidden         bool
+	}{
+		{name: "named", declaration: `"calendar"`, wantName: "calendar"},
+		{name: "file", declaration: `"./ui/icon.svg"`, file: "ui/icon.svg", data: svg, wantImage: true},
+		{name: "hidden", declaration: `false`, wantHidden: true},
+		{name: "missing", declaration: `"./ui/missing.svg"`},
+		{name: "oversized", declaration: `"./ui/icon.svg"`, file: "ui/icon.svg", data: strings.Repeat("x", (256<<10)+1)},
+		{name: "outside", declaration: `"../icon.svg"`, file: "icon.svg", data: svg},
+		{name: "non-image", declaration: `"./ui/icon.html"`, file: "ui/icon.html", data: "<script>bad()</script>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := map[string]string{
+				"repo/package.json": fmt.Sprintf(`{"name":"icon-demo","loopra":{"plugin":"plugin.js","icon":%s}}`, tc.declaration),
+				"repo/plugin.js":    `throw new Error("catalog must not execute plugins");`,
+			}
+			if tc.file != "" {
+				files["repo/"+tc.file] = tc.data
+			}
+			h := New(t.TempDir(), Hooks{})
+			archive := tarGz(files)
+			h.Fetcher = func(context.Context, string) ([]byte, error) { return archive, nil }
+			entries, err := h.Catalog(context.Background(), DefaultSource)
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("catalog = %+v, %v", entries, err)
+			}
+			icon := entries[0].Icon
+			if !tc.wantImage && !tc.wantHidden && tc.wantName == "" {
+				if icon != nil {
+					t.Fatalf("invalid icon accepted: %+v", icon)
+				}
+				return
+			}
+			if icon == nil || icon.Name != tc.wantName || icon.Hidden != tc.wantHidden {
+				t.Fatalf("icon = %+v", icon)
+			}
+			if tc.wantImage {
+				prefix := "data:image/svg+xml;base64,"
+				if !strings.HasPrefix(icon.DataURL, prefix) {
+					t.Fatalf("icon data URL = %q", icon.DataURL)
+				}
+				data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(icon.DataURL, prefix))
+				if err != nil || string(data) != svg {
+					t.Fatalf("file icon did not survive catalog cleanup: %q, %v", data, err)
+				}
+			}
+			if len(h.List()) != 0 {
+				t.Fatal("reading an icon installed the plugin")
+			}
+		})
 	}
 }
 

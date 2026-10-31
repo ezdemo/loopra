@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -18,11 +19,12 @@ import (
 const DefaultSource = "https://github.com/ezdemo/loopra-plugins"
 
 type CatalogEntry struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Version     string `json:"version,omitempty"`
-	Source      string `json:"source"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Version     string   `json:"version,omitempty"`
+	Source      string   `json:"source"`
+	Icon        *IconRef `json:"icon,omitempty"`
 }
 
 // Sources persists repository subscriptions independently of installed plugins.
@@ -164,7 +166,7 @@ func (h *Host) Catalog(ctx context.Context, raw string) ([]CatalogEntry, error) 
 		if item.Subdir == "." {
 			item.Subdir = ""
 		}
-		entries = append(entries, CatalogEntry{ID: id, Name: info.Name, Description: info.Description, Version: info.Version, Source: githubSourceURL(item)})
+		entries = append(entries, CatalogEntry{ID: id, Name: info.Name, Description: info.Description, Version: info.Version, Source: githubSourceURL(item), Icon: catalogIcon(file, info.Icon)})
 		return filepath.SkipDir
 	})
 	if err != nil {
@@ -172,6 +174,37 @@ func (h *Host) Catalog(ctx context.Context, raw string) ([]CatalogEntry, error) 
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries, nil
+}
+
+// File icons travel with the catalog so uninstalled plugins need no asset route
+// or additional GitHub requests after the temporary archive has been removed.
+func catalogIcon(root string, icon pkgIcon) *IconRef {
+	if icon.Hidden {
+		return &IconRef{Hidden: true}
+	}
+	if icon.Name != "" {
+		return &IconRef{Name: icon.Name}
+	}
+	if icon.File == "" {
+		return nil
+	}
+	file, err := resolveInside(root, root, icon.File)
+	if err != nil || !imageType(file) {
+		return nil
+	}
+	stat, err := os.Stat(file)
+	if err != nil || !stat.Mode().IsRegular() || stat.Size() > 256<<10 {
+		return nil
+	}
+	contentType, ok := UIContentType(file)
+	if !ok {
+		return nil
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	return &IconRef{DataURL: "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data)}
 }
 
 func validGitSubdir(sub string) bool {

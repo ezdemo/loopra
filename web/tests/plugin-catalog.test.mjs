@@ -26,7 +26,8 @@ const remote = await compile('RemoteControls', { '@nextui-org/react': nextui });
 const fields = dataUrl(`import { createElement as h } from ${JSON.stringify(reactUrl)};
 export const Field = ({ label, value, onChange }) => h('label', null, label, h('input', { value, onChange: event => onChange(event.target.value) }));
 export const ResourceEmpty = ({ title, children }) => h('section', null, h('h3', null, title), children);`);
-const { PluginCatalog } = await import(await compile('PluginCatalog', { './RemoteControls': remote, './SettingControls': fields }));
+const icons = await compile('plugin-icons', { 'lucide-react': import.meta.resolve('lucide-react') });
+const { PluginCatalog } = await import(await compile('PluginCatalog', { './RemoteControls': remote, './SettingControls': fields, './plugin-icons': icons }));
 const first = 'https://github.com/acme/plugins';
 const second = 'https://github.com/acme/other';
 const entries = [{ id: 'alpha', name: 'Alpha', source: `${first}?path=plugins%2Falpha`, version: '1.0.0' }, { id: 'beta', name: 'Beta', source: `${first}?path=plugins%2Fbeta` }];
@@ -98,5 +99,23 @@ test('failed catalog requests remain visible and can be retried', async () => {
     await view.click('刷新');
     assert.equal(view.container.querySelector('[role="alert"]'), null);
     assert.equal(view.container.querySelectorAll('.plugin-card').length, 2);
+  } finally { await view.close(); }
+});
+
+test('uninstalled catalog cards render Lucide and bundled image icons with a letter fallback', async () => {
+  const image = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64');
+  const view = await mount(path => path.startsWith('/plugins/catalog?') ? [
+    { ...entries[0], icon: { name: 'calendar' } },
+    { ...entries[1], icon: { dataUrl: image } },
+    { id: 'gamma', name: 'Gamma', source: 'gamma' },
+    { id: 'hidden', name: 'Hidden', source: 'hidden', icon: { hidden: true } },
+  ] : undefined);
+  try {
+    const cards = view.container.querySelectorAll('.plugin-card');
+    assert.ok(cards[0].querySelector('.plugin-card-mark svg.lucide-calendar'));
+    assert.equal(cards[1].querySelector('.plugin-card-mark img').getAttribute('src'), image);
+    assert.equal(cards[2].querySelector('.plugin-card-mark').textContent.trim(), 'G');
+    assert.equal(cards[3].querySelector('.plugin-card-mark').childElementCount, 0);
+    assert.equal(view.calls.some(call => call.path.includes('/icons/')), false);
   } finally { await view.close(); }
 });

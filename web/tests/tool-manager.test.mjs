@@ -66,7 +66,7 @@ const { ToolManager, SubAgentManager } = await import(await sourceUrl('component
   'lucide-react': import.meta.resolve('lucide-react'),
   './PluginFrame': dataUrl('export const PluginFrame = () => null;'),
   './PluginCatalog': dataUrl('export const PluginCatalog = () => null;'),
-  './plugin-icons': dataUrl('export const PluginGlyph = () => null;'),
+  './plugin-icons': dataUrl('export const PluginGlyph = () => null; export const pluginTone = () => "#4f6ef7";'),
   './RemoteControls': controlsStub,
   './SettingControls': settingControlsStub,
   './UsageDashboard': usageStub,

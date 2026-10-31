@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { PluginFrame, type PluginContext } from './PluginFrame';
 import { PluginCatalog } from './PluginCatalog';
-import { PluginGlyph, type PluginIconRef } from './plugin-icons';
+import { PluginGlyph, pluginTone, type PluginIconRef } from './plugin-icons';
 import { Button } from '@nextui-org/react';
 import { Check } from 'lucide-react';
 import type { LoopraClient } from '../backend';
@@ -12,12 +12,6 @@ type ToolParam = { name: string; description?: string; type?: string; required?:
 type Tool = { name: string; description: string; readOnly: boolean; readOnlyOverride: boolean | null; stormExempt: boolean; enabled: boolean; autoApproved: boolean; params?: ToolParam[] };
 export { default as SubAgentManager } from './SubAgentManager';
 type Pack = { id: string; displayName?: string; remark?: string; description?: string; enabled: boolean; builtin?: boolean; source?: string; sourceUrl?: string; state?: string; error?: string; tools?: string[]; hooks?: string[]; version?: string; settings?: boolean; icon?: PluginIconRef };
-const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
-function pluginTone(id: string) {
-  let n = 0;
-  for (const ch of id) n = (n + ch.charCodeAt(0)) % pluginTones.length;
-  return pluginTones[n];
-}
 function pluginOrigin(pack: Pack) {
   if (pack.builtin) return '内置';
   const source = pack.source || pack.sourceUrl || '';

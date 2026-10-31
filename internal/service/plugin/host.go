@@ -64,9 +64,10 @@ type View struct {
 
 // IconRef 是插件声明的图标。name 是 Lucide 图标名，key 指向一张包内图片。
 type IconRef struct {
-	Hidden bool   `json:"hidden,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Key    string `json:"key,omitempty"`
+	Hidden  bool   `json:"hidden,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Key     string `json:"key,omitempty"`
+	DataURL string `json:"dataUrl,omitempty"`
 }
 
 // SidebarLink 是侧栏「定时任务」下面的插件入口。

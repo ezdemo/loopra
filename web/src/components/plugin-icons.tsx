@@ -3,7 +3,7 @@ import { Bell, BookOpen, Bot, Box, Braces, Calendar, Cat, CircleHelp, Clock, Clo
 import type { LucideIcon } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 
-export type PluginIconRef = { name?: string; key?: string; hidden?: boolean };
+export type PluginIconRef = { name?: string; key?: string; hidden?: boolean; dataUrl?: string };
 export type PluginMenuChild = { id: string; title: string; icon?: PluginIconRef };
 export type PluginMenu = { id: string; title: string; category?: string; icon?: PluginIconRef; page?: boolean; children?: PluginMenuChild[] };
 
@@ -16,6 +16,13 @@ const pluginLucide: Record<string, LucideIcon> = {
   rocket: Rocket, search: Search, server: Server, settings: Settings, shield: Shield, smile: Smile, sparkles: Sparkles,
   star: Star, sun: Sun, terminal: Terminal, user: User, users: Users, video: Video, wand: Wand, wrench: Wrench, zap: Zap,
 };
+
+const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
+export function pluginTone(id: string) {
+  let n = 0;
+  for (const ch of id) n = (n + ch.charCodeAt(0)) % pluginTones.length;
+  return pluginTones[n];
+}
 
 export function selectedPluginMenu(tab: string, menus: PluginMenu[]) {
   const [kind, id, childId] = tab.split(':');
@@ -37,6 +44,7 @@ export function PluginGlyph({ api, pluginId, icon, className, size = '1.125rem' 
   if (icon?.hidden) return null;
   const Lucide = icon?.name ? pluginLucide[icon.name] : undefined;
   if (Lucide) return <Lucide className={className} size={size} strokeWidth={1.8} aria-hidden="true" />;
+  if (icon?.dataUrl?.startsWith('data:image/')) return <img className={className || 'plugin-file-icon'} src={icon.dataUrl} alt="" />;
   if (icon?.key) return <PluginFileIcon api={api} pluginId={pluginId} iconKey={icon.key} className={className || 'plugin-file-icon'} />;
   return null;
 }
