@@ -156,6 +156,7 @@ func TestPluginSettingsPage(t *testing.T) {
 		"package.json":  `{"name":"settingsdemo","version":"1.0.0","description":"settings","loopra":{"plugin":"./plugin.js","icon":"./ui/icon.svg","ui":{"settings":"./ui/index.html","sidebar":{"title":"侧栏","icon":"cat","page":"./ui/index.html"},"menu":{"title":"菜单","icon":"cat","children":[{"id":"nickname","title":"称呼","page":"./ui/index.html"}]}}}}`,
 		"plugin.js":     "export const meta = { displayName: \"设置示例\" };\nexport function systemPrompt() { return {}; }\n// secret-module-body\n",
 		"ui/index.html": `<!doctype html><title>settings</title>settings-page-ok`,
+		"ui/app.css":    "body{color:red}",
 		"ui/icon.svg":   `<svg xmlns="http://www.w3.org/2000/svg"></svg>`,
 		"ui/note.txt":   "hidden-note",
 	}
@@ -228,8 +229,8 @@ func TestPluginSettingsPage(t *testing.T) {
 	if ticket == nil || !ticket.HttpOnly || ticket.Path != "/api/plugins/settingsdemo/ui" || ticket.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("cookie = %#v", ticket)
 	}
-	if strings.Contains(string(openBody), ticket.Value) {
-		t.Fatal("ticket leaked into the response body")
+	if !strings.Contains(string(openBody), "/plugins/settingsdemo/ui/t/"+ticket.Value+"/") || strings.Contains(string(openBody), key) {
+		t.Fatalf("open = %s", openBody)
 	}
 
 	denied, err := http.Get(ts.URL + "/api/plugins/settingsdemo/ui/")
@@ -257,6 +258,44 @@ func TestPluginSettingsPage(t *testing.T) {
 	}
 	if !strings.Contains(pageResp.Header.Get("Content-Security-Policy"), "connect-src 'none'") || strings.Contains(string(pageBody), key) {
 		t.Fatalf("policy = %s", pageResp.Header.Get("Content-Security-Policy"))
+	}
+	tokenPage, err := http.Get(ts.URL + "/api/plugins/settingsdemo/ui/t/" + ticket.Value + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenBody, _ := io.ReadAll(tokenPage.Body)
+	tokenPage.Body.Close()
+	if tokenPage.StatusCode != http.StatusOK || !strings.Contains(string(tokenBody), "settings-page-ok") || !strings.Contains(string(tokenBody), plugin.UIBridgeRel) {
+		t.Fatalf("token page = %d %s", tokenPage.StatusCode, tokenBody)
+	}
+	if !strings.Contains(tokenPage.Header.Get("Content-Security-Policy"), "/api/plugins/settingsdemo/ui/t/"+ticket.Value+"/") || strings.Contains(tokenPage.Header.Get("Content-Security-Policy"), "allow-same-origin") {
+		t.Fatalf("token policy = %s", tokenPage.Header.Get("Content-Security-Policy"))
+	}
+	cssResp, err := http.Get(ts.URL + "/api/plugins/settingsdemo/ui/t/" + ticket.Value + "/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cssBody, _ := io.ReadAll(cssResp.Body)
+	cssResp.Body.Close()
+	if cssResp.StatusCode != http.StatusOK || string(cssBody) != "body{color:red}" || cssResp.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("css = %d %s", cssResp.StatusCode, cssBody)
+	}
+	bridgeResp, err := http.Get(ts.URL + "/api/plugins/settingsdemo/ui/t/" + ticket.Value + "/" + plugin.UIBridgeRel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgeBody, _ := io.ReadAll(bridgeResp.Body)
+	bridgeResp.Body.Close()
+	if bridgeResp.StatusCode != http.StatusOK || !strings.Contains(string(bridgeBody), ":where(button)") {
+		t.Fatalf("bridge = %d %s", bridgeResp.StatusCode, bridgeBody)
+	}
+	crossed, err := http.Get(ts.URL + "/api/plugins/chat_neko/ui/t/" + ticket.Value + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossed.Body.Close()
+	if crossed.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token crossed plugins = %d", crossed.StatusCode)
 	}
 
 	otherReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/plugins/chat_neko/ui/", nil)
@@ -399,6 +438,15 @@ func TestPluginSettingsPage(t *testing.T) {
 	menuPageResp.Body.Close()
 	if menuPageResp.StatusCode != http.StatusOK || !strings.Contains(string(menuBody), "settings-page-ok") {
 		t.Fatalf("menu page = %d %s", menuPageResp.StatusCode, menuBody)
+	}
+	menuToken, err := http.Get(ts.URL + "/api/plugins/settingsdemo/menu/t/" + menuCookie.Value + "/nickname/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	menuTokenBody, _ := io.ReadAll(menuToken.Body)
+	menuToken.Body.Close()
+	if menuToken.StatusCode != http.StatusOK || !strings.Contains(string(menuTokenBody), "settings-page-ok") {
+		t.Fatalf("menu token = %d %s", menuToken.StatusCode, menuTokenBody)
 	}
 
 	code, env = call(t, ts, http.MethodPost, "/api/plugins/settingsdemo/config", key, map[string]any{"nickname": "主人"})

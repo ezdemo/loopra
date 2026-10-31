@@ -113,7 +113,7 @@ func (k AccessKey) Match(presented string) bool {
 
 // auth 用 Loopra 访问规则包装处理器：所有请求都校验
 // X-Loopra-Key 头，但 pets spritesheet 路径可用 ?rk=。
-// 插件设置页的 iframe 不能带这个头，只接受它自己的 HttpOnly cookie。
+// 插件设置页的 iframe 不能带这个头，只接受它自己的 HttpOnly cookie，或路径里的页面票据。
 func (k AccessKey) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Referrer-Policy", "no-referrer")

@@ -4,9 +4,13 @@ import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 
 const html = await readFile(new URL('../../plugins/openapi/ui/index.html', import.meta.url), 'utf8');
+const script = await readFile(new URL('../../plugins/openapi/ui/app.js', import.meta.url), 'utf8');
+const page = html
+  .replace('<script src="_loopra/bridge.js"></script>', '')
+  .replace('<script src="app.js"></script>', () => `<script>${script}</script>`);
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 function setup(service) {
-  const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://plugin.test/' });
+  const dom = new JSDOM(page, { runScripts: 'dangerously', url: 'https://plugin.test/' });
   const { window } = dom;
   const requests = [];
   window.postMessage = data => {

@@ -192,4 +192,34 @@ func TestUITicketMatchesOnlyItsPlugin(t *testing.T) {
 	if ValidUIRequest(post) {
 		t.Fatal("ticket authorized a write")
 	}
+	asset := httptest.NewRequest(http.MethodGet, "/api/plugins/demo/ui/t/"+token+"/app.css", nil)
+	if !ValidUIRequest(asset) {
+		t.Fatal("path ticket was rejected")
+	}
+	id, slot, rel, ok := SplitPluginUI("/demo/ui/t/" + token + "/app.css")
+	if !ok || id != "demo" || slot != "ui" || rel != "app.css" {
+		t.Fatalf("split = %s %s %s %v", id, slot, rel, ok)
+	}
+	_, _, menuRel, ok := SplitPluginUI("/demo/menu/t/" + token + "/nickname/style.css")
+	if !ok || menuRel != "nickname/style.css" {
+		t.Fatalf("menu rel = %s %v", menuRel, ok)
+	}
+	crossed := httptest.NewRequest(http.MethodGet, "/api/plugins/other/ui/t/"+token+"/app.css", nil)
+	if ValidUIRequest(crossed) {
+		t.Fatal("path ticket opened another plugin")
+	}
+	page := InjectUIBridge([]byte("<head><title>x</title></head>"))
+	if strings.Count(string(page), UIBridgeRel) != 1 || !strings.Contains(string(page), "<head><script") {
+		t.Fatalf("inject = %s", page)
+	}
+	if again := InjectUIBridge(page); strings.Count(string(again), UIBridgeRel) != 1 {
+		t.Fatalf("inject twice = %s", again)
+	}
+	policy := UIContentSecurityPolicy(httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/plugins/demo/ui/t/"+token, nil))
+	if !strings.Contains(policy, "connect-src 'none'") || !strings.Contains(policy, "/api/plugins/demo/ui/t/"+token+"/") || strings.Contains(policy, "allow-same-origin") {
+		t.Fatalf("policy = %s", policy)
+	}
+	if !strings.Contains(string(uiBridgeJS), ":where(button)") {
+		t.Fatal("bridge has no base style")
+	}
 }

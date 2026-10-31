@@ -1,19 +1,28 @@
 package plugin
 
 import (
+	"bytes"
 	"crypto/rand"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ezdemo/looprax/internal/repository"
 )
+
+//go:embed bridge.js
+var uiBridgeJS []byte
+
+// UIBridgeRel 是宿主桥的路径。插件目录里的同名文件不会被发出去。
+const UIBridgeRel = "_loopra/bridge.js"
 
 // UICookie 只用于打开某一个插件的设置页，不是访问密钥。
 const UICookie = "loopra_plugin_ui"
@@ -34,13 +43,36 @@ var uiTickets = struct {
 }{items: map[string]uiTicket{}}
 
 // SplitPluginUI 从 /api/plugins 之后的路径取出插件 id、页面槽和相对路径。
-// 槽是 ui 或 sidebar。id/ui 是入口页，id/ui/app.css 是入口目录里的文件。
+// 槽是 ui、sidebar 或 menu。id/ui 是入口页，id/ui/app.css 是入口目录里的文件。
+// id/ui/t/<票据>/app.css 是同一份文件，票据写在路径里，沙箱页的子资源不必带 cookie。
 func SplitPluginUI(path string) (id, slot, rel string, ok bool) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) < 2 || (parts[1] != "ui" && parts[1] != "sidebar" && parts[1] != "menu") || !safeID(parts[0]) {
 		return "", "", "", false
 	}
-	return parts[0], parts[1], strings.Join(parts[2:], "/"), true
+	relParts := parts[2:]
+	if len(relParts) >= 2 && relParts[0] == "t" {
+		if owner, found := uiTicketOwner(relParts[1]); found && owner == parts[0] {
+			relParts = relParts[2:]
+		}
+	}
+	return parts[0], parts[1], strings.Join(relParts, "/"), true
+}
+
+// UIPagePath 是打开页面后 iframe 要加载的路径，相对于 /api。
+func UIPagePath(id, slot, token string) string {
+	return "/plugins/" + id + "/" + slot + "/t/" + token + "/"
+}
+
+// IsUIBridge 判断相对路径是不是宿主桥。
+func IsUIBridge(rel string) bool {
+	return rel == UIBridgeRel || strings.HasSuffix(rel, "/"+UIBridgeRel)
+}
+
+// UIPathHasTicket 报告这条页面路径是否带着仍有效、且属于该插件的票据。
+func UIPathHasTicket(path string) bool {
+	id, _, _, ok := SplitPluginUI(strings.TrimPrefix(path, "/api/plugins"))
+	return ok && uiPathTicket(path, id)
 }
 
 // IssueUITicket 签发一小时内有效、只对应这一个插件的设置页票据。
@@ -62,6 +94,8 @@ func IssueUITicket(id string) (string, error) {
 }
 
 // ValidUIRequest 只放行带对应该插件票据的设置页 GET/HEAD。
+// 票据可以在 cookie 里，也可以在 /t/<票据>/ 路径里。路径票据给沙箱页的样式表和脚本用：
+// 不透明源不会带上 SameSite=Lax 的 cookie。
 func ValidUIRequest(r *http.Request) bool {
 	if r == nil || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
 		return false
@@ -70,18 +104,80 @@ func ValidUIRequest(r *http.Request) bool {
 	if !ok {
 		return false
 	}
+	if uiPathTicket(r.URL.Path, id) {
+		return true
+	}
 	cookie, err := r.Cookie(UICookie)
 	if err != nil || cookie.Value == "" {
 		return false
 	}
+	owner, found := uiTicketOwner(cookie.Value)
+	return found && owner == id
+}
+
+func uiTicketOwner(token string) (string, bool) {
+	if token == "" {
+		return "", false
+	}
 	uiTickets.Lock()
 	defer uiTickets.Unlock()
-	ticket, ok := uiTickets.items[cookie.Value]
-	if !ok || !ticket.exp.After(time.Now()) || ticket.plugin != id {
-		delete(uiTickets.items, cookie.Value)
+	now := time.Now()
+	pruneTicketsLocked(now)
+	ticket, ok := uiTickets.items[token]
+	if !ok || !ticket.exp.After(now) {
+		delete(uiTickets.items, token)
+		return "", false
+	}
+	return ticket.plugin, true
+}
+
+func uiPathTicket(path, id string) bool {
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(path, "/api/plugins"), "/"), "/")
+	if len(parts) < 4 || parts[0] != id || parts[2] != "t" {
 		return false
 	}
-	return true
+	owner, ok := uiTicketOwner(parts[3])
+	return ok && owner == id
+}
+
+// WriteUIBridge 写出宿主桥。
+func WriteUIBridge(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-store")
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Length", strconv.Itoa(len(uiBridgeJS)))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	_, _ = w.Write(uiBridgeJS)
+}
+
+// InjectUIBridge 在 HTML 里加上宿主桥。页面自己已经引用时不再加第二遍。
+func InjectUIBridge(html []byte) []byte {
+	if bytes.Contains(html, []byte(UIBridgeRel)) {
+		return html
+	}
+	tag := []byte(`<script src="` + UIBridgeRel + `"></script>`)
+	lower := bytes.ToLower(html)
+	if i := bytes.Index(lower, []byte("<head>")); i >= 0 {
+		i += len("<head>")
+		out := make([]byte, 0, len(html)+len(tag))
+		out = append(out, html[:i]...)
+		out = append(out, tag...)
+		return append(out, html[i:]...)
+	}
+	if i := bytes.Index(lower, []byte("<head ")); i >= 0 {
+		if j := bytes.IndexByte(html[i:], '>'); j >= 0 {
+			at := i + j + 1
+			out := make([]byte, 0, len(html)+len(tag))
+			out = append(out, html[:at]...)
+			out = append(out, tag...)
+			return append(out, html[at:]...)
+		}
+	}
+	return append(tag, html...)
 }
 
 func pruneTicketsLocked(now time.Time) {
@@ -410,10 +506,62 @@ func UIContentType(file string) (string, bool) {
 	}
 }
 
+// requestDir 是浏览器眼里这一页所在的目录。优先用原始请求路径。
+// 路由有时会拿掉目录地址末尾的斜杠；HTML 不是以 .html 结尾时，整段路径就是目录。
+func requestDir(r *http.Request) string {
+	dir := "/"
+	if r == nil {
+		return dir
+	}
+	raw := r.RequestURI
+	if raw == "" && r.URL != nil {
+		raw = r.URL.RequestURI()
+	}
+	if cut := strings.IndexByte(raw, '?'); cut >= 0 {
+		raw = raw[:cut]
+	}
+	if raw == "" && r.URL != nil {
+		raw = r.URL.Path
+	}
+	if raw == "" {
+		return dir
+	}
+	if !strings.HasPrefix(raw, "/") {
+		raw = "/" + raw
+	}
+	lower := strings.ToLower(raw)
+	if strings.HasSuffix(lower, ".html") || strings.HasSuffix(lower, ".htm") {
+		if cut := strings.LastIndex(raw, "/"); cut >= 0 {
+			return raw[:cut+1]
+		}
+	}
+	if !strings.HasSuffix(raw, "/") {
+		raw += "/"
+	}
+	return raw
+}
+
 // UIContentSecurityPolicy 禁止设置页请求接口。
-// 样式和脚本只允许写在页面里：沙箱页面是不透明源，单独的样式表和脚本不会生效。
-func UIContentSecurityPolicy(_ *http.Request, _ string) string {
-	return "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+// 脚本、样式、图片和字体可以来自这一页自己的目录。内联样式和脚本仍然可用。
+// 源写成路径，沙箱页的不透明源对不上 'self'。
+func UIContentSecurityPolicy(r *http.Request) string {
+	dir := requestDir(r)
+	sources := dir
+	if r != nil && r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto == "https" || proto == "http" {
+			scheme = proto
+		}
+		sources = dir + " " + scheme + "://" + r.Host + dir
+	}
+	return "default-src 'none'; script-src 'unsafe-inline' " + sources +
+		"; style-src 'unsafe-inline' " + sources +
+		"; img-src data: " + sources +
+		"; font-src " + sources +
+		"; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
 }
 
 func (h *Host) uiConfigPath(id string) string {

@@ -3,18 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>聊天猫娘</title>
-  <style>
-    body { margin: 0; background: var(--surface, #fff); color: var(--text, #172033); font: 14px/1.6 "Segoe UI", sans-serif; }
-    main { max-width: 28rem; padding: 1.25rem 1.35rem 1.5rem; }
-    h1 { margin: 0; font-size: 1rem; }
-    p { margin: .7rem 0 0; color: var(--secondary, #5c6b82); }
-    label { display: block; margin-top: 1rem; color: var(--secondary, #5c6b82); font-size: .75rem; }
-    input { display: block; width: 100%; box-sizing: border-box; margin-top: .35rem; padding: .55rem .7rem; border: 1px solid var(--line, #e6e8ee); border-radius: .5rem; background: var(--sidebar, #f6f7f9); color: inherit; font: inherit; }
-    button { margin-top: .85rem; border: 0; border-radius: .5rem; padding: .45rem .9rem; background: var(--blue, #3b6cf6); color: #fff; font: inherit; }
-    #status { min-height: 1.4rem; }
-    #status.ok { color: var(--success, #1f9d55); }
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
@@ -23,61 +14,10 @@
     <label>称呼
       <input id="name" maxlength="40" placeholder="主人">
     </label>
-    <button id="save" type="button">保存</button>
+    <button id="save" class="primary" type="button">保存</button>
     <p id="status"></p>
   </main>
-  <script>
-    const pending = new Map();
-    let seq = 0;
-    function ask(op, value) {
-      const id = String(++seq);
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { pending.delete(id); reject(new Error("timeout")); }, 800);
-        pending.set(id, { resolve, reject, timer });
-        parent.postMessage({ type: "loopra", op, id, value }, "*");
-      });
-    }
-    window.addEventListener("message", (event) => {
-      const data = event.data;
-      if (!data || data.type !== "loopra" || event.source !== parent) return;
-      if (data.op === "ready" && data.theme) {
-        for (const [key, value] of Object.entries(data.theme)) {
-          if (value) document.documentElement.style.setProperty("--" + key, value);
-        }
-      }
-      if (data.op !== "config") return;
-      const wait = pending.get(String(data.id));
-      if (!wait) return;
-      pending.delete(String(data.id));
-      clearTimeout(wait.timer);
-      if (data.error) wait.reject(new Error(data.error));
-      else wait.resolve(data.value || {});
-    });
-    const name = document.getElementById("name");
-    const status = document.getElementById("status");
-    async function load() {
-      for (let i = 0; i < 20; i++) {
-        try {
-          const value = await ask("config:get");
-          name.value = value.nickname || "";
-          return;
-        } catch (error) {
-          if (error.message !== "timeout") { status.textContent = error.message; return; }
-        }
-      }
-    }
-    document.getElementById("save").onclick = async () => {
-      status.textContent = "保存中";
-      status.className = "";
-      try {
-        const value = await ask("config:set", { nickname: name.value.trim() });
-        status.textContent = value.nickname ? "已保存：" + value.nickname : "已保存";
-        status.className = "ok";
-      } catch (error) {
-        status.textContent = error.message === "timeout" ? "没有连上 Loopra" : error.message;
-      }
-    };
-    load();
-  </script>
+  <script src="_loopra/bridge.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

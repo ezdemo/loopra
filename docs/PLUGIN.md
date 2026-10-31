@@ -156,17 +156,30 @@ export async function load(args) {
 }
 ```
 
-宿主在插件卡片上打开它，放进 iframe。`sandbox` 不带 `allow-same-origin`，页面读不到访问密钥和 `localStorage`。地址里也不放密钥。打开前宿主会给这个插件单独发一个 HttpOnly cookie，只在 `/api/plugins/<id>/ui` 下有效。
+宿主在插件卡片上打开它，放进 iframe。`sandbox` 不带 `allow-same-origin`，页面读不到访问密钥和 `localStorage`。地址里也不放访问密钥。打开前宿主会给这个插件单独发一个 HttpOnly cookie，只在 `/api/plugins/<id>/ui` 下有效，并返回页面路径 `/plugins/<id>/ui/t/<票据>/`。沙箱页的子资源带不上这枚 cookie，所以样式表、脚本、图片和字体走这条带票据的路径。票据只够读取这个插件的页面文件，一小时后失效。
 
-能取到的文件只限入口所在的目录，例如 `./ui/index.html` 只能再取 `ui/` 里面的文件。允许的类型是 HTML、CSS、JS、常见图片和字体。`..`、符号链接和其他类型都会拒绝。页面自己的 `fetch` 连不上 Loopra 接口。
+能取到的文件只限入口所在的目录，例如 `./ui/index.html` 只能再取 `ui/` 里面的文件。允许的类型是 HTML、CSS、JS、常见图片和字体。`..`、符号链接和其他类型都会拒绝。页面自己的 `fetch` 连不上 Loopra 接口。`_loopra/bridge.js` 是宿主桥，不从插件目录里取。
 
-样式和脚本要写在这个 HTML 里。页面在不透明源里，同目录下单独的样式表和脚本不会被浏览器应用。打开后宿主发：
+页面可以引用同目录的样式表和脚本，也可以把样式和脚本写在 HTML 里。宿主桥会垫一层没有优先级的基础样式，没写样式的标题、按钮、输入框和表格跟主窗口一致。打开后宿主发：
 
 ```js
 { type: "loopra", op: "ready", plugin: { id, name }, theme }
 ```
 
-`theme` 是一组不带 `--` 的颜色变量，例如 `surface`、`text`、`blue`。页面用同样的消息读写自己的配置。配置是一个 JSON 对象，最大 64 KiB，存在 `~/.loopra/plugins/ui-config/<id>.json`。重装插件不会清掉它，卸载会删掉。
+`theme` 里有 `dark`，以及不带 `--` 的变量：`surface`、`sidebar`、`soft`、`text`、`secondary`、`muted`、`line`、`blue`、`accent`、`accent-soft`、`success`、`warning`、`danger`、圆角、阴影，还有 `font` 和 `code`。桥把它们写成页面上的同名变量，字体写到 `--loopra-font` 和 `--loopra-code`。配置是一个 JSON 对象，最大 64 KiB，存在 `~/.loopra/plugins/ui-config/<id>.json`。重装插件不会清掉它，卸载会删掉。
+
+```html
+<link rel="stylesheet" href="style.css">
+<script src="_loopra/bridge.js"></script>
+<script src="app.js"></script>
+```
+
+```js
+await loopra.ready;
+const value = await loopra.config.get();
+await loopra.config.set({ nickname: "主人" });
+loopra.onTheme(theme => {});
+```
 
 ```js
 parent.postMessage({ type: "loopra", op: "config:get", id: "1" }, "*");
@@ -187,7 +200,7 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
 
 `ui.sidebar` 在侧栏「定时任务」下面加一个入口。点开后主区域显示页面，沙箱、cookie 和消息跟设置页一样。cookie 的 Path 是 `/api/plugins/<id>/sidebar`。
 
-可以写路径，也可以写标题、图标和路径。没写标题时用插件显示名。没写图标时用插件自己的 `icon`。样式和脚本同样要写在 HTML 里。停用或卸载后，侧栏入口和设置菜单都会去掉。插件卡片上的设置页还可以打开。`plugins/chat-neko` 只挂设置页，用来改纯聊天里的称呼。`plugins/daily-review` 同时挂了设置页、侧栏和带两个子菜单的设置菜单，并且默认关闭。
+可以写路径，也可以写标题、图标和路径。没写标题时用插件显示名。没写图标时用插件自己的 `icon`。样式和脚本跟设置页一样，可以写在 HTML 里，也可以放在入口目录的文件里。停用或卸载后，侧栏入口和设置菜单都会去掉。插件卡片上的设置页还可以打开。`plugins/chat-neko` 只挂设置页，用来改纯聊天里的称呼。`plugins/daily-review` 同时挂了设置页、侧栏和带两个子菜单的设置菜单，并且默认关闭。
 
 ```json
 "icon": "./ui/icon.svg",

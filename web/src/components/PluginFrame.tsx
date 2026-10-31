@@ -2,12 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import type { LoopraClient } from '../backend';
 import { errorText } from './RemoteControls';
 
-const pluginThemeKeys = ['surface', 'sidebar', 'line', 'text', 'secondary', 'muted', 'blue', 'success', 'danger'] as const;
+const pluginThemeKeys = ['surface', 'sidebar', 'soft', 'hover', 'line', 'line-strong', 'text', 'secondary', 'muted', 'blue', 'accent', 'accent-soft', 'success', 'warning', 'danger', 'radius-sm', 'radius-md', 'radius-lg', 'radius-xl', 'shadow-sm', 'shadow', 'shadow-pop'] as const;
 
 function pluginTheme() {
   const node = document.querySelector('.workspace-theme') ?? document.documentElement;
   const style = getComputedStyle(node);
-  return Object.fromEntries(pluginThemeKeys.map(key => [key, style.getPropertyValue(`--${key}`).trim()]));
+  const dark = node.classList.contains('dark') || node.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark');
+  return {
+    ...Object.fromEntries(pluginThemeKeys.map(key => [key, style.getPropertyValue(`--${key}`).trim()])),
+    font: style.getPropertyValue('--workspace-font').trim(),
+    code: '"JetBrains Mono Variable", Consolas, "Cascadia Code", monospace',
+    dark: dark ? 'dark' : '',
+  };
 }
 
 function pluginConfigValue(value: unknown) {
@@ -60,8 +66,16 @@ export function PluginFrame({ api, id, name, slot, className, title, menuItem = 
     }
     window.addEventListener('message', onMessage);
     const page = slot === 'sidebar' ? api.pluginSidebar(currentId) : slot === 'menu' ? api.pluginMenu(currentId, menuItem) : api.pluginPage(currentId);
-    void api.request(`/plugins/${encodeURIComponent(currentId)}/${slot}/open`, 'POST', {})
-      .then(() => { if (!gone) setSrc(page); })
+    void api.request<{ page?: string }>(`/plugins/${encodeURIComponent(currentId)}/${slot}/open`, 'POST', {})
+      .then(opened => {
+        if (gone) return;
+        if (opened?.page) {
+          const child = slot === 'menu' && menuItem ? `${encodeURIComponent(menuItem)}/` : '';
+          setSrc(api.assetUrl(`${opened.page}${child}`));
+          return;
+        }
+        setSrc(page);
+      })
       .catch(cause => { if (!gone) setError(errorText(cause)); });
     return () => { gone = true; observer?.disconnect(); window.removeEventListener('message', onMessage); };
   }, [api, id, name, slot, menuItem]);

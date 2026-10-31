@@ -2,8 +2,10 @@ package controller
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/ezdemo/looprax/internal/service/plugin"
@@ -43,7 +45,7 @@ func (s *Controller) openPluginUI(w http.ResponseWriter, r *http.Request, id, sl
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	writeOK(w, http.StatusOK, map[string]bool{"ok": true})
+	writeOK(w, http.StatusOK, map[string]any{"ok": true, "page": plugin.UIPagePath(id, slot, token)})
 }
 
 func (s *Controller) servePluginConfig(w http.ResponseWriter, path string) bool {
@@ -133,6 +135,10 @@ func (s *Controller) servePluginUI(w http.ResponseWriter, r *http.Request, path 
 		writeFail(w, http.StatusNotFound, "插件不存在: "+id)
 		return true
 	}
+	if plugin.IsUIBridge(rel) {
+		plugin.WriteUIBridge(w, r)
+		return true
+	}
 	var file string
 	var err error
 	switch slot {
@@ -166,9 +172,25 @@ func (s *Controller) servePluginUI(w http.ResponseWriter, r *http.Request, path 
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if strings.HasPrefix(ctype, "text/html") {
-		w.Header().Set("Content-Security-Policy", plugin.UIContentSecurityPolicy(r, id))
+		raw, err := io.ReadAll(body)
+		if err != nil {
+			writeFail(w, http.StatusNotFound, "设置页路径无效")
+			return true
+		}
+		if plugin.UIPathHasTicket(r.URL.Path) {
+			raw = plugin.InjectUIBridge(raw)
+		}
+		w.Header().Set("Content-Security-Policy", plugin.UIContentSecurityPolicy(r))
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Length", strconv.Itoa(len(raw)))
+			w.WriteHeader(http.StatusOK)
+			return true
+		}
+		_, _ = w.Write(raw)
+		return true
 	}
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), body)
 	return true
