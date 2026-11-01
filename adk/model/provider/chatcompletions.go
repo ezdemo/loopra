@@ -208,7 +208,7 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 	if stream {
 		body["stream_options"] = map[string]any{"include_usage": true}
 	}
-	if tools := chatTools(req); len(tools) > 0 {
+	if tools := chatTools(req, modelName); len(tools) > 0 {
 		body["tools"] = tools
 	}
 	maxTokens := a.config.effectiveMaxTokens(req, snap)
@@ -286,7 +286,7 @@ func hasFunctionResponse(c *genai.Content) bool {
 }
 
 // chatTools 把工具声明转换为 Chat Completions 工具。
-func chatTools(req *model.LLMRequest) []map[string]any {
+func chatTools(req *model.LLMRequest, modelName string) []map[string]any {
 	decls := functionDeclarations(req)
 	if len(decls) == 0 {
 		return nil
@@ -312,6 +312,7 @@ func chatTools(req *model.LLMRequest) []map[string]any {
 		default:
 			fn["parameters"] = emptyObjectSchema()
 		}
+		fn["parameters"] = compatibleChatToolSchema(modelName, fn["parameters"].(map[string]any))
 		tools = append(tools, map[string]any{"type": "function", "function": fn})
 	}
 	if len(tools) == 0 {
@@ -375,7 +376,10 @@ func (a *chatAdapter) parseSync(resp *http.Response) (*model.LLMResponse, error)
 	if reasoning == "" {
 		reasoning = choice.Message.Reasoning
 	}
-	parts := chatParts(choice.Message.Content, reasoning, choice.Message.ToolCalls)
+	parts, err := chatParts(choice.Message.Content, reasoning, choice.Message.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
 	return &model.LLMResponse{
 		Content:       &genai.Content{Role: genai.RoleModel, Parts: parts},
 		UsageMetadata: wire.Usage.toUsageMetadata(),
@@ -385,7 +389,7 @@ func (a *chatAdapter) parseSync(resp *http.Response) (*model.LLMResponse, error)
 }
 
 // chatParts 根据补全消息组装最终模型内容。
-func chatParts(rawContent json.RawMessage, reasoning string, calls []wireChatCall) []*genai.Part {
+func chatParts(rawContent json.RawMessage, reasoning string, calls []wireChatCall) ([]*genai.Part, error) {
 	var parts []*genai.Part
 	if reasoning != "" {
 		parts = append(parts, &genai.Part{Text: reasoning, Thought: true})
@@ -405,15 +409,13 @@ func chatParts(rawContent json.RawMessage, reasoning string, calls []wireChatCal
 		if c.ID == "" || c.Function.Name == "" {
 			continue
 		}
-		args := map[string]any{}
-		if c.Function.Arguments != "" {
-			if err := json.Unmarshal([]byte(c.Function.Arguments), &args); err != nil {
-				args = map[string]any{"_raw": c.Function.Arguments}
-			}
+		args, err := toolArguments("chat completions", c.Function.Name, c.ID, c.Function.Arguments)
+		if err != nil {
+			return nil, err
 		}
 		parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: c.ID, Name: c.Function.Name, Args: args}})
 	}
-	return parts
+	return parts, nil
 }
 
 func chatFinishReason(reason string) genai.FinishReason {
@@ -566,7 +568,11 @@ func (a *chatAdapter) consumeStream(ctx context.Context, resp *http.Response, yi
 		raw, _ := json.Marshal(text.String())
 		rawContent = raw
 	}
-	parts := chatParts(rawContent, reasoning.String(), calls)
+	parts, err := chatParts(rawContent, reasoning.String(), calls)
+	if err != nil {
+		yield(nil, err)
+		return
+	}
 	yield(&model.LLMResponse{
 		Content:       &genai.Content{Role: genai.RoleModel, Parts: parts},
 		UsageMetadata: usage.toUsageMetadata(),

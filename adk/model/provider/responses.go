@@ -303,7 +303,10 @@ func (a *responsesAdapter) parseSync(resp *http.Response) (*model.LLMResponse, e
 	if wire.Error != nil && wire.Error.Message != "" {
 		return nil, fmt.Errorf("responses error: %s", wire.Error.Message)
 	}
-	parts := responsesParts(wire.Output)
+	parts, err := responsesParts(wire.Output)
+	if err != nil {
+		return nil, err
+	}
 	return &model.LLMResponse{
 		Content:       &genai.Content{Role: genai.RoleModel, Parts: parts},
 		UsageMetadata: wire.Usage.toUsageMetadata(),
@@ -313,7 +316,7 @@ func (a *responsesAdapter) parseSync(resp *http.Response) (*model.LLMResponse, e
 }
 
 // responsesParts 根据输出条目组装最终模型内容。
-func responsesParts(items []responsesOutputItem) []*genai.Part {
+func responsesParts(items []responsesOutputItem) ([]*genai.Part, error) {
 	var parts []*genai.Part
 	for _, item := range items {
 		switch item.Type {
@@ -331,16 +334,14 @@ func responsesParts(items []responsesOutputItem) []*genai.Part {
 			if id == "" {
 				id = item.ID
 			}
-			args := map[string]any{}
-			if item.Arguments != "" {
-				if err := json.Unmarshal([]byte(item.Arguments), &args); err != nil {
-					args = map[string]any{"_raw": item.Arguments}
-				}
+			args, err := toolArguments("responses", item.Name, id, item.Arguments)
+			if err != nil {
+				return nil, err
 			}
 			parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: id, Name: item.Name, Args: args}})
 		}
 	}
-	return parts
+	return parts, nil
 }
 
 func responsesFinishReason(status string, incomplete *struct {
@@ -438,7 +439,10 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 			if packet.Response != nil {
 				usage = packet.Response.Usage
 				if len(packet.Response.Output) > 0 {
-					parts := responsesParts(packet.Response.Output)
+					parts, err := responsesParts(packet.Response.Output)
+					if err != nil {
+						return err
+					}
 					yield(&model.LLMResponse{
 						Content:       &genai.Content{Role: genai.RoleModel, Parts: parts},
 						UsageMetadata: usage.toUsageMetadata(),
