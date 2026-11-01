@@ -20,7 +20,7 @@ function pluginOrigin(pack: Pack) {
   if (/^[a-z]:[\\/]/i.test(source) || source.startsWith('file:') || source.startsWith('.') || source.includes('\\') || source.startsWith('/')) return '本地';
   return 'npm';
 }
-export function ExtensionManager({ api, onChanged, context, embedded = false, view, library = false, searchQuery, refreshKey = 0, toolbarTarget, showType, installOpen, onInstallOpenChange, onOpenSettings }: { api: LoopraClient; onChanged?: () => void; context?: PluginContext; embedded?: boolean; view?: 'installed' | 'catalog'; installOpen?: boolean; onInstallOpenChange?: (open: boolean) => void; onOpenSettings?: () => void } & CapabilityLibraryProps) {
+export function ExtensionManager({ api, notify, onChanged, context, embedded = false, view, library = false, searchQuery, refreshKey = 0, toolbarTarget, showType, installOpen, onInstallOpenChange, onOpenSettings }: { api: LoopraClient; notify: (message: string) => void; onChanged?: () => void; context?: PluginContext; embedded?: boolean; view?: 'installed' | 'catalog'; installOpen?: boolean; onInstallOpenChange?: (open: boolean) => void; onOpenSettings?: () => void } & CapabilityLibraryProps) {
   const [localTab, setTab] = useState<'installed' | 'catalog'>('installed');
   const tab = view || localTab;
   const [filter, setFilter] = useState('');
@@ -30,9 +30,8 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
   function setAdding(open: boolean) { setLocalAdding(open); onInstallOpenChange?.(open); }
   const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision + refreshKey, true); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
   const [updating, setUpdating] = useState('');
-  const [notice, setNotice] = useState('');
   async function act(path: string, body?: unknown, clearSource = false) {
-    setBusy(true); setError(''); setNotice('');
+    setBusy(true); setError('');
     try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) { setSource(''); setAdding(false); } onChanged?.(); return true; }
     catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); setRevision(value => value + 1); }
@@ -41,7 +40,7 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
   async function update(id: string) {
     setUpdating(id);
     try {
-      if (await act(`/${encodeURIComponent(id)}/update`)) setNotice('插件已更新');
+      if (await act(`/${encodeURIComponent(id)}/update`)) notify('插件已更新');
     } finally { setUpdating(''); }
   }
   const visible = state.data?.filter(pack => `${pack.displayName || ''} ${pack.id} ${pack.description || ''}`.toLowerCase().includes((searchQuery ?? filter).trim().toLowerCase()) && (status === 'all' || (status === 'failed' ? !!pack.error : status === 'enabled' ? pack.enabled && !pack.error : !pack.enabled)));
@@ -60,7 +59,6 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
       {embedded && tab === 'installed' && <Button className="settings-outlined-action capabilities-refresh" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button>}
     </div>}
     {error && <p role="alert" className="settings-error">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
     <RemoteState {...state} loading={state.loading && !state.data} />
     {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || state.loading || !state.data} onInstall={async value => { await act('/install', { source: value }); }} onUpdate={update} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
     {!library && <div className="capability-toolbar">

@@ -95,7 +95,7 @@ test('catalog updates an installed plugin by id and keeps uninstall available', 
 
 async function mountInstalled(updateRequest) {
   const container = document.createElement('div'); document.body.append(container);
-  const root = createRoot(container), calls = [];
+  const root = createRoot(container), calls = [], notices = [];
   let version = '1.0.0', changes = 0;
   const api = { request: async (path, method = 'GET') => {
     calls.push({ path, method });
@@ -106,8 +106,8 @@ async function mountInstalled(updateRequest) {
     if (path === '/plugins/alpha/update') { await updateRequest(); version = '2.0.0'; return {}; }
     throw new Error(`Unexpected request: ${path}`);
   } };
-  await act(async () => root.render(createElement(ExtensionManager, { api, embedded: true, view: 'installed', onChanged: () => { changes++; } })));
-  return { container, calls, changes: () => changes, close: () => act(async () => { root.unmount(); container.remove(); }) };
+  await act(async () => root.render(createElement(ExtensionManager, { api, notify: message => notices.push(message), embedded: true, library: true, view: 'installed', onChanged: () => { changes++; } })));
+  return { container, calls, notices, changes: () => changes, close: () => act(async () => { root.unmount(); container.remove(); }) };
 }
 
 test('installed plugin update locks actions while pending, refreshes version and preserves disabled state', async () => {
@@ -124,7 +124,9 @@ test('installed plugin update locks actions while pending, refreshes version and
     assert.deepEqual(view.calls.filter(call => call.method === 'POST'), [{ path: '/plugins/alpha/update', method: 'POST' }]);
     assert.match(view.container.querySelector('.plugin-card-meta')?.textContent || view.container.textContent, /v2.0.0/);
     assert.equal(view.container.querySelector('[role="switch"]').getAttribute('aria-checked'), 'false');
-    assert.equal(view.container.querySelector('[role="status"]').textContent, '插件已更新');
+    assert.deepEqual(view.notices, ['插件已更新']);
+    assert.equal(view.container.querySelector('[role="status"]'), null);
+    assert.equal(view.container.querySelector('.library-card-stream').textContent.includes('插件已更新'), false);
     assert.equal(view.changes(), 1);
   } finally { await view.close(); }
 });
@@ -137,6 +139,7 @@ test('failed installed plugin updates show the error and allow retry', async () 
     assert.match(view.container.querySelector('[role="alert"]').textContent, /更新包无效/);
     assert.equal(view.container.querySelector('[aria-label="更新 Alpha"]').disabled, false);
     assert.equal(view.changes(), 0);
+    assert.deepEqual(view.notices, []);
     assert.match(view.container.textContent, /v1.0.0/);
     fail = false;
     await act(async () => view.container.querySelector('[aria-label="更新 Alpha"]').click());

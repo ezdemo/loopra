@@ -8,8 +8,9 @@ import SkillsPage from './SkillsPage';
 import { ExtensionManager } from './ResourceManagers';
 import { CapabilityRefresh, CapabilitySearch } from './CapabilityUI';
 
-export default function SkillsAndPluginsPage({ api, tab, onTabChange, onRefresh, onPluginsChanged, onBack, context }: {
+export default function SkillsAndPluginsPage({ api, tab, onTabChange, onRefresh, onPluginsChanged, onBack, context, notify }: {
   api: LoopraClient;
+  notify: (message: string) => void;
   tab: CapabilitiesTab;
   onTabChange: (tab: CapabilitiesTab) => void;
   onRefresh: () => Promise<void>;
@@ -42,7 +43,7 @@ export default function SkillsAndPluginsPage({ api, tab, onTabChange, onRefresh,
       <div className="library-grid">
         <div className="library-loading" role="status" aria-label="正在加载内容"><Spinner size="sm" /></div>
         {tab === 'skills' && <SkillsPage key={`skills-${discover}`} {...libraryProps} installedRefreshKey={skillsRevision} toolbarTarget={controls} api={api} onRefresh={onRefresh} onBack={onBack} embedded view={discover ? 'market' : 'installed'} onViewChange={value => changeView(value === 'market')} />}
-        {tab === 'plugins' && <ExtensionManager key={`plugins-${discover}`} {...libraryProps} toolbarTarget={controls} installOpen={installOpen} onInstallOpenChange={setInstallOpen} onOpenSettings={() => onTabChange('plugins')} api={api} context={context} onChanged={() => { setSkillsRevision(value => value + 1); onPluginsChanged(); }} embedded view={discover ? 'catalog' : 'installed'} />}
+        {tab === 'plugins' && <ExtensionManager key={`plugins-${discover}`} {...libraryProps} toolbarTarget={controls} installOpen={installOpen} onInstallOpenChange={setInstallOpen} onOpenSettings={() => onTabChange('plugins')} api={api} notify={notify} context={context} onChanged={() => { setSkillsRevision(value => value + 1); onPluginsChanged(); }} embedded view={discover ? 'catalog' : 'installed'} />}
         <div className="library-empty"><PackageOpen size={28} /><h2>{query ? '没有找到匹配的内容' : discover ? '暂无可发现的内容' : '内容库还是空的'}</h2></div>
       </div>
     </div>

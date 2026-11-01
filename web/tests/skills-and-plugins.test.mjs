@@ -25,17 +25,18 @@ const { default: Hub } = await import(await compile('components/SkillsAndPlugins
   './CapabilityUI': await compile('components/CapabilityUI.tsx'),
   '@nextui-org/react': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const Button = ({children, onPress}) => h('button', {onClick:onPress}, children); export const Spinner = () => h('span', {'data-spinner':true});`),
   './SkillsPage': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export default ({embedded, onRefresh, view, refreshKey, installedRefreshKey}) => h('button', {onClick:onRefresh, 'data-skills':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-installed-refresh':installedRefreshKey}, '技能列表');`),
-  './ResourceManagers': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const ExtensionManager = ({embedded, onChanged, context, view, refreshKey}) => h('button', {onClick:onChanged, 'data-plugins':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-session':context?.sessionId}, '安装插件');`),
+  './ResourceManagers': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const ExtensionManager = ({embedded, onChanged, notify, context, view, refreshKey}) => h('button', {onClick:() => { onChanged(); notify('插件已更新'); }, 'data-plugins':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-session':context?.sessionId}, '安装插件');`),
 }));
 const { capabilitiesTabForSection } = await import(await compile('capabilities-navigation.ts'));
 
 test('one hub switches between skills and plugins while preserving refresh and page context', async () => {
   let refreshes = 0, changes = 0, backs = 0;
+  const notices = [];
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   function View() {
     const [tab, onTabChange] = useState(capabilitiesTabForSection('技能与插件'));
-    return h(Hub, { api: {}, tab, onTabChange, context: { sessionId: 'project/session' }, onRefresh: async () => { refreshes++; }, onPluginsChanged: () => { changes++; }, onBack: () => { backs++; } });
+    return h(Hub, { api: {}, notify: message => notices.push(message), tab, onTabChange, context: { sessionId: 'project/session' }, onRefresh: async () => { refreshes++; }, onPluginsChanged: () => { changes++; }, onBack: () => { backs++; } });
   }
   const click = text => act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === text || button.getAttribute('aria-label') === text).click());
   try {
@@ -51,6 +52,7 @@ test('one hub switches between skills and plugins while preserving refresh and p
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '0');
     await act(async () => container.querySelector('[data-plugins]').click());
     assert.equal(changes, 1);
+    assert.deepEqual(notices, ['插件已更新']);
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '0');
     await click('刷新');
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '1');
