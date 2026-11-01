@@ -52,7 +52,7 @@ func TestContextLensCapturesScopesAndBoundsRealRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ = json.Marshal(detail)
-	if !strings.Contains(string(raw), "ACTUAL PROJECT RULES") || !strings.Contains(string(raw), `"foldable":true`) {
+	if !strings.Contains(string(raw), "ACTUAL PROJECT RULES") {
 		t.Fatalf("snapshot=%s", raw)
 	}
 	if _, err := h.Request(context.Background(), view.ID, "detail", map[string]any{"id": summaries.Records[0].ID}, PageContext{WorkspaceHash: "other"}); err == nil {
@@ -63,8 +63,8 @@ func TestContextLensCapturesScopesAndBoundsRealRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	rewritten, touched := h.RunHook(context.Background(), HookLLMRequest, map[string]any{"app": "project", "sessionId": "conversation", "system": "BASE"}, nil)
-	if !touched["system"] || !strings.Contains(rewritten["system"].(string), "PINNED") || !touched["foldToolResults"] {
-		t.Fatalf("rewrite=%v", rewritten)
+	if touched["system"] || touched["foldToolResults"] || rewritten["system"] != "BASE" {
+		t.Fatalf("read-only lens rewrote request: %v %v", rewritten, touched)
 	}
 	if _, touched := h.RunHook(context.Background(), HookLLMRequest, map[string]any{"app": "project", "sessionId": "other", "system": "BASE"}, nil); touched["system"] {
 		t.Fatal("pin leaked to another session")
@@ -83,6 +83,9 @@ func TestContextLensHistoryFallbackAndDurableSnapshots(t *testing.T) {
 	ctx, home := context.Background(), t.TempDir()
 	historyReads := 0
 	h := New(home, Hooks{Services: map[string]ServiceHandler{"sessions": func(_ context.Context, action string, value map[string]any) (any, error) {
+		if action != "history" {
+			return map[string]any{}, nil
+		}
 		historyReads++
 		if action != "history" || value["workspaceHash"] != "project" || value["sessionName"] != "old" {
 			return map[string]any{"messages": []any{}}, nil

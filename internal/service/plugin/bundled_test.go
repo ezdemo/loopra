@@ -153,7 +153,10 @@ func TestChatNekoCoexistsWithOpenAPIAndContextLens(t *testing.T) {
 			text := out["text"].(string) + out["append"].(string)
 			request, _ := h.RunHook(context.Background(), HookLLMRequest, map[string]any{"app": "__loopra_chat__", "sessionId": "one", "system": text}, nil)
 			text, _ = request["system"].(string)
-			for _, want := range []string{"BASE", "猫娘「小环」", "search_apis", "PINNED"} {
+			if strings.Contains(text, "PINNED") {
+				t.Fatalf("read-only lens applied obsolete pin settings: %q", text)
+			}
+			for _, want := range []string{"BASE", "猫娘「小环」", "search_apis"} {
 				if strings.Count(text, want) != 1 {
 					t.Fatalf("combined system missing or duplicating %q: %q", want, text)
 				}
