@@ -31,6 +31,68 @@ export type DesktopUpdateApi = {
   onState: (callback: (state: DesktopUpdateState) => void) => () => void;
 };
 
+// This API always targets the desktop's own origin, even while the workbench
+// is connected to a different Loopra server.
+export function createNativeDesktopUpdateApi(request: typeof fetch = (...args) => fetch(...args)): DesktopUpdateApi {
+  const listeners = new Set<(state: DesktopUpdateState) => void>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let polling = false;
+  let revision = -1;
+  const accept = (state: DesktopUpdateState) => {
+    if (state.revision > revision) {
+      revision = state.revision;
+      listeners.forEach(listener => listener(state));
+    }
+    return state;
+  };
+  async function call<T>(path: string, body?: unknown): Promise<T> {
+    const response = await request(`/api/desktop-update/${path}`, {
+      method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000),
+    });
+    const result = await response.json();
+    if (!response.ok || result.success !== true) throw new Error(result.error || result.message || `HTTP ${response.status}`);
+    return result.data as T;
+  }
+  async function poll() {
+    if (polling || !listeners.size) return;
+    polling = true;
+    let delay = 1000;
+    try {
+      const state = accept(await call<DesktopUpdateState>('state'));
+      if (['idle', 'downloaded', 'error', 'unsupported'].includes(state.status)) delay = 15000;
+    }
+    catch { /* A transient outage during restart is expected; commands report errors. */ }
+    finally {
+      polling = false;
+      if (listeners.size) timer = setTimeout(() => void poll(), delay);
+    }
+  }
+  return {
+    getState: async () => accept(await call<DesktopUpdateState>('state')),
+    getReleaseNotes: () => call<DesktopReleaseNotes>('notes'),
+    check: async () => accept(await call<DesktopUpdateState>('check', {})),
+    download: async () => accept(await call<DesktopUpdateState>('download', {})),
+    install: async () => accept(await call<DesktopUpdateState>('install', {})),
+    setSource: async source => accept(await call<DesktopUpdateState>('source', { source })),
+    onState(callback) {
+      listeners.add(callback);
+      if (listeners.size === 1) void poll();
+      return () => { listeners.delete(callback); if (!listeners.size && timer) { clearTimeout(timer); timer = undefined; } };
+    },
+  };
+}
+
+let nativeApi: DesktopUpdateApi | undefined;
+export function desktopUpdateApi(): DesktopUpdateApi | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const host = window as Window & { electronAPI?: { desktopUpdate?: DesktopUpdateApi }; mygo?: { window?: unknown } };
+  if (host.electronAPI?.desktopUpdate) return host.electronAPI.desktopUpdate;
+  if (!host.mygo?.window) return undefined;
+  return nativeApi ??= createNativeDesktopUpdateApi();
+}
+
 export function desktopUpdateLabel(state: DesktopUpdateState): string {
   switch (state.status) {
     case 'checking': return '正在检查桌面端更新…';

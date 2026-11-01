@@ -23,6 +23,7 @@ os_filter=
 arch_filter=
 skip_frontend=0
 dry_run=0
+release_version=${RELEASE_VERSION-}
 
 usage() {
   cat <<'EOF'
@@ -32,6 +33,7 @@ usage() {
   --os LIST       windows,linux,darwin。macOS 可写成 macos。
   --arch LIST     amd64,arm64,386,arm,s390x。armv7 等同 arm。
   --out DIR       输出目录，默认仓库 bin/。
+  --version VER   发布版本，默认 RELEASE_VERSION 或 Go 源码中的版本。
   --skip-frontend 沿用已有 web/dist，不重新执行 pnpm build。
   --dry-run       只打印将要打包的目标。
   -h, --help      显示本说明。
@@ -136,8 +138,7 @@ artifact_name() {
 }
 
 mac_version() {
-  sed -n 's/.*var Version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' \
-    "$root/internal/controller/version.go" | head -n 1
+  printf '%s\n' "$release_version" | cut -d- -f1
 }
 
 # Wrap a darwin desktop binary as Loopra.app. Prints the zip path when one
@@ -196,7 +197,7 @@ alias_name() {
 
 while [ $# -gt 0 ]; do
   case $1 in
-    --only | --os | --arch | --out)
+    --only | --os | --arch | --out | --version)
       if [ $# -lt 2 ]; then
         echo "缺少 $1 的值" >&2
         exit 2
@@ -206,6 +207,7 @@ while [ $# -gt 0 ]; do
         --os) os_filter=$2 ;;
         --arch) arch_filter=$2 ;;
         --out) out=$2 ;;
+        --version) release_version=$2 ;;
       esac
       shift 2
       ;;
@@ -228,6 +230,15 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -z "$release_version" ]; then
+  release_version=$(sed -n 's/^var Version = "\([^"]*\)".*/\1/p' "$root/internal/controller/version.go" | head -n 1)
+fi
+release_version=${release_version#v}
+if ! printf '%s\n' "$release_version" | LC_ALL=C grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+  echo '版本号无效，请通过 --version 或 RELEASE_VERSION 指定版本。' >&2
+  exit 2
+fi
 
 only=$(normalize "$only")
 want_frontend=0
@@ -338,6 +349,7 @@ fi
 
 echo "仓库 $root"
 echo "输出 $out"
+echo "版本 $release_version"
 if [ "$dry_run" -eq 1 ]; then
   if [ "$build_frontend" -eq 1 ]; then
     echo '前端 web/ （pnpm build）'
@@ -384,7 +396,7 @@ go_bin=$(find_go)
 export GOTOOLCHAIN=local
 echo "== $($go_bin version) =="
 when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-ldflags="-s -w -X github.com/ezdemo/looprax/internal/controller.BuildTime=$when"
+ldflags="-s -w -X github.com/ezdemo/looprax/internal/controller.Version=$release_version -X github.com/ezdemo/looprax/internal/controller.BuildTime=$when"
 failures=$root/scripts/.package-failures.tmp
 built=$root/scripts/.package-built.tmp
 : >"$failures"

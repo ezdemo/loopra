@@ -103,7 +103,7 @@ func (s *Controller) RegisterRoutes(server *ghttp.Server) {
 	health := func(r *ghttp.Request) {
 		withResponseWriter(r, func(w http.ResponseWriter) {
 			writeOK(w, http.StatusOK, map[string]any{
-				"status": "ok", "version": "0.1.0-go", "buildTime": "",
+				"status": "ok", "version": Version, "buildTime": BuildTime,
 			})
 		})
 	}

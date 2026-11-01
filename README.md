@@ -598,6 +598,10 @@ go build -tags webdist -o loopra-desktop ./cmd/looprax-desktop
 ./scripts/package.sh
 ```
 
+发布构建用 `RELEASE_VERSION=26.11.103 ./scripts/package.sh`，或 `./scripts/package.ps1 -Version 26.11.103` 指定版本。该值同时写入服务、桌面程序和 macOS 应用信息；不指定时沿用 Go 源码中的版本。发布仓库会自动传入预留的发布版本。
+
+桌面端启动后自动检查正式发布记录，按当前系统和架构后台下载更新，并验证 SHA-256。点击顶栏版本可查看更新日志、切换下载源；下载完成后选择“重启并安装”。安装会保留 `.old` 备份，应用数据目录不参与替换。
+
 未签名的 macOS 安装包可能被 Gatekeeper 拦截。确认包来自本机构建后，可在终端执行 `xattr -cr` 指向该 `.app`，或在「系统设置 → 隐私与安全性」中选择仍要打开。
 
 ## 文档

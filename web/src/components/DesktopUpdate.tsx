@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Progress } from '@nextui-org/react';
 import { ArrowRight, CircleAlert, CircleCheck, Download, ExternalLink, LoaderCircle, Monitor, RefreshCw } from 'lucide-react';
-import { electronApi } from '../desktop-shell';
-import { desktopUpdateLabel, type DesktopUpdateState } from '../desktop-update';
+import { desktopUpdateApi, desktopUpdateLabel, type DesktopUpdateState } from '../desktop-update';
 import { MIRROR_SOURCES, RELEASE_LATEST_URL, UPDATE_SOURCE_NORMAL } from '../update-scripts';
 import { ReleaseNotesPanel, useReleaseNotes } from './ReleaseNotes';
 import { SelectField } from './SettingControls';
@@ -13,35 +12,38 @@ const UPDATE_SOURCE_OPTIONS = [
 ];
 
 export function useDesktopUpdate(blockedReason = '', onOpen?: () => void) {
-  const bridge = electronApi()?.desktopUpdate;
+  const bridge = desktopUpdateApi();
   const [state, setState] = useState<DesktopUpdateState>();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
+  const acceptState = useCallback((next?: DesktopUpdateState) => {
+    if (next) setState(previous => !previous || next.revision >= previous.revision ? next : previous);
+  }, []);
   useEffect(() => {
     if (!bridge) return;
     let active = true;
     const accept = (next: DesktopUpdateState) => {
-      if (active) setState(previous => !previous || next.revision >= previous.revision ? next : previous);
+      if (active) acceptState(next);
     };
     const unsubscribe = bridge.onState(accept);
     void bridge.getState().then(accept).catch(cause => { if (active) setError(String(cause)); });
     return () => { active = false; unsubscribe(); };
-  }, [bridge]);
+  }, [bridge, acceptState]);
 
   async function check() {
     setError('');
-    try { await bridge?.check(); }
+    try { if (!bridge) throw new Error('桌面更新服务不可用，请重新启动 Loopra。'); acceptState(await bridge.check()); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
   async function install() {
     if (blockedReason) return;
     setError('');
-    try { await bridge?.install(); }
+    try { if (!bridge) throw new Error('桌面更新服务不可用，请重新启动 Loopra。'); acceptState(await bridge.install()); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
   async function setSource(source: string) {
     setError('');
-    try { await bridge?.setSource(source); }
+    try { if (!bridge) throw new Error('桌面更新服务不可用，请重新启动 Loopra。'); acceptState(await bridge.setSource(source)); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
   function show() { onOpen?.(); setOpen(true); }
@@ -58,7 +60,7 @@ function formatBytes(bytes: number) {
 
 export function DesktopUpdateDialog({ controller: c }: { controller: DesktopUpdateController }) {
   const s = c.state;
-  const bridge = electronApi()?.desktopUpdate;
+  const bridge = desktopUpdateApi();
   const loadNotes = useCallback(async () => {
     if (!bridge?.getReleaseNotes) throw new Error('当前桌面端暂不支持读取更新日志，请前往发布页查看。');
     return bridge.getReleaseNotes();
@@ -88,7 +90,7 @@ export function DesktopUpdateDialog({ controller: c }: { controller: DesktopUpda
             <span className={`desktop-update-status-icon${busy ? ' is-spinning' : ''}`}><StatusIcon size="1.25rem" aria-hidden="true" /></span>
             <div><strong>{s ? desktopUpdateLabel(s) : '正在读取更新状态…'}</strong>
               <p>{ready ? '新版已准备就绪，可在方便时重启完成更新。'
-                : s?.supported ? '自动检查 · 后台下载 · 退出时安装' : '从官方发布页获取适合当前系统的安装包'}</p></div>
+                : s?.supported ? '自动检查 · 后台下载 · 重启安装' : '从官方发布页获取适合当前系统的安装包'}</p></div>
           </div>
           <div className="desktop-update-version-path" aria-label="版本对比">
             <dl><dt>当前版本<span>已安装</span></dt><dd>{currentVersion ? `v${currentVersion}` : '读取中…'}</dd></dl>

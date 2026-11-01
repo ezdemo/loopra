@@ -14,6 +14,13 @@ const { createWebReleaseNotesReader } = await import(await moduleUrl('release-no
 const entry = (version, extra = {}) => ({ tag_name: `v${version}`, body: `### 修复\n\n- Changes in ${version}`, ...extra });
 const response = entries => ({ ok: true, json: async () => entries });
 
+test('Go desktop release headings and package appendices are removed from the notes', async () => {
+  const read = createWebReleaseNotesReader(async () => response([entry('26.11.102', {
+    body: '## LoopraX v26.11.102\n\n### 修复\n- 版本号\n\n### 下载\n\n- package.exe\n<!-- metadata -->',
+  })]));
+  assert.equal((await read('26.11.101', '26.11.102')).releases[0].body, '### 修复\n- 版本号');
+});
+
 test('Web notes use the core version range, excluding previews and versions newer than the target', async () => {
   const read = createWebReleaseNotesReader(async (url, options) => {
     assert.match(url, /^https:\/\/api.github.com\/repos\/ezdemo\/loopra-release\/releases\?/);

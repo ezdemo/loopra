@@ -163,6 +163,9 @@ func (s *Controller) tunnelController(w http.ResponseWriter, r *http.Request, ac
 }
 
 func (s *Controller) Close() error {
+	if s.desktopUpdater != nil {
+		s.desktopUpdater.cancel()
+	}
 	s.tasks.Stop()
 	s.abortAll()
 	s.acp.CloseAll()

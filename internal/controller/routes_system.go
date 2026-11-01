@@ -1,6 +1,12 @@
 package controller
 
 func (s *Controller) registerSystemRoutes(api *apiRouter) {
+	readRoute(api, "/desktop-update/state", s.action((*Controller).desktopUpdateController))
+	readRoute(api, "/desktop-update/notes", s.action((*Controller).desktopUpdateController))
+	api.POST("/desktop-update/check", s.action((*Controller).desktopUpdateController))
+	api.POST("/desktop-update/download", s.action((*Controller).desktopUpdateController))
+	api.POST("/desktop-update/source", s.action((*Controller).desktopUpdateController))
+	api.POST("/desktop-update/install", s.action((*Controller).desktopUpdateController))
 	api.POST("/system/open-workspace", s.action((*Controller).systemController))
 	readRoute(api, "/system/open-applications", s.action((*Controller).systemController))
 	api.POST("/system/pick-directory", s.action((*Controller).systemController))

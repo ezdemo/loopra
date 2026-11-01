@@ -83,6 +83,7 @@ type Controller struct {
 	plugins            *plugin.Host
 	onUITheme          func(theme string)
 	petDesktop         petdesk.Surface
+	desktopUpdater     *desktopUpdater
 }
 
 // Options 配置服务端。
@@ -98,7 +99,8 @@ type Options struct {
 	// OnUITheme 在界面偏好写入成功后调用，参数为 light、dark 或 system。
 	OnUITheme func(theme string)
 	// PetDesktop 在本进程里绘制原生宠物窗口。为空时页面仍把宠物画在输入框旁。
-	PetDesktop petdesk.Surface
+	PetDesktop    petdesk.Surface
+	OnDesktopQuit func()
 }
 
 // New 为指定的智能体构建服务端。
@@ -154,6 +156,10 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 		s.files = service.NewFileService()
 	}
 	s.state = newRuntimeState(s)
+	if opts.OnDesktopQuit != nil {
+		s.desktopUpdater = newDesktopUpdater(s.home, opts.OnDesktopQuit)
+		go s.desktopUpdater.autoCheck()
+	}
 	s.installApprovalPolicy()
 	s.installSubRunner()
 	s.installControlTools()

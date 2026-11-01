@@ -87,6 +87,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	options.OnDesktopQuit = stop
 	options.OnUITheme = applyDesktopTheme
 	theme := ""
 	var host *petwin.Host

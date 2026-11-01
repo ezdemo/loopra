@@ -34,6 +34,7 @@ param(
     [string]$OS = '',
     [string]$Arch = '',
     [string]$Out = '',
+    [string]$Version = $env:RELEASE_VERSION,
     [switch]$SkipFrontend,
     [switch]$DryRun
 )
@@ -48,6 +49,12 @@ function Stop-Package {
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $MatrixPath = Join-Path $PSScriptRoot 'package-matrix.txt'
+if (-not $Version) {
+    $versionText = [System.IO.File]::ReadAllText((Join-Path $Root 'internal\controller\version.go'))
+    if ($versionText -match 'var Version = "([^"]+)"') { $Version = $Matches[1] }
+}
+if ($Version -notmatch '^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { Stop-Package '版本号无效，请通过 -Version 或 RELEASE_VERSION 指定版本。' }
+$Version = $Version -replace '^v', ''
 if (-not $Out) {
     $Out = Join-Path $Root 'bin'
 }
@@ -159,12 +166,7 @@ function Get-ArtifactName {
 }
 
 function Get-MacBundleVersion {
-    $path = Join-Path $Root 'internal\controller\version.go'
-    $text = [System.IO.File]::ReadAllText($path)
-    if ($text -match 'var Version = "([0-9]+\.[0-9]+\.[0-9]+)') {
-        return $Matches[1]
-    }
-    return '0.1.0'
+    return ($Version -split '-')[0]
 }
 
 function Find-Python {
@@ -291,6 +293,7 @@ if (($wantWeb -or $wantDesktop) -and $rows.Count -eq 0) {
 
 Write-Host ("仓库 {0}" -f $Root)
 Write-Host ("输出 {0}" -f $Out)
+Write-Host ("版本 {0}" -f $Version)
 if ($DryRun) {
     if ($buildFrontend) { Write-Host '前端 web/ （pnpm build）' }
     elseif ($wantWeb -or $wantDesktop) { Write-Host '前端 跳过，使用现有 web/dist' }
@@ -335,7 +338,7 @@ $go = Find-Go
 $env:GOTOOLCHAIN = 'local'
 Write-Host ("== {0} ==" -f (& $go version))
 $when = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss') + 'Z'
-$ldflags = "-s -w -X github.com/ezdemo/looprax/internal/controller.BuildTime=$when"
+$ldflags = "-s -w -X github.com/ezdemo/looprax/internal/controller.Version=$Version -X github.com/ezdemo/looprax/internal/controller.BuildTime=$when"
 $failures = @()
 $built = @()
 

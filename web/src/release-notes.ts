@@ -39,7 +39,7 @@ export function createWebReleaseNotesReader(request: typeof fetch = (...args) =>
         const version = entry.tag_name.replace(/^v/i, '');
         releases.set(version, { version, name: typeof entry.name === 'string' ? entry.name : '',
           body: typeof entry.body === 'string' ? entry.body.replace(/<!--[\s\S]*?-->/g, '')
-            .replace(/^## Loopra v[^\r\n]+\r?\n/i, '').split(/^### 下载\s*$/m)[0].trim() : '',
+            .replace(/^## LoopraX? v[^\r\n]+\r?\n/i, '').split(/^### 下载\s*$/m)[0].trim() : '',
           publishedAt: typeof entry.published_at === 'string' ? entry.published_at : '',
           url: `https://github.com/ezdemo/loopra-release/releases/tag/${encodeURIComponent(entry.tag_name)}` });
       }
