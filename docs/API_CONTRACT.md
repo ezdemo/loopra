@@ -188,7 +188,9 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
 
 ### 3.17 其它
 - POST `/api/model-meta/refresh` → s。
-- GET `/api/version/` → `{version,buildTime:"",name}`；GET `/version/check`；POST `/version/update`（+GET、/stop）。
+- GET `/api/version/` → `{version,buildTime,name}`；GET `/version/check`；POST `/version/update`（+GET、/stop）。开发桌面构建的版本检查直接返回当前版本和 `hasNewVersion:false`，不请求发布服务。
+- GET `/api/desktop-update/state` → `{supported,development?,unsupportedReason?,currentVersion,latestVersion,status,revision,source,changingSource,percent,transferred,total,bytesPerSecond,error,checkedAt,packageType?}`。桌面正式打包产物需具备三段正式版本号和 RFC3339 构建时间；缺失时返回 `development:true,supported:false,status:"unsupported"`，保留当前版本并提供原因。
+- POST `/api/desktop-update/check`、`/download`、`/source`（`{source}`）、`/install`；GET `/api/desktop-update/notes`。开发构建的检查、下载返回原状态，更新源和安装请求返回 400，不触发发布检查或安装；手动读取日志仍可请求正式发布历史，忽略本地开发版本号的大小，且不会启动更新任务或写入下载文件。普通 Web 服务未创建桌面更新器时，这组接口返回 404。
 - POST `/api/system/open-workspace`（`{workspaceHash?, application?}`）；GET `/open-applications`；POST `/pick-directory`；GET `/health`（`{status:"ok",version,buildTime}`）；GET `/system/version`。
 - Pets：GET `/api/pets`、`/{name}`、`/{name}/spritesheet`（webp，支持 ?rk=）、`/active`（active 时含 position、scale?、desktop?；desktop 为原生窗口右下角的屏幕坐标）、`/desktop`（`{native, dismissed}`；native 为真时本进程用 mygo 画宠物，页面不再叠在输入框上）；PUT `/active`（`{name*}`）、`/position`（x、y、sizeIndex、scale、desktopX、desktopY；任一桌面坐标为 null 时清除 desktop）、`/desktop`（`{shown, name, label, activity, reply, replyId, replyActivity, latest, scale, seen, reset?}`；seen 小于 dismissed 时忽略显示）；DELETE `/{name}`。
 - Files：GET `/api/files/image|tree|search`、DELETE `/delete`（禁删项目根）、POST `/paste`（`{content*}` → `.loopra/paste`）。

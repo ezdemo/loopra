@@ -33,11 +33,114 @@ func desktopJSON(value any) *http.Response {
 }
 func desktopTestUpdater(t *testing.T) *desktopUpdater {
 	t.Helper()
-	u := newDesktopUpdater(t.TempDir(), func() {})
-	u.state.CurrentVersion = "26.11.101"
+	u := newDesktopUpdater(t.TempDir(), func() {}, "26.11.101", "2026-11-01T08:00:00Z")
 	u.platform, u.arch = "windows", "amd64"
 	t.Cleanup(u.cancel)
 	return u
+}
+
+func TestDesktopBuildMetadataControlsUpdates(t *testing.T) {
+	for _, test := range []struct {
+		version, buildTime string
+		supported          bool
+	}{
+		{"0.1.0-go", "", false},
+		{"26.11.101", "", false},
+		{"26.11.101-dev", "2026-11-01T08:00:00Z", false},
+		{"26.11.101", "unknown", false},
+		{"26.11.101", "2026-11-01T08:00:00Z", true},
+		{"v26.11.101", "2026-11-01T08:00:00Z", true},
+	} {
+		t.Run(test.version+"/"+test.buildTime, func(t *testing.T) {
+			u := newDesktopUpdater(t.TempDir(), func() {}, test.version, test.buildTime)
+			defer u.cancel()
+			state := u.snapshot()
+			if state.Supported != test.supported || state.Development == test.supported {
+				t.Fatalf("build classification = %+v", state)
+			}
+			if !test.supported && (state.Status != "unsupported" || state.UnsupportedReason == "") {
+				t.Fatalf("development state = %+v", state)
+			}
+		})
+	}
+}
+
+func TestDevelopmentDesktopNeverChecksDownloadsOrInstalls(t *testing.T) {
+	u := newDesktopUpdater(t.TempDir(), func() { t.Error("development app quit for update") }, "0.1.0-go", "")
+	defer u.cancel()
+	u.client.Transport = desktopTransport(func(*http.Request) (*http.Response, error) {
+		t.Error("development build requested release or update data")
+		return nil, io.EOF
+	})
+	done := make(chan struct{})
+	go func() { u.autoCheck(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("development auto-check loop did not exit")
+	}
+	s := &Controller{desktopUpdater: u}
+	for _, action := range []string{"state", "check", "download"} {
+		w := httptest.NewRecorder()
+		s.desktopUpdateController(w, httptest.NewRequest("POST", "/api/desktop-update/"+action, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s = %d: %s", action, w.Code, w.Body)
+		}
+		if !strings.Contains(w.Body.String(), `"development":true`) || !strings.Contains(w.Body.String(), `"supported":false`) {
+			t.Fatalf("%s omitted development capability: %s", action, w.Body)
+		}
+	}
+	var checks atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { checks.Add(1); w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+	t.Setenv("LOOPRAX_RELEASE_LATEST_URL", server.URL)
+	w := httptest.NewRecorder()
+	s.checkVersion(w, httptest.NewRequest("GET", "/api/version/check", nil))
+	if checks.Load() != 0 || strings.Contains(w.Body.String(), `"hasNewVersion":true`) {
+		t.Fatalf("development core release check = %s, requests=%d", w.Body, checks.Load())
+	}
+	if err := u.setSource("normal"); err == nil {
+		t.Fatal("development update source was saved")
+	}
+	if _, err := os.Stat(filepath.Join(u.home, "updates")); !os.IsNotExist(err) {
+		t.Fatalf("development build wrote update files: %v", err)
+	}
+	if state := u.snapshot(); state.Status != "unsupported" || state.CheckedAt != "" || state.LatestVersion != "" {
+		t.Fatalf("development update progressed: %+v", state)
+	}
+	// Even a stale downloaded state must not allow replacing a development binary.
+	u.state.Status, u.staged = "downloaded", t.TempDir()
+	if err := u.install(); err == nil || !strings.Contains(err.Error(), "开发构建") {
+		t.Fatalf("development installation = %v", err)
+	}
+}
+
+func TestDevelopmentDesktopCanReadPublishedNotesWithoutUpdating(t *testing.T) {
+	u := newDesktopUpdater(t.TempDir(), func() {}, "99.0.0", "")
+	defer u.cancel()
+	var requests atomic.Int32
+	u.client.Transport = desktopTransport(func(r *http.Request) (*http.Response, error) {
+		requests.Add(1)
+		if !strings.Contains(r.URL.RawQuery, "per_page=100") {
+			t.Errorf("requested something other than release history: %s", r.URL)
+		}
+		return desktopJSON([]desktopRelease{
+			{Tag: "v26.11.102", Body: "### 修复\n- 修复更新"},
+			{Tag: "v26.11.101", Body: "### 新增\n- 桌面端"},
+			{Tag: "v26.11.103", Prerelease: true},
+		}), nil
+	})
+	notes, err := u.releaseNotes(context.Background())
+	if err != nil || notes.CurrentVersion != "99.0.0" || notes.LatestVersion != "26.11.102" || len(notes.Releases) != 2 {
+		t.Fatalf("development notes = %+v, %v", notes, err)
+	}
+	u.startCheck()
+	if requests.Load() != 1 || u.snapshot().Status != "unsupported" || u.snapshot().LatestVersion != "" {
+		t.Fatalf("reading notes started updates: %+v, requests=%d", u.snapshot(), requests.Load())
+	}
+	if _, err := os.Stat(filepath.Join(u.home, "updates")); !os.IsNotExist(err) {
+		t.Fatalf("reading notes wrote update files: %v", err)
+	}
 }
 func waitDesktopStatus(t *testing.T, u *desktopUpdater, status string) desktopUpdateState {
 	t.Helper()
@@ -194,7 +297,7 @@ func TestDesktopSourceSwitchCancelsOldCheckAndPersists(t *testing.T) {
 	if err := u.setSource("https://untrusted.example/"); err == nil {
 		t.Fatal("untrusted mirror accepted")
 	}
-	reloaded := newDesktopUpdater(u.home, func() {})
+	reloaded := newDesktopUpdater(u.home, func() {}, "26.11.101", "2026-11-01T08:00:00Z")
 	defer reloaded.cancel()
 	if reloaded.snapshot().Source != state.Source {
 		t.Fatal("download source was not saved")

@@ -104,6 +104,9 @@ if [ "$platform" = darwin ]; then rm -rf -- "$backup"; else rm -f -- "$backup"; 
 func (u *desktopUpdater) install() error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if !u.state.Supported {
+		return fmt.Errorf("%s", u.state.UnsupportedReason)
+	}
 	if u.state.Status != "downloaded" || u.staged == "" {
 		return fmt.Errorf("请先下载并校验桌面更新")
 	}

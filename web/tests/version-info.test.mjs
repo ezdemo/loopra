@@ -610,6 +610,42 @@ test('About gives manual desktop installs and failures their own actionable stat
   }
 });
 
+test('development desktop builds show release notes without release badges or installation controls', async () => {
+  let notes = 0;
+  dom.window.electronAPI = { desktopUpdate: { getReleaseNotes: async () => { notes++; return {currentVersion:'26.11.101',latestVersion:'26.11.102',complete:true,releases:[{version:'26.11.102',body:'### 修复\n- 开发环境也能查看日志'}]}; } } };
+  const state = { ...desktopState, currentVersion: '26.11.101', latestVersion: '26.11.999', supported: false, development: true, status: 'unsupported', unsupportedReason: '开发构建不检查或安装正式版更新，请重新编译运行。' };
+  const controller = { state, open: true, available: true, show() {}, close() {}, error: '', blockedReason: '' };
+  let currentProps;
+  function Host(props) {
+    currentProps = props;
+    return createElement('div', null,
+      createElement(Header, { sidebarOpen: true, isHome: true, backend: {status:'connected',ready:true,version:'26.11.101',error:''}, desktopUpdate:state, latestVersion:'26.99.999' }),
+      createElement(VersionInfo, { ...props, desktopUpdate:controller }),
+      createElement(DesktopUpdateDialog, { controller }));
+  }
+  const view = await mount(undefined, Host);
+  try {
+    const header = view.container.querySelector('.app-version');
+    assert.equal(header.textContent, 'v26.11.101');
+    assert.equal(header.classList.contains('has-update'), false);
+    assert.match(header.title, /开发构建/);
+    const dialog = view.container.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /开发构建不检查或安装正式版更新/);
+    assert.equal(buttonIn(dialog, '检查更新'), undefined);
+    assert.equal(buttonIn(dialog, '重启并安装'), undefined);
+    assert.equal(dialog.querySelector('select[aria-label="桌面端更新源"]'), null);
+    assert.equal(notes, 1);
+    assert.match(dialog.textContent, /开发环境也能查看日志/);
+    const desktop = view.container.querySelector('article[aria-label="桌面客户端"]');
+    assert.equal(desktop.querySelector('[role="status"]').textContent, '开发版本');
+    assert.ok(buttonIn(desktop, '版本详情'));
+    // A stale downloaded status still cannot offer installation in a dev window.
+    await act(async () => { state.status = 'downloaded'; view.root.render(createElement(Host, currentProps)); });
+    assert.equal(header.textContent, 'v26.11.101');
+    assert.equal(buttonIn(view.container.querySelector('[role="dialog"]'), '重启并安装'), undefined);
+  } finally { await view.close(); delete dom.window.electronAPI; }
+});
+
 test('the update button asks the Java service to update without creating an agent session', async () => {
   const view = await mount();
   try {

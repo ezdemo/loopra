@@ -157,7 +157,7 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	}
 	s.state = newRuntimeState(s)
 	if opts.OnDesktopQuit != nil {
-		s.desktopUpdater = newDesktopUpdater(s.home, opts.OnDesktopQuit)
+		s.desktopUpdater = newDesktopUpdater(s.home, opts.OnDesktopQuit, Version, BuildTime)
 		go s.desktopUpdater.autoCheck()
 	}
 	s.installApprovalPolicy()

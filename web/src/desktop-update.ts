@@ -1,6 +1,7 @@
 import type { ReleaseNotes } from './release-notes';
 
 export type DesktopUpdateState = {
+  development?: boolean;
   supported: boolean;
   unsupportedReason?: string;
   packageType?: string;

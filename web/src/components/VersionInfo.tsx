@@ -60,7 +60,7 @@ export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate, deskto
   const updateRunning = !!update?.running;
   const updateBusy = startingUpdate || stoppingUpdate;
   const desktop = desktopUpdate?.state;
-  const desktopStatus = desktop ? {
+  const desktopStatus = desktop?.development ? '开发版本' : desktop ? {
     unsupported: '手动更新', idle: desktop.checkedAt ? '已是最新' : '未检查', checking: '检查中',
     available: '发现新版', downloading: `下载中 ${Math.floor(desktop.percent)}%`, verifying: '校验中',
     downloaded: '待重启安装', installing: '安装中', error: '更新失败',
@@ -76,9 +76,9 @@ export function VersionInfoPanel({ api, notify, initialCheck, coreUpdate, deskto
         <div className="version-card-heading"><span className="version-card-icon"><Monitor size="1.125rem" aria-hidden="true" /></span><h4>桌面客户端</h4><span className="version-status" data-tone={desktopTone} role="status">{desktopStatus}</span></div>
         <div className="version-card-number">{desktop?.currentVersion ? `v${desktop.currentVersion}` : '读取中…'}</div>
         <p className="version-card-latest">{desktop?.latestVersion ? <>最新版本 <strong>v{desktop.latestVersion}</strong></> : '安装包包含桌面端与核心服务'}</p>
-        <p className="version-card-description">{desktop?.status === 'error' ? '更新遇到问题，打开详情后可重试'
+        <p className="version-card-description">{desktop?.development ? desktop.unsupportedReason : desktop?.status === 'error' ? '更新遇到问题，打开详情后可重试'
           : desktop?.supported ? '后台下载新版，退出时安装' : '从发布页下载桌面端安装包'}</p>
-        <div className="version-card-actions"><Button size="sm" variant="flat" onPress={desktopUpdate.show} startContent={<Download size=".875rem" />}>{desktop?.status === 'downloaded' ? '查看并安装' : '桌面端更新'}</Button></div>
+        <div className="version-card-actions"><Button size="sm" variant="flat" onPress={desktopUpdate.show} startContent={<Download size=".875rem" />}>{desktop?.development ? '版本详情' : desktop?.status === 'downloaded' ? '查看并安装' : '桌面端更新'}</Button></div>
       </article>}
       <article className="version-card" aria-label="核心服务">
         <div className="version-card-heading"><span className="version-card-icon"><Server size="1.125rem" aria-hidden="true" /></span><h4>核心服务</h4><span className="version-status" data-tone={(!coreReadOnly && updateRunning) || checking || hasNew ? 'active' : check ? 'success' : 'neutral'} role="status">{!coreReadOnly && updateRunning ? '更新中' : checking ? '检查中' : check ? (hasNew ? '发现新版' : '已是最新') : '未检查'}</span></div>

@@ -28,20 +28,22 @@ var releaseComments = regexp.MustCompile(`(?s)<!--.*?-->`)
 var releaseHeading = regexp.MustCompile(`(?i)^## LoopraX? v[^\r\n]+\r?\n`)
 
 type desktopUpdateState struct {
-	PackageType    string  `json:"packageType,omitempty"`
-	Supported      bool    `json:"supported"`
-	CurrentVersion string  `json:"currentVersion"`
-	LatestVersion  string  `json:"latestVersion"`
-	Status         string  `json:"status"`
-	Percent        float64 `json:"percent"`
-	Transferred    int64   `json:"transferred"`
-	Total          int64   `json:"total"`
-	BytesPerSecond float64 `json:"bytesPerSecond"`
-	Error          string  `json:"error"`
-	CheckedAt      string  `json:"checkedAt"`
-	Revision       uint64  `json:"revision"`
-	Source         string  `json:"source"`
-	ChangingSource bool    `json:"changingSource"`
+	Development       bool    `json:"development,omitempty"`
+	UnsupportedReason string  `json:"unsupportedReason,omitempty"`
+	PackageType       string  `json:"packageType,omitempty"`
+	Supported         bool    `json:"supported"`
+	CurrentVersion    string  `json:"currentVersion"`
+	LatestVersion     string  `json:"latestVersion"`
+	Status            string  `json:"status"`
+	Percent           float64 `json:"percent"`
+	Transferred       int64   `json:"transferred"`
+	Total             int64   `json:"total"`
+	BytesPerSecond    float64 `json:"bytesPerSecond"`
+	Error             string  `json:"error"`
+	CheckedAt         string  `json:"checkedAt"`
+	Revision          uint64  `json:"revision"`
+	Source            string  `json:"source"`
+	ChangingSource    bool    `json:"changingSource"`
 }
 
 type desktopAsset struct {
@@ -93,13 +95,18 @@ type desktopUpdater struct {
 	historyComplete                       bool
 }
 
-func newDesktopUpdater(home string, quit func()) *desktopUpdater {
+func newDesktopUpdater(home string, quit func(), version, buildTime string) *desktopUpdater {
 	executable, _ := os.Executable()
 	executable, _ = filepath.EvalSymlinks(executable)
 	ctx, cancel := context.WithCancel(context.Background())
 	u := &desktopUpdater{home: home, executable: executable, platform: runtime.GOOS, arch: runtime.GOARCH,
 		api: desktopReleaseAPI, client: &http.Client{Timeout: 10 * time.Minute}, quit: quit, ctx: ctx, cancel: cancel,
-		state: desktopUpdateState{Supported: true, CurrentVersion: strings.TrimPrefix(Version, "v"), Status: "idle", Source: "normal"}}
+		state: desktopUpdateState{Supported: true, CurrentVersion: strings.TrimPrefix(version, "v"), Status: "idle", Source: "normal"}}
+	if _, err := time.Parse(time.RFC3339, buildTime); err != nil || !stableReleaseVersion.MatchString(version) {
+		u.state.Supported, u.state.Development, u.state.Status = false, true, "unsupported"
+		u.state.UnsupportedReason = "开发构建不检查或安装正式版更新，请重新编译运行。"
+		return u
+	}
 	if runtime.GOOS == "windows" {
 		u.state.PackageType = windowsDesktopPackageType(executable, runtime.GOARCH)
 	}
@@ -121,6 +128,9 @@ func (u *desktopUpdater) snapshot() desktopUpdateState {
 }
 
 func (u *desktopUpdater) autoCheck() {
+	if !u.snapshot().Supported {
+		return
+	}
 	// Let the local API/window finish starting before making network requests.
 	timer := time.NewTimer(3 * time.Second)
 	defer timer.Stop()
@@ -205,6 +215,9 @@ func validDesktopAssetURL(raw string) bool {
 func (u *desktopUpdater) startCheck() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if !u.state.Supported {
+		return
+	}
 	if u.state.Status == "checking" || u.state.Status == "downloading" || u.state.Status == "verifying" || u.state.Status == "downloaded" || u.state.Status == "installing" {
 		return
 	}
@@ -270,6 +283,9 @@ func (u *desktopUpdater) setSource(source string) error {
 	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if !u.state.Supported {
+		return fmt.Errorf("%s", u.state.UnsupportedReason)
+	}
 	if u.state.Status == "verifying" || u.state.Status == "downloaded" || u.state.Status == "installing" {
 		return fmt.Errorf("更新包已就绪，暂时不能切换下载源")
 	}
@@ -547,7 +563,7 @@ func (u *desktopUpdater) releaseNotes(ctx context.Context) (desktopNotes, error)
 	}
 	notes := desktopNotes{CurrentVersion: state.CurrentVersion, LatestVersion: latest, Complete: u.historyComplete, Releases: []desktopNote{}}
 	for _, note := range u.history {
-		if (compareVersion(latest, state.CurrentVersion) > 0 && compareVersion(note.Version, state.CurrentVersion) > 0 && compareVersion(note.Version, latest) <= 0) ||
+		if state.Development || (compareVersion(latest, state.CurrentVersion) > 0 && compareVersion(note.Version, state.CurrentVersion) > 0 && compareVersion(note.Version, latest) <= 0) ||
 			(compareVersion(latest, state.CurrentVersion) <= 0 && compareVersion(note.Version, state.CurrentVersion) == 0) {
 			notes.Releases = append(notes.Releases, note)
 		}

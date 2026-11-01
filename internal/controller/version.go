@@ -66,6 +66,11 @@ func (s *Controller) checkVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	checkTime := time.Now().Format("2006-01-02 15:04:05")
 	view := map[string]any{"currentVersion": Version, "latestVersion": Version, "hasNewVersion": false, "checkTime": checkTime}
+	if s.desktopUpdater != nil && s.desktopUpdater.snapshot().Development {
+		view["releaseNotes"] = s.desktopUpdater.snapshot().UnsupportedReason
+		writeOK(w, http.StatusOK, view)
+		return
+	}
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
 	if err == nil {
 		req.Header.Set("User-Agent", "Looprax/"+Version)

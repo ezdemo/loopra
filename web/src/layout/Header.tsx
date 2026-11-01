@@ -53,9 +53,9 @@ export default function Header(p: HeaderProps) {
   const installedVersion = desktop ? desktop.currentVersion.replace(/^v/i, '') : version;
   const releaseVersion = desktop?.latestVersion?.replace(/^v/i, '') || latestVersion;
   // Manual-update builds also need a badge, even when the core is already current.
-  const hasNewVersion = !!releaseVersion && /^\d+(?:\.\d+)*$/.test(installedVersion)
+  const hasNewVersion = !desktop?.development && !!releaseVersion && /^\d+(?:\.\d+)*$/.test(installedVersion)
     && /^\d+(?:\.\d+)*$/.test(releaseVersion) && compareVersions(releaseVersion, installedVersion) > 0;
-  const desktopText = desktop?.status === 'downloading' ? `下载中 ${Math.floor(desktop.percent)}%`
+  const desktopText = desktop?.development ? '' : desktop?.status === 'downloading' ? `下载中 ${Math.floor(desktop.percent)}%`
     : desktop?.status === 'verifying' ? '正在验证更新…'
     : desktop?.status === 'downloaded' ? '重启并安装'
     : desktop?.status === 'installing' ? '正在安装…'
@@ -63,7 +63,7 @@ export default function Header(p: HeaderProps) {
     : desktop?.status === 'error' ? '更新失败，重试'
     : desktop?.status === 'available' || hasNewVersion ? '发现新版' : '';
   const updateText = desktop ? desktopText : hasNewVersion ? '发现新版' : '';
-  const updateTitle = desktop ? `桌面端 ${desktopVersion}${hasNewVersion ? ` · 最新 v${releaseVersion}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
+  const updateTitle = desktop ? `桌面端 ${desktopVersion}${desktop.development ? ' · 开发构建' : ''}${hasNewVersion ? ` · 最新 v${releaseVersion}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
     : hasNewVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`;
   return <header className={`conversation-header ${p.isHome ? 'home-header' : ''}`}>
     <div className="header-leading">
