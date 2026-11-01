@@ -115,6 +115,7 @@ func (s *Settings) Update(reasoningEffort, sessionKey string, serviceTierFast bo
 
 // Config 承载适配器在单次请求之外所需的全部配置。
 type Config struct {
+	ImageInput     bool
 	Endpoint       string
 	APIKey         string
 	Protocol       string
@@ -170,6 +171,7 @@ func NewLLM(ch Channel, opts *Options) (model.LLM, error) {
 		settings = NewSettings(opts.ReasoningEffort, opts.SessionKey, opts.ServiceTierFast, maxTokens)
 	}
 	cfg := Config{
+		ImageInput:   entry.ImageInput,
 		Endpoint:     endpoint,
 		APIKey:       ch.APIKey,
 		Protocol:     protocol,

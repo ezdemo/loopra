@@ -44,7 +44,7 @@ func (s *Service) Truncate(ctx context.Context, app, user, id, snapshot string, 
 	}
 	var kept bytes.Buffer
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
-	scanner.Buffer(make([]byte, 4096), 16<<20)
+	scanner.Buffer(make([]byte, 4096), 64<<20)
 	found := false
 	text := ""
 	for scanner.Scan() {

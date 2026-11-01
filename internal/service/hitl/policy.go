@@ -36,7 +36,7 @@ var ControlTools = map[string]bool{
 
 // ReadOnlyTools 是内置只读工具名。
 var ReadOnlyTools = map[string]bool{
-	"read": true, "rg": true,
+	"read": true, "read_image": true, "rg": true,
 	"web": true,
 }
 

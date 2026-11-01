@@ -369,7 +369,9 @@ func contentChars(contents []*genai.Content) int {
 				chars += utf8.RuneCount(raw)
 			}
 			if part.FunctionResponse != nil {
-				raw, _ := json.Marshal(part.FunctionResponse)
+				response := *part.FunctionResponse
+				response.Parts = nil // Media is not base64 text for context budgeting.
+				raw, _ := json.Marshal(&response)
 				chars += utf8.RuneCount(raw)
 			}
 		}

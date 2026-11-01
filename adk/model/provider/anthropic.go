@@ -66,6 +66,7 @@ func (a *anthropicAdapter) GenerateContent(ctx context.Context, req *model.LLMRe
 
 // buildBody 把 genai 请求转换为 Anthropic Messages 的 JSON 请求体。
 func (a *anthropicAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, snap SettingsSnapshot, stream bool) (map[string]any, error) {
+	req = expandToolImages(req, a.config.ImageInput)
 	if a.config.APIKey == "" {
 		return nil, errors.New("anthropic: API key is required")
 	}

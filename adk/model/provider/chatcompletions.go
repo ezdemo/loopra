@@ -115,6 +115,7 @@ func (d wireChatDelta) reasoningText() string {
 
 // buildBody 把 genai 请求转换为 Chat Completions 的 JSON 请求体。
 func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, snap SettingsSnapshot, stream bool) (map[string]any, error) {
+	req = expandToolImages(req, a.config.ImageInput)
 	if a.config.APIKey == "" {
 		return nil, errors.New("chat completions: API key is required")
 	}

@@ -415,6 +415,7 @@ func contextualPath(ctx context.Context, root, path string) (string, error) {
 func FileTools(root string) []Tool {
 	return []Tool{
 		{readTool(root), Metadata{Name: "read", Description: "读取项目内文本文件", ReadOnly: true, AutoApprove: true}},
+		readImageTool(root),
 		{rgTool(root), Metadata{Name: "rg", Description: rgDescription, ReadOnly: true, AutoApprove: true}},
 		{writeTool(root), Metadata{Name: "write", Description: "创建或覆盖文件", ReadOnly: false, AutoApprove: true}},
 		{editTool(root), Metadata{Name: "edit", Description: "对文件执行多处精准替换", ReadOnly: false, AutoApprove: true}},

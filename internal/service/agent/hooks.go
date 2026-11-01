@@ -19,6 +19,7 @@ import (
 
 	"github.com/ezdemo/looprax/adk/model/provider"
 	svcplugin "github.com/ezdemo/looprax/internal/service/plugin"
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 const (
@@ -197,6 +198,7 @@ func (h *hookBridge) afterRun(ctx agent.InvocationContext) {
 }
 
 func (h *hookBridge) onEvent(ctx agent.InvocationContext, event *session.Event) (*session.Event, error) {
+	tools.AttachImageResults(ctx, event)
 	if event == nil || event.Actions.Compaction == nil || event.Actions.Compaction.CompactedContent == nil {
 		return nil, nil
 	}

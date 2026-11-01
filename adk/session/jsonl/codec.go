@@ -113,6 +113,11 @@ func eventLines(ev *session.Event) []map[string]any {
 						tool["adk_response"] = string(raw)
 					}
 				}
+				if len(p.FunctionResponse.Parts) > 0 {
+					if raw, err := json.Marshal(p.FunctionResponse.Parts); err == nil {
+						tool["adk_response_parts"] = string(raw)
+					}
+				}
 				lines = append(lines, tool)
 			case p.FunctionCall != nil:
 				// 智能体编写的审批请求（例如
@@ -270,6 +275,9 @@ func lineEvent(m map[string]any, seq int) *session.Event {
 			if json.Unmarshal([]byte(raw), &resp) == nil {
 				fr.Response = resp
 			}
+		}
+		if raw, _ := m["adk_response_parts"].(string); raw != "" {
+			_ = json.Unmarshal([]byte(raw), &fr.Parts)
 		}
 		ev.Content = &genai.Content{Role: genai.RoleUser, Parts: []*genai.Part{{FunctionResponse: fr}}}
 		return ev

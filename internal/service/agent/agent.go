@@ -22,6 +22,7 @@ import (
 	"github.com/ezdemo/looprax/adk/model/provider"
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/model/config"
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 // DefaultInstruction 是分片 PromptRegistry 落地前的
@@ -245,5 +246,8 @@ func (a *Agent) Session(ctx context.Context, name string) (session.Session, erro
 
 // Run 驱动一个用户轮次，并流式输出 ADK 事件。
 func (a *Agent) Run(ctx context.Context, sess session.Session, msg *genai.Content) iter.Seq2[*session.Event, error] {
+	imageConfig := a.cfg.Clone()
+	imageConfig.Model = a.Model.Name()
+	ctx = tools.WithImageRuntime(ctx, imageConfig, a.options.HTTPClient)
 	return a.Runner.Run(WithContextTurn(ctx), a.user, sess.ID(), msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE})
 }

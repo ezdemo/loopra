@@ -114,6 +114,7 @@ func BuildTitle(name, task string) string {
 
 // liveRun 跟踪一次已完成的子运行，用于继续对话。
 type liveRun struct {
+	imageConfig  *config.Loopra
 	subID        int
 	subSessionID string
 	title        string
@@ -236,7 +237,7 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 
 	status := "completed"
 	var replyErr error
-	reply := r.drive(runCtx, run, created.Session, parentSession, task, subID, subSessionID, rec, sink)
+	reply := r.drive(tools.WithImageRuntime(runCtx, contextConfig, nil), run, created.Session, parentSession, task, subID, subSessionID, rec, sink)
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			status = "aborted"
@@ -257,7 +258,7 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 
 	res := Result{SubSessionID: subSessionID, Title: title, Reply: reply, Status: status}
 	if status == "completed" {
-		keepResumable(subID, subSessionID, title, run, created.Session)
+		keepResumable(subID, subSessionID, title, run, created.Session, contextConfig)
 	}
 	return res, replyErr
 }
@@ -289,10 +290,10 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return r.drive(runCtx, prev.runner, prev.sess, "default", message, prev.subID, subSessionID, nil, sink), nil
+	return r.drive(tools.WithImageRuntime(runCtx, prev.imageConfig, nil), prev.runner, prev.sess, "default", message, prev.subID, subSessionID, nil, sink), nil
 }
 
-func keepResumable(subID int, subSessionID, title string, run *runner.Runner, sess session.Session) {
+func keepResumable(subID int, subSessionID, title string, run *runner.Runner, sess session.Session, cfg *config.Loopra) {
 	runsMu.Lock()
 	if len(resumable) >= 20 && len(resumeOrd) > 0 {
 		oldest := resumeOrd[0]
@@ -300,7 +301,8 @@ func keepResumable(subID int, subSessionID, title string, run *runner.Runner, se
 		delete(resumable, oldest)
 	}
 	resumable[subSessionID] = &liveRun{
-		subID: subID, subSessionID: subSessionID, title: title,
+		imageConfig: cfg,
+		subID:       subID, subSessionID: subSessionID, title: title,
 		runner: run, sess: sess,
 	}
 	resumeOrd = append(resumeOrd, subSessionID)

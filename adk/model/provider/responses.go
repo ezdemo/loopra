@@ -63,6 +63,7 @@ func (a *responsesAdapter) GenerateContent(ctx context.Context, req *model.LLMRe
 
 // buildBody 把 genai 请求转换为 Responses 的 JSON 请求体。
 func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, snap SettingsSnapshot, stream bool) (map[string]any, error) {
+	req = expandToolImages(req, a.config.ImageInput)
 	if a.config.APIKey == "" {
 		return nil, errors.New("responses: API key is required")
 	}
@@ -185,15 +186,13 @@ func responsesUserItems(c *genai.Content) ([]any, error) {
 			content = append(content, map[string]any{"type": "input_text", "text": p.Text})
 		case p.InlineData != nil:
 			content = append(content, map[string]any{
-				"type": "input_image",
-				"image_url": map[string]any{
-					"url": imageDataURL(p.InlineData.MIMEType, base64.StdEncoding.EncodeToString(p.InlineData.Data)),
-				},
+				"type":      "input_image",
+				"image_url": imageDataURL(p.InlineData.MIMEType, base64.StdEncoding.EncodeToString(p.InlineData.Data)),
 			})
 		case p.FileData != nil && p.FileData.FileURI != "":
 			content = append(content, map[string]any{
 				"type":      "input_image",
-				"image_url": map[string]any{"url": p.FileData.FileURI},
+				"image_url": p.FileData.FileURI,
 			})
 		}
 	}
