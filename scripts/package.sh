@@ -132,7 +132,7 @@ artifact_name() {
   if [ "$goos" = windows ]; then
     name=$name.exe
   elif [ "$product" = desktop ] && [ "$goos" = darwin ]; then
-    name=$name.app
+    name=darwin-$label/Loopra.app
   fi
   printf '%s\n' "$name"
 }
@@ -146,6 +146,7 @@ mac_version() {
 publish_darwin_app() {
   binary=$1
   app=$2
+  zip=$3
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" || return 1
   mv "$binary" "$app/Contents/MacOS/Loopra" || return 1
@@ -165,7 +166,6 @@ publish_darwin_app() {
   if [ -n "$py_icon" ]; then
     "$py_icon" "$root/scripts/appicon.py" app "$app" || echo '  图标未写入 .app' >&2
   fi
-  zip=${app%.app}.zip
   py=
   if command -v python3 >/dev/null 2>&1; then
     py=python3
@@ -414,6 +414,7 @@ while IFS= read -r line; do
   fi
   name=$(artifact_name "$product" "$goos" "$arch" "$goarm")
   dest=$out/$name
+  mkdir -p "$(dirname "$dest")"
   tmp=$dest.tmp
   pkg=./cmd/looprax
   if [ "$product" = desktop ]; then
@@ -442,9 +443,9 @@ while IFS= read -r line; do
   fi
   if (cd "$root" && "$go_bin" build -trimpath -tags webdist -ldflags "$build_ldflags" -o "$tmp" "$pkg"); then
     if [ "$product" = desktop ] && [ "$goos" = darwin ]; then
-      if publish_darwin_app "$tmp" "$dest" >/dev/null; then
+      zip=$out/loopra-desktop-darwin-$arch.zip
+      if publish_darwin_app "$tmp" "$dest" "$zip" >/dev/null; then
         printf '%s\n' "$dest" >>"$built"
-        zip=${dest%.app}.zip
         if [ -f "$zip" ]; then
           echo "  拷到 Mac 用 $(basename "$zip")"
           printf '%s\n' "$zip" >>"$built"

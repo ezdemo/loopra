@@ -588,7 +588,7 @@ go build -tags webdist -o loopra ./cmd/looprax
 go build -tags webdist -o loopra-desktop ./cmd/looprax-desktop
 ```
 
-多平台打包脚本会先构建前端，再按 `scripts/package-matrix.txt` 写出 `bin/`。桌面端覆盖 Windows、Linux、macOS 的 amd64 与 arm64；macOS 产物是 `Loopra.app` 和保持可执行权限的 zip。
+多平台打包脚本会先构建前端，再按 `scripts/package-matrix.txt` 写出 `bin/`。桌面端覆盖 Windows、Linux、macOS 的 amd64 与 arm64；macOS 应用分别放在 `bin/darwin-amd64/Loopra.app` 和 `bin/darwin-arm64/Loopra.app`，发布 zip 解压后也统一为 `Loopra.app`。
 
 ```powershell
 .\scripts\package.ps1

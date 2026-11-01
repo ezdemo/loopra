@@ -13,7 +13,7 @@
     loopra.exe
     loopra-desktop.exe
 
-  darwin 桌面端打成 .app（访达里的名字是 Loopra），并另写同名 .zip。
+  darwin 桌面端分别写入 darwin-<arch>/Loopra.app，另写带架构名的 .zip。
   把 zip 拷到 Mac 再解压，可执行权限才还在。
 
 .EXAMPLE
@@ -160,7 +160,7 @@ function Get-ArtifactName {
     if ($Row.OS -eq 'windows') {
         $name += '.exe'
     } elseif ($Row.Product -eq 'desktop' -and $Row.OS -eq 'darwin') {
-        $name += '.app'
+        $name = 'darwin-{0}/Loopra.app' -f $label
     }
     return $name
 }
@@ -194,7 +194,12 @@ function Add-AppIcon {
 
 # 把 darwin 桌面二进制套成 Loopra.app。返回一并写出的 zip，没有 zip 时返回空。
 function Publish-DarwinApp {
-    param([string]$Binary, [string]$AppPath)
+    param([string]$Binary, [string]$AppPath, [string]$ZipPath)
+    $AppPath = [System.IO.Path]::GetFullPath($AppPath)
+    $outputRoot = [System.IO.Path]::GetFullPath($Out).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $AppPath.StartsWith($outputRoot, [System.StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $AppPath) -ne 'Loopra.app') {
+        throw "应用路径不在输出目录内：$AppPath"
+    }
     if (Test-Path -LiteralPath $AppPath) {
         Remove-Item -LiteralPath $AppPath -Recurse -Force
     }
@@ -207,7 +212,7 @@ function Publish-DarwinApp {
     [System.IO.File]::WriteAllText((Join-Path $AppPath 'Contents\Info.plist'), $plist, $utf8)
     [System.IO.File]::WriteAllText((Join-Path $AppPath 'Contents\PkgInfo'), 'APPL????', $utf8)
     Add-AppIcon -Kind app -Path $AppPath
-    $zip = [System.IO.Path]::ChangeExtension($AppPath, '.zip')
+    $zip = $ZipPath
     $python = Find-Python
     if (-not $python) {
         Write-Warning '未找到 Python，已生成 .app。从 Windows 拷到 Mac 后需要 chmod +x Contents/MacOS/Loopra。'
@@ -347,6 +352,7 @@ try {
     foreach ($row in $rows) {
         $name = Get-ArtifactName $row
         $dest = Join-Path $Out $name
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
         $tmp = "$dest.tmp"
         $pkg = './cmd/looprax'
         if ($row.Product -eq 'desktop') { $pkg = './cmd/looprax-desktop' }
@@ -379,7 +385,8 @@ try {
                 throw "go build 退出码 $LASTEXITCODE"
             }
             if ($row.Product -eq 'desktop' -and $row.OS -eq 'darwin') {
-                $zip = Publish-DarwinApp -Binary $tmp -AppPath $dest
+                $zipPath = Join-Path $Out ('loopra-desktop-darwin-{0}.zip' -f $row.Arch)
+                $zip = Publish-DarwinApp -Binary $tmp -AppPath $dest -ZipPath $zipPath
                 $built += $dest
                 if ($zip) { $built += $zip }
             } else {
