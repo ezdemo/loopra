@@ -131,7 +131,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [gitBranch, setGitBranch] = useState('工作区');
   const [searchOpen, setSearchOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const [capabilitiesTab, setCapabilitiesTab] = useState<CapabilitiesTab>('all');
+  const [capabilitiesTab, setCapabilitiesTab] = useState<CapabilitiesTab>('plugins');
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [pluginPage, setPluginPage] = useState('');
   const [pluginNav, setPluginNav] = useState<{ id: string; title: string; icon?: PluginIconRef }[]>([]);
@@ -1449,7 +1449,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       {sidebarMounted && <Sidebar api={api} open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={sessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
         profile={profile}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
-        skillsOpen={skillsOpen} onSkills={() => { setSkillsOpen(true); setSchedulesOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
+        skillsOpen={skillsOpen} onSkills={() => { setCapabilitiesTab('plugins'); setSkillsOpen(true); setSchedulesOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
         schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
         plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}

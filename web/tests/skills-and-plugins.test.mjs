@@ -34,33 +34,38 @@ test('one hub switches between skills and plugins while preserving refresh and p
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   function View() {
-    const [tab, onTabChange] = useState('all');
+    const [tab, onTabChange] = useState(capabilitiesTabForSection('技能与插件'));
     return h(Hub, { api: {}, tab, onTabChange, context: { sessionId: 'project/session' }, onRefresh: async () => { refreshes++; }, onPluginsChanged: () => { changes++; }, onBack: () => { backs++; } });
   }
   const click = text => act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === text || button.getAttribute('aria-label') === text).click());
   try {
     await act(async () => root.render(h(View)));
-    assert.equal(container.querySelector('h1').textContent, '技能与插件');
-    assert.deepEqual([...container.querySelectorAll('nav button')].map(button => button.textContent), ['我的内容', '发现']);
+    const typeNavigation = container.querySelector('header nav[aria-label="内容类型"]');
+    assert.deepEqual([...typeNavigation.querySelectorAll('button')].map(button => button.textContent), ['插件', '技能']);
+    assert.equal(typeNavigation.querySelector('[aria-current="page"]').textContent, '插件');
+    assert.deepEqual([...container.querySelectorAll('nav[aria-label="内容视图"] button')].map(button => button.textContent), ['我的内容', '发现']);
+    assert.equal(container.querySelector('.library-type-filter'), null);
+    assert.equal(container.querySelector('input').placeholder, '搜索插件…');
     assert.ok(container.querySelector('[data-plugins]'));
-    assert.equal(container.querySelector('[data-skills]').getAttribute('data-skills'), 'true');
-    await click('技能列表'); assert.equal(refreshes, 1);
-    assert.equal(container.querySelector('[data-skills]').getAttribute('data-refresh'), '0');
+    assert.equal(container.querySelector('[data-skills]'), null);
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '0');
     await act(async () => container.querySelector('[data-plugins]').click());
-    assert.equal(container.querySelector('[data-skills]').getAttribute('data-installed-refresh'), '1');
-    assert.equal(container.querySelector('[data-skills]').getAttribute('data-refresh'), '0');
+    assert.equal(changes, 1);
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '0');
     await click('刷新');
-    assert.equal(container.querySelector('[data-skills]').getAttribute('data-refresh'), '1');
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-refresh'), '1');
-    await click('插件');
-    assert.equal(container.querySelector('[data-skills]'), null);
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-session'), 'project/session');
-    await act(async () => container.querySelector('[data-plugins]').click()); assert.equal(changes, 2);
     await click('发现'); assert.equal(container.querySelector('[data-plugins]').getAttribute('data-view'), 'catalog');
     await click('技能'); assert.equal(container.querySelector('[data-skills]').getAttribute('data-view'), 'market');
-    await click('我的内容'); await click('全部'); assert.ok(container.querySelector('[data-skills]')); assert.ok(container.querySelector('[data-plugins]'));
+    assert.equal(typeNavigation.querySelector('[aria-current="page"]').textContent, '技能');
+    assert.equal(container.querySelector('input').placeholder, '搜索技能…');
+    assert.equal(container.querySelector('[data-plugins]'), null);
+    assert.equal(container.querySelector('[data-skills]').getAttribute('data-skills'), 'true');
+    assert.equal(container.querySelector('[data-skills]').getAttribute('data-refresh'), '1');
+    assert.equal(container.querySelector('[data-skills]').getAttribute('data-installed-refresh'), '1');
+    await click('技能列表'); assert.equal(refreshes, 1);
+    await click('我的内容'); assert.equal(container.querySelector('[data-skills]').getAttribute('data-view'), 'installed');
+    await click('插件'); assert.equal(container.querySelector('[data-skills]'), null); assert.equal(container.querySelector('[data-plugins]').getAttribute('data-view'), 'installed');
     await click('返回会话'); assert.equal(backs, 1);
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
@@ -68,6 +73,6 @@ test('one hub switches between skills and plugins while preserving refresh and p
 test('legacy plugin shortcuts open the plugin tab in the unified hub', () => {
   for (const section of ['插件', '拓展包', 'OpenAPI']) assert.equal(capabilitiesTabForSection(section), 'plugins');
   assert.equal(capabilitiesTabForSection('技能'), 'skills');
-  assert.equal(capabilitiesTabForSection('技能与插件'), 'all');
+  assert.equal(capabilitiesTabForSection('技能与插件'), 'plugins');
   assert.equal(capabilitiesTabForSection('服务器'), undefined);
 });
