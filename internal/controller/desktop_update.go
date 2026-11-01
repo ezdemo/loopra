@@ -28,6 +28,7 @@ var releaseComments = regexp.MustCompile(`(?s)<!--.*?-->`)
 var releaseHeading = regexp.MustCompile(`(?i)^## LoopraX? v[^\r\n]+\r?\n`)
 
 type desktopUpdateState struct {
+	PackageType    string  `json:"packageType,omitempty"`
 	Supported      bool    `json:"supported"`
 	CurrentVersion string  `json:"currentVersion"`
 	LatestVersion  string  `json:"latestVersion"`
@@ -99,6 +100,9 @@ func newDesktopUpdater(home string, quit func()) *desktopUpdater {
 	u := &desktopUpdater{home: home, executable: executable, platform: runtime.GOOS, arch: runtime.GOARCH,
 		api: desktopReleaseAPI, client: &http.Client{Timeout: 10 * time.Minute}, quit: quit, ctx: ctx, cancel: cancel,
 		state: desktopUpdateState{Supported: true, CurrentVersion: strings.TrimPrefix(Version, "v"), Status: "idle", Source: "normal"}}
+	if runtime.GOOS == "windows" {
+		u.state.PackageType = windowsDesktopPackageType(executable, runtime.GOARCH)
+	}
 	if data, err := os.ReadFile(filepath.Join(home, "updates", "desktop-source.json")); err == nil {
 		var source string
 		if json.Unmarshal(data, &source) == nil {
@@ -162,6 +166,36 @@ func desktopAssetName(platform, arch string) string {
 	return name
 }
 
+func windowsDesktopPackageType(executable, arch string) string {
+	if !strings.EqualFold(filepath.Base(executable), "Loopra.exe") {
+		return "portable"
+	}
+	var marker struct{ PackageType, Scope, Arch string }
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(executable), "loopra-install.json"))
+	if err != nil || json.Unmarshal(data, &marker) != nil || marker.PackageType != "nsis" || marker.Scope != "user" || marker.Arch != arch {
+		return "portable"
+	}
+	if info, err := os.Stat(filepath.Join(filepath.Dir(executable), "Uninstall.exe")); err != nil || !info.Mode().IsRegular() {
+		return "portable"
+	}
+	return "nsis"
+}
+
+func (u *desktopUpdater) updateAssetName() string {
+	name := desktopAssetName(u.platform, u.arch)
+	if u.platform == "windows" && u.state.PackageType == "nsis" {
+		name = strings.TrimSuffix(name, ".exe") + "-setup.exe"
+	}
+	return name
+}
+
+func (u *desktopUpdater) stagedPackage() string {
+	if u.platform == "windows" && u.state.PackageType == "nsis" {
+		return "Loopra-Update.exe"
+	}
+	return "package"
+}
+
 func validDesktopAssetURL(raw string) bool {
 	parsed, err := url.Parse(raw)
 	return err == nil && parsed.Scheme == "https" && parsed.Host == "github.com" && parsed.User == nil &&
@@ -193,7 +227,7 @@ func (u *desktopUpdater) beginCheckLocked() {
 		var asset desktopAsset
 		if err == nil && compareVersion(release.Tag, u.state.CurrentVersion) > 0 {
 			for _, candidate := range release.Assets {
-				if candidate.Name == desktopAssetName(u.platform, u.arch) {
+				if candidate.Name == u.updateAssetName() {
 					asset = candidate
 					break
 				}
@@ -316,7 +350,8 @@ func (u *desktopUpdater) download(ctx context.Context, asset desktopAsset, sourc
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("下载更新失败（HTTP %d）", resp.StatusCode)
 	}
-	file, err := os.OpenFile(filepath.Join(work, "package"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	packagePath := filepath.Join(work, u.stagedPackage())
+	file, err := os.OpenFile(packagePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
 	}
@@ -372,14 +407,14 @@ func (u *desktopUpdater) download(ctx context.Context, asset desktopAsset, sourc
 		return "", fmt.Errorf("更新包校验失败，请重新下载")
 	}
 	if u.platform == "darwin" {
-		if err := extractDesktopApp(filepath.Join(work, "package"), work); err != nil {
+		if err := extractDesktopApp(packagePath, work); err != nil {
 			return "", err
 		}
 	} else {
-		if err := validateDesktopBinary(filepath.Join(work, "package"), u.platform); err != nil {
+		if err := validateDesktopBinary(packagePath, u.platform); err != nil {
 			return "", err
 		}
-		if err := os.Chmod(filepath.Join(work, "package"), 0o755); err != nil {
+		if err := os.Chmod(packagePath, 0o755); err != nil {
 			return "", err
 		}
 	}

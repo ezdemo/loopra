@@ -280,6 +280,7 @@ select:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: 4px
 .detected .download-link { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 .detected .download-link small { color: inherit; opacity: .75; }
 .detected .download-link:hover { opacity: .85; }
+.detected .download-link.download-portable { background: transparent; color: var(--fg-2); border-color: var(--border-2); }
 .download-fallback { font-size: 12px; }
 .download-footer { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 20px; color: var(--fg-3); font-size: 12px; }
 .download-footer > a { margin-left: auto; }

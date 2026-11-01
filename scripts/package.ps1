@@ -186,7 +186,7 @@ function Add-AppIcon {
         Write-Warning '未找到 Python，跳过图标。'
         return
     }
-    & $python (Join-Path $PSScriptRoot 'appicon.py') $Kind $Path
+    & $python (Join-Path $PSScriptRoot 'appicon.py') $Kind $Path | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "图标未写入 $Path"
     }
@@ -235,6 +235,16 @@ function Get-AliasName {
     if ($Row.Product -eq 'web') { return 'loopra.exe' }
     if ($Row.Product -eq 'desktop') { return 'loopra-desktop.exe' }
     return ''
+}
+
+function Publish-WindowsInstaller {
+    param([string]$Binary, [string]$Architecture)
+    $python = Find-Python
+    if (-not $python) { throw 'Windows 安装包需要 Python 和 Pillow。' }
+    $installer = Join-Path $Out ('loopra-desktop-windows-{0}-setup.exe' -f $Architecture)
+    & $python (Join-Path $PSScriptRoot 'package-windows-installer.py') --binary $Binary --out $installer --version $Version --arch $Architecture | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "Windows 安装包构建失败：$installer" }
+    return $installer
 }
 
 function Publish-Alias {
@@ -307,6 +317,9 @@ if ($DryRun) {
         $suffix = ''
         if ($alias) { $suffix = "  ->  $alias" }
         Write-Host ("{0,-8} {1,-8} {2,-6} {3}{4}" -f $row.Product, $row.OS, $row.Arch, (Get-ArtifactName $row), $suffix)
+        if ($row.Product -eq 'desktop' -and $row.OS -eq 'windows') {
+            Write-Host ('  安装版 loopra-desktop-windows-{0}-setup.exe' -f $row.Arch)
+        }
     }
     return
 }
@@ -394,6 +407,10 @@ try {
                 $built += $dest
                 if ($row.OS -eq 'windows') {
                     Add-AppIcon -Kind exe -Path $dest
+                    if ($row.Product -eq 'desktop') {
+                        $installer = Publish-WindowsInstaller -Binary $dest -Architecture $row.Arch
+                        $built += $installer
+                    }
                 }
                 $alias = Get-AliasName $row
                 if ($alias) {

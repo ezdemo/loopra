@@ -590,6 +590,10 @@ go build -tags webdist -o loopra-desktop ./cmd/looprax-desktop
 
 多平台打包脚本会先构建前端，再按 `scripts/package-matrix.txt` 写出 `bin/`。桌面端覆盖 Windows、Linux、macOS 的 amd64 与 arm64；macOS 应用分别放在 `bin/darwin-amd64/Loopra.app` 和 `bin/darwin-arm64/Loopra.app`，发布 zip 解压后也统一为 `Loopra.app`。
 
+Windows 默认使用 `loopra-desktop-windows-<arch>-setup.exe` 安装包，按当前用户安装到 `%LOCALAPPDATA%\Programs\Loopra`，提供开始菜单入口、可选桌面快捷方式和系统卸载项。原有不带 `-setup` 的 EXE 是便携版。安装版自动更新会下载并运行新版安装包；便携版更新继续替换程序文件。卸载保留配置、会话和工作区数据。
+
+构建 Windows 安装包还需 Python、Pillow 和 NSIS（Linux 安装 `nsis`，Windows 安装 NSIS 或用 `NSIS_COMPILER` 指向 `makensis.exe`）。
+
 ```powershell
 .\scripts\package.ps1
 ```

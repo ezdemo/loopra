@@ -41,6 +41,15 @@ test('discovers additional architectures and formats when they are actually publ
   assert.equal(assetInfo(asset('Loopra-windows-arm64.msi')).arch, 'arm64');
 });
 
+test('distinguishes Windows installers from portable desktop downloads', () => {
+  const setup = assetInfo(asset('loopra-desktop-windows-amd64-setup.exe'));
+  const portable = assetInfo(asset('loopra-desktop-windows-amd64.exe'));
+  assert.equal(setup.installer, true);
+  assert.equal(portable.installer, false);
+  assert.equal(setup.kind, 'desktop');
+  assert.equal(setup.arch, 'x64');
+});
+
 test('uses only uploaded assets from this repository and removes duplicate URLs', () => {
   const valid = asset('Loopra-windows-x64.exe');
   assert.equal(normalizeRelease(release([valid, valid])).assets.length, 1);

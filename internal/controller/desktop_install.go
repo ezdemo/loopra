@@ -18,30 +18,48 @@ import (
 // until the replacement has been moved into place.
 const desktopApplyWindows = `param([string]$Config)
 $ErrorActionPreference = 'Stop'
+function Start-LoopraProcess([string]$FilePath, [string]$ArgumentList, [string]$WorkingDirectory) {
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = $FilePath
+    $info.Arguments = $ArgumentList
+    $info.WorkingDirectory = $WorkingDirectory
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.WindowStyle = 'Hidden'
+    return [System.Diagnostics.Process]::Start($info)
+}
 $c = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
 $backup = $c.target + '.old'
 $replacement = $c.target + '.new'
 try {
     $parent = Get-Process -Id $c.pid -ErrorAction SilentlyContinue
     if ($parent) { $parent.WaitForExit() }
-    Copy-Item -LiteralPath $c.staged -Destination $replacement -Force
-    $installed = $false
-    for ($attempt = 0; $attempt -lt 30; $attempt++) {
-        try {
-            Move-Item -LiteralPath $c.target -Destination $backup -Force
-            try { Move-Item -LiteralPath $replacement -Destination $c.target -Force }
-            catch { Move-Item -LiteralPath $backup -Destination $c.target -Force; throw }
-            $installed = $true
-            break
-        } catch { Start-Sleep -Seconds 1 }
+    if ($c.packageType -eq 'nsis') {
+        $directory = [System.IO.Path]::GetDirectoryName($c.target)
+        # NSIS requires /D last, without quotes, including when the path has spaces.
+        $setup = Start-LoopraProcess -FilePath $c.staged -ArgumentList ('/S /UPDATE /D=' + $directory) -WorkingDirectory $c.cwd
+        $setup.WaitForExit()
+        if ($setup.ExitCode -ne 0) { throw ('Installer failed with exit code ' + $setup.ExitCode) }
+    } else {
+        Copy-Item -LiteralPath $c.staged -Destination $replacement -Force
+        $installed = $false
+        for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            try {
+                Move-Item -LiteralPath $c.target -Destination $backup -Force
+                try { Move-Item -LiteralPath $replacement -Destination $c.target -Force }
+                catch { Move-Item -LiteralPath $backup -Destination $c.target -Force; throw }
+                $installed = $true
+                break
+            } catch { Start-Sleep -Seconds 1 }
+        }
+        if (-not $installed) { throw 'Unable to replace the executable; the previous version was preserved' }
     }
-    if (-not $installed) { throw 'Unable to replace the executable; the previous version was preserved' }
     function Quote-Argument([string]$value) {
         return '"' + [regex]::Replace([regex]::Replace($value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
     }
-    $start = @{ FilePath = $c.target; WorkingDirectory = $c.cwd; WindowStyle = 'Hidden' }
+    $start = @{ FilePath = $c.target; WorkingDirectory = $c.cwd }
     if ($c.args.Count -gt 0) { $start.ArgumentList = (($c.args | ForEach-Object { Quote-Argument $_ }) -join ' ') }
-    Start-Process @start
+    Start-LoopraProcess @start | Out-Null
     Remove-Item -LiteralPath $c.staged -Force
 } catch {
     $_ | Out-String | Set-Content -LiteralPath ($Config + '.log')
@@ -87,7 +105,7 @@ func (u *desktopUpdater) install() error {
 	if u.state.Status != "downloaded" || u.staged == "" {
 		return fmt.Errorf("请先下载并校验桌面更新")
 	}
-	target, staged := u.executable, filepath.Join(u.staged, "package")
+	target, staged := u.executable, filepath.Join(u.staged, u.stagedPackage())
 	if u.platform == "darwin" {
 		if filepath.Base(filepath.Dir(target)) != "MacOS" || filepath.Base(filepath.Dir(filepath.Dir(target))) != "Contents" {
 			return fmt.Errorf("请从已解压的 .app 中运行桌面端后再安装更新")
@@ -112,7 +130,7 @@ func (u *desktopUpdater) install() error {
 	if u.platform == "windows" {
 		helper := filepath.Join(u.staged, "apply.ps1")
 		config := filepath.Join(u.staged, "apply.json")
-		data, err := json.Marshal(map[string]any{"target": target, "staged": staged, "pid": os.Getpid(), "cwd": cwd, "args": os.Args[1:]})
+		data, err := json.Marshal(map[string]any{"target": target, "staged": staged, "pid": os.Getpid(), "cwd": cwd, "args": os.Args[1:], "packageType": u.state.PackageType})
 		if err != nil {
 			return err
 		}

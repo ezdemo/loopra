@@ -32,6 +32,7 @@
     return {
       platform: platform, arch: arch, format: extension || 'bin',
       kind: /(?:^|[-_.])desktop(?:[-_.]|$)/.test(name) ? 'desktop' : 'cli',
+      installer: /(?:^|[-_.])setup\.exe$/.test(name),
       name: asset.name, url: url.href,
       size: typeof asset.size === 'number' && Number.isFinite(asset.size) && asset.size > 0 ? asset.size : 0
     };
@@ -81,6 +82,9 @@
     }
     var format = { appimage: 'AppImage', deb: 'Debian / Ubuntu', rpm: 'RPM', exe: 'Windows', msi: 'Windows MSI', dmg: 'DMG', pkg: 'PKG', zip: 'ZIP' }[asset.format] || '';
     var kind = asset.kind === 'desktop' ? text('桌面', 'Desktop') : text('命令行', 'CLI');
+    if (asset.kind === 'desktop' && asset.platform === 'windows') {
+      kind = asset.installer ? text('安装版', 'Installer') : text('便携版', 'Portable');
+    }
     return [kind, asset.platform === 'macos' ? arch : format, asset.platform === 'macos' ? format : arch].filter(Boolean).join(' · ');
   }
 
@@ -110,10 +114,13 @@
       var list = card.querySelector('[data-download-assets]');
       list.replaceChildren();
       if (release) {
-        var assets = release.assets.filter(function (asset) { return asset.platform === card.dataset.platform; });
+        var assets = release.assets.filter(function (asset) { return asset.platform === card.dataset.platform; })
+          .sort(function (a, b) { return Number(b.installer) - Number(a.installer); });
         assets.forEach(function (asset) {
           var link = document.createElement('a');
           link.className = 'download-link';
+          if (asset.platform === 'windows' && asset.kind === 'desktop' && !asset.installer
+              && assets.some(function (entry) { return entry.installer; })) link.classList.add('download-portable');
           link.href = asset.url;
           link.dataset.downloadOriginal = asset.url;
           link.title = asset.name;

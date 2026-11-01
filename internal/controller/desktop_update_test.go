@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -87,6 +88,52 @@ func TestDesktopCheckDownloadsOnlyMatchingNativeAsset(t *testing.T) {
 	u.startCheck()
 	if downloads.Load() != 1 {
 		t.Fatal("ready update was downloaded twice")
+	}
+}
+
+func TestDesktopInstalledWindowsSelectsSetupInsteadOfPortable(t *testing.T) {
+	u := desktopTestUpdater(t)
+	u.state.PackageType = "nsis"
+	data := []byte("MZ\x00\x00installer payload")
+	asset := desktopTestAsset(data)
+	portable := asset
+	asset.Name = "loopra-desktop-windows-amd64-setup.exe"
+	asset.URL = strings.TrimSuffix(asset.URL, ".exe") + "-setup.exe"
+	u.client.Transport = desktopTransport(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/latest") {
+			return desktopJSON(desktopRelease{Tag: "v26.11.102", Assets: []desktopAsset{portable, asset}}), nil
+		}
+		if r.URL.String() != asset.URL {
+			t.Errorf("installer update downloaded %s", r.URL)
+		}
+		return desktopResponse(data), nil
+	})
+	u.startCheck()
+	waitDesktopStatus(t, u, "downloaded")
+	if payload, err := os.ReadFile(filepath.Join(u.staged, "Loopra-Update.exe")); err != nil || !bytes.Equal(payload, data) {
+		t.Fatalf("setup = %v", err)
+	}
+}
+
+func TestWindowsDesktopInstallationMarkerNeedsMatchingArchitectureAndUninstaller(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "Loopra.exe")
+	if got := windowsDesktopPackageType(executable, "amd64"); got != "portable" {
+		t.Fatal(got)
+	}
+	os.WriteFile(filepath.Join(dir, "loopra-install.json"), []byte(`{"packageType":"nsis","scope":"user","arch":"amd64"}`), 0o600)
+	if got := windowsDesktopPackageType(executable, "amd64"); got != "portable" {
+		t.Fatal("marker without uninstaller was accepted")
+	}
+	os.WriteFile(filepath.Join(dir, "Uninstall.exe"), []byte("fixture"), 0o600)
+	if got := windowsDesktopPackageType(executable, "amd64"); got != "nsis" {
+		t.Fatal(got)
+	}
+	if got := windowsDesktopPackageType(executable, "arm64"); got != "portable" {
+		t.Fatal("wrong architecture marker accepted")
+	}
+	if got := windowsDesktopPackageType(filepath.Join(dir, "portable.exe"), "amd64"); got != "portable" {
+		t.Fatal("renamed portable executable accepted as installed")
 	}
 }
 
@@ -258,7 +305,7 @@ func TestDesktopWindowsApplyReplacesAndPreservesUnicodeArguments(t *testing.T) {
 	os.WriteFile(config, data, 0o600)
 	// Replace only the final process launch so this fixture can exercise the
 	// real helper without opening a second desktop application.
-	script := strings.Replace(desktopApplyWindows, "    Start-Process @start", `    $start | ConvertTo-Json | Set-Content -LiteralPath ($Config + '.launch') -Encoding UTF8`, 1)
+	script := strings.Replace(desktopApplyWindows, "    Start-LoopraProcess @start | Out-Null", `    $start | ConvertTo-Json | Set-Content -LiteralPath ($Config + '.launch') -Encoding UTF8`, 1)
 	helper := filepath.Join(work, "apply.ps1")
 	os.WriteFile(helper, append([]byte{0xef, 0xbb, 0xbf}, []byte(script)...), 0o600)
 	output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", helper, "-Config", config).CombinedOutput()
@@ -279,6 +326,45 @@ func TestDesktopWindowsApplyReplacesAndPreservesUnicodeArguments(t *testing.T) {
 	}
 	if info.FilePath != target || info.WorkingDirectory != work || info.ArgumentList != `"--home" "C:\测试 数据\\" "quoted\"value" ""` {
 		t.Fatalf("launch = %+v", info)
+	}
+}
+
+func TestDesktopWindowsInstallerHelperPreservesPathArgumentsAndStopsOnFailure(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows installer helper")
+	}
+	for _, exitCode := range []int{0, 5} {
+		work := t.TempDir()
+		target, staged := filepath.Join(work, "应用 目录", "Loopra.exe"), filepath.Join(work, "Loopra-Update.exe")
+		os.MkdirAll(filepath.Dir(target), 0o700)
+		os.WriteFile(target, []byte("installed app"), 0o600)
+		os.WriteFile(staged, []byte("verified installer"), 0o600)
+		config := filepath.Join(work, "apply.json")
+		data, _ := json.Marshal(map[string]any{"target": target, "staged": staged, "pid": 2147483647, "cwd": work, "args": []string{"--home", `C:\用户 数据\`}, "packageType": "nsis"})
+		os.WriteFile(config, data, 0o600)
+		// Keep this test inside the workspace: the installer process is simulated,
+		// while the real apply script handles its result and constructs the restart.
+		script := strings.Replace(desktopApplyWindows,
+			"        $setup = Start-LoopraProcess -FilePath $c.staged -ArgumentList ('/S /UPDATE /D=' + $directory) -WorkingDirectory $c.cwd",
+			fmt.Sprintf("        ('/S /UPDATE /D=' + $directory) | Set-Content -LiteralPath ($Config + '.setup') -Encoding UTF8\n        $setup = [pscustomobject]@{ ExitCode = %d }\n        $setup | Add-Member ScriptMethod WaitForExit {}", exitCode), 1)
+		script = strings.Replace(script, "    Start-LoopraProcess @start | Out-Null", `    $start | ConvertTo-Json | Set-Content -LiteralPath ($Config + '.launch') -Encoding UTF8`, 1)
+		helper := filepath.Join(work, "apply.ps1")
+		os.WriteFile(helper, append([]byte{0xef, 0xbb, 0xbf}, []byte(script)...), 0o600)
+		output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", helper, "-Config", config).CombinedOutput()
+		if (err == nil) != (exitCode == 0) {
+			t.Fatalf("helper exit=%d: %v\n%s", exitCode, err, output)
+		}
+		command, _ := os.ReadFile(config + ".setup")
+		if strings.TrimSpace(string(bytes.TrimPrefix(command, []byte{0xef, 0xbb, 0xbf}))) != "/S /UPDATE /D="+filepath.Dir(target) {
+			t.Fatalf("installer command = %s", command)
+		}
+		_, launchErr := os.Stat(config + ".launch")
+		if (launchErr == nil) != (exitCode == 0) {
+			t.Fatal("failed setup was allowed to relaunch")
+		}
+		if app, _ := os.ReadFile(target); string(app) != "installed app" {
+			t.Fatal("installer was copied over the application executable")
+		}
 	}
 }
 

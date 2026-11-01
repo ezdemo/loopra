@@ -366,6 +366,9 @@ if [ "$dry_run" -eq 1 ]; then
       printf '%-8s %-8s %-6s %s\n' "$1" "$2" "$3" "$name"
     fi
   done <"$targets"
+  if [ "$want_desktop" -eq 1 ] && selected "$os_filter" windows; then
+    echo '  Windows 桌面另生成对应架构的 loopra-desktop-windows-<arch>-setup.exe 安装包'
+  fi
   exit 0
 fi
 
@@ -467,6 +470,15 @@ while IFS= read -r line; do
       fi
       if [ -n "$py_icon" ] && [ "$goos" = windows ]; then
         "$py_icon" "$root/scripts/appicon.py" exe "$dest" || echo '  图标未写入 exe' >&2
+      fi
+      if [ "$product" = desktop ] && [ "$goos" = windows ]; then
+        installer=$out/loopra-desktop-windows-$arch-setup.exe
+        if [ -z "$py_icon" ] || ! "$py_icon" "$root/scripts/package-windows-installer.py" --binary "$dest" --out "$installer" --version "$release_version" --arch "$arch"; then
+          echo "失败 $label 安装包" >&2
+          printf '%s\n' "$label installer" >>"$failures"
+        else
+          printf '%s\n' "$installer" >>"$built"
+        fi
       fi
       extra=$(alias_name "$product" "$goos" "$arch")
       if [ -n "$extra" ]; then
