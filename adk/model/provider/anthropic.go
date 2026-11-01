@@ -227,18 +227,7 @@ func anthropicTools(req *model.LLMRequest) []map[string]any {
 		if d.Description != "" {
 			fn["description"] = d.Description
 		}
-		switch {
-		case d.Parameters != nil:
-			fn["input_schema"] = schemaMap(d.Parameters)
-		case d.ParametersJsonSchema != nil:
-			if m, ok := jsonSchemaMap(d.ParametersJsonSchema); ok {
-				fn["input_schema"] = m
-			} else {
-				fn["input_schema"] = emptyObjectSchema()
-			}
-		default:
-			fn["input_schema"] = emptyObjectSchema()
-		}
+		fn["input_schema"] = functionParameters(d)
 		tools = append(tools, fn)
 	}
 	if len(tools) == 0 {

@@ -208,7 +208,7 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 	if stream {
 		body["stream_options"] = map[string]any{"include_usage": true}
 	}
-	if tools := chatTools(req, modelName); len(tools) > 0 {
+	if tools := chatTools(req); len(tools) > 0 {
 		body["tools"] = tools
 	}
 	maxTokens := a.config.effectiveMaxTokens(req, snap)
@@ -286,7 +286,7 @@ func hasFunctionResponse(c *genai.Content) bool {
 }
 
 // chatTools 把工具声明转换为 Chat Completions 工具。
-func chatTools(req *model.LLMRequest, modelName string) []map[string]any {
+func chatTools(req *model.LLMRequest) []map[string]any {
 	decls := functionDeclarations(req)
 	if len(decls) == 0 {
 		return nil
@@ -300,19 +300,7 @@ func chatTools(req *model.LLMRequest, modelName string) []map[string]any {
 		if d.Description != "" {
 			fn["description"] = d.Description
 		}
-		switch {
-		case d.Parameters != nil:
-			fn["parameters"] = schemaMap(d.Parameters)
-		case d.ParametersJsonSchema != nil:
-			if m, ok := jsonSchemaMap(d.ParametersJsonSchema); ok {
-				fn["parameters"] = m
-			} else {
-				fn["parameters"] = emptyObjectSchema()
-			}
-		default:
-			fn["parameters"] = emptyObjectSchema()
-		}
-		fn["parameters"] = compatibleChatToolSchema(modelName, fn["parameters"].(map[string]any))
+		fn["parameters"] = functionParameters(d)
 		tools = append(tools, map[string]any{"type": "function", "function": fn})
 	}
 	if len(tools) == 0 {

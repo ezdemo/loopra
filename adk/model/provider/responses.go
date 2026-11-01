@@ -218,18 +218,7 @@ func responsesTools(req *model.LLMRequest) []map[string]any {
 		if d.Description != "" {
 			fn["description"] = d.Description
 		}
-		switch {
-		case d.Parameters != nil:
-			fn["parameters"] = schemaMap(d.Parameters)
-		case d.ParametersJsonSchema != nil:
-			if m, ok := jsonSchemaMap(d.ParametersJsonSchema); ok {
-				fn["parameters"] = m
-			} else {
-				fn["parameters"] = emptyObjectSchema()
-			}
-		default:
-			fn["parameters"] = emptyObjectSchema()
-		}
+		fn["parameters"] = functionParameters(d)
 		tools = append(tools, fn)
 	}
 	if len(tools) == 0 {
