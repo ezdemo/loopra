@@ -320,7 +320,7 @@ Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`
 | 通用 | `~/.agents/skills/<skill-name>/SKILL.md` | `@agents-skills/...` |
 | 项目 | `<项目>/.loopra/skills/<skill-name>/SKILL.md` | `@project-skills/...` |
 
-目录可以在启动后创建，调用 `skillrefresh` 即可发现。通用技能目录可用 `LOOPRA_AGENTS_SKILLS_DIR` 覆盖。技能市场安装到 `~/.loopra/skills`。
+`~/.agents/skills` 默认随启动扫描，无需另行配置；Windows 对应 `%USERPROFILE%\.agents\skills`。技能目录支持普通文件夹、符号链接和 Windows 目录联接，配套资源以链接指向的技能目录为范围。目录可以在启动后创建，调用 `skillrefresh` 即可发现。通用技能目录可用 `LOOPRA_AGENTS_SKILLS_DIR` 覆盖。技能市场安装到 `~/.loopra/skills`。
 
 ### 插件
 

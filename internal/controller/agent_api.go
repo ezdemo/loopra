@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/ezdemo/looprax/internal/infrastructure/fsutil"
+
 	"go.yaml.in/yaml/v3"
 )
 
@@ -17,11 +19,15 @@ func scanSkills(root, scope string) []map[string]any {
 	out := []map[string]any{}
 	dirs, _ := os.ReadDir(root)
 	for _, dir := range dirs {
-		if !dir.IsDir() {
+		path, err := fsutil.MountedDirectory(root, dir.Name())
+		if err != nil {
 			continue
 		}
-		path := filepath.Join(root, dir.Name())
-		data, err := os.ReadFile(filepath.Join(path, "SKILL.md"))
+		file, err := fsutil.SafeJoin(path, "SKILL.md")
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(file)
 		if err != nil {
 			continue
 		}

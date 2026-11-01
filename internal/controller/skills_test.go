@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ezdemo/looprax/internal/testutil"
 )
 
 func TestSkillsMetadataAndReadingThroughRuntime(t *testing.T) {
@@ -64,5 +66,63 @@ func TestSkillsMetadataAndReadingThroughRuntime(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("tool API omitted required parameter: %v", params)
+	}
+}
+
+func TestDefaultAgentsSkillsDiscoverAndReadLinkedMount(t *testing.T) {
+	ts, key, s, _ := parityServer(t, "")
+	userHome := t.TempDir()
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv("HOME", userHome)
+	t.Setenv("LOOPRA_AGENTS_SKILLS_DIR", "")
+	root := filepath.Join(userHome, ".agents", "skills")
+	if s.agentsSkillsRoot() != root {
+		t.Fatalf("default agents skills root = %q", s.agentsSkillsRoot())
+	}
+	// The default directory may be created after startup.
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("---\nname: Shared Fixture\ndescription: Shared mounted skill.\n---\nRead guide.txt."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "guide.txt"), []byte("linked skill resource"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.DirectoryLink(t, filepath.Join(root, "shared"), target)
+	missing := t.TempDir()
+	testutil.DirectoryLink(t, filepath.Join(root, "broken"), missing)
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	_, env := call(t, ts, "GET", "/api/agent/skills", key, nil)
+	if !strings.Contains(fmt.Sprint(env["data"]), "@agents-skills/shared") {
+		t.Fatalf("default mounted skill missing from API: %v", env)
+	}
+	if strings.Contains(fmt.Sprint(env["data"]), "@agents-skills/broken") {
+		t.Fatalf("broken mount included in API: %v", env)
+	}
+	for _, prompt := range []string{s.chatSystemInstruction(), s.systemInstruction(s.workspaceRoot())} {
+		if !strings.Contains(prompt, "@agents-skills/shared") {
+			t.Fatal("default mounted skill missing from system instruction")
+		}
+	}
+	result, err := s.callExportTool(context.Background(), "skillrefresh", map[string]any{})
+	if err != nil || !strings.Contains(fmt.Sprint(result), "@agents-skills/shared") {
+		t.Fatalf("refresh omitted new mount: %v %v", result, err)
+	}
+	for path, want := range map[string]string{"": "Read guide.txt.", "guide.txt": "linked skill resource"} {
+		result, err := s.callExportTool(context.Background(), "skillread", map[string]any{"name": "@agents-skills/shared", "path": path})
+		if err != nil || !strings.Contains(fmt.Sprint(result), want) {
+			t.Fatalf("read mounted resource %q = %v %v", path, result, err)
+		}
+	}
+	if _, err := s.readSkill("@agents-skills/shared", "../secret.txt"); err == nil {
+		t.Fatal("resource escaped mount")
+	}
+	t.Setenv("LOOPRA_AGENTS_SKILLS_DIR", t.TempDir())
+	if strings.Contains(fmt.Sprint(s.globalSkillMetadata()), "@agents-skills/shared") {
+		t.Fatal("explicit agents directory did not override default")
 	}
 }

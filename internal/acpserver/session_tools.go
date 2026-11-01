@@ -203,10 +203,15 @@ func skillMetadata(home, workspace string) []map[string]any {
 	for _, source := range skillRoots(home, workspace) {
 		dirs, _ := os.ReadDir(source.root)
 		for _, dir := range dirs {
-			if !dir.IsDir() {
+			directory, err := fsutil.MountedDirectory(source.root, dir.Name())
+			if err != nil {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(source.root, dir.Name(), "SKILL.md"))
+			file, err := fsutil.SafeJoin(directory, "SKILL.md")
+			if err != nil {
+				continue
+			}
+			data, err := os.ReadFile(file)
 			if err != nil {
 				continue
 			}
@@ -236,7 +241,7 @@ func readSkill(home, workspace, name, path string) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("技能来源不存在")
 	}
-	directory, err := fsutil.SafeJoin(root, relative)
+	directory, err := fsutil.MountedDirectory(root, relative)
 	if err != nil {
 		return "", err
 	}

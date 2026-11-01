@@ -101,7 +101,7 @@ func (s *Controller) readSkill(name, path string) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("技能来源不可用")
 	}
-	directory, err := fsutil.SafeJoin(root, relative)
+	directory, err := fsutil.MountedDirectory(root, relative)
 	if err != nil {
 		return "", err
 	}
