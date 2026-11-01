@@ -1,4 +1,6 @@
 Unicode true
+!define MUI_ICON "${APP_ICON}"
+!define MUI_UNICON "${APP_ICON}"
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "Sections.nsh"
@@ -20,9 +22,6 @@ VIAddVersionKey /LANG=1033 "FileDescription" "Loopra Setup"
 VIAddVersionKey /LANG=1033 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Loopra contributors"
-Icon "${APP_ICON}"
-UninstallIcon "${APP_ICON}"
-
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\Loopra.exe"
 !insertmacro MUI_PAGE_WELCOME
