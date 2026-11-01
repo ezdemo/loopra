@@ -17,9 +17,11 @@
 
 插件 id 会去掉开头的 `@`，把 `/` 换成 `__`，再把其余非字母数字字符收成 `_`。`demo-plugin` 的工具 `greet` 公开名称是 `demo_plugin__greet`。`@scope/pkg` 的 id 是 `scope_pkg`。
 
+在「我的内容」的插件卡片上点击更新图标，或在「发现」中点击已安装插件的「更新」，即可从原安装来源重新获取插件。npm 包更新到 `latest`；GitHub 保留原分支、标签和子目录；本地插件重新读取原路径。更新保留配置、数据、安装顺序和启停状态，成功后替换工具与钩子。下载、编译或保存失败时保留旧版文件和运行时。再次安装同名插件也会保留启停状态。内置插件随应用更新。
+
 ## GitHub 插件源
 
-技能与插件 → 发现 → 插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。在「管理源」中添加或移除公开仓库，用下拉框切换来源。在「我的内容 → 插件」中启停、设置或卸载；发现页已安装的外部插件也可以直接卸载，确认后按钮恢复「安装」。安装、卸载只更新安装状态，保留发现列表和滚动位置。内置插件只能停用。移除源只取消订阅，已经安装的插件继续保留。
+技能与插件 → 发现 → 插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。在「管理源」中添加或移除公开仓库，用下拉框切换来源。在「我的内容 → 插件」中启停、设置、更新或卸载；发现页已安装的外部插件也可以直接更新和卸载，卸载确认后按钮恢复「安装」。安装、更新和卸载保留发现列表和滚动位置。内置插件只能停用。移除源只取消订阅，已经安装的插件继续保留。
 
 仓库不需要额外的索引文件，推荐按下面的目录组织：
 
@@ -65,6 +67,7 @@ export function greet(args) {
 | `POST /api/plugins/sources/remove`，`{ "source": "https://github.com/owner/repo" }` | 移除源，保留已安装插件 |
 | `GET /api/plugins/catalog?source=<编码后的仓库地址>` | 浏览源中的插件 |
 | `POST /api/plugins/install`，`{ "source": "<列表项的 source>" }` | 安装选中的插件 |
+| `POST /api/plugins/<id>/update`，无需请求体 | 从原来源更新，保留配置、数据和启停状态；也支持 `/api/plugins/external/<id>/update` |
 | `POST /api/plugins/<id>/remove` | 卸载并移除插件文件、配置、数据和工具 |
 
 ## 内置插件

@@ -3,7 +3,7 @@ import { PluginFrame, type PluginContext } from './PluginFrame';
 import { PluginCatalog } from './PluginCatalog';
 import { PluginGlyph, pluginTone, type PluginIconRef } from './plugin-icons';
 import { Button } from '@nextui-org/react';
-import { Plus, Settings2, Trash2, X } from 'lucide-react';
+import { Plus, RefreshCw, Settings2, Trash2, X } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { ConfirmAction, errorText, RemoteState, useRemote } from './RemoteControls';
 import { PageActions, Field, SettingDisclosure, ResourceIcon, ResourceEmpty } from './SettingControls';
@@ -29,11 +29,20 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
   const adding = installOpen ?? localAdding;
   function setAdding(open: boolean) { setLocalAdding(open); onInstallOpenChange?.(open); }
   const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision + refreshKey, true); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
+  const [updating, setUpdating] = useState('');
+  const [notice, setNotice] = useState('');
   async function act(path: string, body?: unknown, clearSource = false) {
-    setBusy(true); setError('');
-    try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) { setSource(''); setAdding(false); } onChanged?.(); }
+    setBusy(true); setError(''); setNotice('');
+    try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) { setSource(''); setAdding(false); } onChanged?.(); return true; }
     catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); setRevision(value => value + 1); }
+    return false;
+  }
+  async function update(id: string) {
+    setUpdating(id);
+    try {
+      if (await act(`/${encodeURIComponent(id)}/update`)) setNotice('插件已更新');
+    } finally { setUpdating(''); }
   }
   const visible = state.data?.filter(pack => `${pack.displayName || ''} ${pack.id} ${pack.description || ''}`.toLowerCase().includes((searchQuery ?? filter).trim().toLowerCase()) && (status === 'all' || (status === 'failed' ? !!pack.error : status === 'enabled' ? pack.enabled && !pack.error : !pack.enabled)));
   if (panel) {
@@ -51,8 +60,9 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
       {embedded && tab === 'installed' && <Button className="settings-outlined-action capabilities-refresh" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button>}
     </div>}
     {error && <p role="alert" className="settings-error">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
     <RemoteState {...state} loading={state.loading && !state.data} />
-    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || state.loading || !state.data} onInstall={value => act('/install', { source: value })} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
+    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || state.loading || !state.data} onInstall={async value => { await act('/install', { source: value }); }} onUpdate={update} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
     {!library && <div className="capability-toolbar">
       <CapabilitySearch label="搜索已安装插件" value={filter} onChange={setFilter} />
       <select className="capability-select" aria-label="插件状态" value={status} onChange={event => setStatus(event.target.value)}><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">已停用</option><option value="failed">加载失败</option></select>
@@ -74,6 +84,7 @@ export function ExtensionManager({ api, onChanged, context, embedded = false, vi
       return <CapabilityCard key={pack.id} className="plugin-card" title={name} description={pack.description || pack.remark} iconClassName={pack.icon ? 'plugin-card-mark has-icon' : 'plugin-card-mark'} iconStyle={pack.icon ? undefined : { background: pluginTone(pack.id), color: '#fff' }} icon={pack.icon ? <PluginGlyph api={api} pluginId={pack.id} icon={pack.icon} className="plugin-card-icon" size="1.25rem" /> : ([...name.trim()][0] || '?')} badge={[showType && '插件', pack.builtin && '内置'].filter(Boolean).join(' · ')} meta={<span title={pack.source}>{[pack.version && `v${pack.version}`, !pack.builtin && pluginOrigin(pack)].filter(Boolean).join(' · ')}</span>} actions={<>
         <button className={`capability-toggle ${failed ? 'is-failed' : ''}`} role="switch" aria-label={`${name} 启用状态`} aria-checked={pack.enabled} data-on={on} type="button" disabled={busy} onClick={() => void act(`/${encodeURIComponent(pack.id)}/toggle`, { enabled: !pack.enabled })}><span className="capability-toggle-track" />{failed ? '加载失败' : on ? '已启用' : '已停用'}</button>
         {pack.settings && <button className="capability-icon-button" type="button" disabled={busy} aria-label={`${name} 设置`} title="设置" onClick={() => { onOpenSettings?.(); setPanel(pack); }}><Settings2 size={15} /></button>}
+        {!pack.builtin && <button className="capability-icon-button" type="button" disabled={busy || !(pack.source || pack.sourceUrl)} aria-label={`更新 ${name}`} title={updating === pack.id ? '更新中' : '更新'} aria-busy={updating === pack.id} onClick={() => void update(pack.id)}><RefreshCw size={15} className={updating === pack.id ? 'animate-spin' : undefined} /></button>}
         {!pack.builtin && <button className="capability-icon-button capability-remove" type="button" disabled={busy} aria-label={`卸载 ${name}`} title="卸载" onClick={() => setDeleting(pack)}><Trash2 size={15} /></button>}
       </>}>
         {pack.error && <p role="alert" className="settings-error plugin-card-error">{pack.error}</p>}

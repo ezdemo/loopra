@@ -8,11 +8,12 @@ import { CapabilityCard, CapabilityControls, CapabilityRefresh, CapabilitySearch
 
 type CatalogEntry = { id: string; name: string; description?: string; version?: string; source: string; icon?: PluginIconRef };
 
-export function PluginCatalog({ api, installed, busy, onInstall, onUninstall, library = false, searchQuery, refreshKey = 0, toolbarTarget, showType }: {
+export function PluginCatalog({ api, installed, busy, onInstall, onUpdate, onUninstall, library = false, searchQuery, refreshKey = 0, toolbarTarget, showType }: {
   api: LoopraClient;
   installed: { id: string; builtin?: boolean }[];
   busy: boolean;
   onInstall: (source: string) => Promise<void>;
+  onUpdate: (id: string) => Promise<void>;
   onUninstall: (id: string) => void;
 } & CapabilityLibraryProps) {
   const sources = useRemote<string[]>(api, '/plugins/sources', refreshKey);
@@ -24,6 +25,7 @@ export function PluginCatalog({ api, installed, busy, onInstall, onUninstall, li
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [installing, setInstalling] = useState('');
+  const [updating, setUpdating] = useState('');
   const active = sources.data?.includes(selected) ? selected : sources.data?.[0] || '';
   const catalog = useRemote<CatalogEntry[]>(api, active ? `/plugins/catalog?source=${encodeURIComponent(active)}` : null, revision + refreshKey);
   const visible = catalog.data?.filter(entry => `${entry.name} ${entry.description || ''}`.toLowerCase().includes((searchQuery ?? filter).trim().toLowerCase()));
@@ -42,6 +44,11 @@ export function PluginCatalog({ api, installed, busy, onInstall, onUninstall, li
     setInstalling(entry.source);
     try { await onInstall(entry.source); }
     finally { setInstalling(''); }
+  }
+  async function update(id: string) {
+    setUpdating(id);
+    try { await onUpdate(id); }
+    finally { setUpdating(''); }
   }
 
   return <>
@@ -73,7 +80,10 @@ export function PluginCatalog({ api, installed, busy, onInstall, onUninstall, li
         iconClassName={entry.icon ? 'plugin-card-mark has-icon' : 'plugin-card-mark'} iconStyle={entry.icon ? undefined : { background: pluginTone(entry.id), color: '#fff' }}
         icon={entry.icon ? <PluginGlyph api={api} pluginId={entry.id} icon={entry.icon} className="plugin-card-icon" size="1.25rem" /> : ([...entry.name.trim()][0] || '?')}
         meta={entry.version ? `v${entry.version}` : undefined}
-        actions={<button type="button" className={existing ? 'capability-secondary' : 'capability-primary'} disabled={busy || !!installing || !!existing?.builtin} onClick={() => existing ? onUninstall(existing.id) : void install(entry)}>{existing ? existing.builtin ? '已安装' : '卸载' : installing === entry.source ? '安装中' : '安装'}</button>} />;
+        actions={<>
+          {existing && !existing.builtin && <button type="button" className="capability-secondary" disabled={busy || !!installing || !!updating} onClick={() => void update(existing.id)}>{updating === existing.id ? '更新中' : '更新'}</button>}
+          <button type="button" className={existing ? 'capability-secondary' : 'capability-primary'} disabled={busy || !!installing || !!updating || !!existing?.builtin} onClick={() => existing ? onUninstall(existing.id) : void install(entry)}>{existing ? existing.builtin ? '已安装' : '卸载' : installing === entry.source ? '安装中' : '安装'}</button>
+        </>} />;
     })}</div>
   </>;
 }

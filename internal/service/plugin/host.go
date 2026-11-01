@@ -224,6 +224,9 @@ func (h *Host) Install(ctx context.Context, source string) (View, error) {
 	if !safeID(id) {
 		return View{}, errBadID
 	}
+	if previous, exists := h.pluginRecord(id); exists {
+		return h.replacePackage(ctx, previous, info, parsed.Display, stage)
+	}
 	if err := h.swapDir(stage, h.pkgDir(id)); err != nil {
 		return View{}, err
 	}
@@ -332,23 +335,25 @@ func (h *Host) reload(ctx context.Context, rec record) error {
 			run.close()
 		}
 	}
+	if err != nil {
+		h.drop(rec.ID)
+		h.mu.Lock()
+		h.errors[rec.ID] = err.Error()
+		h.mu.Unlock()
+		return err
+	}
+	return h.activate(rec, run)
+}
+
+// activate persists the new record before replacing the running version.
+func (h *Host) activate(rec record, run *running) error {
 	h.mu.Lock()
 	old := h.loaded[rec.ID]
 	var oldNames []string
 	if old != nil {
 		oldNames = append([]string(nil), old.names...)
 	}
-	if err != nil {
-		h.errors[rec.ID] = err.Error()
-		delete(h.loaded, rec.ID)
-		h.mu.Unlock()
-		old.close()
-		if len(oldNames) > 0 && h.unbind != nil {
-			h.unbind(oldNames)
-		}
-		return err
-	}
-	delete(h.errors, rec.ID)
+	previous := append([]record(nil), h.records...)
 	if run.displayName != "" {
 		rec.DisplayName = run.displayName
 	}
@@ -363,24 +368,30 @@ func (h *Host) reload(ctx context.Context, rec record) error {
 			rec.Enabled = h.records[i].Enabled
 			rec.Builtin = h.records[i].Builtin
 			rec.InstalledAt = h.records[i].InstalledAt
-			if h.records[i].Source != "" {
-				rec.Source = h.records[i].Source
-			}
 			h.records[i] = rec
 			break
 		}
 	}
 	if saveErr := h.saveLocked(); saveErr != nil {
+		h.records = previous
 		h.mu.Unlock()
+		run.close()
 		return saveErr
 	}
-	h.loaded[rec.ID] = run
+	delete(h.errors, rec.ID)
+	if rec.Enabled {
+		h.loaded[rec.ID] = run
+	} else {
+		delete(h.loaded, rec.ID)
+	}
 	h.mu.Unlock()
 	old.close()
 	if len(oldNames) > 0 && h.unbind != nil {
 		h.unbind(oldNames)
 	}
-	if h.bind != nil {
+	if !rec.Enabled {
+		run.close()
+	} else if h.bind != nil {
 		h.bind(run.bound)
 	}
 	return nil

@@ -74,6 +74,13 @@ func (s *Controller) pluginsController(w http.ResponseWriter, r *http.Request) {
 	}
 	id, action := parts[0], parts[1]
 	switch action {
+	case "update":
+		view, err := s.plugins.Update(r.Context(), id)
+		if err != nil {
+			writeFail(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeOK(w, http.StatusOK, view)
 	case "request":
 		// Every plugin supplies its own page handler. This never dispatches tools.
 		var input struct {

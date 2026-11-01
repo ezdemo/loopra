@@ -80,12 +80,37 @@ export function call(input) { return { text: "hello " + input.args.name }; }
 	if !toolListed(t, ts, key, "greeter__greet") {
 		t.Fatal("plugin tool was not registered")
 	}
+	archive = pluginTarGz(map[string]string{
+		"package/package.json": `{"name":"greeter","version":"2.0.0","loopra":"plugin.js"}`,
+		"package/plugin.js":    `export function updated() { return {text:"updated"}; }`,
+	})
+	previousFetcher := srv.plugins.Fetcher
+	srv.plugins.Fetcher = func(ctx context.Context, rawURL string) ([]byte, error) {
+		if strings.HasSuffix(rawURL, "/greeter/latest") {
+			return []byte(`{"version":"2.0.0","dist":{"tarball":"https://registry.npmjs.org/greeter/-/greeter-1.0.0.tgz"}}`), nil
+		}
+		return previousFetcher(ctx, rawURL)
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/greeter/update", key, nil)
+	updated, _ := env["data"].(map[string]any)
+	if code != http.StatusOK || updated["version"] != "2.0.0" || toolListed(t, ts, key, "greeter__greet") || !toolListed(t, ts, key, "greeter__updated") {
+		t.Fatalf("update = %d %v", code, env)
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/missing/update", key, nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing update = %d %v", code, env)
+	}
 	code, env = call(t, ts, http.MethodPost, "/api/plugins/greeter/toggle", key, map[string]any{"enabled": false})
 	if code != http.StatusOK || env["success"] != true {
 		t.Fatalf("toggle = %d %v", code, env)
 	}
-	if toolListed(t, ts, key, "greeter__greet") {
+	if toolListed(t, ts, key, "greeter__updated") {
 		t.Fatal("disabled plugin tool still registered")
+	}
+	code, env = call(t, ts, http.MethodPost, "/api/plugins/external/greeter/update", key, nil)
+	updated, _ = env["data"].(map[string]any)
+	if code != http.StatusOK || updated["enabled"] != false || toolListed(t, ts, key, "greeter__updated") {
+		t.Fatalf("disabled update = %d %v", code, env)
 	}
 	code, env = call(t, ts, http.MethodPost, "/api/plugins/greeter/remove", key, map[string]any{})
 	if code != http.StatusOK || env["data"] != "插件已卸载: greeter" {
