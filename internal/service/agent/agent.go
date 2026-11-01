@@ -143,24 +143,36 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 	if user == "" {
 		user = "default"
 	}
+	contextRuntime, err := NewContextRuntime(opts.Model, cfg, "loopra")
+	if err != nil {
+		return nil, fmt.Errorf("configure context: %w", err)
+	}
+	sessions := opts.Sessions
+	if sessions == nil {
+		sessions = jsonl.NewService(root)
+	}
+	agentTools := append([]tool.Tool(nil), opts.Tools...)
+	if contextRuntime.Compaction() != nil {
+		reader, err := OriginalToolResultTool(sessions)
+		if err != nil {
+			return nil, err
+		}
+		agentTools = append(agentTools, reader)
+	}
 	// 系统提示词已在本包内拼装完成（含工作区 AGENTS.md 等用户文件），
 	// 因此用 InstructionProvider 关闭 ADK 的 {} 会话状态占位符替换：
 	// 否则用户文件里的 {id} 之类示例会被当成 state 键并报错。
 	instructionProvider := func(agent.ReadonlyContext) (string, error) { return instruction, nil }
 	rootAgent, err := llmagent.New(llmagent.Config{
 		Name:                "loopra",
-		Model:               opts.Model,
+		Model:               contextRuntime.Model(),
 		Description:         "Loopra coding agent",
 		InstructionProvider: instructionProvider,
-		Tools:               opts.Tools,
+		Tools:               agentTools,
 		Toolsets:            opts.Toolsets,
 	})
 	if err != nil {
 		return nil, err
-	}
-	sessions := opts.Sessions
-	if sessions == nil {
-		sessions = jsonl.NewService(root)
 	}
 	// 钩子和工具完成通知对所有经由本包组装的 runner 生效。
 	// 没有安装宿主或 ToolResultSink 的调用会直接跳过。
@@ -169,8 +181,9 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 		return nil, fmt.Errorf("install runtime plugins: %w", err)
 	}
 	run, err := runner.New(runner.Config{
-		AppName: app, Agent: rootAgent, SessionService: sessions,
+		AppName: app, Agent: rootAgent, SessionService: contextRuntime.SessionService(sessions, cfg),
 		PluginConfig: runner.PluginConfig{Plugins: plugins},
+		Compaction:   contextRuntime.Compaction(),
 	})
 	if err != nil {
 		return nil, err
@@ -232,5 +245,5 @@ func (a *Agent) Session(ctx context.Context, name string) (session.Session, erro
 
 // Run 驱动一个用户轮次，并流式输出 ADK 事件。
 func (a *Agent) Run(ctx context.Context, sess session.Session, msg *genai.Content) iter.Seq2[*session.Event, error] {
-	return a.Runner.Run(ctx, a.user, sess.ID(), msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE})
+	return a.Runner.Run(WithContextTurn(ctx), a.user, sess.ID(), msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE})
 }

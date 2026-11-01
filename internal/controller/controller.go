@@ -323,6 +323,7 @@ func (s *Controller) installSubRunner() {
 	}
 	s.subRunner = &subagent.Runner{
 		ParentModel: s.agent.Model,
+		Config:      s.cfg,
 		Environment: shellenv.Instruction(s.workspaceRoot()),
 		BuildModel: func(channelID, modelName string) (model.LLM, error) {
 			if s.cfg == nil {
@@ -332,9 +333,17 @@ func (s *Controller) installSubRunner() {
 			if !ok {
 				return nil, fmt.Errorf("渠道不存在: %s", channelID)
 			}
+			models := make([]provider.ModelEntry, 0, len(ch.Models))
+			for _, entry := range ch.Models {
+				models = append(models, provider.ModelEntry{
+					Name: entry.Name, ContextTokens: entry.ContextTokens,
+					MaxTokens: entry.MaxTokens, ImageInput: entry.ImageInput,
+				})
+			}
 			return provider.NewLLM(provider.Channel{
 				ID: ch.ID, Name: ch.Name, BaseURL: ch.BaseURL, APIKey: ch.APIKey,
 				APIProtocol: ch.APIProtocol, SpecialCompatibility: ch.SpecialCompatibility,
+				Models: models,
 			}, &provider.Options{Model: modelName})
 		},
 		Profiles: func(id string) (subagent.Profile, bool) {

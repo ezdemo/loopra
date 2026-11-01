@@ -105,7 +105,7 @@ func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Ses
 // 与最新的助手文本。
 func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.Session, parentSession string, content *genai.Content, subID int, subSessionID string, rec *recorder, sink Sink, reply *string) ([]*hitl.Request, string) {
 	var pendings []*hitl.Request
-	it := run.Run(ctx, "default", sess.ID(), content, agentpkg.RunConfig{StreamingMode: agentpkg.StreamingModeSSE})
+	it := run.Run(loopraagent.WithContextTurn(ctx), "default", sess.ID(), content, agentpkg.RunConfig{StreamingMode: agentpkg.StreamingModeSSE})
 	for ev, err := range it {
 		if err != nil {
 			send(sink, "sub_error", map[string]any{"subId": subID, "error": err.Error()})

@@ -12,8 +12,27 @@ import (
 // 钩子会在本轮结束时清掉。
 var wireBodies sync.Map
 var wireObservers sync.Map
+var extraWireObservers sync.Map
 
 type wireObserverKey struct{}
+
+// AddRequestObserver installs an independent observer without replacing a
+// plugin's observer. All observers are consumed by this request exactly once.
+func AddRequestObserver(req *model.LLMRequest, observe func(string)) {
+	if req == nil || observe == nil {
+		return
+	}
+	value, _ := extraWireObservers.LoadOrStore(req, &requestObservers{})
+	observers := value.(*requestObservers)
+	observers.mu.Lock()
+	observers.callbacks = append(observers.callbacks, observe)
+	observers.mu.Unlock()
+}
+
+type requestObservers struct {
+	mu        sync.Mutex
+	callbacks []func(string)
+}
 
 // SetRequestObserver observes the final serialized body, without headers or any
 // ability to change it. The callback runs once, just before the HTTP request.
@@ -23,26 +42,37 @@ func SetRequestObserver(req *model.LLMRequest, observe func(string)) {
 	}
 	if observe == nil {
 		wireObservers.Delete(req)
+		extraWireObservers.Delete(req)
 	} else {
 		wireObservers.Store(req, observe)
 	}
 }
 
 func withRequestObserver(ctx context.Context, req *model.LLMRequest) context.Context {
+	var callbacks []func(string)
 	if value, ok := wireObservers.LoadAndDelete(req); ok {
-		return context.WithValue(ctx, wireObserverKey{}, value)
+		callbacks = append(callbacks, value.(func(string)))
+	}
+	if value, ok := extraWireObservers.LoadAndDelete(req); ok {
+		observers := value.(*requestObservers)
+		observers.mu.Lock()
+		callbacks = append(callbacks, observers.callbacks...)
+		observers.mu.Unlock()
+	}
+	if len(callbacks) > 0 {
+		return context.WithValue(ctx, wireObserverKey{}, callbacks)
 	}
 	return ctx
 }
 
 func observeRequest(ctx context.Context, body []byte) {
-	observe, _ := ctx.Value(wireObserverKey{}).(func(string))
-	if observe == nil {
-		return
+	callbacks, _ := ctx.Value(wireObserverKey{}).([]func(string))
+	for _, observe := range callbacks {
+		func() {
+			defer func() { _ = recover() }()
+			observe(string(body))
+		}()
 	}
-	// An optional observer must never prevent a model request from being sent.
-	defer func() { _ = recover() }()
-	observe(string(body))
 }
 
 // SetWireBody 登记这一次请求要发出去的 JSON。body 为 nil 时删掉已有记录。

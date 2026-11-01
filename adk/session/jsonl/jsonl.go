@@ -409,6 +409,7 @@ func (s *Service) loadEvents(app, id string) ([]*session.Event, time.Time, error
 		return nil, time.Time{}, err
 	}
 	var events []*session.Event
+	blobs := map[string]bool{}
 	for seq, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "//") {
@@ -417,6 +418,16 @@ func (s *Service) loadEvents(app, id string) ([]*session.Event, time.Time, error
 		var m map[string]any
 		if err := json.Unmarshal([]byte(line), &m); err != nil {
 			continue // 与 Java 加载器一样容忍损坏行
+		}
+		// A rich ADK event can render several rows for parallel tool results;
+		// every row carries the same complete event, which is replayed once.
+		if m["adk_event"] != nil {
+			if id, _ := m["event_id"].(string); id != "" {
+				if blobs[id] {
+					continue
+				}
+				blobs[id] = true
+			}
 		}
 		events = append(events, lineEvent(m, seq))
 	}

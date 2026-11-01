@@ -21,6 +21,7 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 
+	"github.com/ezdemo/looprax/internal/model/config"
 	loopraagent "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 	"github.com/ezdemo/looprax/internal/service/tools"
@@ -65,6 +66,7 @@ type Result struct {
 type Runner struct {
 	// ParentModel 是父智能体使用的模型。
 	ParentModel model.LLM
+	Config      *config.Loopra
 	// BuildModel 解析角色的渠道覆盖。
 	BuildModel func(channelID, modelName string) (model.LLM, error)
 	// Profiles 按 id 解析角色定义。
@@ -146,23 +148,45 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 	title := BuildTitle(name, task)
 
 	llm := r.ParentModel
+	selectedChannel := ""
 	if profile.ModelChannel != "" && r.BuildModel != nil {
 		if built, err := r.BuildModel(profile.ModelChannel, profile.Model); err == nil {
 			llm = built
+			selectedChannel = profile.ModelChannel
 		}
 	}
 	if llm == nil {
 		return Result{}, fmt.Errorf("IO_ERROR: 子代理模型不可用")
 	}
+	contextConfig := r.Config
+	if contextConfig != nil {
+		contextConfig = contextConfig.Clone()
+		if selectedChannel != "" {
+			contextConfig.ModelChannelID = selectedChannel
+		}
+		contextConfig.Model = llm.Name()
+	}
+	contextRuntime, err := loopraagent.NewContextRuntime(llm, contextConfig, "sub-"+profileID)
+	if err != nil {
+		return Result{}, err
+	}
 
 	subTools := r.subTools(profile)
+	inMem := session.InMemoryService()
+	if contextRuntime.Compaction() != nil {
+		reader, err := loopraagent.OriginalToolResultTool(inMem)
+		if err != nil {
+			return Result{}, err
+		}
+		subTools = append(subTools, reader)
+	}
 	instruction := subInstruction(profile, instructions) + "\n\n" + r.Environment
 	// 同主代理：提示词含用户自定义指示与运行环境，
 	// 用 InstructionProvider 避开 ADK 对 {} 的会话状态占位符替换。
 	instructionProvider := func(agentpkg.ReadonlyContext) (string, error) { return instruction, nil }
 	root, err := llmagent.New(llmagent.Config{
 		Name:                "sub-" + profileID,
-		Model:               llm,
+		Model:               contextRuntime.Model(),
 		Description:         profile.Description,
 		InstructionProvider: instructionProvider,
 		Tools:               subTools,
@@ -170,7 +194,6 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 	if err != nil {
 		return Result{}, fmt.Errorf("IO_ERROR: %v", err)
 	}
-	inMem := session.InMemoryService()
 	created, err := inMem.Create(ctx, &session.CreateRequest{
 		AppName: "loopra", UserID: "default", SessionID: subSessionID,
 	})
@@ -183,8 +206,9 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 		return Result{}, fmt.Errorf("IO_ERROR: %v", err)
 	}
 	run, err := runner.New(runner.Config{
-		AppName: "loopra", Agent: root, SessionService: inMem,
+		AppName: "loopra", Agent: root, SessionService: contextRuntime.SessionService(inMem, contextConfig),
 		PluginConfig: runner.PluginConfig{Plugins: plugins},
+		Compaction:   contextRuntime.Compaction(),
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("IO_ERROR: %v", err)

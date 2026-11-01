@@ -78,8 +78,10 @@ type Channel struct {
 
 // Compaction 调整上下文折叠窗口。
 type Compaction struct {
+	Enabled           *bool           `json:"enabled,omitempty"`
 	ThresholdRatio    float64         `json:"thresholdRatio"`
 	RetainRatio       float64         `json:"retainRatio"`
+	RetainEvents      int             `json:"retainEvents"`
 	CompactionRetries int             `json:"compactionRetries"`
 	ToolResultPrune   ToolResultPrune `json:"toolResultPrune"`
 }
@@ -256,7 +258,7 @@ func Default() Loopra {
 		MaxContextChars: 200000,
 		KeepTailChars:   80000,
 		ContextCompaction: Compaction{
-			ThresholdRatio: 0.8, RetainRatio: 0.16, CompactionRetries: 1,
+			ThresholdRatio: 0.8, RetainRatio: 0.16, RetainEvents: 12, CompactionRetries: 1,
 			ToolResultPrune: ToolResultPrune{ThresholdChars: 8192, HeadChars: 4096, TailChars: 1024},
 		},
 		ToolTimeoutSec:            360,

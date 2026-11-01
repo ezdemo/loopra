@@ -514,8 +514,9 @@ loopra acp
 | `editMode` | string | `auto` | 编辑模式。 |
 | `lang` | string | `ZH` | 界面语言，`ZH` 或 `EN`。 |
 | `fastMode` | bool | `false` | 快速模式。 |
-| `maxContextChars` | int | `200000` | 上下文字符预算。 |
-| `keepTailChars` | int | `80000` | 折叠后保留的最近上下文预算。 |
+| `maxContextChars` | int | `200000` | 模型上下文容量未知时，用于估算压缩阈值。 |
+| `keepTailChars` | int | `80000` | 旧版兼容字段；原生 Agent 用 `contextCompaction.retainEvents` 保留最近事件。 |
+| `contextCompaction` | object | 自动开启 | 原生 Agent 循环内压缩、最近事件保留和稳定的工具结果裁剪；见[上下文管理](docs/CONTEXT_COMPACTION.md)。 |
 | `toolTimeoutSec` | int | `360` | 单工具超时秒数。 |
 | `subAgentTimeoutSec` | int | `3600` | 子代理完整任务超时秒数。 |
 | `disabledTools` | string[] | `[]` | 禁用的工具名称。 |
@@ -609,6 +610,7 @@ go build -tags webdist -o loopra-desktop ./cmd/looprax-desktop
 | [rg 工具说明](docs/RG_TOOL.md) | 搜索模式、参数，以及内置 ripgrep 的更新 |
 | [API 契约](docs/API_CONTRACT.md) | REST 路径、鉴权和响应形状 |
 | [SSE 与存储契约](docs/SSE_AND_STORAGE_CONTRACT.md) | 聊天事件流和会话文件格式 |
+| [原生 Agent 上下文管理](docs/CONTEXT_COMPACTION.md) | 循环内压缩、工具结果取回、前缀缓存和诊断 |
 | [对齐审计](docs/API_PARITY_AUDIT.md) | 与 Java 版 Loopra 已核对的范围 |
 
 ## 许可证
