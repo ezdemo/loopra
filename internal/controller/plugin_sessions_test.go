@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -82,6 +83,45 @@ func TestLensReadsSavedExternalHistoryThroughDeclaredSessionService(t *testing.T
 	} {
 		if _, err := s.pluginSessionRequest(context.Background(), "history", value); err == nil {
 			t.Fatalf("accepted invalid history scope: %v", value)
+		}
+	}
+}
+
+func TestPluginSessionUsageReadsScopedCountersAndReportedAgentContext(t *testing.T) {
+	_, _, s, _ := parityServer(t, "")
+	if err := os.MkdirAll(s.sessionDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(s.sessionDir(), "usage-fixture.usage")
+	if err := os.WriteFile(path, []byte(`{"prompt":10000,"completion":100,"cacheHit":3400,"cacheMiss":6600,"lastPromptTokens":2500}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func(name string) map[string]any {
+		t.Helper()
+		out, err := s.pluginSessionRequest(context.Background(), "usage", map[string]any{"workspaceHash": s.agent.App(), "sessionName": name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)
+	}
+	usage := read("usage-fixture")
+	if usage["lastPromptTokens"] != int64(2500) || usage["cacheHit"] != int64(3400) || usage["at"].(int64) <= 0 {
+		t.Fatalf("usage=%v", usage)
+	}
+	if other := read("other"); other["lastPromptTokens"] != int64(0) || other["cacheHit"] != int64(0) {
+		t.Fatalf("usage leaked across sessions: %v", other)
+	}
+	s.sessionMetaSet("external", map[string]any{"agentId": "magpie", "acpUsage": map[string]any{"used": 3000, "size": 100000, "model": "external-model"}})
+	if external := read("external"); external["lastPromptTokens"] != int64(3000) || external["maxContextTokens"] != int64(100000) || external["contextSource"] != "agent" {
+		t.Fatalf("agent usage=%v", external)
+	}
+	for _, scope := range []map[string]any{
+		{"workspaceHash": "../outside", "sessionName": "usage-fixture"},
+		{"workspaceHash": s.agent.App(), "sessionName": "../usage-fixture"},
+		{"workspaceHash": "unknown-workspace", "sessionName": "usage-fixture"},
+	} {
+		if _, err := s.pluginSessionRequest(context.Background(), "usage", scope); err == nil {
+			t.Fatalf("accepted invalid usage scope: %v", scope)
 		}
 	}
 }

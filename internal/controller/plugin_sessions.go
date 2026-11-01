@@ -15,7 +15,7 @@ import (
 // This read-only capability exposes saved conversation rows, never a rebuilt
 // model request or current project instructions presented as historical facts.
 func (s *Controller) pluginSessionRequest(ctx context.Context, action string, value map[string]any) (any, error) {
-	if action != "history" {
+	if action != "history" && action != "usage" {
 		return nil, fmt.Errorf("不支持的会话读取操作")
 	}
 	app, _ := value["workspaceHash"].(string)
@@ -27,6 +27,36 @@ func (s *Controller) pluginSessionRequest(ctx context.Context, action string, va
 	}
 	if _, err := s.resolveProject(app); err != nil {
 		return nil, err
+	}
+	if action == "usage" {
+		view, err := s.projectRuntime(app)
+		if err != nil {
+			return nil, err
+		}
+		meta := view.sessionMetaRead(name)
+		model := strOr(meta, "model", view.cfg.Model)
+		if agentID := strOr(meta, "agentId", "native"); agentID != "" && agentID != "native" {
+			if usage, ok := view.acpUsageView(meta, name); ok {
+				return usage, nil
+			}
+			return map[string]any{}, nil
+		}
+		var record usageRecord
+		path := strings.TrimSuffix(sessfiles.Open(s.home, app).LogPath(name), ".jsonl") + ".usage"
+		raw, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &record); err != nil {
+				return nil, err
+			}
+		}
+		usage := view.usageView(record, model)
+		if info, err := os.Stat(path); err == nil {
+			usage["at"] = info.ModTime().UnixMilli()
+		}
+		return usage, nil
 	}
 	store := sessfiles.Open(s.home, app)
 	info, err := os.Stat(store.LogPath(name))

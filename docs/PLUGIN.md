@@ -364,6 +364,8 @@ iframe 没有 `allow-forms`。页面的保存、搜索等按钮应通过点击�
 
 插件后端可在 `loopra.services` 中声明 `"sessions"`，然后调用 `loopra.services.request("sessions", "history", { workspaceHash, sessionName, revision? })` 读取已登记项目的可见会话记录，传入相同 `revision` 时返回 `unchanged: true`。这是读取能力，不会运行 Agent 或工具。后端的 `loopra.dataDir` 是独立于插件包的可写数据目录，可使用 `node:fs` 保存数据，升级时保留、卸载时删除；此路径不传给 iframe。
 
+同一服务支持 `"usage"` 操作，参数为 `{ workspaceHash, sessionName }`，按相同的项目与会话校验读取用量。Native 返回 `model`、`maxContextTokens`、最近完成请求的 `lastPromptTokens`、会话累计的 `promptTokens` / `cacheHit` / `cacheMiss`，以及计数文件更新时间 `at`；不能将旧计数当成正在发送的新请求用量。外部 Agent 有上报时返回其上下文占用和窗口，`contextSource: "agent"` 表示 Agent 上报。未知窗口、缓存和未上报数据应保留未知状态，分类文本估算与提供方计数分开展示。
+
 透镜可以按类别筛选、搜索并查看原文，工具结果会关联实际调用名称。界面 token 数按 UTF-8 文本字节数约算，不含媒体和协议开销；媒体不保留原始二进制数据。固定内容和折叠设置按项目与会话保存在插件配置中，下一次请求生效，不会自动重新发送消息。固定内容每个会话最多 2000 字符，最多折叠 64 条结果，配置保留最近 12 段会话。
 
 图标可以是包内的 SVG、PNG、JPG、WebP 或 GIF，也可以是 Lucide 图标名，例如 `cat`、`message-circle`。图片不超过 256 KiB。插件卡片用 `loopra.icon`。菜单省略 `icon` 时继承插件图标，显式设置 `icon: false` 时不显示图标；例如 OpenAPI 的 `ui.menu.icon` 为 `false`，卡片仍使用自己的 `braces` 图标。
