@@ -1,6 +1,6 @@
 # 插件
 
-插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。从侧栏「技能与插件」点击「添加 → 安装插件」，填写来源即可安装。主仓库只保留内置 `plugins/web` 联网工具，名字仍然是 `web`。聊天猫娘、每日回顾、OpenAPI 和上下文透视已迁到 [loopra-plugins](https://github.com/ezdemo/loopra-plugins)，可在「发现」中筛选「插件」并安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
+插件是一个 ES 模块，由 [moejs](https://github.com/MoeForge/moejs) 执行。从侧栏「技能与插件」进入，顶部只有「插件 / 技能」两个选项，默认选中「插件」；「我的内容」管理已安装插件，「发现」浏览插件源。点击「添加 → 安装插件」，填写来源即可安装。主仓库只保留内置 `plugins/web` 联网工具，名字仍然是 `web`。聊天猫娘、每日回顾、OpenAPI 和上下文透视已迁到 [loopra-plugins](https://github.com/ezdemo/loopra-plugins)，可在「插件 → 发现」中安装。模块可以导出工具和对话钩子，也可以使用 moejs 的 [Web API](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#web-api) 和 [Node.js 模块](https://github.com/MoeForge/moejs/blob/main/docs/guide.zh_CN.md#nodejs-%E6%A8%A1%E5%9D%97)。
 
 安装后的文件在 `~/.loopra/plugins/packages/<id>`，清单是 `~/.loopra/plugins/installed.json`。设置了 `LOOPRA_JAVA_BACKEND_URL` 时，本进程不加载这些插件。
 
@@ -17,11 +17,26 @@
 
 插件 id 会去掉开头的 `@`，把 `/` 换成 `__`，再把其余非字母数字字符收成 `_`。`demo-plugin` 的工具 `greet` 公开名称是 `demo_plugin__greet`。`@scope/pkg` 的 id 是 `scope_pkg`。
 
-在「我的内容」的插件卡片上点击更新图标，或在「发现」中点击已安装插件的「更新」，即可从原安装来源重新获取插件。npm 包更新到 `latest`；GitHub 保留原分支、标签和子目录；本地插件重新读取原路径。更新保留配置、数据、安装顺序和启停状态，成功后替换工具与钩子。下载、编译或保存失败时保留旧版文件和运行时。再次安装同名插件也会保留启停状态。内置插件随应用更新。
+## 更新与版本
+
+在「插件 → 我的内容」的插件卡片上点击更新图标，或在「插件 → 发现」中点击已安装插件的「更新」，从原安装来源重新获取插件。更新期间操作按钮暂时禁用；成功后刷新已安装版本，并在顶部显示自动消失的「插件已更新」通知，不占用列表位置。失败时显示错误，操作按钮恢复，可再次尝试。「刷新」只重新读取列表，不更新已安装插件。
+
+| 原安装来源 | 点击更新时获取的内容 |
+| --- | --- |
+| npm 包，包括安装时指定了版本的包 | 该包的 `latest`，例如 `demo@1.0.0` 也会重新解析 `latest` |
+| GitHub 分支或标签 | 保留原 ref 和子目录，重新下载对应内容；固定标签不会自动切换到新标签 |
+| 未指定 ref 的 GitHub 仓库 | 保留原子目录，依次尝试 `main`、`master` |
+| 本地目录、压缩包或模块文件 | 重新读取原路径，原文件仍需存在 |
+
+更新保留插件配置、持久数据、安装顺序和启停状态。新版成功加载并保存后替换旧版工具与钩子；下载、编译、包名校验或保存失败时保留旧版文件和运行时。再次安装同名插件也会保留启停状态。内置插件随应用更新，没有单独更新按钮。
+
+发布新版时保持 `package.json.name` 不变，用 `version` 标识版本，并更新用户实际安装的来源。更新要求包名和插件 id 与已安装项一致。宿主不按版本号大小决定是否替换；相同版本号也会重新获取并加载。需要切换 GitHub ref 或安装指定 npm 版本时，通过「添加 → 安装插件」填写新的来源。
+
+页面通过 `loopra.config.get()` / `set()` 读写持久配置，后端从调用输入的 `config` 读取；后端持久数据写到 `loopra.dataDir`。这两处在更新时保留；插件包目录会整体替换，不应把用户数据写进包内。模块内存会随新版运行时重建。卸载会删除插件文件、配置和数据。
 
 ## GitHub 插件源
 
-技能与插件 → 发现 → 插件，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。在「管理源」中添加或移除公开仓库，用下拉框切换来源。在「我的内容 → 插件」中启停、设置、更新或卸载；发现页已安装的外部插件也可以直接更新和卸载，卸载确认后按钮恢复「安装」。安装、更新和卸载保留发现列表和滚动位置。内置插件只能停用。移除源只取消订阅，已经安装的插件继续保留。
+技能与插件 → 插件 → 发现，可以从 GitHub 仓库浏览并安装多个插件。默认源是 `https://github.com/ezdemo/loopra-plugins`。在「管理源」中添加或移除公开仓库，用下拉框切换来源。在「插件 → 我的内容」中启停、设置、更新或卸载；发现页已安装的外部插件也可以直接更新和卸载，卸载确认后按钮恢复「安装」。安装、更新和卸载保留发现列表和滚动位置。内置插件只能停用。移除源只取消订阅，已经安装的插件继续保留。
 
 仓库不需要额外的索引文件，推荐按下面的目录组织：
 
@@ -62,6 +77,7 @@ export function greet(args) {
 
 | 接口 | 用途 |
 | --- | --- |
+| `GET /api/plugins` | 已安装插件及实际版本、原来源、启停状态、工具、钩子和页面入口 |
 | `GET /api/plugins/sources` | 列出已添加的插件源 |
 | `POST /api/plugins/sources`，`{ "source": "https://github.com/owner/repo" }` | 添加源，重复添加会去重 |
 | `POST /api/plugins/sources/remove`，`{ "source": "https://github.com/owner/repo" }` | 移除源，保留已安装插件 |
@@ -69,6 +85,8 @@ export function greet(args) {
 | `POST /api/plugins/install`，`{ "source": "<列表项的 source>" }` | 安装选中的插件 |
 | `POST /api/plugins/<id>/update`，无需请求体 | 从原来源更新，保留配置、数据和启停状态；也支持 `/api/plugins/external/<id>/update` |
 | `POST /api/plugins/<id>/remove` | 卸载并移除插件文件、配置、数据和工具 |
+
+更新接口无需请求体，成功时返回 `{ "success": true, "data": <更新后的插件对象> }`，可从 `data.version`、`data.enabled`、`data.source` 读取结果；失败时返回 HTTP 400 和 `{ "success": false, "error": "失败原因" }`。调用沿用宿主 API 鉴权。`catalog` 中的版本是源仓库提供的版本，已安装版本以 `GET /api/plugins` 为准；点击更新仍按[原安装来源](#更新与版本)获取内容，不会自动改成当前浏览的源。
 
 ## 内置插件
 
@@ -88,7 +106,7 @@ export function greet(args) {
 
 按这个顺序找入口：
 
-1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`。对象里还可以写 `defaultEnabled`、`icon`、`ui.settings`、`ui.sidebar`、`ui.menu`，以及下面的技能、子代理和定时任务
+1. `package.json` 的 `loopra`：字符串，或 `{ "plugin": "./plugin.ts" }`、`{ "main": "./plugin.js" }`。对象里还可以写 `defaultEnabled`、`icon`、`services`、`ui.settings`、`ui.sidebar`、`ui.panel`、`ui.menu`，以及下面的技能、子代理和定时任务
 2. `module`、`main`
 3. `plugin.ts`、`plugin.mts`、`plugin.js`、`plugin.mjs`
 4. `index.ts`、`index.mts`、`index.js`、`index.mjs`
@@ -422,6 +440,8 @@ cookie 的 Path 是 `/api/plugins/<id>/menu`。页面地址是 `/menu/`，有子
 ```
 
 `skill` 也可以写成 `{ "file": "./SKILL.md" }`。文件名必须是 `SKILL.md`，可以放在子目录里。开头的 frontmatter 提供 `name` 和 `description`，缺了就用插件自己的名称和说明。技能标识是 `@plugin-skills/<插件 id>`，模型用 `skillread` 读取。技能页上标成插件，不能从那里卸载。
+
+独立于插件贡献，宿主默认扫描 `~/.loopra/skills`、`~/.agents/skills` 和项目的 `.loopra/skills`；纯聊天只加载全局技能。`~/.agents/skills` 无需额外配置，Windows 对应 `%USERPROFILE%\.agents\skills`，可用 `LOOPRA_AGENTS_SKILLS_DIR` 覆盖。独立技能文件夹支持符号链接和 Windows 目录联接，资源读取限定在链接指向的技能目录内；失效链接会跳过。新增目录后可用 `skillrefresh` 刷新，通用技能标识为 `@agents-skills/<目录名>`。
 
 `subagent` 的说明可以改成 `"file": "./AGENT.md"`。角色 id 固定是 `plugin-<插件 id>`。它会出现在子代理列表里，不能在那里编辑或删除。`readOnly` 省略时是只读。
 

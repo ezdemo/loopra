@@ -328,9 +328,9 @@ Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`
 
 入口优先读 package.json 的 `loopra`（字符串，或 `{ "plugin": "./plugin.ts" }`），然后是 `module`、`main`，再否则是 `plugin.ts`、`plugin.js`、`index.ts` 或 `index.js`。
 
-技能与插件 → 发现 → 插件支持把公开 GitHub 仓库作为插件源，默认加入 [ezdemo/loopra-plugins](https://github.com/ezdemo/loopra-plugins)。可以添加、移除和切换源，浏览仓库里的插件后分别安装，在「我的内容」里卸载。「我的内容」统一管理已安装的技能和插件，「发现」浏览更多内容。源自动扫描每个插件目录的 `package.json` 和入口文件，无需索引；目录示例见 [examples/plugin-source](examples/plugin-source/)，规则和接口见 [GitHub 插件源](docs/PLUGIN.md#github-插件源)。
+侧栏「技能与插件」顶部提供「插件 / 技能」切换，默认选中「插件」。在「插件 → 发现」中可把公开 GitHub 仓库作为插件源，默认加入 [ezdemo/loopra-plugins](https://github.com/ezdemo/loopra-plugins)。可以添加、移除和切换源，浏览仓库里的插件后分别安装；「插件 → 我的内容」管理已安装插件，技能则在顶部切换后查看。源自动扫描每个插件目录的 `package.json` 和入口文件，无需索引；目录示例见 [examples/plugin-source](examples/plugin-source/)，规则和接口见 [GitHub 插件源](docs/PLUGIN.md#github-插件源)。
 
-已安装的外部插件可在「我的内容」或「发现」中更新，沿原来源获取新版，保留配置、数据和启停状态，失败时保留旧版。发现页也可直接卸载，安装、更新和卸载保留当前列表与滚动位置。纯聊天右侧栏支持「能力」和插件面板。多个插件的 `systemPrompt.append` 会依次累加；`meta.hookPriority` 为每个 Hook 指定整数优先级，数值小的先执行，默认 `0`，同级按安装顺序执行，详见[钩子](docs/PLUGIN.md#钩子)。
+已安装的外部插件可在「我的内容」或「发现」中更新，沿原来源获取新版，保留配置、数据和启停状态，失败时保留旧版。更新成功会显示自动消失的顶部通知，不占列表位置；刷新列表不会更新插件。npm 更新解析 `latest`，GitHub 保留原 ref 和子目录，本地插件重新读取原路径，详见[更新与版本](docs/PLUGIN.md#更新与版本)。发现页也可直接卸载，安装、更新和卸载保留当前列表与滚动位置。纯聊天右侧栏支持「能力」和插件面板。多个插件的 `systemPrompt.append` 会依次累加；`meta.hookPriority` 为每个 Hook 指定整数优先级，数值小的先执行，默认 `0`，同级按安装顺序执行，详见[钩子](docs/PLUGIN.md#钩子)。
 
 导出的函数会变成工具，公开名称是 `<插件 id>__<导出名>`：
 
@@ -398,13 +398,13 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 ### 上下文透镜
 
-内置「上下文透镜」位于右侧面板的「透镜」页签，可查看 Loopra Native 每次模型请求发送前的实际上下文组成与原文，按会话固定补充信息、折叠冗长工具结果。最近的请求快照会保存到本地，重启后仍可查看。没有快照的旧会话（含外部 ACP Agent）展示已保存的消息、思考和工具记录，并明确标为会话历史。用量标为文本估算，原始会话记录不变。插件可通过 `ui.panel` 声明同样的右侧页签，见 [插件文档](docs/PLUGIN.md#右侧面板)。
+安装 [上下文透视插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/context-lens) 后，右侧面板的「透镜」页签可只读查看 Loopra Native 每次模型请求发送前的实际上下文组成与原文。最近的请求快照会保存到本地，重启后仍可查看。没有快照的旧会话（含外部 ACP Agent）展示已保存的消息、思考和工具记录，并明确标为会话历史。分类用量标为文本估算，原始会话记录不变；当前插件不提供固定补充信息或折叠工具结果。插件可通过 `ui.panel` 声明同样的右侧页签，见 [插件文档](docs/PLUGIN.md#右侧面板)。
 
 ### OpenAPI 插件
 
-从技能与插件 → 发现 → 插件安装 [OpenAPI 插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/openapi)，然后在设置 → 工具与集成 → OpenAPI 添加 JSON / YAML 格式的 OpenAPI 3 或 Swagger 2 文档，配置服务地址、请求头以及 Bearer、Basic 或 API Key 认证。原有的 `~/.loopra/openapi-sources.json` 和文档缓存继续使用。
+从技能与插件 → 插件 → 发现安装 [OpenAPI 插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/openapi)，然后在设置 → 工具与集成 → OpenAPI 添加 JSON / YAML 格式的 OpenAPI 3 或 Swagger 2 文档，配置服务地址、请求头以及 Bearer、Basic 或 API Key 认证。原有的 `~/.loopra/openapi-sources.json` 和文档缓存继续使用。
 
-插件提供 `search_apis`、`get_api_detail`、`call_api`，在项目和纯聊天中都可用。先搜索接口，再读取参数详情，最后调用；实际调用经过现有工具审批。支持普通路径、查询、请求头参数与 JSON 请求体、本地 `$ref`；外部引用、表单和文件上传暂不支持。在技能与插件 → 我的内容中停用 OpenAPI 后，其菜单和工具一起移除，接口源配置保留。
+插件提供 `search_apis`、`get_api_detail`、`call_api`，在项目和纯聊天中都可用。先搜索接口，再读取参数详情，最后调用；实际调用经过现有工具审批。支持普通路径、查询、请求头参数与 JSON 请求体、本地 `$ref`；外部引用、表单和文件上传暂不支持。在技能与插件 → 插件 → 我的内容中停用 OpenAPI 后，其菜单和工具一起移除，接口源配置保留。
 
 ## 协作与审批
 
