@@ -64,6 +64,7 @@ for ($attempt = 0; $attempt -lt 30; $attempt++) {
     try {
         if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $target -Destination ($target + '.old') -Force }
         Move-Item -LiteralPath $replacement -Destination $target -Force
+        Remove-Item -LiteralPath ($target + '.old') -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $staged
         exit 0
     } catch {

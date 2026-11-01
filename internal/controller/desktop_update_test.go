@@ -316,8 +316,8 @@ func TestDesktopWindowsApplyReplacesAndPreservesUnicodeArguments(t *testing.T) {
 	if value, _ := os.ReadFile(target); string(value) != "new" {
 		t.Fatal("update not installed")
 	}
-	if value, _ := os.ReadFile(target + ".old"); string(value) != "old" {
-		t.Fatal("backup lost")
+	if _, err := os.Stat(target + ".old"); !os.IsNotExist(err) {
+		t.Fatal("successful update left a .old backup")
 	}
 	launch, _ := os.ReadFile(config + ".launch")
 	var info struct{ FilePath, WorkingDirectory, ArgumentList string }
@@ -438,8 +438,8 @@ func TestDesktopWindowsApplyRestartsUpdatedExecutable(t *testing.T) {
 		if strings.Join(child.Args, "\x00") != strings.Join(args, "\x00") || child.Cwd != work {
 			t.Fatalf("restarted child = %+v", child)
 		}
-		if backup, _ := os.ReadFile(target + ".old"); string(backup) != "previous build" {
-			t.Fatal("previous build was not preserved")
+		if _, err := os.Stat(target + ".old"); !os.IsNotExist(err) {
+			t.Fatal("successful restart left a .old backup")
 		}
 		return
 	}

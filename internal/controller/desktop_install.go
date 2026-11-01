@@ -60,6 +60,7 @@ try {
     $start = @{ FilePath = $c.target; WorkingDirectory = $c.cwd }
     if ($c.args.Count -gt 0) { $start.ArgumentList = (($c.args | ForEach-Object { Quote-Argument $_ }) -join ' ') }
     Start-LoopraProcess @start | Out-Null
+    Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $c.staged -Force
 } catch {
     $_ | Out-String | Set-Content -LiteralPath ($Config + '.log')
@@ -97,6 +98,7 @@ if [ "$platform" = darwin ]; then
 else
     nohup "$target" "$@" </dev/null >/dev/null 2>&1 &
 fi
+if [ "$platform" = darwin ]; then rm -rf -- "$backup"; else rm -f -- "$backup"; fi
 `
 
 func (u *desktopUpdater) install() error {

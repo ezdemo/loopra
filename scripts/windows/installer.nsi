@@ -97,6 +97,7 @@ Section "Loopra" SEC_APP
   IfErrors rollback
   CreateDirectory "$SMPROGRAMS\Loopra"
   CreateShortcut "$SMPROGRAMS\Loopra\Loopra.lnk" "$INSTDIR\Loopra.exe"
+  Delete "$INSTDIR\Loopra.exe.old"
   Goto done
   rollback:
     Delete "$INSTDIR\Loopra.exe"

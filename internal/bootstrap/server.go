@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/ezdemo/looprax/internal/config"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	"github.com/ezdemo/looprax/internal/infrastructure/updatecleanup"
 	"github.com/ezdemo/looprax/internal/service/acp"
 )
 
@@ -106,6 +108,13 @@ func (s *httpServer) Run(ctx context.Context) error {
 	if s.settings.OnListen != nil {
 		s.settings.OnListen(baseURL, s.backend.accessKey)
 	}
+	go func() {
+		if executable, err := os.Executable(); err == nil {
+			if err := updatecleanup.LegacyBackup(executable); err != nil {
+				logging.Debugf("update", "remove legacy backup: %v", err)
+			}
+		}
+	}()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
