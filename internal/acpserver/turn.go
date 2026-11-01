@@ -358,7 +358,7 @@ func toolKind(name string) acpsdk.ToolKind {
 		return acpsdk.ToolKindRead
 	case "write", "edit":
 		return acpsdk.ToolKindEdit
-	case "bash", "sh", "powershell", "CMD":
+	case "bash", "zsh", "sh", "powershell", "CMD":
 		return acpsdk.ToolKindExecute
 	default:
 		return acpsdk.ToolKindOther

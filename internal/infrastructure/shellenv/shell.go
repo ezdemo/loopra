@@ -33,7 +33,9 @@ func ToolName(name string) string {
 
 func detect(goos string, lookPath func(string) (string, error)) Shell {
 	candidates := []Shell{{Name: "bash", Path: "bash"}, {Name: "sh", Path: "sh"}}
-	if goos == "windows" {
+	if goos == "darwin" {
+		candidates = append([]Shell{{Name: "zsh", Path: "zsh"}}, candidates...)
+	} else if goos == "windows" {
 		candidates = []Shell{
 			{Name: "powershell", Path: "pwsh.exe"},
 			{Name: "powershell", Path: "powershell.exe"},

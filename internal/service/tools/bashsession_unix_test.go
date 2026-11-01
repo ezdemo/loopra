@@ -15,7 +15,7 @@ import (
 )
 
 func TestUnixShellStopKillsDescendants(t *testing.T) {
-	for _, executable := range []string{"bash", "sh"} {
+	for _, executable := range []string{"bash", "zsh", "sh"} {
 		for _, mode := range []string{"stop", "exit"} {
 			t.Run(executable+"/"+mode, func(t *testing.T) {
 				path, err := exec.LookPath(executable)

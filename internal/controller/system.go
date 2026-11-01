@@ -27,20 +27,30 @@ func findDesktopApp(name string) string {
 }
 
 func desktopApplications() []string {
+	return desktopApplicationsFor(runtime.GOOS, findDesktopApp)
+}
+
+func desktopApplicationsFor(goos string, findApp func(string) string) []string {
 	apps := []string{"folder"}
-	if runtime.GOOS == "windows" {
-		if findDesktopApp("powershell.exe") != "" {
+	if goos == "windows" {
+		if findApp("powershell.exe") != "" {
 			apps = append(apps, "powershell", "terminal")
 		}
-		if findDesktopApp("git-bash.exe") != "" {
+		if findApp("git-bash.exe") != "" {
 			apps = append(apps, "git-bash", "bash")
 		}
 	} else {
-		if findDesktopApp("pwsh") != "" {
+		if findApp("pwsh") != "" {
 			apps = append(apps, "powershell")
 		}
-		if runtime.GOOS == "darwin" || findDesktopApp("x-terminal-emulator") != "" || findDesktopApp("gnome-terminal") != "" {
-			apps = append(apps, "bash", "terminal")
+		if goos == "darwin" || findApp("x-terminal-emulator") != "" || findApp("gnome-terminal") != "" {
+			if goos == "darwin" && findApp("zsh") != "" {
+				apps = append(apps, "zsh")
+			}
+			if findApp("bash") != "" {
+				apps = append(apps, "bash")
+			}
+			apps = append(apps, "terminal")
 		}
 	}
 	return apps
@@ -121,8 +131,12 @@ func (s *Controller) systemAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func desktopCommand(path, application string) (*exec.Cmd, error) {
+	return desktopCommandFor(runtime.GOOS, path, application)
+}
+
+func desktopCommandFor(goos, path, application string) (*exec.Cmd, error) {
 	if application == "folder" {
-		switch runtime.GOOS {
+		switch goos {
 		case "windows":
 			return exec.Command("explorer.exe", path), nil
 		case "darwin":
@@ -131,7 +145,7 @@ func desktopCommand(path, application string) (*exec.Cmd, error) {
 			return exec.Command("xdg-open", path), nil
 		}
 	}
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		if application == "bash" || application == "git-bash" {
 			return exec.Command(findDesktopApp("git-bash.exe"), "--cd="+path), nil
 		}
@@ -145,10 +159,12 @@ func desktopCommand(path, application string) (*exec.Cmd, error) {
 		return cmd, nil
 	}
 	shell := "bash"
-	if application == "powershell" {
+	if application == "zsh" || (goos == "darwin" && application == "terminal") {
+		shell = "zsh"
+	} else if application == "powershell" {
 		shell = "pwsh"
 	}
-	if runtime.GOOS == "darwin" {
+	if goos == "darwin" {
 		return exec.Command("osascript", "-e", "on run argv\n tell application \"Terminal\"\n activate\n do script \"cd -- \" & quoted form of (item 1 of argv) & \"; exec \" & quoted form of (item 2 of argv)\n end tell\nend run", path, shell), nil
 	}
 	if executable := findDesktopApp("gnome-terminal"); executable != "" {

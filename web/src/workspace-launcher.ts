@@ -4,6 +4,7 @@ export const workspaceApplications = [
   { name: 'File Explorer', label: '文件资源管理器', application: 'folder' },
   { name: 'PowerShell', label: 'PowerShell', application: 'powershell' },
   { name: 'Git Bash', label: 'Git Bash', application: 'git-bash' },
+  { name: 'Zsh', label: 'Zsh', application: 'zsh' },
   { name: 'Bash', label: 'Bash', application: 'bash' },
 ];
 

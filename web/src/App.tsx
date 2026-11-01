@@ -1230,7 +1230,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         if (event.type === 'log') { if (visible()) chatLogs.push({ level: event.level, message: event.message, content: event.content }); return; }
         // Legacy Chat.vue opened the right panel's command tab when the agent
         // started a background shell, so the running process is visible.
-        if (visible() && (event.type === 'tool_call' || event.type === 'sub_tool_call') && event.name === 'bash_start') window.dispatchEvent(new CustomEvent('loopra:bash-start'));
+        if (visible() && (event.type === 'tool_call' || event.type === 'sub_tool_call') && /^(bash|zsh|sh|powershell|CMD)_start$/.test(event.name || '')) window.dispatchEvent(new CustomEvent('loopra:bash-start'));
         // Every sub-agent run gets its own tab next to the conversation and files.
         // Opening it without selecting keeps the answer the user is watching in view.
         if (event.type === 'sub_start' && event.subSessionId && target?.name) {

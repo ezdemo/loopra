@@ -5,7 +5,12 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/workspace-launcher.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { launchWorkspace, workspaceApplications } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { launchWorkspace, workspaceApplications, visibleApplications } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+
+test('macOS offers Zsh while Windows keeps its installed terminal entries', () => {
+  assert.deepEqual(visibleApplications(['folder', 'zsh', 'bash', 'terminal']).map(item => item.name), ['File Explorer', 'Zsh', 'Bash']);
+  assert.deepEqual(visibleApplications(['folder', 'powershell', 'git-bash', 'bash', 'terminal']).map(item => item.name), ['File Explorer', 'PowerShell', 'Git Bash', 'Bash']);
+});
 
 test('each native open action calls Java with the selected project hash', async () => {
   const calls = [];

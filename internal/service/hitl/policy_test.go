@@ -60,7 +60,7 @@ func TestPolicyRequire(t *testing.T) {
 
 func TestShellNamesKeepApprovalPolicy(t *testing.T) {
 	p := &Policy{Mode: func() string { return ModeApproval }}
-	for _, name := range []string{"bash", "sh", "powershell", "CMD"} {
+	for _, name := range []string{"bash", "zsh", "sh", "powershell", "CMD"} {
 		if p.Require("s", name, map[string]any{"command": "git status"}) {
 			t.Errorf("%s: read-only query requires approval", name)
 		}

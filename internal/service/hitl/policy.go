@@ -124,7 +124,7 @@ func (p *Policy) workspaceLocal(name string, args map[string]any) bool {
 		return !p.escapesWorkspace(pathOf(args))
 	case "memory":
 		return true
-	case "bash", "sh", "powershell", "CMD":
+	case "bash", "zsh", "sh", "powershell", "CMD":
 		command, _ := args["command"].(string)
 		return isReadOnlyShell(command) || isWorkspaceLocalShell(command)
 	default:

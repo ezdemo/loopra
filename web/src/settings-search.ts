@@ -17,7 +17,7 @@ const aliases: Record<string, string> = {
   '外观': '主题 深色 浅色 跟随系统 theme',
   '界面缩放': '字体 大小 比例 font size zoom',
   '通知提示音': '声音 音效 sound',
-  '默认打开应用': '文件管理器 终端 File Explorer Terminal Git Bash',
+  '默认打开应用': '文件管理器 终端 File Explorer Terminal PowerShell Git Bash Zsh Bash',
   '宠物': '宠物 pet',
   '显示宠物': '宠物 pet 开关 显示 隐藏',
   '界面动画': '动效 实验室 animation',
