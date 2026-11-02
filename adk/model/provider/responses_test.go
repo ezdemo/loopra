@@ -130,6 +130,88 @@ func TestResponsesStream(t *testing.T) {
 	}
 }
 
+func TestResponsesReasoningSummary(t *testing.T) {
+	srv, _, _ := captureRequest(t, func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"先想一下"}]},{"type":"message","content":[{"type":"output_text","text":"你好"}]}],"usage":{}}`))
+	})
+	llm, err := NewLLM(testChannel(ProtocolResponses, srv.URL), &Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := collectLLM(llm, reqWith([]*genai.Content{userContent("hi")}), false)
+	if err != nil || len(out) != 1 {
+		t.Fatalf("sync: %v len=%d", err, len(out))
+	}
+	if got := out[0].Content.Parts[0]; got.Text != "先想一下" || !got.Thought {
+		t.Fatalf("reasoning = %+v", got)
+	}
+	if got := out[0].Content.Parts[1]; got.Text != "你好" || got.Thought {
+		t.Fatalf("text = %+v", got)
+	}
+}
+
+func TestResponsesReasoningSummaryString(t *testing.T) {
+	srv, _, _ := captureRequest(t, func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"reasoning","summary":"网关字符串"},{"type":"message","content":[{"type":"output_text","text":"好"}]}],"usage":{}}`))
+	})
+	llm, err := NewLLM(testChannel(ProtocolResponses, srv.URL), &Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := collectLLM(llm, reqWith([]*genai.Content{userContent("hi")}), false)
+	if err != nil || len(out) != 1 {
+		t.Fatalf("sync: %v len=%d", err, len(out))
+	}
+	if got := out[0].Content.Parts[0]; got.Text != "网关字符串" || !got.Thought {
+		t.Fatalf("reasoning = %+v", got)
+	}
+}
+
+func TestResponsesStreamReasoningSummary(t *testing.T) {
+	srv, _, _ := captureRequest(t, func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		frames := []string{
+			`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","item":{"id":"rs_1","type":"reasoning","summary":[]}}`,
+			`event: response.reasoning_summary_text.delta` + "\n" + `data: {"type":"response.reasoning_summary_text.delta","delta":"你好"}`,
+			`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","item":{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"你好"}]}}`,
+			`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","delta":"嗯"}`,
+			`event: response.completed` + "\n" + `data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2},"output":[{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"你好"}]},{"type":"message","content":[{"type":"output_text","text":"嗯"}]}]}}`,
+		}
+		for _, f := range frames {
+			_, _ = w.Write([]byte(f + "\n\n"))
+		}
+	})
+	llm, err := NewLLM(testChannel(ProtocolResponses, srv.URL), &Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := collectLLM(llm, reqWith([]*genai.Content{userContent("hi")}), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 3 {
+		t.Fatalf("events = %d", len(out))
+	}
+	if got := out[0].Content.Parts[0]; !out[0].Partial || !got.Thought || got.Text != "你好" {
+		t.Fatalf("thought partial = %+v", out[0])
+	}
+	if got := out[1].Content.Parts[0]; !out[1].Partial || got.Thought || got.Text != "嗯" {
+		t.Fatalf("text partial = %+v", out[1])
+	}
+	final := out[2]
+	if final.Partial || !final.TurnComplete {
+		t.Fatalf("final flags: %+v", final)
+	}
+	if got := final.Content.Parts[0]; got.Text != "你好" || !got.Thought {
+		t.Fatalf("final reasoning = %+v", got)
+	}
+	if got := final.Content.Parts[1]; got.Text != "嗯" || got.Thought {
+		t.Fatalf("final text = %+v", got)
+	}
+}
+
 func TestResponsesStreamFailure(t *testing.T) {
 	srv, _, _ := captureRequest(t, func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "text/event-stream")

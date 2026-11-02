@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Box, Copy, Download, Image, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
-import { applyProviderPreset, providerPresetFor, providerPresets, validateProvider } from '../settings-data';
+import { applyProviderPreset, fitModelOutput, providerPresetFor, providerPresets, validateProvider } from '../settings-data';
 import type { Provider, ProviderModel } from '../lib';
 import { formatTokens, modelDisplayName, modelLabel, newModel, providerModels } from '../composer';
 import { Field, SelectField, SettingSwitch } from './SettingControls';
@@ -22,7 +22,7 @@ function ModelConfigDialog({ initial, adding, onClose, onApply }: { initial: Pro
   }, [initial]);
   const update = (patch: Partial<ProviderModel>) => { setModel(current => ({ ...current, ...patch })); setError(''); };
   function apply() {
-    const normalized = { ...model, name: model.name.trim(), displayName: model.displayName?.trim() || '' };
+    const normalized = fitModelOutput({ ...model, name: model.name.trim(), displayName: model.displayName?.trim() || '' });
     const reason = validateProvider({ id: 'model', name: '模型', type: 'responses', count: 1, models: [normalized] });
     setError(reason || onApply(normalized));
   }
@@ -87,9 +87,10 @@ export default function ModelProviderSettings(props: Props) {
   }
   async function save() {
     if (!editing || saving) return;
-    const reason = validateProvider({ ...editing, models: ownModels });
+    const models = ownModels.map(model => fitModelOutput({ ...model, name: model.name.trim(), displayName: model.displayName?.trim() || '' }));
+    const reason = validateProvider({ ...editing, models });
     if (reason) { setErrors(current => ({ ...current, [key]: reason })); return; }
-    const entry = { ...editing, id: editing.id || crypto.randomUUID(), name: editing.name.trim(), models: ownModels.map(model => ({ ...model, name: model.name.trim(), displayName: model.displayName?.trim() || '' })), count: ownModels.length };
+    const entry = { ...editing, id: editing.id || crypto.randomUUID(), name: editing.name.trim(), models, count: models.length };
     setSaving(true);
     try {
       await onProviders(providers.some(provider => provider.id === editing.id) ? providers.map(provider => provider.id === editing.id ? entry : provider) : [...providers, entry]);

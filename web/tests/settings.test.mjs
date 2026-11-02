@@ -21,7 +21,10 @@ test('custom provider models reach the picker; disabled channels stay out', () =
   assert.equal(composer.getModelCatalog([provider])[0].imageInput, true);
   assert.deepEqual(composer.getModelCatalog([{ ...provider, enabled: false }]), []);
   assert.match(settings.validateProvider({ ...provider, models: [...provider.models, ...provider.models] }), /重复/);
-  assert.match(settings.validateProvider({ ...provider, models: [{ ...provider.models[0], maxTokens: 128000 }] }), /不能超过/);
+  const oversized = { ...provider.models[0], contextTokens: 64000, maxTokens: 128000 };
+  assert.equal(settings.fitModelOutput(oversized).maxTokens, 64000);
+  assert.equal(settings.fitModelOutput({ ...oversized, maxTokens: 4096 }).maxTokens, 4096);
+  assert.equal(settings.validateProvider({ ...provider, models: [settings.fitModelOutput(oversized)] }), '');
   assert.match(settings.validateProvider({ ...provider, baseUrl: 'file:///secret' }), /HTTP/);
 });
 

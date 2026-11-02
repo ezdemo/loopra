@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -253,14 +254,59 @@ func (u responsesUsage) toUsageMetadata() *genai.GenerateContentResponseUsageMet
 	}
 }
 
+// responsesSummaryPart 是推理摘要中的一段文本。
+type responsesSummaryPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// responsesSummary 兼容官方 Responses 的 summary 数组，以及部分网关返回的纯字符串。
+// 推理条目在 output_item.added 时 summary 往往是 []，按 string 解码会直接中断整段流。
+type responsesSummary []responsesSummaryPart
+
+func (s *responsesSummary) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return nil
+	}
+	switch data[0] {
+	case '"':
+		var text string
+		if err := json.Unmarshal(data, &text); err != nil {
+			return err
+		}
+		if text != "" {
+			*s = responsesSummary{{Type: "summary_text", Text: text}}
+		}
+		return nil
+	case '[':
+		var parts []responsesSummaryPart
+		if err := json.Unmarshal(data, &parts); err != nil {
+			return err
+		}
+		*s = parts
+		return nil
+	default:
+		return fmt.Errorf("responses summary: unsupported JSON")
+	}
+}
+
+func (s responsesSummary) text() string {
+	var b strings.Builder
+	for _, part := range s {
+		b.WriteString(part.Text)
+	}
+	return b.String()
+}
+
 // responsesOutputItem 是已完成响应中的一个条目。
 type responsesOutputItem struct {
-	Type    string `json:"type"`
-	ID      string `json:"id"`
-	CallID  string `json:"call_id"`
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Summary string `json:"summary"`
+	Type    string           `json:"type"`
+	ID      string           `json:"id"`
+	CallID  string           `json:"call_id"`
+	Name    string           `json:"name"`
+	Status  string           `json:"status"`
+	Summary responsesSummary `json:"summary"`
 	Content []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -314,6 +360,10 @@ func responsesParts(items []responsesOutputItem) ([]*genai.Part, error) {
 					parts = append(parts, &genai.Part{Text: c.Text})
 				}
 			}
+		case "reasoning":
+			if text := reasoningText(item); text != "" {
+				parts = append(parts, &genai.Part{Text: text, Thought: true})
+			}
 		case "function_call":
 			if item.Name == "" {
 				continue
@@ -330,6 +380,21 @@ func responsesParts(items []responsesOutputItem) ([]*genai.Part, error) {
 		}
 	}
 	return parts, nil
+}
+
+// reasoningText 取出推理条目里要展示的思考文本。
+// 有完整 reasoning_text 时用它，否则退回 summary（数组或字符串）。
+func reasoningText(item responsesOutputItem) string {
+	var b strings.Builder
+	for _, c := range item.Content {
+		if c.Type == "reasoning_text" && c.Text != "" {
+			b.WriteString(c.Text)
+		}
+	}
+	if b.Len() > 0 {
+		return b.String()
+	}
+	return item.Summary.text()
 }
 
 func responsesFinishReason(status string, incomplete *struct {

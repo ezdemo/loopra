@@ -89,6 +89,12 @@ export function applyProviderPreset(provider: Provider, preset: ProviderPreset):
   return { ...provider, name: provider.name?.trim() ? provider.name : preset.name, baseUrl: preset.baseUrl, type: preset.type, compatibility: preset.compatibility || '' };
 }
 
+/** 最大输出超过上下文窗口时，把它压到和窗口一样，保存不再因此失败。 */
+export function fitModelOutput<T extends { contextTokens: number; maxTokens: number }>(model: T): T {
+  if (!Number.isInteger(model.contextTokens) || model.contextTokens <= 0 || model.maxTokens <= model.contextTokens) return model;
+  return { ...model, maxTokens: model.contextTokens };
+}
+
 export function validateProvider(provider: Provider) {
   if (!provider.name.trim()) return '请输入供应商名称';
   if (provider.baseUrl) { try { if (!['http:', 'https:'].includes(new URL(provider.baseUrl).protocol)) return '请输入有效的 HTTP / HTTPS API 地址'; } catch { return '请输入有效的 HTTP / HTTPS API 地址'; } }
@@ -98,7 +104,6 @@ export function validateProvider(provider: Provider) {
     if (names.has(model.name.trim())) return '同一供应商内的模型名称不能重复';
     names.add(model.name.trim());
     if (![model.contextTokens, model.maxTokens].every(value => Number.isInteger(value) && value > 0)) return '上下文和最大输出必须是正整数';
-    if (model.maxTokens > model.contextTokens) return '最大输出不能超过上下文窗口';
     if (![model.inputPrice, model.cachePrice, model.outputPrice].every(value => Number.isFinite(value) && value >= 0)) return '模型价格必须是非负数';
   }
   return '';
