@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $api = $env:LOOPRAX_RELEASE_API_URL
 if (-not $api) { $api = 'https://api.github.com/repos/ezdemo/loopra-release/releases/latest' }
 if ($env:LOOPRA_MIRROR) { $api = $env:LOOPRA_MIRROR + $api }
@@ -33,7 +34,13 @@ Write-Output '[Loopra] Downloading the release asset...'
 Invoke-WebRequest -Uri $url -OutFile $download -UseBasicParsing
 if ($asset.digest -and $asset.digest.StartsWith('sha256:')) {
     Write-Output '[Loopra] Verifying SHA-256...'
-    $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($download)
+        try {
+            $actual = [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+        } finally { $stream.Dispose() }
+    } finally { $sha256.Dispose() }
     if ($actual -ne $asset.digest.Substring(7).ToLowerInvariant()) { throw 'Release checksum mismatch' }
 }
 $staged = Join-Path $directory ([guid]::NewGuid().ToString('N') + '.exe')
