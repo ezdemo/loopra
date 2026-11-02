@@ -1,3 +1,5 @@
+import { fieldStubs } from './helpers/form-controls.mjs';
+import { nextUIControlStubs } from './helpers/nextui-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -21,17 +23,19 @@ async function compile(name, dependencies) {
   }
   return dataUrl(outputText);
 }
-const nextui = dataUrl(`export const Spinner = () => null; export const Button = () => null; export const Modal = () => null; export const ModalBody = () => null; export const ModalContent = () => null; export const ModalFooter = () => null; export const ModalHeader = () => null;`);
+const nextui = dataUrl(`import {createElement} from ${JSON.stringify(reactUrl)}; const h=createElement;
+${nextUIControlStubs}
+export const Spinner = () => null;
+export const Modal = ({isOpen, children, 'aria-label':label}) => isOpen ? h('section', {role:'dialog', 'aria-label':label}, children) : null;
+export const ModalContent = ({children}) => h('div', null, children);
+export const ModalBody = ModalContent, ModalFooter = ModalContent, ModalHeader = ModalContent;
+`);
 const remote = await compile('RemoteControls', { '@nextui-org/react': nextui });
-const fields = dataUrl(`import { createElement as h } from ${JSON.stringify(reactUrl)};
-export const Field = ({ label, value, onChange }) => h('label', null, label, h('input', { value, onChange: event => onChange(event.target.value) }));
-export const PageActions = () => null;
-export const SettingDisclosure = () => null;
-export const ResourceIcon = () => null;
-export const ResourceEmpty = ({ title, children }) => h('section', null, h('h3', null, title), children);`);
+const fields = dataUrl(`import {createElement} from ${JSON.stringify(reactUrl)}; ${fieldStubs}`);
 const icons = await compile('plugin-icons', { 'lucide-react': import.meta.resolve('lucide-react') });
-const capabilityUI = await compile('CapabilityUI', { 'lucide-react': import.meta.resolve('lucide-react') });
-const { PluginCatalog } = await import(await compile('PluginCatalog', { './RemoteControls': remote, './SettingControls': fields, './plugin-icons': icons, './CapabilityUI': capabilityUI, 'lucide-react': import.meta.resolve('lucide-react') }));
+const capabilityUI = await compile('CapabilityUI', { '@nextui-org/react': nextui, './SettingControls': fields, 'lucide-react': import.meta.resolve('lucide-react') });
+const actionDialog = await compile('PluginActionDialog', { './Motion': dataUrl('export const usePresence = open => open;'), '@nextui-org/react': nextui, 'lucide-react': import.meta.resolve('lucide-react') });
+const { PluginCatalog } = await import(await compile('PluginCatalog', { '@nextui-org/react': nextui, './RemoteControls': remote, './SettingControls': fields, './plugin-icons': icons, './CapabilityUI': capabilityUI, 'lucide-react': import.meta.resolve('lucide-react') }));
 const { ExtensionManager } = await import(await compile('ResourceManagers', {
   './PluginFrame': dataUrl('export const PluginFrame = () => null;'),
   './PluginCatalog': dataUrl('export const PluginCatalog = () => null;'),
@@ -39,6 +43,7 @@ const { ExtensionManager } = await import(await compile('ResourceManagers', {
   './UsageDashboard': dataUrl('export const UsageDashboard = () => null;'),
   './RemoteControls': remote, './SettingControls': fields, './plugin-icons': icons,
   './CapabilityUI': capabilityUI, '@nextui-org/react': nextui, 'lucide-react': import.meta.resolve('lucide-react'),
+  './PluginActionDialog': actionDialog,
 }));
 const first = 'https://github.com/acme/plugins';
 const second = 'https://github.com/acme/other';
@@ -96,14 +101,15 @@ test('catalog updates an installed plugin by id and keeps uninstall available', 
 async function mountInstalled(updateRequest) {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container), calls = [], notices = [];
-  let version = '1.0.0', changes = 0;
-  const api = { request: async (path, method = 'GET') => {
-    calls.push({ path, method });
+  let version = '1.0.0', changes = 0, enabled = false;
+  const api = { request: async (path, method = 'GET', body) => {
+    calls.push(body === undefined ? { path, method } : { path, method, body });
     if (path === '/plugins') return [
-      { id: 'alpha', displayName: 'Alpha', version, enabled: false, source: 'alpha' },
+      { id: 'alpha', displayName: 'Alpha', version, enabled, source: 'alpha' },
       { id: 'builtin', displayName: 'Builtin', enabled: true, builtin: true },
     ];
     if (path === '/plugins/alpha/update') { await updateRequest(); version = '2.0.0'; return {}; }
+    if (path === '/plugins/alpha/toggle') { enabled = body.enabled; return {}; }
     throw new Error(`Unexpected request: ${path}`);
   } };
   await act(async () => root.render(createElement(ExtensionManager, { api, notify: message => notices.push(message), embedded: true, library: true, view: 'installed', onChanged: () => { changes++; } })));
@@ -119,14 +125,28 @@ test('installed plugin update locks actions while pending, refreshes version and
     const button = view.container.querySelector('[aria-label="更新 Alpha"]');
     assert.equal(button.disabled, true);
     assert.equal(button.getAttribute('aria-busy'), 'true');
-    assert.ok([...view.container.querySelectorAll('.plugin-card button')].every(button => button.disabled));
+    assert.match(view.container.querySelector('[role="dialog"]').getAttribute('aria-label'), /正在更新/);
+    assert.match(view.container.querySelector('[role="status"]').textContent, /正在更新/);
+    assert.ok([...view.container.querySelectorAll('.plugin-card button, .plugin-card input')].every(control => control.disabled));
     await act(async () => { complete(); });
     assert.deepEqual(view.calls.filter(call => call.method === 'POST'), [{ path: '/plugins/alpha/update', method: 'POST' }]);
     assert.match(view.container.querySelector('.plugin-card-meta')?.textContent || view.container.textContent, /v2.0.0/);
     assert.equal(view.container.querySelector('[role="switch"]').getAttribute('aria-checked'), 'false');
     assert.deepEqual(view.notices, ['插件已更新']);
-    assert.equal(view.container.querySelector('[role="status"]'), null);
-    assert.equal(view.container.querySelector('.library-card-stream').textContent.includes('插件已更新'), false);
+    assert.equal(view.container.querySelector('[role="dialog"]').getAttribute('aria-label'), '插件已更新');
+    assert.match(view.container.querySelector('[role="status"]').textContent, /已保留原有启用状态/);
+    await act(async () => [...view.container.querySelectorAll('button')].find(button => button.textContent === '完成').click());
+    assert.equal(view.container.querySelector('[role="dialog"]'), null);
+    assert.equal(view.changes(), 1);
+  } finally { await view.close(); }
+});
+
+test('NextUI switch submits its selected value and reflects the refreshed plugin state', async () => {
+  const view = await mountInstalled(async () => {});
+  try {
+    await act(async () => view.container.querySelector('[aria-label="Alpha 启用状态"]').click());
+    assert.deepEqual(view.calls.find(call => call.method === 'POST'), {path:'/plugins/alpha/toggle', method:'POST', body:{enabled:true}});
+    assert.equal(view.container.querySelector('[aria-label="Alpha 启用状态"]').checked, true);
     assert.equal(view.changes(), 1);
   } finally { await view.close(); }
 });
@@ -142,11 +162,45 @@ test('failed installed plugin updates show the error and allow retry', async () 
     assert.deepEqual(view.notices, []);
     assert.match(view.container.textContent, /v1.0.0/);
     fail = false;
-    await act(async () => view.container.querySelector('[aria-label="更新 Alpha"]').click());
+    await act(async () => [...view.container.querySelectorAll('[role="dialog"] button')].find(button => button.textContent === '重试').click());
     assert.equal(view.container.querySelector('[role="alert"]'), null);
     assert.match(view.container.textContent, /v2.0.0/);
     assert.equal(view.changes(), 1);
   } finally { await view.close(); }
+});
+
+test('address installation keeps its source for retry and only reports completion after the request resolves', async () => {
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container), calls = [];
+  let finish, fail = true, changes = 0;
+  const api = { request: async (path, method = 'GET', body) => {
+    if (path === '/plugins') return [];
+    calls.push({path, method, body});
+    if (fail) throw new Error('找不到插件');
+    await new Promise(resolve => { finish = resolve; });
+    return {};
+  } };
+  try {
+    await act(async () => root.render(createElement(ExtensionManager, {api, notify: () => {}, embedded:true, library:true, view:'installed', installOpen:true, onChanged: () => { changes++; }})));
+    assert.equal(container.querySelector('[role="dialog"]').getAttribute('aria-label'), '添加插件');
+    assert.equal(container.querySelector('[type="submit"]').disabled, true);
+    await act(async () => {
+      const input = container.querySelector('[aria-label="插件地址"]');
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'https://github.com/acme/plugin');
+      input.dispatchEvent(new window.Event('input', {bubbles:true}));
+    });
+    await act(async () => container.querySelector('form').dispatchEvent(new window.Event('submit', {bubbles:true, cancelable:true})));
+    assert.match(container.querySelector('[role="alert"]').textContent, /找不到插件/);
+    assert.equal(changes, 0);
+    fail = false;
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '重试').click());
+    assert.match(container.querySelector('[role="status"]').textContent, /正在安装/);
+    assert.equal(changes, 0);
+    assert.deepEqual(calls, Array(2).fill({path:'/plugins/install', method:'POST', body:{source:'https://github.com/acme/plugin'}}));
+    await act(async () => finish());
+    assert.equal(container.querySelector('[role="dialog"]').getAttribute('aria-label'), '插件已安装');
+    assert.equal(changes, 1);
+  } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
 test('adding, switching and removing a source preserve installed plugins', async () => {

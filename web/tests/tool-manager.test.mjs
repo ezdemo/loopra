@@ -29,6 +29,7 @@ const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, className, startContent, endContent, isIconOnly, variant, size, color, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, className: className || undefined, ...rest }, children);
 ${checkboxStub}
+export const Switch = () => null;
 `);
 const controlsStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
@@ -66,7 +67,8 @@ const { ToolManager, SubAgentManager } = await import(await sourceUrl('component
   'lucide-react': import.meta.resolve('lucide-react'),
   './PluginFrame': dataUrl('export const PluginFrame = () => null;'),
   './PluginCatalog': dataUrl('export const PluginCatalog = () => null;'),
-  './CapabilityUI': dataUrl('export const CapabilityControls = () => null; export const CapabilityCard = () => null; export const CapabilityRefresh = () => null; export const CapabilitySearch = () => null;'),
+  './PluginActionDialog': dataUrl('export default () => null;'),
+  './CapabilityUI': dataUrl('export const CapabilityControls = () => null; export const CapabilityCard = () => null; export const CapabilityRefresh = () => null; export const CapabilitySearch = () => null; export const CapabilitySelect = () => null;'),
   './plugin-icons': dataUrl('export const PluginGlyph = () => null; export const pluginTone = () => "#4f6ef7";'),
   './RemoteControls': controlsStub,
   './SettingControls': settingControlsStub,

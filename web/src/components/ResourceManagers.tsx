@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { PluginFrame, type PluginContext } from './PluginFrame';
 import { PluginCatalog } from './PluginCatalog';
 import { PluginGlyph, pluginTone, type PluginIconRef } from './plugin-icons';
-import { Button } from '@nextui-org/react';
-import { Plus, RefreshCw, Settings2, Trash2, X } from 'lucide-react';
+import { Button, Switch } from '@nextui-org/react';
+import { Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react';
+import PluginActionDialog, { type PluginOperation } from './PluginActionDialog';
 import type { LoopraClient } from '../backend';
 import { ConfirmAction, errorText, RemoteState, useRemote } from './RemoteControls';
 import { PageActions, Field, SettingDisclosure, ResourceIcon, ResourceEmpty } from './SettingControls';
-import { CapabilityCard, CapabilityControls, CapabilityRefresh, CapabilitySearch, type CapabilityLibraryProps } from './CapabilityUI';
+import { CapabilityCard, CapabilityControls, CapabilityRefresh, CapabilitySearch, CapabilitySelect, type CapabilityLibraryProps } from './CapabilityUI';
 
 type ToolParam = { name: string; description?: string; type?: string; required?: boolean };
 type Tool = { name: string; description: string; readOnly: boolean; readOnlyOverride: boolean | null; stormExempt: boolean; enabled: boolean; autoApproved: boolean; params?: ToolParam[] };
@@ -27,22 +28,33 @@ export function ExtensionManager({ api, notify, onChanged, context, embedded = f
   const [status, setStatus] = useState('all');
   const [localAdding, setLocalAdding] = useState(false);
   const adding = installOpen ?? localAdding;
-  function setAdding(open: boolean) { setLocalAdding(open); onInstallOpenChange?.(open); }
+  function setAdding(open: boolean) { setLocalAdding(open); onInstallOpenChange?.(open); if (open) setOperation(undefined); }
   const [revision, setRevision] = useState(0); const state = useRemote<Pack[]>(api, '/plugins', revision + refreshKey, true); const [source, setSource] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [deleting, setDeleting] = useState<Pack>(); const [panel, setPanel] = useState<Pack>();
   const [updating, setUpdating] = useState('');
-  async function act(path: string, body?: unknown, clearSource = false) {
+  const [operation, setOperation] = useState<PluginOperation>();
+  async function act(path: string, body?: unknown) {
     setBusy(true); setError('');
-    try { await api.request(`/plugins${path}`, 'POST', body); if (clearSource) { setSource(''); setAdding(false); } onChanged?.(); return true; }
+    try { await api.request(`/plugins${path}`, 'POST', body); onChanged?.(); return true; }
     catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); setRevision(value => value + 1); }
     return false;
   }
-  async function update(id: string) {
-    setUpdating(id);
+  async function runOperation(kind: 'install' | 'update', value: string) {
+    if (busy) return;
+    const pack = kind === 'update' ? state.data?.find(item => item.id === value) : undefined;
+    const task: PluginOperation = { kind, phase: 'running', pack, source: kind === 'install' ? value : undefined };
+    setOperation(task); setBusy(true); setError('');
+    if (kind === 'update') setUpdating(value);
     try {
-      if (await act(`/${encodeURIComponent(id)}/update`)) notify('插件已更新');
-    } finally { setUpdating(''); }
+      const result = await api.request<Pack>(kind === 'update' ? `/plugins/${encodeURIComponent(value)}/update` : '/plugins/install', 'POST', kind === 'install' ? { source: value } : undefined);
+      setOperation({ ...task, phase: 'success', result });
+      onChanged?.();
+      if (kind === 'update') notify('插件已更新');
+      else setSource('');
+    } catch (cause) { setOperation({ ...task, phase: 'error', error: errorText(cause) }); }
+    finally { setBusy(false); setUpdating(''); setRevision(value => value + 1); }
   }
+  async function update(id: string) { await runOperation('update', id); }
   const visible = state.data?.filter(pack => `${pack.displayName || ''} ${pack.id} ${pack.description || ''}`.toLowerCase().includes((searchQuery ?? filter).trim().toLowerCase()) && (status === 'all' || (status === 'failed' ? !!pack.error : status === 'enabled' ? pack.enabled && !pack.error : !pack.enabled)));
   if (panel) {
     const name = panel.displayName || panel.id;
@@ -60,35 +72,32 @@ export function ExtensionManager({ api, notify, onChanged, context, embedded = f
     </div>}
     {error && <p role="alert" className="settings-error">{error}</p>}
     <RemoteState {...state} loading={state.loading && !state.data} />
-    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || state.loading || !state.data} onInstall={async value => { await act('/install', { source: value }); }} onUpdate={update} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
+    {tab === 'catalog' ? <PluginCatalog api={api} installed={state.data || []} busy={busy || state.loading || !state.data} onInstall={async value => { await runOperation('install', value); }} onUpdate={update} onUninstall={id => setDeleting(state.data?.find(pack => pack.id === id && !pack.builtin))} library={library} searchQuery={searchQuery} refreshKey={refreshKey} toolbarTarget={toolbarTarget} showType={showType} /> : <>
     {!library && <div className="capability-toolbar">
       <CapabilitySearch label="搜索已安装插件" value={filter} onChange={setFilter} />
-      <select className="capability-select" aria-label="插件状态" value={status} onChange={event => setStatus(event.target.value)}><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">已停用</option><option value="failed">加载失败</option></select>
+      <CapabilitySelect label="插件状态" value={status} onChange={setStatus} options={[{ value: 'all', label: '全部状态' }, { value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已停用' }, { value: 'failed', label: '加载失败' }]} />
       <CapabilityRefresh disabled={busy} onClick={() => setRevision(value => value + 1)} />
-      <button type="button" className="capability-primary" aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus size={15} />安装插件</button>
+      <Button size="sm" color="primary" type="button" className="capability-primary" aria-expanded={adding} onPress={() => setAdding(!adding)}><Plus size={15} />安装插件</Button>
     </div>}
-    {library && <CapabilityControls library target={toolbarTarget}><select className="capability-select" aria-label="插件状态" value={status} onChange={event => setStatus(event.target.value)}><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">已停用</option><option value="failed">加载失败</option></select></CapabilityControls>}
-    {adding && <form className="capability-install-panel" onSubmit={event => { event.preventDefault(); const value = source.trim(); if (value) void act('/install', { source: value }, true); }}>
-      <Field label="插件地址" required value={source} onChange={setSource} placeholder="npm 包名、GitHub 地址或本地路径" />
-      <button className="capability-primary" type="submit" disabled={busy || !source.trim()}>{busy ? '安装中' : '安装'}</button>
-      <button type="button" className="capability-icon-button" aria-label="取消安装" onClick={() => setAdding(false)}><X size={16} /></button>
-    </form>}
+    {library && <CapabilityControls library target={toolbarTarget}><CapabilitySelect label="插件状态" value={status} onChange={setStatus} options={[{ value: 'all', label: '全部状态' }, { value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已停用' }, { value: 'failed', label: '加载失败' }]} /></CapabilityControls>}
     {!library && state.data?.length === 0 && <ResourceEmpty kind="plugin" title="尚未安装插件">前往「发现插件」浏览，或从地址安装。</ResourceEmpty>}
     {!library && !!state.data?.length && visible?.length === 0 && <ResourceEmpty kind="plugin" title="没有匹配的插件">尝试调整搜索或状态筛选。</ResourceEmpty>}
     <div className="plugin-market">{visible?.map(pack => {
       const name = pack.displayName || pack.id;
       const failed = pack.state === '加载失败';
       const on = pack.enabled && !failed;
-      return <CapabilityCard key={pack.id} className="plugin-card" title={name} description={pack.description || pack.remark} iconClassName={pack.icon ? 'plugin-card-mark has-icon' : 'plugin-card-mark'} iconStyle={pack.icon ? undefined : { background: pluginTone(pack.id), color: '#fff' }} icon={pack.icon ? <PluginGlyph api={api} pluginId={pack.id} icon={pack.icon} className="plugin-card-icon" size="1.25rem" /> : ([...name.trim()][0] || '?')} badge={[showType && '插件', pack.builtin && '内置'].filter(Boolean).join(' · ')} meta={<span title={pack.source}>{[pack.version && `v${pack.version}`, !pack.builtin && pluginOrigin(pack)].filter(Boolean).join(' · ')}</span>} actions={<>
-        <button className={`capability-toggle ${failed ? 'is-failed' : ''}`} role="switch" aria-label={`${name} 启用状态`} aria-checked={pack.enabled} data-on={on} type="button" disabled={busy} onClick={() => void act(`/${encodeURIComponent(pack.id)}/toggle`, { enabled: !pack.enabled })}><span className="capability-toggle-track" />{failed ? '加载失败' : on ? '已启用' : '已停用'}</button>
-        {pack.settings && <button className="capability-icon-button" type="button" disabled={busy} aria-label={`${name} 设置`} title="设置" onClick={() => { onOpenSettings?.(); setPanel(pack); }}><Settings2 size={15} /></button>}
-        {!pack.builtin && <button className="capability-icon-button" type="button" disabled={busy || !(pack.source || pack.sourceUrl)} aria-label={`更新 ${name}`} title={updating === pack.id ? '更新中' : '更新'} aria-busy={updating === pack.id} onClick={() => void update(pack.id)}><RefreshCw size={15} className={updating === pack.id ? 'animate-spin' : undefined} /></button>}
-        {!pack.builtin && <button className="capability-icon-button capability-remove" type="button" disabled={busy} aria-label={`卸载 ${name}`} title="卸载" onClick={() => setDeleting(pack)}><Trash2 size={15} /></button>}
+      return <CapabilityCard key={pack.id} className={`plugin-card ${on ? '' : 'plugin-card-inactive'}`} title={name} description={pack.description || pack.remark} iconClassName={pack.icon ? 'plugin-card-mark has-icon' : 'plugin-card-mark'} iconStyle={pack.icon ? undefined : { background: pluginTone(pack.id), color: '#fff' }} icon={pack.icon ? <PluginGlyph api={api} pluginId={pack.id} icon={pack.icon} className="plugin-card-icon" size="1.25rem" /> : ([...name.trim()][0] || '?')} badge={[showType && '插件', pack.builtin && '内置'].filter(Boolean).join(' · ')} meta={<span title={pack.source}>{[pack.version && `v${pack.version}`, !pack.builtin && pluginOrigin(pack)].filter(Boolean).join(' · ')}</span>} headerActions={
+        <Switch size="sm" color={failed ? 'danger' : 'primary'} className="capability-toggle" aria-label={`${name} 启用状态`} title={failed ? '加载失败' : on ? '停用插件' : '启用插件'} isSelected={pack.enabled} isDisabled={busy} onValueChange={enabled => void act(`/${encodeURIComponent(pack.id)}/toggle`, { enabled })} />
+      } actions={<>
+        {!pack.builtin && <Button size="sm" variant="light" className="capability-text-button plugin-update-button" type="button" isDisabled={busy || !(pack.source || pack.sourceUrl)} aria-label={`更新 ${name}`} title={updating === pack.id ? '更新中' : '更新'} aria-busy={updating === pack.id} onPress={() => void update(pack.id)}><RefreshCw size={14} className={updating === pack.id ? 'plugin-operation-spinner' : undefined} /><span>{updating === pack.id ? '更新中' : '更新'}</span></Button>}
+        {pack.settings && <Button size="sm" variant="light" isIconOnly className="capability-icon-button" type="button" isDisabled={busy} aria-label={`${name} 设置`} title="设置" onPress={() => { onOpenSettings?.(); setPanel(pack); }}><Settings2 size={15} /></Button>}
+        {!pack.builtin && <Button size="sm" variant="light" isIconOnly className="capability-icon-button capability-remove" type="button" isDisabled={busy} aria-label={`卸载 ${name}`} title="卸载" onPress={() => setDeleting(pack)}><Trash2 size={15} /></Button>}
       </>}>
         {pack.error && <p role="alert" className="settings-error plugin-card-error">{pack.error}</p>}
       </CapabilityCard>;
     })}</div>
     </>}
+    <PluginActionDialog open={adding || !!operation} operation={operation} source={source} onSourceChange={setSource} onClose={() => { if (!busy) { setAdding(false); setOperation(undefined); } }} onInstall={() => { if (source.trim()) void runOperation('install', source.trim()); }} onRetry={() => { if (operation) void runOperation(operation.kind, operation.kind === 'update' ? operation.pack!.id : operation.source!); }} onEdit={() => { setSource(operation?.source || ''); setAdding(true); }} updatedVersion={operation?.pack ? state.data?.find(pack => pack.id === operation.pack!.id)?.version : undefined} />
     {deleting && <ConfirmAction title="卸载插件" onClose={() => setDeleting(undefined)} action={() => api.request(`/plugins/${encodeURIComponent(deleting.id)}/remove`, 'POST')} onDone={() => { setRevision(value => value + 1); onChanged?.(); }}><p>卸载 {deleting.displayName || deleting.id}？已安装的文件和它贡献的工具会一起移除。</p></ConfirmAction>}
   </div>;
 }

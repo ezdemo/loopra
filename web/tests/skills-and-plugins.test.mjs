@@ -1,3 +1,5 @@
+import { fieldStubs } from './helpers/form-controls.mjs';
+import { nextUIControlStubs } from './helpers/nextui-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -19,32 +21,34 @@ async function compile(file, dependencies = {}) {
   return dataUrl(outputText);
 }
 const react = import.meta.resolve('react');
+const nextui = dataUrl(`import {createElement} from ${JSON.stringify(react)}; ${nextUIControlStubs} export const Spinner = () => null;`);
+const fields = dataUrl(`import {createElement} from ${JSON.stringify(react)}; ${fieldStubs}`);
 const { default: Hub } = await import(await compile('components/SkillsAndPluginsPage.tsx', {
   'react': react,
   'lucide-react': import.meta.resolve('lucide-react'),
-  './CapabilityUI': await compile('components/CapabilityUI.tsx'),
-  '@nextui-org/react': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const Button = ({children, onPress}) => h('button', {onClick:onPress}, children); export const Spinner = () => h('span', {'data-spinner':true});`),
+  './CapabilityUI': await compile('components/CapabilityUI.tsx', { '@nextui-org/react': nextui, './SettingControls': fields }),
+  '@nextui-org/react': nextui,
   './SkillsPage': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export default ({embedded, onRefresh, view, refreshKey, installedRefreshKey}) => h('button', {onClick:onRefresh, 'data-skills':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-installed-refresh':installedRefreshKey}, '技能列表');`),
   './ResourceManagers': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const ExtensionManager = ({embedded, onChanged, notify, context, view, refreshKey}) => h('button', {onClick:() => { onChanged(); notify('插件已更新'); }, 'data-plugins':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-session':context?.sessionId}, '安装插件');`),
 }));
 const { capabilitiesTabForSection } = await import(await compile('capabilities-navigation.ts'));
 
 test('one hub switches between skills and plugins while preserving refresh and page context', async () => {
-  let refreshes = 0, changes = 0, backs = 0;
+  let refreshes = 0, changes = 0;
   const notices = [];
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   function View() {
     const [tab, onTabChange] = useState(capabilitiesTabForSection('技能与插件'));
-    return h(Hub, { api: {}, notify: message => notices.push(message), tab, onTabChange, context: { sessionId: 'project/session' }, onRefresh: async () => { refreshes++; }, onPluginsChanged: () => { changes++; }, onBack: () => { backs++; } });
+    return h(Hub, { api: {}, notify: message => notices.push(message), tab, onTabChange, context: { sessionId: 'project/session' }, onRefresh: async () => { refreshes++; }, onPluginsChanged: () => { changes++; }, onBack: () => {} });
   }
   const click = text => act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === text || button.getAttribute('aria-label') === text).click());
   try {
     await act(async () => root.render(h(View)));
-    const typeNavigation = container.querySelector('header nav[aria-label="内容类型"]');
+    const typeNavigation = container.querySelector('header [role="tablist"][aria-label="内容类型"]');
     assert.deepEqual([...typeNavigation.querySelectorAll('button')].map(button => button.textContent), ['插件', '技能']);
-    assert.equal(typeNavigation.querySelector('[aria-current="page"]').textContent, '插件');
-    assert.deepEqual([...container.querySelectorAll('nav[aria-label="内容视图"] button')].map(button => button.textContent), ['我的内容', '发现']);
+    assert.equal(typeNavigation.querySelector('[aria-selected="true"]').textContent, '插件');
+    assert.deepEqual([...container.querySelectorAll('[role="tablist"][aria-label="内容视图"] button')].map(button => button.textContent), ['我的内容', '发现']);
     assert.equal(container.querySelector('.library-type-filter'), null);
     assert.equal(container.querySelector('input').placeholder, '搜索插件…');
     assert.ok(container.querySelector('[data-plugins]'));
@@ -59,7 +63,7 @@ test('one hub switches between skills and plugins while preserving refresh and p
     assert.equal(container.querySelector('[data-plugins]').getAttribute('data-session'), 'project/session');
     await click('发现'); assert.equal(container.querySelector('[data-plugins]').getAttribute('data-view'), 'catalog');
     await click('技能'); assert.equal(container.querySelector('[data-skills]').getAttribute('data-view'), 'market');
-    assert.equal(typeNavigation.querySelector('[aria-current="page"]').textContent, '技能');
+    assert.equal(typeNavigation.querySelector('[aria-selected="true"]').textContent, '技能');
     assert.equal(container.querySelector('input').placeholder, '搜索技能…');
     assert.equal(container.querySelector('[data-plugins]'), null);
     assert.equal(container.querySelector('[data-skills]').getAttribute('data-skills'), 'true');
@@ -68,7 +72,6 @@ test('one hub switches between skills and plugins while preserving refresh and p
     await click('技能列表'); assert.equal(refreshes, 1);
     await click('我的内容'); assert.equal(container.querySelector('[data-skills]').getAttribute('data-view'), 'installed');
     await click('插件'); assert.equal(container.querySelector('[data-skills]'), null); assert.equal(container.querySelector('[data-plugins]').getAttribute('data-view'), 'installed');
-    await click('返回会话'); assert.equal(backs, 1);
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
 

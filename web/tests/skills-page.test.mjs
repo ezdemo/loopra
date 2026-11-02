@@ -1,3 +1,4 @@
+import { nextUIControlStubs } from './helpers/nextui-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
@@ -22,7 +23,7 @@ async function sourceUrl(name, dependencies = {}) {
 }
 const ui = dataUrl(`
 import { createElement } from ${JSON.stringify(reactUrl)};
-export const Button = ({ children, onPress, isDisabled, isLoading, startContent, endContent, isIconOnly, variant, size, color, ...props }) => createElement('button', { type: 'button', ...props, disabled: isDisabled || isLoading, onClick: onPress }, children);
+${nextUIControlStubs}
 export const Modal = ({ children, isOpen, 'aria-label': label }) => isOpen ? createElement('div', { role: 'dialog', 'aria-label': label }, children) : null;
 export const ModalContent = ({ children }) => createElement('div', null, children);
 export const ModalBody = ModalContent, ModalHeader = ModalContent, ModalFooter = ModalContent;
@@ -30,7 +31,7 @@ export const Spinner = () => createElement('span', null, 'loading');
 `);
 const controls = await sourceUrl('RemoteControls', { '@nextui-org/react': ui });
 const fields = dataUrl(`import {createElement} from ${JSON.stringify(reactUrl)}; ${fieldStubs.replace('onChange, readOnly, disabled, ...props', 'onChange, readOnly, disabled, startContent, ...props')}`);
-const capabilityUI = await sourceUrl('CapabilityUI');
+const capabilityUI = await sourceUrl('CapabilityUI', { '@nextui-org/react': ui, './SettingControls': fields });
 const { default: SkillsPage } = await import(await sourceUrl('SkillsPage', { '@nextui-org/react': ui, './RemoteControls': controls, './SettingControls': fields, './CapabilityUI': capabilityUI }));
 const button = (element, text) => [...element.querySelectorAll('button')].find(item => item.textContent.trim() === text || item.title === text);
 async function click(element) { assert.ok(element); await act(async () => element.click()); }

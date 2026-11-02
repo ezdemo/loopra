@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Plus, PackageOpen } from 'lucide-react';
-import { Spinner } from '@nextui-org/react';
+import { Plus, PackageOpen } from 'lucide-react';
+import { Button, Spinner } from '@nextui-org/react';
 import type { LoopraClient } from '../backend';
 import type { CapabilitiesTab } from '../capabilities-navigation';
 import type { PluginContext } from './PluginFrame';
 import SkillsPage from './SkillsPage';
 import { ExtensionManager } from './ResourceManagers';
-import { CapabilityRefresh, CapabilitySearch } from './CapabilityUI';
+import { CapabilityRefresh, CapabilitySearch, CapabilityTabs } from './CapabilityUI';
 
 export default function SkillsAndPluginsPage({ api, tab, onTabChange, onRefresh, onPluginsChanged, onBack, context, notify }: {
   api: LoopraClient;
@@ -31,16 +31,11 @@ export default function SkillsAndPluginsPage({ api, tab, onTabChange, onRefresh,
   const searchLabel = tab === 'plugins' ? '搜索插件' : '搜索技能';
   return <section className="skills-hub capabilities-hub" aria-label="技能与插件">
     <div className="capabilities-shell">
-      <header className="capabilities-header"><nav className="library-type-navigation" aria-label="内容类型">{([['plugins', '插件'], ['skills', '技能']] as const).map(([id, label]) => <button type="button" key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => { onTabChange(id); setInstallOpen(false); }}>{label}</button>)}</nav><div className="library-header-actions">
-        <details className="library-add"><summary className="capability-primary"><Plus size={15} />添加</summary><div className="library-add-menu"><button type="button" onClick={event => { changeView(true); onTabChange('skills'); event.currentTarget.closest('details')!.open = false; }}>添加技能</button><button type="button" onClick={event => { changeView(false); onTabChange('plugins'); setInstallOpen(true); event.currentTarget.closest('details')!.open = false; }}>安装插件</button></div></details>
-        <button type="button" className="capability-icon-button" aria-label="返回会话" title="返回会话" onClick={onBack}><ArrowLeft size={16} /></button>
+      <header className="capabilities-header"><CapabilityTabs label="内容类型" value={tab} onChange={value => { onTabChange(value as CapabilitiesTab); setInstallOpen(false); }} options={[{ value: 'plugins', label: '插件' }, { value: 'skills', label: '技能' }]} variant="underlined" className="library-type-navigation" /><div className="library-header-actions">
+        <Button size="sm" color="primary" className="capability-primary library-add-button" onPress={() => { if (tab === 'plugins') { changeView(false); setInstallOpen(true); } else changeView(true); }}><Plus size={16} />{tab === 'plugins' ? '添加插件' : '添加技能'}</Button>
       </div></header>
-      <div className="library-navigation-row"><nav className="capabilities-navigation" aria-label="内容视图">
-        <button type="button" aria-current={!discover ? 'page' : undefined} onClick={() => changeView(false)}>我的内容</button>
-        <button type="button" aria-current={discover ? 'page' : undefined} onClick={() => changeView(true)}>发现</button>
-      </nav><CapabilitySearch label={searchLabel} value={query} onChange={setQuery} placeholder={`${searchLabel}…`} /></div>
-      <div className="library-filter-row"><div className="library-extra-controls" ref={setControls} /><CapabilityRefresh onClick={() => setRevision(value => value + 1)} /></div>
-      <div className="library-grid">
+      <div className="library-navigation-row"><CapabilityTabs label="内容视图" value={discover ? 'discover' : 'installed'} onChange={value => changeView(value === 'discover')} options={[{ value: 'installed', label: '我的内容' }, { value: 'discover', label: '发现' }]} className="capabilities-navigation" /><div className="library-toolbar-actions"><CapabilitySearch label={searchLabel} value={query} onChange={setQuery} placeholder={`${searchLabel}…`} /><div className="library-extra-controls" ref={setControls} /><CapabilityRefresh onClick={() => setRevision(value => value + 1)} /></div></div>
+      <div className="library-grid" key={`${tab}-${discover}`}>
         <div className="library-loading" role="status" aria-label="正在加载内容"><Spinner size="sm" /></div>
         {tab === 'skills' && <SkillsPage key={`skills-${discover}`} {...libraryProps} installedRefreshKey={skillsRevision} toolbarTarget={controls} api={api} onRefresh={onRefresh} onBack={onBack} embedded view={discover ? 'market' : 'installed'} onViewChange={value => changeView(value === 'market')} />}
         {tab === 'plugins' && <ExtensionManager key={`plugins-${discover}`} {...libraryProps} toolbarTarget={controls} installOpen={installOpen} onInstallOpenChange={setInstallOpen} onOpenSettings={() => onTabChange('plugins')} api={api} notify={notify} context={context} onChanged={() => { setSkillsRevision(value => value + 1); onPluginsChanged(); }} embedded view={discover ? 'catalog' : 'installed'} />}

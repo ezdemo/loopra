@@ -1,7 +1,7 @@
 .app-chat-workspace { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .app-chat-workspace[hidden] { display: none; }
 .sidebar-actions > button.selected { background: var(--hover); color: var(--text); font-weight: 500; }
-.skills-hub { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; container: skills-hub / inline-size; }
+.skills-hub { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; container: skills-hub / inline-size; }
 .skills-hub-inner { width: 100%; max-width: 76rem; margin: 0 auto; padding: 1.25rem clamp(1rem, 2.5cqi, 2rem) 2rem; }
 .skills-hub-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1.25rem; }
 .skills-hub-heading h1 { margin: .25rem 0; color: var(--text); font-size: 1.25rem; font-weight: 600; letter-spacing: -.025em; line-height: 1.4; }

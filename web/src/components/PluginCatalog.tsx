@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { Button } from '@nextui-org/react';
 import { Plus, Settings2, Trash2, X } from 'lucide-react';
 import type { LoopraClient } from '../backend';
 import { Field, ResourceEmpty } from './SettingControls';
 import { errorText, RemoteState, useRemote } from './RemoteControls';
 import { PluginGlyph, pluginTone, type PluginIconRef } from './plugin-icons';
-import { CapabilityCard, CapabilityControls, CapabilityRefresh, CapabilitySearch, type CapabilityLibraryProps } from './CapabilityUI';
+import { CapabilityCard, CapabilityControls, CapabilityRefresh, CapabilitySearch, CapabilitySelect, type CapabilityLibraryProps } from './CapabilityUI';
 
 type CatalogEntry = { id: string; name: string; description?: string; version?: string; source: string; icon?: PluginIconRef };
 
@@ -54,19 +55,16 @@ export function PluginCatalog({ api, installed, busy, onInstall, onUpdate, onUni
   return <>
     <CapabilityControls library={library} target={toolbarTarget}>
       {!library && <CapabilitySearch label="搜索插件" value={filter} onChange={setFilter} placeholder="搜索插件…" />}
-      <select className="capability-select" aria-label="插件源" value={active} disabled={saving || sources.loading} onChange={event => setSelected(event.target.value)}>
-        {!active && <option value="">暂无插件源</option>}
-        {sources.data?.map(value => <option key={value} value={value}>{sourceName(value)}</option>)}
-      </select>
+      <CapabilitySelect label="插件源" value={active} disabled={saving || sources.loading} onChange={setSelected} options={active ? (sources.data || []).map(value => ({ value, label: sourceName(value) })) : [{ value: '', label: '暂无插件源' }]} />
       {!library && <CapabilityRefresh disabled={!active || catalog.loading} onClick={() => setRevision(value => value + 1)} />}
-      <button type="button" className="capability-secondary" disabled={saving} aria-expanded={managing} onClick={() => setManaging(value => !value)}><Settings2 size={15} />管理源</button>
+      <Button size="sm" variant="bordered" type="button" className="capability-secondary" isDisabled={saving} aria-expanded={managing} onPress={() => setManaging(value => !value)}><Settings2 size={15} />管理源</Button>
     </CapabilityControls>
     {managing && <section className="capability-source-panel" aria-label="插件源管理">
-      <header><h2>插件源</h2><button type="button" className="capability-icon-button" aria-label="关闭插件源管理" onClick={() => setManaging(false)}><X size={16} /></button></header>
-      <ul>{sources.data?.map(value => <li key={value}><span title={value}>{sourceName(value)}</span><button type="button" className="capability-icon-button capability-remove" aria-label={`移除 ${sourceName(value)}`} title="移除源" disabled={saving} onClick={() => void changeSource(true, value)}><Trash2 size={15} /></button></li>)}</ul>
+      <header><h2>插件源</h2><Button size="sm" variant="light" isIconOnly type="button" className="capability-icon-button" aria-label="关闭插件源管理" onPress={() => setManaging(false)}><X size={16} /></Button></header>
+      <ul>{sources.data?.map(value => <li key={value}><span title={value}>{sourceName(value)}</span><Button size="sm" variant="light" isIconOnly type="button" className="capability-icon-button capability-remove" aria-label={`移除 ${sourceName(value)}`} title="移除源" isDisabled={saving} onPress={() => void changeSource(true, value)}><Trash2 size={15} /></Button></li>)}</ul>
       <form className="capability-install-panel" onSubmit={event => { event.preventDefault(); if (source.trim()) void changeSource(false); }}>
         <Field label="GitHub 仓库" required value={source} onChange={setSource} placeholder="https://github.com/owner/repo" />
-        <button type="submit" className="capability-primary" disabled={saving || !source.trim()}><Plus size={15} />{saving ? '保存中' : '添加源'}</button>
+        <Button size="sm" color="primary" type="submit" className="capability-primary" isDisabled={saving || !source.trim()}><Plus size={15} />{saving ? '保存中' : '添加源'}</Button>
       </form>
     </section>}
     <RemoteState {...sources} /><RemoteState {...catalog} />
@@ -81,8 +79,8 @@ export function PluginCatalog({ api, installed, busy, onInstall, onUpdate, onUni
         icon={entry.icon ? <PluginGlyph api={api} pluginId={entry.id} icon={entry.icon} className="plugin-card-icon" size="1.25rem" /> : ([...entry.name.trim()][0] || '?')}
         meta={entry.version ? `v${entry.version}` : undefined}
         actions={<>
-          {existing && !existing.builtin && <button type="button" className="capability-secondary" disabled={busy || !!installing || !!updating} onClick={() => void update(existing.id)}>{updating === existing.id ? '更新中' : '更新'}</button>}
-          <button type="button" className={existing ? 'capability-secondary' : 'capability-primary'} disabled={busy || !!installing || !!updating || !!existing?.builtin} onClick={() => existing ? onUninstall(existing.id) : void install(entry)}>{existing ? existing.builtin ? '已安装' : '卸载' : installing === entry.source ? '安装中' : '安装'}</button>
+          {existing && !existing.builtin && <Button size="sm" variant="bordered" type="button" className="capability-secondary" isDisabled={busy || !!installing || !!updating} onPress={() => void update(existing.id)}>{updating === existing.id ? '更新中' : '更新'}</Button>}
+          <Button size="sm" color={existing ? "default" : "primary"} variant={existing ? "bordered" : "solid"} type="button" className={existing ? 'capability-secondary' : 'capability-primary'} isDisabled={busy || !!installing || !!updating || !!existing?.builtin} onPress={() => existing ? onUninstall(existing.id) : void install(entry)}>{existing ? existing.builtin ? '已安装' : '卸载' : installing === entry.source ? '安装中' : '安装'}</Button>
         </>} />;
     })}</div>
   </>;
