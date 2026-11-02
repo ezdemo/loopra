@@ -1390,7 +1390,11 @@ export default function App({ startupPending = false, initialServer }: { startup
     setShowScrollBtn(!chatNearBottom(element));
   }, [session?.messages, session?.id]);
   useEffect(() => {
-    function onPointer(event: PointerEvent) { if (!(event.target as HTMLElement).closest('[data-popover]')) setMenu(null); }
+    function onPointer(event: PointerEvent) {
+      if (!menu) return;
+      const owner = event.target instanceof Element ? event.target.closest('[data-popover]')?.getAttribute('data-popover') : null;
+      if (owner !== menu) setMenu(null);
+    }
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') { setMenu(null); if (!event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"]')) { setChanges(false); if (narrow) setSidebar(false); } return; }
       if (event.ctrlKey || event.metaKey) {

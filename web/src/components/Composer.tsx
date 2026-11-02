@@ -245,13 +245,19 @@ export default function Composer(props: Props) {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [props.api, props.workspaceHash, props.sessionName, props.agentId, props.agentConfig?.options, props.history.length, props.generating]);
   useEffect(() => {
-    const pointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) close(); };
+    const pointer = (event: PointerEvent) => {
+      if (!menu || menu === 'model-settings') return;
+      const target = event.target as Node;
+      const panel = root.current?.querySelector('.composer-popover:not(.composer-suggestions)');
+      const trigger = root.current?.querySelector('.composer-bottom button[aria-expanded="true"]');
+      if (!panel?.contains(target) && !trigger?.contains(target)) close();
+    };
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { close(); setDismissedDraft(draft); if (root.current?.contains(document.activeElement)) focusInput(); }
     };
     document.addEventListener('pointerdown', pointer); document.addEventListener('keydown', escape);
     return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', escape); };
-  }, [draft]);
+  }, [draft, menu]);
 
   const localCommands = localSlashCommands({
     onNew: props.onNew,

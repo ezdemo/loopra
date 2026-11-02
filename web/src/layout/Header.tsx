@@ -72,7 +72,7 @@ export default function Header(p: HeaderProps) {
     {!p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
     {!p.isHome && session && <div className="breadcrumb">
       <span>{p.workspaceName}</span><span className="breadcrumb-divider">/</span><strong title={session.title}>{session.title}</strong>
-      <div data-popover className="menu-anchor">
+      <div data-popover="session" className="menu-anchor">
         <IconButton label="会话选项" onClick={() => p.onToggleMenu('session')}><MoreHorizontal size="1rem" /></IconButton>
         <Popup open={menu === 'session'} className="popup session-menu" role="menu">
           <button role="menuitem" onClick={p.onRename}><FileCode2 size="1rem" />重命名会话</button>
@@ -98,7 +98,7 @@ export default function Header(p: HeaderProps) {
       </button>}
       <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
       {!p.isHome && !p.chatMode && <>
-        <div data-popover className="menu-anchor">
+        <div data-popover="folder" className="menu-anchor">
           <div className="folder-split">
             <button aria-label="在系统应用中打开项目" onClick={() => p.onOpenWorkspace()}><FolderClosed /></button>
             <button aria-label="打开方式" onClick={() => p.onToggleMenu('folder')}><ChevronDown /></button>
@@ -109,7 +109,7 @@ export default function Header(p: HeaderProps) {
             <button role="menuitem" onClick={p.onCopyPath}><Copy size="1rem" />复制路径</button>
           </Popup>
         </div>
-        <div data-popover className="menu-anchor">
+        <div data-popover="branch" className="menu-anchor">
           <button className="branch-button" onClick={() => p.onToggleMenu('branch')}><GitBranch />{p.gitBranch}</button>
           <Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
         </div>

@@ -15,7 +15,7 @@ const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnProp
 for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
 after(() => { dom.window.close(); for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
 
-const { act, createElement } = await import('react');
+const { act, createElement, useEffect, useState } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const reactUrl = import.meta.resolve('react');
 const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toString('base64');
@@ -45,17 +45,34 @@ export const Enter = ({ children }) => children;
 export const Popup = ({ open, children, className }) => open ? createElement('div', { className }, children) : null;
 `);
 const uiStub = dataUrl('export const LoopraMark = () => null; export const LoadingSkeleton = () => null;');
-const switcherStub = dataUrl('export default () => null;');
+const nextuiStub = dataUrl('export const Button = () => null, Modal = () => null, ModalBody = () => null, ModalContent = () => null, ModalFooter = () => null, ModalHeader = () => null;');
+const switcherUrl = await sourceUrl('layout/AgentSwitcher.tsx', {
+  'lucide-react': iconStub,
+  '@nextui-org/react': nextuiStub,
+  '../components/Motion': motionStub,
+  '../components/AgentIcon': await sourceUrl('components/AgentIcon.tsx'),
+  '../agent-install': await sourceUrl('agent-install.ts'),
+  './menu-placement': placementUrl,
+});
 
 const homeUrl = await sourceUrl('layout/HomeView.tsx', {
   'lucide-react': iconStub,
   '../components/Motion': motionStub,
   '../components/ui': uiStub,
-  './AgentSwitcher': switcherStub,
+  './AgentSwitcher': switcherUrl,
   './menu-placement': placementUrl,
 });
 const { default: HomeView } = await import(homeUrl);
 const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const appAst = ts.createSourceFile('App.tsx', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const app = appAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
+const dismissEffect = app.body.statements.find(node => ts.isExpressionStatement(node)
+  && ts.isCallExpression(node.expression) && node.expression.expression.getText(appAst) === 'useEffect'
+  && node.expression.arguments[0].getText(appAst).includes('function onPointer'));
+const pointerFunction = dismissEffect.expression.arguments[0].body.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'onPointer');
+const pointerCode = ts.transpileModule(pointerFunction.getText(appAst), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const bindPointer = new Function('menu', 'setMenu', `${pointerCode}; return onPointer;`);
 
 function ruleBody(css, selector) {
   const pattern = new RegExp('^[ \\t]*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}', 'm');
@@ -100,6 +117,89 @@ async function mount(rect, viewportHeight, clip, overrides = {}) {
 }
 
 const windowBounds = height => ({ top: 0, bottom: height });
+
+async function mountInteractive() {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const selected = [];
+  let managed = 0;
+  function Harness() {
+    const [menu, setMenu] = useState(null);
+    useEffect(() => {
+      const pointer = bindPointer(menu, setMenu);
+      document.addEventListener('pointerdown', pointer);
+      return () => document.removeEventListener('pointerdown', pointer);
+    }, [menu]);
+    return createElement(HomeView, {
+      workspaces, workspace: 'h0', workspaceName: 'project-0', menuOpen: menu === 'workspace',
+      onToggleMenu: () => setMenu(current => current === 'workspace' ? null : 'workspace'),
+      onSelect: hash => { selected.push(hash); setMenu(null); },
+      onManage: () => { managed++; setMenu(null); },
+      engines: [{ id: 'native', name: 'Loopra Native', available: true }],
+      agentId: 'native', agentDisabled: false, onAgent() {},
+    }, createElement('div', { className: 'rich-composer', 'data-popover': '' },
+      createElement('textarea', { 'aria-label': '输入消息' }),
+      createElement('button', { 'aria-label': '常用要求' }, '要求')));
+  }
+  await act(async () => root.render(createElement(Harness)));
+  return {
+    container, selected, managed: () => managed,
+    menu: () => container.querySelector('.workspace-selector > .workspace-menu'),
+    async pointer(target) { await act(async () => target.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }))); },
+    async click(selector) {
+      const target = container.querySelector(selector);
+      await act(async () => target.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+      await act(async () => target.click());
+    },
+    async close() { await act(async () => root.unmount()); container.remove(); },
+  };
+}
+
+test('workspace menu dismisses from the message input, other composer controls and page', async () => {
+  const view = await mountInteractive();
+  try {
+    for (const selector of ['textarea', '.rich-composer', '[aria-label="常用要求"]', '.welcome-switchers', 'body']) {
+      await view.click('.workspace-selector > button');
+      assert.ok(view.menu());
+      await view.pointer(selector === 'body' ? document.body : view.container.querySelector(selector));
+      assert.ok(!view.menu(), `clicking ${selector} dismisses the workspace menu`);
+    }
+  } finally { await view.close(); }
+});
+
+test('workspace menu preserves internal interactions and the trigger toggles instead of reopening', async () => {
+  const view = await mountInteractive();
+  try {
+    await view.click('.workspace-selector > button');
+    await view.pointer(view.menu().querySelector('h3'));
+    await view.pointer(view.menu().querySelector('.workspace-menu-list'));
+    assert.ok(view.menu(), 'heading and scrolling list are inside the current menu');
+    await view.click('.workspace-selector > button');
+    assert.ok(!view.menu(), 'pressing the active trigger closes the menu');
+    await view.click('.workspace-selector > button');
+    await view.click('.workspace-menu-list > button:nth-child(2)');
+    assert.deepEqual(view.selected, ['h1']);
+    assert.ok(!view.menu());
+    await view.click('.workspace-selector > button');
+    await view.click('.workspace-selector > .workspace-menu > button');
+    assert.equal(view.managed(), 1);
+    assert.ok(!view.menu());
+  } finally { await view.close(); }
+});
+
+test('switching between workspace and Agent menus leaves only the clicked menu open', async () => {
+  const view = await mountInteractive();
+  try {
+    await view.click('.workspace-selector > button');
+    await view.click('[aria-label="选择 Agent"]');
+    assert.ok(!view.menu(), 'the Agent trigger is outside the workspace menu');
+    assert.ok(view.container.querySelector('.agent-menu'));
+    await view.click('.workspace-selector > button');
+    assert.ok(view.menu());
+    assert.ok(!view.container.querySelector('.agent-menu'), 'the workspace trigger is outside the Agent menu');
+  } finally { await view.close(); }
+});
 
 test('placement prefers the top and only flips down when it cannot be used', () => {
   // The switcher sits low in a 753px window, but the room above still fits a

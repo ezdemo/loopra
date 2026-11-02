@@ -387,6 +387,105 @@ test('combined model and reasoning menu supports overview, back, Escape and outs
   } finally { await view.close(); }
 });
 
+test('composer popovers dismiss from the input, toolbar gaps and surrounding page on home and session views', async () => {
+  const triggers = [
+    '[aria-label="添加附件或工具"]',
+    '.composer-permission',
+    '[aria-label="常用要求"]',
+    '[aria-label="管理 MCP 透传"]',
+    '[aria-label="查看上下文用量"]',
+    '.composer-model',
+  ];
+  for (const home of [false, true]) {
+    const view = await mount({ home, agentId: 'native', draft: '保留这段草稿' });
+    try {
+      for (const trigger of triggers) {
+        for (const target of ['textarea', '.composer-bottom', '.composer-context-chips', '.rich-composer', 'body']) {
+          await act(async () => view.host.querySelector(trigger).click());
+          assert.ok(view.host.querySelector('[role="dialog"]'), `${trigger} opens`);
+          const destination = target === 'body' ? document.body : view.host.querySelector(target);
+          await act(async () => destination.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+          assert.ok(!view.host.querySelector('[role="dialog"]'), `${trigger} dismisses from ${target} on ${home ? 'home' : 'session'}`);
+          assert.equal(view.host.querySelector('textarea').value, '保留这段草稿');
+        }
+      }
+    } finally { await view.close(); }
+  }
+});
+
+test('popover contents and active triggers remain interactive while switching between menus', async () => {
+  const view = await mount({ agentId: 'native', draft: '' });
+  const click = selector => act(async () => {
+    const target = view.host.querySelector(selector);
+    target.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+    target.click();
+  });
+  try {
+    await click('[aria-label="常用要求"]');
+    const panel = view.host.querySelector('[role="dialog"]');
+    await act(async () => panel.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+    assert.equal(view.host.querySelector('[role="dialog"]'), panel);
+    await click('[aria-label="常用要求"]');
+    assert.ok(!view.host.querySelector('[role="dialog"]'), 'the active trigger toggles closed');
+    await click('[aria-label="常用要求"]');
+    await click('[aria-label="添加附件或工具"]');
+    assert.equal(view.host.querySelector('[role="dialog"]').getAttribute('aria-label'), '输入工具');
+    const projects = [...view.host.querySelectorAll('.composer-tool-list > button')].find(button => button.textContent.includes('关联项目'));
+    await act(async () => {
+      projects.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+      projects.click();
+    });
+    assert.equal(view.host.querySelector('[role="dialog"]').getAttribute('aria-label'), '关联项目');
+    await act(async () => view.host.querySelector('textarea').dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+    assert.ok(!view.host.querySelector('[role="dialog"]'));
+    await click('[aria-label="添加附件或工具"]');
+    const skills = [...view.host.querySelectorAll('.composer-tool-list > button')].find(button => button.textContent.includes('技能'));
+    await act(async () => skills.click());
+    assert.equal(view.host.querySelector('[role="dialog"]').getAttribute('aria-label'), '选择技能');
+    await act(async () => view.host.querySelector('.composer-bottom').dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+    assert.ok(!view.host.querySelector('[role="dialog"]'));
+  } finally { await view.close(); }
+});
+
+test('preset editing and model search stay open for interactions inside their popovers', async () => {
+  const view = await mount({ agentId: 'native', draft: '', connected: false });
+  const pointer = target => act(async () => target.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+  try {
+    await act(async () => view.host.querySelector('[aria-label="常用要求"]').click());
+    const edit = view.host.querySelector('[aria-label^="编辑要求："]');
+    assert.ok(edit);
+    await pointer(edit);
+    await act(async () => edit.click());
+    const name = view.host.querySelector('[aria-label="常用要求名称"]');
+    await pointer(name);
+    await act(async () => Simulate.change(name, { target: { value: '修改后的要求' } }));
+    assert.equal(view.host.querySelector('[aria-label="常用要求名称"]').value, '修改后的要求');
+    await pointer(view.host.querySelector('textarea'));
+    assert.ok(!view.host.querySelector('[role="dialog"]'));
+    await act(async () => view.host.querySelector('.composer-model').click());
+    const row = view.host.querySelector('.model-reasoning-rows > button');
+    await pointer(row);
+    await act(async () => row.click());
+    const search = view.host.querySelector('[aria-label="搜索模型或供应商"]');
+    await pointer(search);
+    assert.ok(view.host.querySelector('.model-reasoning-flyout'));
+    await pointer(view.host.querySelector('.composer-bottom'));
+    assert.ok(!view.host.querySelector('[role="dialog"]'));
+  } finally { await view.close(); }
+});
+
+test('additional Agent configuration dismisses when returning to the message input', async () => {
+  const view = await mount({ draft: '', agentConfig: { busy: false, onChange: idle, options: [
+    { id: 'persona', name: '角色', type: 'boolean', currentValue: false, options: [] },
+  ] } });
+  try {
+    await act(async () => view.host.querySelector('[aria-label="更多 Agent 配置"]').click());
+    assert.ok(view.host.querySelector('[role="dialog"]'));
+    await act(async () => view.host.querySelector('textarea').dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+    assert.ok(!view.host.querySelector('[role="dialog"]'));
+  } finally { await view.close(); }
+});
+
 test('combined selector saves Native reasoning and fast mode while preserving model options', async () => {
   const changes = [];
   const options = { modelId: 'custom:flash', mode: '完全自动', effort: 'max', plan: true, fast: false };
