@@ -163,6 +163,7 @@ func (s *Controller) tunnelController(w http.ResponseWriter, r *http.Request, ac
 }
 
 func (s *Controller) Close() error {
+	s.closeShellTerminals()
 	if s.desktopUpdater != nil {
 		s.desktopUpdater.cancel()
 	}

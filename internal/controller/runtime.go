@@ -229,7 +229,7 @@ func (s *Controller) systemInstruction(workspace string) string {
 }
 
 func workspaceRequest(path string) bool {
-	for _, prefix := range []string{"/api/chat", "/api/agent/", "/api/sessions", "/api/git/", "/api/files/", "/api/snapshots", "/api/schedules", "/api/sub-sessions", "/api/agent-engines/"} {
+	for _, prefix := range []string{"/api/chat", "/api/agent/", "/api/sessions", "/api/git/", "/api/files/", "/api/snapshots", "/api/schedules", "/api/sub-sessions", "/api/agent-engines/", "/api/shell-terminal/"} {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}

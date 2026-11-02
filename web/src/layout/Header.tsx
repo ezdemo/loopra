@@ -22,6 +22,8 @@ export type HeaderProps = {
   gitBranch: string;
   changesOpen: boolean;
   onToggleChanges: () => void;
+  shellOpen: boolean;
+  onToggleShell: () => void;
   applications: { application: string; name: string; label: string }[];
   onOpenWorkspace: (application?: string) => void;
   onCopyPath: () => void;
@@ -112,6 +114,7 @@ export default function Header(p: HeaderProps) {
           <Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
         </div>
       </>}
+      {p.panelAvailable !== false && <IconButton label={p.shellOpen ? '关闭终端' : '打开终端'} active={p.shellOpen} onClick={p.onToggleShell}><SquareTerminal size="1.0625rem" /></IconButton>}
       {p.panelAvailable !== false && <IconButton label={p.chatMode ? p.changesOpen ? '关闭能力面板' : '打开能力面板' : p.changesOpen ? '关闭改动面板' : '打开改动面板'} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>}
     </DesktopHeaderActions>
   </header>;

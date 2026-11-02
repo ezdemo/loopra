@@ -699,6 +699,16 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 /* Background process list (ported from BashSessionManager.vue) */
 
 .terminal-panel { display: flex; flex-direction: column; }
+.shell-dock { position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-height: 10rem; border-top: 1px solid var(--line); background: #1e1e1e; color: #d4d4d4; z-index: 20; }
+.shell-dock-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+.shell-dock header { display: flex; align-items: center; gap: .5rem; height: 2.25rem; padding: 0 .75rem; border-bottom: 1px solid #333; background: var(--surface); color: var(--text); }
+.shell-dock header > span { display: inline-flex; align-items: center; gap: .375rem; font-size: .8125rem; }
+.shell-dock-tabs { display: flex; flex: 1; min-width: 0; gap: .25rem; overflow-x: auto; }
+.shell-dock-tabs > div { display: flex; align-items: center; border-radius: var(--radius-sm); }
+.shell-dock-tabs > div.active { background: var(--soft); }
+.shell-dock-tabs button { height: 1.625rem; padding: 0 .375rem; border: 0; background: transparent; color: inherit; font: inherit; font-size: .75rem; cursor: pointer; }
+.shell-dock-screen { flex: 1; min-height: 0; padding: .25rem .375rem .375rem; }
+.shell-dock-screen .xterm { height: 100%; }
 
 .terminal-panel header > .terminal-summary { color: var(--muted); font-size: 0.75rem; margin-right: auto; }
 

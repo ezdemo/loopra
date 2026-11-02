@@ -46,7 +46,7 @@ export const helpCommands = [
   { name: '/init', desc: '自动分析项目生成 loopra.md', example: '/init' },
   { name: '/plugin', desc: '打开技能与插件中的插件页，安装 npm 包或 GitHub 插件。插件可以提供工具和对话钩子，也可以 fetch 或用 node:fs 读写本机文件', example: 'left-pad 或 github:owner/repo' },
   { name: '/skills', desc: '为这条消息附加技能', example: '/skills' },
-  { name: '/terminal', desc: '在右栏打开命令面板', example: '/terminal' },
+  { name: '/terminal', desc: '在页面底部打开交互式终端', example: '/terminal' },
   { name: '/help', desc: '显示帮助信息', example: '/help' },
 ];
 

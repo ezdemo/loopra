@@ -122,7 +122,8 @@ func (k AccessKey) auth(next http.Handler) http.Handler {
 			w.Header().Set("Cache-Control", "no-store")
 			presented := r.Header.Get("X-Loopra-Key")
 			if presented == "" && r.Method == http.MethodGet &&
-				strings.HasPrefix(path, "/api/pets/") && strings.HasSuffix(path, "/spritesheet") {
+				(strings.HasPrefix(path, "/api/pets/") && strings.HasSuffix(path, "/spritesheet") ||
+					strings.HasSuffix(path, "/stream") && strings.Contains(path, "/shell-terminal/")) {
 				presented = r.URL.Query().Get("rk")
 			}
 			if presented == "" && plugin.ValidUIRequest(r) {

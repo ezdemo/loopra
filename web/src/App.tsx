@@ -17,6 +17,7 @@ import { Messages } from './components/Conversation';
 import SessionHistoryState from './components/SessionHistoryState';
 import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
+import ShellDock from './components/ShellDock';
 import Settings, { defaultPreferences } from './components/Settings';
 import SkillsAndPluginsPage from './components/SkillsAndPluginsPage';
 import { capabilitiesTabForSection, type CapabilitiesTab } from './capabilities-navigation';
@@ -127,6 +128,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [requirementsOpen, setRequirementsOpen] = useState(false);
   const [terminal, setTerminal] = useState(false);
+  const [shellOpen, setShellOpen] = useState(false);
   const [homeTaskToolbar, setHomeTaskToolbar] = useState<HTMLDivElement | null>(null);
   const [gitBranch, setGitBranch] = useState('工作区');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -344,6 +346,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const workspaceName = currentWorkspace?.name || '选择工作区';
   useEffect(() => {
     setTerminal(false);
+    setShellOpen(false);
   }, [workspace]);
   // A new chat has no session yet, but the Agent's choices are already known:
   // prepare them in the background so the composer never asks for a manual step.
@@ -897,7 +900,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     setDraft('调用 npx petdex@latest install boba 初始化一个宠物');
     notify('已新建会话，确认后发送即可初始化宠物');
   }
-  function openTerminal() { setTerminal(true); setMenu(null); }
+  function openShell() { setShellOpen(true); setMenu(null); }
   async function openWorkspace(application = preferences.openWith) {
     setMenu(null);
     try { await launchWorkspace(api, currentWorkspace?.hash || '', application); }
@@ -1428,7 +1431,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
     onSend={() => sendMessage()} onStop={() => void stopGeneration()} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
-    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openTerminal()} onManage={() => openSettings('模型供应商')}
+    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
@@ -1461,6 +1464,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
           gitBranch={gitBranch} changesOpen={changes} onToggleChanges={() => setChanges(!changes)} onShowChanges={() => { setChangesTab('git'); setChanges(true); setMenu(null); }}
+          shellOpen={shellOpen} onToggleShell={() => setShellOpen(open => !open)}
           applications={visibleApplications(availableApplications)} onOpenWorkspace={application => void openWorkspace(application)} onCopyPath={copyPath}
           onRename={() => { if (!session) return; setRename(session.id); setRenameValue(session.title); setMenu(null); }}
           onRecords={() => { setSessionDetailsTab('events'); setSessionDetails(true); setMenu(null); }}
@@ -1487,6 +1491,7 @@ export default function App({ startupPending = false, initialServer }: { startup
             <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
+        <ShellDock api={api} workspaceHash={workspace} open={shellOpen && !!workspace} onClose={() => setShellOpen(false)} />
         </div>
       </main>
       {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}

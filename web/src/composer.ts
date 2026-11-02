@@ -139,7 +139,7 @@ export function localSlashCommands(actions: LocalCommandActions): SlashCommand[]
     { id: '/sessions', title: '会话管理', description: '浏览、导出或清理历史会话', action: actions.onSessions },
     { id: '/continue', title: '继续生成', description: actions.hasHistory ? '让助手继续上一次回复' : '开始会话后可用', action: () => { if (actions.hasHistory && !actions.busy) actions.onContinue(); else actions.notify('请先开始会话'); } },
     { id: '/skills', title: '选择技能', description: '为这次消息附加技能', action: actions.onSkills },
-    { id: '/terminal', title: '打开终端', description: '在右栏打开命令面板', action: actions.onTerminal },
+    { id: '/terminal', title: '打开终端', description: '在页面底部打开交互式终端', action: actions.onTerminal },
     { id: '/help', title: '输入帮助', description: '/ 调用指令 · @ 引用工作区文件 · Shift + Enter 换行', action: actions.onHelp },
   ];
 }

@@ -84,6 +84,7 @@ type Controller struct {
 	onUITheme          func(theme string)
 	petDesktop         petdesk.Surface
 	desktopUpdater     *desktopUpdater
+	shellTerms         *shellTerminals
 }
 
 // Options 配置服务端。

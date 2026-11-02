@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -174,6 +176,16 @@ func (w *responseRecorder) Flush() {
 }
 
 func (w *responseRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// Hijack exposes the underlying connection. WebSocket upgrade walks the
+// writer chain and otherwise stops at this recorder with no response.
+func (w *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return hijacker.Hijack()
+}
 
 // httpChain 把既有的 net/http 过滤器适配到 GoFrame 中间件链。
 // 一次请求只创建一个记录型写入器，状态码在链尾统一回写。

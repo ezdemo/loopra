@@ -10,6 +10,7 @@ func (s *Controller) registerSystemRoutes(api *apiRouter) {
 	api.POST("/system/open-workspace", s.action((*Controller).systemController))
 	readRoute(api, "/system/open-applications", s.action((*Controller).systemController))
 	api.POST("/system/pick-directory", s.action((*Controller).systemController))
+	s.registerShellTerminalRoutes(api)
 	readRoute(api, "/system/version", s.action((*Controller).systemController))
 	readRoute(api, "/version/", s.action((*Controller).versionController))
 	readRoute(api, "/version/*", s.action((*Controller).versionController))
