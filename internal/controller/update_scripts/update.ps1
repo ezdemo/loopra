@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $api = $env:LOOPRAX_RELEASE_API_URL
 if (-not $api) { $api = 'https://api.github.com/repos/ezdemo/loopra-release/releases/latest' }
+if ($env:LOOPRA_MIRROR) { $api = $env:LOOPRA_MIRROR + $api }
+Write-Output '[Loopra] Checking the latest release...'
 $release = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'Looprax-Updater' }
 $arch = $env:LOOPRAX_UPDATE_ARCH
 $targetName = [System.IO.Path]::GetFileName($env:LOOPRAX_UPDATE_TARGET)
@@ -22,12 +24,15 @@ $asset = $release.assets | Where-Object {
     (($platformOk -and $archOk -and $extOk -and $kindOk) -or ($shortExe -and -not $desktop -and $extOk))
 } | Select-Object -First 1
 if (-not $asset) { throw "No Windows $arch binary in this release" }
+Write-Output ("[Loopra] Selected asset: {0}" -f $asset.name)
 $directory = Join-Path $env:LOOPRA_HOME 'updates'
 $download = Join-Path $directory ([guid]::NewGuid().ToString('N') + '-' + $asset.name)
 $url = $asset.browser_download_url
 if ($env:LOOPRA_MIRROR) { $url = $env:LOOPRA_MIRROR + $url }
+Write-Output '[Loopra] Downloading the release asset...'
 Invoke-WebRequest -Uri $url -OutFile $download -UseBasicParsing
 if ($asset.digest -and $asset.digest.StartsWith('sha256:')) {
+    Write-Output '[Loopra] Verifying SHA-256...'
     $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $asset.digest.Substring(7).ToLowerInvariant()) { throw 'Release checksum mismatch' }
 }
@@ -77,5 +82,6 @@ for ($attempt = 0; $attempt -lt 30; $attempt++) {
 throw 'Unable to replace the executable; the previous executable was preserved'
 '@ | Set-Content -LiteralPath $helper -Encoding UTF8
 $powershell = Join-Path $PSHOME 'powershell.exe'
+Write-Output '[Loopra] Update downloaded and verified; waiting for the service to exit before replacing the binary...'
 Start-Process -FilePath $powershell -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$helper`"") -WindowStyle Hidden
 Write-Output 'Update downloaded and verified. Exit Looprax to apply it, then start Looprax again.'

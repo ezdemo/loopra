@@ -59,14 +59,18 @@ export function updateScriptName(source: string, electron: boolean, ext: string)
 export function buildUpdateCommand(source: string, electron = false) {
   const windowsScript = updateScriptName(source, electron, 'ps1');
   const unixScript = updateScriptName(source, electron, 'sh');
-  const mirrorUrl = isMirrorSource(source) && source !== UPDATE_SOURCE_MIRROR ? source.replace(/\/+$/, '') + '/' : '';
+  const mirrorUrl = isMirrorSource(source)
+    ? (source === UPDATE_SOURCE_MIRROR ? 'https://gh-proxy.org/' : source.replace(/\/+$/, '') + '/')
+    : '';
   const envWin = mirrorUrl ? `$env:LOOPRA_MIRROR='${mirrorUrl}'; ` : '';
   const envUnix = mirrorUrl ? `export LOOPRA_MIRROR='${mirrorUrl}'; ` : '';
+  const windowsUrl = `${mirrorUrl}${SCRIPT_BASE}/${windowsScript}`;
+  const unixUrl = `${mirrorUrl}${SCRIPT_BASE}/${unixScript}`;
   return {
-    windows: `${envWin}irm ${SCRIPT_BASE}/${windowsScript} | iex`,
-    windowsLabel: `${envWin ? '$env:LOOPRA_MIRROR=…; ' : ''}irm ...${windowsScript} | iex`,
-    unix: `${envUnix}curl -fsSL ${SCRIPT_BASE}/${unixScript} | bash`,
-    unixLabel: `${envUnix ? 'export LOOPRA_MIRROR=…; ' : ''}curl ...${unixScript} | bash`,
+    windows: `${envWin}irm ${windowsUrl} | iex`,
+    windowsLabel: `${envWin}irm ${windowsUrl} | iex`,
+    unix: `${envUnix}curl -fsSL ${unixUrl} | bash`,
+    unixLabel: `${envUnix}curl -fsSL ${unixUrl} | bash`,
   };
 }
 

@@ -19,10 +19,12 @@ test('builds direct and mirror update commands per platform', () => {
   const direct = buildUpdateCommand(UPDATE_SOURCE_NORMAL);
   assert.match(direct.windows, /setup\.ps1 \| iex$/);
   assert.equal(direct.windows, 'irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex');
+  assert.equal(direct.windowsLabel, direct.windows);
   assert.match(direct.unix, /setup\.sh \| bash$/);
   const mirror = buildUpdateCommand('https://gh-proxy.org/');
-  assert.equal(mirror.windows, "$env:LOOPRA_MIRROR='https://gh-proxy.org/'; " + direct.windows);
-  assert.equal(mirror.unix, "export LOOPRA_MIRROR='https://gh-proxy.org/'; " + direct.unix);
+  assert.equal(mirror.windows, "$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex");
+  assert.equal(mirror.windowsLabel, mirror.windows);
+  assert.equal(mirror.unix, "export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash");
   assert.equal(updateScriptName(UPDATE_SOURCE_NORMAL, true, 'ps1'), 'setup-gui.ps1');
 });
 
@@ -31,12 +33,12 @@ test('all explicit mirrors use the same official scripts, including GUI variants
     for (const gui of [false, true]) {
       const direct = buildUpdateCommand(UPDATE_SOURCE_NORMAL, gui);
       const mirrored = buildUpdateCommand(source.value, gui);
-      assert.equal(mirrored.windows, `$env:LOOPRA_MIRROR='${source.value}'; ` + direct.windows);
-      assert.equal(mirrored.unix, `export LOOPRA_MIRROR='${source.value}'; ` + direct.unix);
+      assert.equal(mirrored.windows, `$env:LOOPRA_MIRROR='${source.value}'; irm ${source.value}${direct.windows.slice(4).split(' | iex')[0]} | iex`);
+      assert.equal(mirrored.unix, `export LOOPRA_MIRROR='${source.value}'; curl -fsSL ${source.value}${direct.unix.slice('curl -fsSL '.length).split(' | bash')[0]} | bash`);
     }
   }
-  assert.equal(buildUpdateCommand(UPDATE_SOURCE_MIRROR).windows, 'irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-mirror.ps1 | iex');
-  assert.equal(buildUpdateCommand(UPDATE_SOURCE_MIRROR, true).unix, 'curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui-mirror.sh | bash');
+  assert.equal(buildUpdateCommand(UPDATE_SOURCE_MIRROR).windows, "$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-mirror.ps1 | iex");
+  assert.equal(buildUpdateCommand(UPDATE_SOURCE_MIRROR, true).unix, "export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup-gui-mirror.sh | bash");
 });
 
 test('the update prompt names the source and both platforms', () => {

@@ -180,6 +180,11 @@ func (s *Controller) updateController(w http.ResponseWriter, r *http.Request) {
 			writeFail(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		sourceLabel := "GitHub direct"
+		if mirror != "" {
+			sourceLabel = mirror
+		}
+		_, _ = fmt.Fprintf(log, "[Loopra] Core service update started\n[Loopra] Source: %s\n[Loopra] Script: %s\n", sourceLabel, script)
 		ctx, cancel := context.WithCancel(context.Background())
 		var cmd *exec.Cmd
 		if runtime.GOOS == "windows" {

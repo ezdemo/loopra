@@ -283,6 +283,10 @@ func TestUpdaterRunsConfiguredHarmlessScript(t *testing.T) {
 	if env["success"] != true {
 		t.Fatalf("start = %v", env)
 	}
+	initial := env["data"].(map[string]any)
+	if !strings.Contains(initial["log"].(string), "Core service update started") {
+		t.Fatalf("initial update log = %v", initial)
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		_, env = call(t, ts, "GET", "/api/version/update", key, nil)

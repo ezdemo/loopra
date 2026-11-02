@@ -34,8 +34,9 @@
     var source = SOURCES.find(function (item) { return item.id === sourceId; });
     if (!source) throw new Error('Unsupported install source');
     var base = 'https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup' + (gui ? '-gui' : '');
-    if (platform === 'windows') return (source.prefix ? "$env:LOOPRA_MIRROR='" + source.prefix + "'; " : '') + 'irm ' + base + '.ps1 | iex';
-    if (platform === 'unix') return (source.prefix ? "export LOOPRA_MIRROR='" + source.prefix + "'; " : '') + 'curl -fsSL ' + base + '.sh | bash';
+    var scriptUrl = source.prefix + base;
+    if (platform === 'windows') return (source.prefix ? "$env:LOOPRA_MIRROR='" + source.prefix + "'; " : '') + 'irm ' + scriptUrl + '.ps1 | iex';
+    if (platform === 'unix') return (source.prefix ? "export LOOPRA_MIRROR='" + source.prefix + "'; " : '') + 'curl -fsSL ' + scriptUrl + '.sh | bash';
     throw new Error('Unsupported install platform');
   }
 

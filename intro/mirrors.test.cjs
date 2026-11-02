@@ -3,13 +3,13 @@ const assert = require('node:assert/strict');
 const { SOURCES, downloadUrl, fastestSource, probeSource, installCommand } = require('./mirrors.js');
 const original = 'https://github.com/ezdemo/loopra-release/releases/download/v1/Loopra-windows-x64.exe';
 
-test('all install commands use official scripts and pass the chosen mirror through the environment', () => {
+test('all install commands use the selected mirror for the script and release downloads', () => {
   const base = 'https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup';
   for (const source of SOURCES) {
     for (const gui of [false, true]) {
       const name = base + (gui ? '-gui' : '');
-      assert.equal(installCommand(source.id, 'windows', gui), (source.prefix ? `$env:LOOPRA_MIRROR='${source.prefix}'; ` : '') + `irm ${name}.ps1 | iex`);
-      assert.equal(installCommand(source.id, 'unix', gui), (source.prefix ? `export LOOPRA_MIRROR='${source.prefix}'; ` : '') + `curl -fsSL ${name}.sh | bash`);
+      assert.equal(installCommand(source.id, 'windows', gui), (source.prefix ? `$env:LOOPRA_MIRROR='${source.prefix}'; ` : '') + `irm ${source.prefix}${name}.ps1 | iex`);
+      assert.equal(installCommand(source.id, 'unix', gui), (source.prefix ? `export LOOPRA_MIRROR='${source.prefix}'; ` : '') + `curl -fsSL ${source.prefix}${name}.sh | bash`);
     }
   }
   assert.throws(() => installCommand('unlisted', 'unix'));

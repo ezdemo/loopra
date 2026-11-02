@@ -28,16 +28,16 @@ Windows、macOS 与 Linux 按资产名称、格式和架构分组；新增受支
 
 `mirrors.js` 提供 GitHub 直连，以及 gh-proxy.org、gh-proxy.com、ghfast.top、ghproxy.net、fastgit.cc、gh.monlor.com 六个镜像。页面加载时默认并发测速，自动模式选择有效响应中延迟最低的源。手动选择会保存到本机，自动测速和语言切换均不会覆盖手动选择；可重新测速，或切回自动选择。
 
-测速请求实际 Release 的小文件 `latest.yml`，使用 2 KiB Range、7 秒超时并检查文件内容；不下载完整安装包。展示的是响应延迟，不是带宽速度。错误页、超时或 CORS 限制不会被计为有效结果。不可测的源保留手动下载选项；全部测速失败则回退 GitHub 直连。镜像仅改写安装包链接，发布说明和 GitHub API 请求仍使用官方地址。
+测速请求实际 Release 的小文件 `latest.yml`，使用 2 KiB Range、7 秒超时并检查文件内容；不下载完整安装包。展示的是响应延迟，不是带宽速度。错误页、超时或 CORS 限制不会被计为有效结果。不可测的源保留手动下载选项；全部测速失败则回退 GitHub 直连。镜像会改写安装脚本、安装包和发布元数据的请求地址。
 
-快速开始与下载区共用下载源选择，命令展示和复制内容同步更新。所有安装脚本（含 `-mirror`、`-gui` 变体）都支持 `LOOPRA_MIRROR`：具体镜像以环境变量传入，脚本本身固定从官方 raw 地址获取。例如：
+快速开始与下载区共用下载源选择，命令展示和复制内容同步更新。所有安装脚本（含 `-mirror`、`-gui` 变体）都支持 `LOOPRA_MIRROR`：具体镜像同时用于获取脚本，并通过环境变量传入脚本。例如：
 
 ```powershell
-$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
+$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
 ```
 
 ```bash
-export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
+export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
 ```
 
 未设置变量时，标准脚本走 GitHub 直连，`-mirror` 变体默认使用 gh-proxy.org。服务端核心更新使用同一约定：按操作系统获取官方 `setup.ps1` / `setup.sh`，把所选源传入更新子进程的 `LOOPRA_MIRROR`；选择直连时移除继承的镜像变量。

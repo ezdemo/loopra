@@ -23,6 +23,8 @@ def fetch(url, limit):
     return data
 
 api = os.environ.get("LOOPRAX_RELEASE_API_URL", "https://api.github.com/repos/ezdemo/loopra-release/releases/latest")
+api = os.environ.get("LOOPRA_MIRROR", "") + api
+print("[Loopra] Checking the latest release...", flush=True)
 release = json.loads(fetch(api, 4 * 1024 * 1024))
 platform, arch = os.environ["LOOPRAX_UPDATE_OS"], os.environ["LOOPRAX_UPDATE_ARCH"]
 target_name = Path(os.environ.get("LOOPRAX_UPDATE_TARGET", "")).name
@@ -48,9 +50,13 @@ assets = [asset for asset in release.get("assets", [])
 if not assets:
     raise RuntimeError("No matching platform binary in this release")
 asset = assets[0]
+print(f"[Loopra] Selected asset: {asset['name']}", flush=True)
 url = os.environ.get("LOOPRA_MIRROR", "") + asset["browser_download_url"]
+print("[Loopra] Downloading the release asset...", flush=True)
 data = fetch(url, 128 * 1024 * 1024)
 digest = asset.get("digest", "")
+if digest.startswith("sha256:"):
+    print("[Loopra] Verifying SHA-256...", flush=True)
 if digest.startswith("sha256:") and hashlib.sha256(data).hexdigest() != digest[7:].lower():
     raise RuntimeError("Release checksum mismatch")
 if asset["name"].endswith(".zip"):
@@ -83,6 +89,7 @@ mv -f "$LOOPRAX_UPDATE_TARGET.new" "$LOOPRAX_UPDATE_TARGET"
 rm -f "$LOOPRAX_UPDATE_STAGED"
 """)
 environment = dict(os.environ, LOOPRAX_UPDATE_STAGED=str(staged))
+print("[Loopra] Update downloaded and verified; waiting for the service to exit before replacing the binary...", flush=True)
 subprocess.Popen(["sh", str(helper)], env=environment, stdin=subprocess.DEVNULL,
                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 print("Update downloaded and verified. Exit Looprax to apply it, then start Looprax again.", flush=True)

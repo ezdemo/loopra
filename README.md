@@ -121,13 +121,13 @@ curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release
 Windows PowerShell：
 
 ```powershell
-$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
+$env:LOOPRA_MIRROR='https://gh-proxy.org/'; irm https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.ps1 | iex
 ```
 
 macOS / Linux：
 
 ```bash
-export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
+export LOOPRA_MIRROR='https://gh-proxy.org/'; curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/ezdemo/loopra-release/main/.release/setup.sh | bash
 ```
 
 </details>
