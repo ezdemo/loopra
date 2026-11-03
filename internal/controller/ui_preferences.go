@@ -23,7 +23,8 @@ var uiPreferencesMu sync.Mutex
 
 // uiPreferences 是还没有单独接口的工作台设置。主题用 light、dark、system，
 // 语言用 zh、en。个人资料和宠物开关缺省时不写出，便于区分
-// 「还没保存过」和「保存成空」。persisted 只出现在响应里，表示文件是否已经写过。
+// 「还没保存过」和「保存成空」。lastWorkspace 存上次打开的项目 hash，
+// 换浏览器或换设备后仍能回到同一个项目；persisted 只出现在响应里，表示文件是否已经写过。
 type uiPreferences struct {
 	Theme         string     `json:"theme"`
 	Language      string     `json:"language"`
@@ -34,6 +35,7 @@ type uiPreferences struct {
 	AutoContext   bool       `json:"autoContext"`
 	Animations    bool       `json:"animations"`
 	PetEnabled    *bool      `json:"petEnabled,omitempty"`
+	LastWorkspace string     `json:"lastWorkspace,omitempty"`
 	Profile       *uiProfile `json:"profile,omitempty"`
 	Persisted     bool       `json:"persisted"`
 }
@@ -99,6 +101,11 @@ func loadUIPreferences(path string) (uiPreferences, bool) {
 	if prefs.OpenWith == "" {
 		prefs.OpenWith = defaultUIPreferences().OpenWith
 	}
+	// 设置文件可能被手工改过；非法项目记录直接当成没记录，不要让脏值传到前端。
+	if !validWorkspaceRef(prefs.LastWorkspace) {
+		prefs.LastWorkspace = ""
+	}
+	prefs.LastWorkspace = strings.TrimSpace(prefs.LastWorkspace)
 	prefs.Persisted = false
 	return prefs, true
 }
@@ -204,6 +211,15 @@ func (p *uiPreferences) apply(patch map[string]json.RawMessage) error {
 		}
 		p.PetEnabled = &value
 	}
+	if raw, ok := patch["lastWorkspace"]; ok {
+		var value string
+		if json.Unmarshal(raw, &value) != nil || !validWorkspaceRef(value) {
+			return errors.New("无效的项目记录")
+		}
+		// 显式传空表示「忘掉上次的项目」；不传这个键则保留已存的值。
+		p.LastWorkspace = strings.TrimSpace(value)
+	}
+
 	if raw, ok := patch["profile"]; ok {
 		var profile uiProfile
 		if json.Unmarshal(raw, &profile) != nil || !validProfile(&profile) {
@@ -216,6 +232,16 @@ func (p *uiPreferences) apply(patch map[string]json.RawMessage) error {
 
 var profileColors = map[string]bool{"blue": true, "violet": true, "rose": true, "amber": true, "green": true, "slate": true}
 var profileAvatar = regexp.MustCompile(`^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$`)
+
+// 项目 hash 只有三种来源：路径的十二位小写 MD5、工作目录为空时的 default，
+// 以及纯聊天的 __loopra_chat__。只接受这些确切形式，避免把路径、任意短串或
+// 其他内容当成项目写进设置文件。
+var workspaceRef = regexp.MustCompile(`^([0-9a-f]{12}|default|__loopra_chat__)$`)
+
+func validWorkspaceRef(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || workspaceRef.MatchString(value)
+}
 
 func validProfile(profile *uiProfile) bool {
 	profile.Nickname = strings.TrimSpace(profile.Nickname)

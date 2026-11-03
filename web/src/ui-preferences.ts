@@ -16,6 +16,8 @@ export type StoredUIPreferences = {
   animations: boolean;
   petEnabled?: boolean;
   profile?: { nickname: string; avatar: string; color: string };
+  /** The project last opened on the service, so another browser resumes the same one. */
+  lastWorkspace?: string;
   persisted?: boolean;
 };
 

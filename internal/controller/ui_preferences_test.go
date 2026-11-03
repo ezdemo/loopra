@@ -113,6 +113,74 @@ func TestUIPreferencesKeepsProfileAndPet(t *testing.T) {
 	}
 }
 
+func TestUIPreferencesStoresLastWorkspace(t *testing.T) {
+	home := t.TempDir()
+	s := &Controller{home: home}
+
+	// 没有记录时 GET 不应凭空造一个项目。
+	if got := callUIPreferences(t, s, http.MethodGet, nil); got.prefs.LastWorkspace != "" {
+		t.Fatalf("missing file lastWorkspace = %q", got.prefs.LastWorkspace)
+	}
+
+	saved := callUIPreferences(t, s, http.MethodPut, []byte(`{"theme":"dark","lastWorkspace":"a1b2c3d4e5f6"}`))
+	if saved.StatusCode != http.StatusOK || saved.prefs.LastWorkspace != "a1b2c3d4e5f6" {
+		t.Fatalf("save = %d %+v", saved.StatusCode, saved.prefs)
+	}
+
+	// 其他字段的部分更新不能把项目记录冲掉。
+	kept := callUIPreferences(t, s, http.MethodPut, []byte(`{"theme":"light"}`))
+	if kept.prefs.LastWorkspace != "a1b2c3d4e5f6" || kept.prefs.Theme != "light" {
+		t.Fatalf("partial update = %+v", kept.prefs)
+	}
+
+	// 纯聊天的 hash 也允许。
+	chat := callUIPreferences(t, s, http.MethodPut, []byte(`{"lastWorkspace":"__loopra_chat__"}`))
+	if chat.prefs.LastWorkspace != "__loopra_chat__" {
+		t.Fatalf("chat workspace = %q", chat.prefs.LastWorkspace)
+	}
+
+	// 工作目录为空时 WorkspaceHash 返回 default，它也是合法的项目记录。
+	fallback := callUIPreferences(t, s, http.MethodPut, []byte(`{"lastWorkspace":"default"}`))
+	if fallback.prefs.LastWorkspace != "default" {
+		t.Fatalf("default workspace = %q", fallback.prefs.LastWorkspace)
+	}
+
+	// 显式传空是「忘掉」。
+	cleared := callUIPreferences(t, s, http.MethodPut, []byte(`{"lastWorkspace":""}`))
+	if cleared.prefs.LastWorkspace != "" {
+		t.Fatalf("cleared = %q", cleared.prefs.LastWorkspace)
+	}
+}
+
+func TestUIPreferencesRejectsBadWorkspaceRef(t *testing.T) {
+	home := t.TempDir()
+	s := &Controller{home: home}
+	if got := callUIPreferences(t, s, http.MethodPut, []byte(`{"lastWorkspace":"a1b2c3d4e5f6"}`)); got.StatusCode != http.StatusOK {
+		t.Fatalf("valid status = %d", got.StatusCode)
+	}
+	// 路径、脏值、超长串都不能落盘。
+	for _, body := range []string{
+		`{"lastWorkspace":"C:\\code\\looprax"}`,
+		`{"lastWorkspace":"../../etc/passwd"}`,
+		`{"lastWorkspace":12}`,
+		`{"lastWorkspace":"` + strings.Repeat("a", 65) + `"}`,
+		// 契约里只写了两类短标识，所以长度满、但不是 hash 的串也要拒。
+		`{"lastWorkspace":"` + strings.Repeat("a", 64) + `"}`,
+		`{"lastWorkspace":"a1b2c3d4e5f"}`,
+		`{"lastWorkspace":"a1b2c3d4e5f67"}`,
+		`{"lastWorkspace":"A1B2C3D4E5F6"}`,
+		`{"lastWorkspace":"zzzzzzzzzzzz"}`,
+		`{"lastWorkspace":"defaultwork"}`,
+	} {
+		if got := callUIPreferences(t, s, http.MethodPut, []byte(body)); got.StatusCode != http.StatusBadRequest {
+			t.Fatalf("body %s status = %d", body, got.StatusCode)
+		}
+	}
+	if got := callUIPreferences(t, s, http.MethodGet, nil); got.prefs.LastWorkspace != "a1b2c3d4e5f6" {
+		t.Fatalf("rejected writes changed the record to %q", got.prefs.LastWorkspace)
+	}
+}
+
 func TestSavedUITheme(t *testing.T) {
 	home := t.TempDir()
 	if SavedUITheme(home) != "" {

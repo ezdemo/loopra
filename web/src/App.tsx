@@ -69,7 +69,7 @@ import { closeSubAgentTab, closeWorkspaceFile, emptyWorkspaceTabs, ensureSubAgen
 import { useSubAgentTabs } from './useSubAgentTabs';
 import { SessionRuns, sessionRunKey, draftRunKey, isRunView } from './session-runs';
 import { orderWithNewSessionFirst } from './session-order';
-import { preferredWorkspace, readLastWorkspace, writeLastWorkspace } from './last-workspace';
+import { lastWorkspaceChoice, preferredWorkspace, readLastWorkspace, settledLastWorkspace, shouldRecordWorkspace, shouldRestoreWorkspace, writeLastWorkspace } from './last-workspace';
 import { initialOpenWorkspace } from './workspace-open';
 
 export default function App({ startupPending = false, initialServer }: { startupPending?: boolean; initialServer?: string } = {}) {
@@ -100,6 +100,19 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [composerContext, setComposerContext] = useState<ComposerContext>(emptyContext);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState(() => readLastWorkspace(localStorage));
+  const [storedLastWorkspace, setStoredLastWorkspace] = useState('');
+  // Distinguishes 'the service has no record' from 'the service has not answered'.
+  // Without it the settle effect below runs on the initial empty value, unlocks writes,
+  // and persists whatever project the page happened to derive from the config.
+  const [storedLastWorkspaceReady, setStoredLastWorkspaceReady] = useState(false);
+  const [serverLastWorkspace, setServerLastWorkspace] = useState<string | null>(null);
+  const lastWorkspaceSync = useRef('');
+  // A failed read is not a record. The page keeps working from the cache and the
+  // configured project, but this session never writes back on top of a value it could
+  // not read, so a transient error cannot overwrite the real record.
+  const lastWorkspaceUnread = useRef(false);
+  // A project the user picked here outranks a service record that arrives afterwards.
+  const userPickedWorkspace = useRef(false);
   const [sidebar, setSidebar] = useState(() => window.innerWidth > 760);
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<string[]>([]);
@@ -406,6 +419,12 @@ export default function App({ startupPending = false, initialServer }: { startup
     void api.request<StoredUIPreferences>('/ui-preferences', 'GET', undefined, controller.signal)
       .then(saved => {
         if (controller.signal.aborted) return;
+        // The service record of the last opened project outlives this browser. It
+        // is settled by its own effect once the project list has arrived, because an
+        // empty list cannot tell a removed project from one that is not loaded yet.
+        lastWorkspaceUnread.current = false;
+        setStoredLastWorkspace(typeof saved.lastWorkspace === 'string' ? saved.lastWorkspace : '');
+        setStoredLastWorkspaceReady(true);
         if (!saved.persisted || uiPreferenceDirty.current) {
           persistClientSettings(currentClientSettings(), false);
           return;
@@ -414,7 +433,15 @@ export default function App({ startupPending = false, initialServer }: { startup
         applyClientSettings(merged.settings);
         if (!merged.complete) persistClientSettings(merged.settings, false);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        // Settle to 'no record' so the project picker and the configured fallback still
+        // work, but keep in mind the value is unknown: the write-back below stays off for
+        // this session instead of saving the configured project over the real record.
+        lastWorkspaceUnread.current = true;
+        setServerLastWorkspace('');
+        setStoredLastWorkspaceReady(true);
+      });
     return () => controller.abort();
   }, [api, backend.status, profileReady, setPreferences, setAgentSettings]);
   const coreUpdate = useCoreServiceUpdate(api, notify, () => { setSettingsOpen(false); setMenu(null); }, settingsOpen && !isDesktopWindow());
@@ -602,7 +629,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     });
   }
   async function saveAgentSettings(next: AgentSettings) {
-    if (next.serverUrl !== server) { setServer(serverAddress(next.serverUrl)); setActiveId(null); setWorkspace(''); return; }
+    if (next.serverUrl !== server) { setServer(serverAddress(next.serverUrl)); setActiveId(null); setWorkspace(''); setStoredLastWorkspace(''); setStoredLastWorkspaceReady(false); setServerLastWorkspace(null); lastWorkspaceUnread.current = false; lastWorkspaceSync.current = ''; return; }
     if (next.petEnabled !== agentSettings.petEnabled) {
       agentSettingsRef.current = { ...agentSettingsRef.current, petEnabled: next.petEnabled };
       persistClientSettings(currentClientSettings(), true);
@@ -708,6 +735,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   }
   function selectWorkspace(hash: string) {
     if (hash !== workspace) setComposerContext(withoutWorkspaceContext);
+    // An explicit pick outranks a service record that has not arrived yet.
+    userPickedWorkspace.current = true;
     setWorkspace(hash);
     setMenu(null);
   }
@@ -1304,9 +1333,39 @@ export default function App({ startupPending = false, initialServer }: { startup
   useEffect(() => {
     setGitBranch('工作区');
   }, [api, workspace]);
+  // Settle the service record against the projects that actually exist. Null means the
+  // service has not answered yet, and until then nothing is written back.
+  //
+  // The record must win over the *configured* project too, not just over the browser
+  // cache: config.workspace arrives before the service answer and has already pointed
+  // the page at workspaceDir, which is a different project most of the time. Comparing
+  // against the cached choice instead would reject the record on every cold start.
+  // Only an explicit pick by the user cancels the restore.
   useEffect(() => {
-    if (backend.workspaces.some(item => item.hash === workspace)) writeLastWorkspace(localStorage, workspace);
-  }, [workspace, backend.workspaces]);
+    if (!storedLastWorkspaceReady || serverLastWorkspace !== null || !backend.workspaces.length) return;
+    const lives = (hash: string) => backend.workspaces.some(item => item.hash === hash);
+    // A failed read settles as 'no record' too: the page still falls back to the
+    // configured project, it just never writes that guess back (see shouldRecordWorkspace).
+    const known = settledLastWorkspace({ answered: storedLastWorkspaceReady, stored: storedLastWorkspace, exists: lives }) || '';
+    lastWorkspaceSync.current = known;
+    setServerLastWorkspace(known);
+    if (shouldRestoreWorkspace({ answered: storedLastWorkspaceReady, stored: storedLastWorkspace, picked: userPickedWorkspace.current, exists: lives, current: workspace })) setWorkspace(known);
+  }, [backend.workspaces, storedLastWorkspace, storedLastWorkspaceReady, serverLastWorkspace, workspace]);
+  useEffect(() => {
+    const report = shouldRecordWorkspace({
+      answered: serverLastWorkspace !== null,
+      unread: lastWorkspaceUnread.current,
+      stored: serverLastWorkspace || '',
+      current: workspace,
+      reported: lastWorkspaceSync.current,
+      picked: userPickedWorkspace.current,
+      exists: (hash: string) => backend.workspaces.some(item => item.hash === hash),
+    });
+    if (!report) return;
+    writeLastWorkspace(localStorage, workspace);
+    lastWorkspaceSync.current = workspace;
+    void api.request('/ui-preferences', 'PUT', { lastWorkspace: workspace }).catch(() => {});
+  }, [api, workspace, backend.workspaces, serverLastWorkspace]);
   useEffect(() => {
     if (backend.status !== 'connected' || !workspace || workspace === CHAT_WORKSPACE.hash) return;
     const controller = new AbortController();
@@ -1335,9 +1394,13 @@ export default function App({ startupPending = false, initialServer }: { startup
       : { ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode });
     setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '', toolModel: config.toolModel ? `${config.toolModelChannelId}:${config.toolModel}` : '' }));
     // A refresh must not discard the project the user just chose. An empty choice
-    // restores the last selection before falling back to the configured project.
-    setWorkspace(current => preferredWorkspace(current, backend.workspaces, readLastWorkspace(localStorage), config.workspace));
-  }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server, session?.id]);
+    // restores the last selection before falling back to the configured project. The
+    // service record outranks the browser cache so another device resumes the same
+    // project; while it is still unknown (null) there is nothing to restore from yet,
+    // and settling on workspaceDir here would make the page look like a fresh install.
+    const live = (hash: string) => backend.workspaces.some(item => item.hash === hash);
+    setWorkspace(current => preferredWorkspace(current, backend.workspaces, lastWorkspaceChoice(readLastWorkspace(localStorage), serverLastWorkspace || '', live), serverLastWorkspace === null ? undefined : config.workspace));
+  }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server, serverLastWorkspace, session?.id]);
   // The host is what actually launches these, and only it knows what exists there (Git Bash is
   // Windows-only, PowerShell needs pwsh installed), so ask it instead of offering a fixed list.
   const refreshApplications = useCallback(() => {
