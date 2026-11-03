@@ -54,6 +54,14 @@
    open. Plain CSS on purpose: the kill switch below then covers it, and with
    motion off these appear instantly exactly as they did before. */
 @keyframes surface-pop-in { from { opacity: 0; transform: translateY(-0.25rem); } to { opacity: 1; transform: none; } }
+/* Streaming reveal: markdown-reveal.ts wraps each character of the *live* answer
+   block in `.stream-char`, so a character animates exactly once — when React
+   mounts it — and the reply reads as flowing out instead of snapping in. Only
+   `opacity` is animated on purpose: a transform or filter needs
+   `display: inline-block`, which would let the browser break an English word
+   between two characters. The kill switches below turn it into plain appearance. */
+@keyframes stream-char-in { from { opacity: 0; } to { opacity: 1; } }
+.stream-char { animation: stream-char-in 0.26s ease-out; }
 /* Every `Collapse` body — the assistant 用时/思考/工具 detail, user message展开,
    sidebar groups, composer model groups — shares this wrapper. opacity/translateY
    never change layout height, so the chat virtualiser still measures one stable

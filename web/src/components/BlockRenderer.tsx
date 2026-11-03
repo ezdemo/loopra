@@ -134,10 +134,10 @@ function Chain({ steps, streaming = false, ...actions }: { steps: ChatBlock[]; s
 export default function BlockRenderer({ blocks, streaming = false, ...actions }: { blocks: ChatBlock[]; streaming?: boolean } & BlockActions) {
   return <div className="msg-blocks">{chainBlocks(blocks).map(block => {
     if (block.type === 'chain') return <Chain key={block.id} steps={block.steps} streaming={streaming && block.steps.at(-1)?.id === blocks.at(-1)?.id} {...actions} />;
-    if (block.type === 'content') return <Markdown key={block.id} text={block.content} notify={actions.notify} onOpenFile={actions.onOpenFile} />;
+    if (block.type === 'content') return <Markdown key={block.id} text={block.content} streaming={streaming && block.id === blocks.at(-1)?.id} notify={actions.notify} onOpenFile={actions.onOpenFile} />;
     if (block.type === 'reasoning' || block.type === 'reasoning_started' || block.type === 'sub_agent') return <Step key={block.id} block={block} streaming={streaming && block.id === blocks.at(-1)?.id} {...actions} />;
     if (block.type === 'tool_call') {
-      if (block.name === 'finish' && block.result) return <section key={block.id} className="block-tool block-finish"><div className="tool-head finish-head"><StatusIcon status="成功" /><span className="tool-name">最终回答</span></div><div className="finish-content"><Markdown text={block.result} notify={actions.notify} onOpenFile={actions.onOpenFile} /></div></section>;
+      if (block.name === 'finish' && block.result) return <section key={block.id} className="block-tool block-finish"><div className="tool-head finish-head"><StatusIcon status="成功" /><span className="tool-name">最终回答</span></div><div className="finish-content"><Markdown text={block.result} streaming={streaming && block.id === blocks.at(-1)?.id} notify={actions.notify} onOpenFile={actions.onOpenFile} /></div></section>;
       return <ToolBlock key={block.id} block={block} onOpenFile={actions.onOpenFile} />;
     }
     if (block.type === 'file_changes') return <FileChanges key={block.id} changes={block.changes} {...actions} />;

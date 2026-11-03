@@ -1,7 +1,7 @@
 import { cloneElement, createContext, isValidElement, memo, useContext, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
-import type { Components } from 'react-markdown';
+import type { Components, Options } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
@@ -13,6 +13,7 @@ import { normalizeMathMarkdown } from '../markdown-math';
 import { normalizeAlertMarkdown } from '../markdown-alert';
 import { LOCAL_FILE_SCHEME, fileLineFromHref, localFilePath, rehypeLocalFileLinks } from '../markdown-links';
 import { markdownSchema } from '../markdown-schema';
+import { rehypeStreamReveal } from '../markdown-reveal';
 import { useColorizedFence } from '../highlight';
 import { useImagePreview } from './ImagePreview';
 import FileGlyph from './FileGlyph';
@@ -141,7 +142,14 @@ function AlertQuote({ children }: { children?: ReactNode }) {
   return <div className={`markdown-alert markdown-alert-${type}`}>{stripped}</div>;
 }
 
-export default memo(function Markdown({ text, notify, onOpenFile }: { text: string; notify: (message: string) => void; onOpenFile?: (path: string) => void }) {
+export default memo(function Markdown({ text, notify, onOpenFile, streaming = false }: { text: string; notify: (message: string) => void; onOpenFile?: (path: string) => void; streaming?: boolean }) {
   const source = useMemo(() => normalizeAlertMarkdown(normalizeMathMarkdown(text)), [text]);
-  return <LinkPopoverProvider><NoticeContext.Provider value={notify}><OpenFileContext.Provider value={onOpenFile ?? null}><div className="block-content"><ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]} rehypePlugins={[rehypeRaw, rehypeLocalFileLinks, [rehypeSanitize, markdownSchema], rehypeKatex]} urlTransform={urlTransform} components={components}>{source}</ReactMarkdown></div></OpenFileContext.Provider></NoticeContext.Provider></LinkPopoverProvider>;
+  // The reveal pass is appended only while the turn is live. Both arrays keep a
+  // stable identity across deltas: a new plugin list per token would hand
+  // react-markdown fresh props for no benefit.
+  const rehypePlugins = useMemo<NonNullable<Options['rehypePlugins']>>(() => streaming
+    ? [rehypeRaw, rehypeLocalFileLinks, [rehypeSanitize, markdownSchema], rehypeKatex, rehypeStreamReveal]
+    : [rehypeRaw, rehypeLocalFileLinks, [rehypeSanitize, markdownSchema], rehypeKatex], [streaming]);
+  const remarkPlugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => [remarkGfm, remarkMath, remarkBreaks], []);
+  return <LinkPopoverProvider><NoticeContext.Provider value={notify}><OpenFileContext.Provider value={onOpenFile ?? null}><div className="block-content"><ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={components}>{source}</ReactMarkdown></div></OpenFileContext.Provider></NoticeContext.Provider></LinkPopoverProvider>;
 });

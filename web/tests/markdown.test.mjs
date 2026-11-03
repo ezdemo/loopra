@@ -61,6 +61,7 @@ const specifiers = {
   '../markdown-alert': alertUrl,
   '../markdown-links': linksUrl,
   '../markdown-schema': schemaUrl,
+  '../markdown-reveal': dataUrl('export const rehypeStreamReveal = () => () => {};'),
   'react-markdown': import.meta.resolve('react-markdown'),
   'remark-gfm': import.meta.resolve('remark-gfm'),
   'remark-math': import.meta.resolve('remark-math'),

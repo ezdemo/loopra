@@ -26,13 +26,25 @@ function ruleBody(css, selector) {
   return match[1];
 }
 
-test('surface-pop-in is the only shell keyframe left', () => {
+test('shell keyframes stay limited to the mount animations', () => {
   assert.match(motion, /@keyframes surface-pop-in \{/);
   // The one-way slide/fade keyframes were replaced by transitions, which are the
   // only thing that can run on the way out.
   for (const name of ['surface-slide-left', 'surface-slide-right', 'overlay-fade-in']) {
     assert.doesNotMatch(motion, new RegExp(`@keyframes ${name}`), `stale @keyframes ${name}`);
   }
+  // The chat reveal adds one more: markdown-reveal.ts emits a span per character
+  // as text arrives, so a mount keyframe is the only way to animate it.
+  assert.match(motion, /@keyframes stream-char-in \{/);
+});
+
+test('the streaming reveal only fades characters, never moves them', () => {
+  // \"Inline-block\" is the trap: transform/filter need it, and a per-character
+  // inline-block lets the browser break an English word between two letters.
+  // Measured in Chromium: plain spans and wrapped spans give the same line count.
+  assert.match(motion, /@keyframes stream-char-in \{ from \{ opacity: 0; \} to \{ opacity: 1; \} \}/);
+  assert.match(ruleBody(motion, '.stream-char'), /animation: stream-char-in 0\.26s ease-out;/);
+  assert.doesNotMatch(ruleBody(motion, '.stream-char'), /transform|filter|display/);
 });
 
 test('every Collapse body pops in when it opens', () => {
