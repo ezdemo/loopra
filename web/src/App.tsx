@@ -890,7 +890,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   }
   function projectMaintained(kind: 'refresh' | 'clear-all' | 'clear-old' | 'delete', item: Workspace, deletedSessionNames: string[] = []) {
     const activeSessionName = activeId?.startsWith(`${item.hash}/`) ? activeId.slice(item.hash.length + 1) : '';
-    if (kind === 'clear-all' || kind === 'delete' || (activeSessionName && deletedSessionNames.includes(activeSessionName))) setActiveId(null);
+    if (activeSessionName && (kind === 'clear-all' || kind === 'delete' || deletedSessionNames.includes(activeSessionName))) setActiveId(null);
     if (kind === 'delete' && workspace === item.hash) setWorkspace(workspaces.find(entry => entry.hash !== item.hash)?.hash || '');
   }
   function initPet() {

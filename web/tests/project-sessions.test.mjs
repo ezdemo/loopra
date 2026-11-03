@@ -48,13 +48,13 @@ const { default: ProjectSessions } = await import(dataUrl(outputText));
 const workspace = { hash: 'aaa111', name: 'alpha', path: 'C:\\alpha' };
 
 async function mount(count = 3, options = {}) {
-  const { fail = false, refreshFail = false } = options;
+  const { fail = false, refreshFail = false, workspace: targetWorkspace = workspace } = options;
   const sessions = options.sessions ?? Array.from({ length: count }, (_, index) => ({
-    id: `aaa111/old-${index}`,
+    id: `${targetWorkspace.hash}/old-${index}`,
     name: `old-${index}`,
     title: `old-${index}`,
-    workspace: 'alpha',
-    workspaceHash: 'aaa111',
+    workspace: targetWorkspace.name,
+    workspaceHash: targetWorkspace.hash,
     kind: 'remote',
     messages: [],
     mtime: Date.now() - 31 * 24 * 60 * 60 * 1000,
@@ -71,7 +71,7 @@ async function mount(count = 3, options = {}) {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   await act(async () => root.render(createElement(ProjectSessions, {
-    api, workspace, count, sessions,
+    api, workspace: targetWorkspace, count, sessions,
     onClose: () => events.push('close'),
     onRefresh: async () => { events.push('refresh'); if (refreshFail) throw new Error('离线'); },
     onCompleted: kind => events.push(`completed:${kind}`),
@@ -212,4 +212,55 @@ test('deleting drops the project record from Loopra', async () => {
   assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111', method: 'DELETE', body: undefined }]);
   assert.deepEqual(view.events, ['refresh', 'completed:delete', 'notify:项目已删除', 'close']);
   await view.close();
+});
+
+const chatWorkspace = { hash: '__loopra_chat__', name: '纯聊天', path: '', kind: 'chat' };
+
+test('pure chat offers session maintenance without project name or deletion controls', async () => {
+  const view = await mount(4, { workspace: chatWorkspace });
+  try {
+    assert.equal(view.container.querySelector('h2').textContent, '管理纯聊天会话');
+    assert.equal(view.container.querySelector('.project-dialog-summary strong').textContent, '纯聊天');
+    assert.equal(view.container.querySelector('.project-dialog-rename'), null);
+    assert.equal(buttonIn(view.container, '删除项目'), undefined);
+    assert.equal(view.container.querySelector('.project-dialog-summary p'), null);
+    await click(buttonIn(view.container, '刷新会话列表'));
+    assert.deepEqual(view.calls(), []);
+    assert.deepEqual(view.events, ['refresh', 'completed:refresh', 'notify:会话列表已刷新', 'close']);
+  } finally { await view.close(); }
+});
+
+test('pure chat cleanup scopes both age-based and all-session requests to pure chat', async () => {
+  const view = await mount(3, { workspace: chatWorkspace });
+  try {
+    await click(buttonIn(view.container, '清理会话'));
+    const cleanup = new URL(view.calls()[0].path, 'http://test.invalid');
+    assert.equal(cleanup.pathname, '/sessions/cleanup');
+    assert.equal(cleanup.searchParams.get('workspaceHash'), chatWorkspace.hash);
+    assert.equal(view.calls()[0].method, 'DELETE');
+    await selectCleanupScope(view, 'all');
+    await click(buttonIn(view.container, '清理会话'));
+    assert.deepEqual(view.calls()[1], { path: '/sessions?workspaceHash=__loopra_chat__', method: 'DELETE', body: undefined });
+  } finally { await view.close(); }
+});
+
+test('session cleanup only closes an active conversation in the affected workspace', async () => {
+  const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const ast = ts.createSourceFile('App.tsx', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const app = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
+  const maintained = app.body.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'projectMaintained');
+  const { outputText } = ts.transpileModule(maintained.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
+  const bind = new Function('activeId', 'workspace', 'workspaces', 'setActiveId', 'setWorkspace', `${outputText}; return projectMaintained;`);
+  for (const [activeId, kind, target, deleted, expected] of [
+    ['aaa111/current', 'clear-all', chatWorkspace, [], []],
+    ['__loopra_chat__/current', 'clear-all', workspace, [], []],
+    ['__loopra_chat__/current', 'clear-all', chatWorkspace, [], [null]],
+    ['__loopra_chat__/current', 'clear-old', chatWorkspace, ['other'], []],
+    ['__loopra_chat__/current', 'clear-old', chatWorkspace, ['current'], [null]],
+    ['aaa111/current', 'clear-all', workspace, [], [null]],
+  ]) {
+    const selected = [];
+    bind(activeId, 'aaa111', [workspace, chatWorkspace], id => selected.push(id), () => {})(kind, target, deleted);
+    assert.deepEqual(selected, expected, `${activeId}: ${kind} ${target.hash}`);
+  }
 });

@@ -46,7 +46,7 @@ test('a long project list folds after six sessions with an expand link', async (
     readFile(new URL('../src/sessions.css', import.meta.url), 'utf8'),
   ]);
   assert.match(sidebar, /const SESSION_GROUP_LIMIT = 6;/);
-  assert.match(sidebar, /const shown = expanded \? own : own\.slice\(0, SESSION_GROUP_LIMIT\);/);
+  assert.match(sidebar, /const shown = showAll \? own : own\.slice\(0, SESSION_GROUP_LIMIT\);/);
   assert.match(sidebar, /useLocalState<string\[\]>\('expanded-session-groups', \[\]\)/);
   // The active session may come from search and sit below the fold; its group
   // opens instead of hiding the row that is currently selected.
