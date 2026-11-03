@@ -279,7 +279,21 @@
 .loopra-conversation .user-image-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .loopra-conversation .block-content img { max-width: 100%; border-radius: var(--radius-sm); }
 .loopra-conversation .markdown-image-button { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
-.loopra-conversation .block-content a.ai-file-link { cursor: pointer; }
+/* Inline file chip in the message body: glyph + file name + (line N), all in
+   the accent blue; the line hint is dimmed so the name stays the anchor. */
+.loopra-conversation .block-content a.ai-file-link { display: inline-flex; align-items: baseline; gap: .25rem; max-width: 100%; padding: 0 .25rem; margin: 0 -.125rem; border-radius: var(--radius-sm); color: var(--accent); font-weight: 500; text-decoration: none; vertical-align: baseline; cursor: pointer; }
+.loopra-conversation .block-content a.ai-file-link:hover,
+.loopra-conversation .block-content a.ai-file-link:focus-visible { background: var(--accent-soft); text-decoration: none; outline: none; }
+.loopra-conversation .block-content a.ai-file-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.loopra-conversation .ai-file-link .ai-file-glyph { flex: none; align-self: center; width: .875rem; height: .875rem; }
+.loopra-conversation .ai-file-link .ai-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loopra-conversation .ai-file-link .ai-file-line { flex: none; color: color-mix(in srgb, currentColor 62%, transparent); font-size: .9em; font-variant-numeric: tabular-nums; }
+/* The same chip outside the transcript (plan review, requirement board) keeps the
+   inline layout; only the colors fall back to the surrounding text tokens. */
+.block-content a.ai-file-link { display: inline-flex; align-items: baseline; gap: .25rem; max-width: 100%; text-decoration: none; }
+.block-content a.ai-file-link .ai-file-glyph { flex: none; align-self: center; width: .875rem; height: .875rem; }
+.block-content a.ai-file-link .ai-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.block-content a.ai-file-link .ai-file-line { flex: none; opacity: .62; font-size: .9em; font-variant-numeric: tabular-nums; }
 
 /* 图片放大预览（对齐 Chat.vue 的 Teleport overlay） */
 .image-preview-overlay {

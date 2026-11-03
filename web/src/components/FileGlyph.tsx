@@ -10,8 +10,12 @@ const FILE_GLYPHS: Record<string, LucideIcon> = {
   npm: Package, docker: Container, maven: Package, gradle: Package,
 };
 
-export default function FileGlyph({ name, size = 14, className = 'tree-file' }: { name: string; size?: number | string; className?: string }) {
+/**
+ * `mono` drops the per-extension brand color so the glyph inherits `currentColor`;
+ * inline file links in message bodies read as one blue chip, not a mini rainbow.
+ */
+export default function FileGlyph({ name, size = 14, className = 'tree-file', mono = false }: { name: string; size?: number | string; className?: string; mono?: boolean }) {
   const { kind, color } = fileIconFor(name.split(/[\\/]/).pop());
   const Glyph = FILE_GLYPHS[kind] || FileText;
-  return <Glyph size={size} className={className} data-icon={kind} style={{ color }} aria-hidden="true" />;
+  return <Glyph size={size} className={className} data-icon={kind} style={mono ? undefined : { color }} aria-hidden="true" />;
 }

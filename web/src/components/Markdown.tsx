@@ -11,10 +11,11 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { normalizeMathMarkdown } from '../markdown-math';
 import { normalizeAlertMarkdown } from '../markdown-alert';
-import { LOCAL_FILE_SCHEME, localFilePath, rehypeLocalFileLinks } from '../markdown-links';
+import { LOCAL_FILE_SCHEME, fileLineFromHref, localFilePath, rehypeLocalFileLinks } from '../markdown-links';
 import { markdownSchema } from '../markdown-schema';
 import { useColorizedFence } from '../highlight';
 import { useImagePreview } from './ImagePreview';
+import FileGlyph from './FileGlyph';
 import { LinkPopoverProvider, useLinkPopover } from './LinkPopover';
 import { Check, ChevronDown, Code2, Copy } from 'lucide-react';
 import { IconButton } from './ui';
@@ -59,9 +60,31 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
   const openFile = useContext(OpenFileContext);
   const { show, scheduleHide } = useLinkPopover();
   const path = localFilePath(href);
-  if (path && openFile) return <a href="#" className="ai-link ai-file-link" title="打开文件预览" onClick={event => { event.preventDefault(); openFile(path); }}>{children}</a>;
+  if (path && openFile) {
+    // The chip reads like a file header: type glyph, file name, then the line the
+    // agent pointed at, e.g. `AttachmentBiz.java (line 25)`.
+    const text = plainText(children).trim();
+    const textLine = /\(line\s+(\d+)\)/i.exec(text)?.[1];
+    const line = fileLineFromHref(href) ?? (textLine ? Number(textLine) : null);
+    // The chip always shows the file name: a custom link text (`查看实现`) would hide
+    // which file opens, so it stays in the tooltip next to the full path instead.
+    const label = path.split('/').filter(Boolean).pop() || path;
+    const pathTitle = line === null ? path : `${path} (line ${line})`;
+    // A custom link text (`查看实现`) is worth keeping, but path-shaped text adds nothing.
+    const extra = text && !/[\\/]/.test(text) && text.replace(/\s*\(line\s+\d+\)\s*$/i, '') !== label ? text : '';
+    const title = extra ? `${pathTitle} · ${extra}` : pathTitle;
+    return <a href="#" className="ai-link ai-file-link" title={`打开文件预览 · ${title}`} onClick={event => { event.preventDefault(); openFile(path); }}><FileGlyph name={path} size="0.875rem" className="ai-file-glyph" mono /><span className="ai-file-name">{label}</span>{line !== null && <span className="ai-file-line">(line {line})</span>}</a>;
+  }
   // Hovering an external link offers the system browser action.
   return <a href={href} className="ai-link" target="_blank" rel="noopener noreferrer" onMouseEnter={event => show(event.currentTarget)} onMouseLeave={scheduleHide}>{children}</a>;
+}
+
+// Link text is React children; the chip needs the flat string to derive a file name.
+function plainText(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(plainText).join('');
+  if (isValidElement(node)) return plainText((node.props as { children?: ReactNode }).children);
+  return '';
 }
 
 function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {

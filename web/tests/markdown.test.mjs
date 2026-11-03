@@ -31,7 +31,7 @@ const { normalizeAlertMarkdown } = await import(alertUrl);
 const linksSource = await readFile(new URL('../src/markdown-links.ts', import.meta.url), 'utf8');
 const linksTranspiled = ts.transpileModule(linksSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const linksUrl = dataUrl(linksTranspiled);
-const { isLocalFilePath, filePathFromHref } = await import(linksUrl);
+const { isLocalFilePath, filePathFromHref, fileLineFromHref } = await import(linksUrl);
 
 const schemaSource = await readFile(new URL('../src/markdown-schema.ts', import.meta.url), 'utf8');
 const schemaTranspiled = ts.transpileModule(schemaSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -77,6 +77,8 @@ const specifiers = {
   // The collapse-all bridge lives in Motion.tsx; Markdown only needs the hook.
   './Motion': dataUrl('export const useCollapseAll = () => {};'),
   './LinkPopover': linkPopoverUrl,
+  // The inline file chip renders a lucide glyph; this suite checks structure only.
+  './FileGlyph': dataUrl('export default () => null;'),
 };
 
 const source = await readFile(new URL('../src/components/Markdown.tsx', import.meta.url), 'utf8');
@@ -189,8 +191,23 @@ test('workspace file links are intercepted rather than opened in a tab', async (
   const link = view.container.querySelector('a.ai-file-link');
   assert.ok(link, 'local file path should render an ai-file-link');
   assert.equal(link.getAttribute('target'), null);
+  // The chip shows the file name plus the line it points at, e.g. (line 12).
+  assert.equal(link.querySelector('.ai-file-name').textContent, 'app.ts');
+  assert.equal(link.querySelector('.ai-file-line').textContent, '(line 12)');
+  assert.equal(link.getAttribute('title'), '打开文件预览 · src/app.ts (line 12)');
   await act(async () => { link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })); });
   assert.deepEqual(opened, ['src/app.ts']);
+
+  // A link whose text already carries the hint keeps it as the line suffix.
+  const textLine = await mount('[AttachmentBiz.java (line 25)](/C:/repo/src/AttachmentBiz.java)', { onOpenFile: () => {} });
+  assert.equal(textLine.container.querySelector('.ai-file-name').textContent, 'AttachmentBiz.java');
+  assert.equal(textLine.container.querySelector('.ai-file-line').textContent, '(line 25)');
+  await textLine.unmount();
+
+  // A link without a line suffix keeps the plain chip.
+  const plain = await render('[app.ts](src/app.ts)', { onOpenFile: () => {} });
+  assert.match(plain, /ai-file-name/);
+  assert.ok(!plain.includes('ai-file-line'));
 
   const external = await render('[文档](https://example.com/docs)');
   assert.match(external, /target="_blank"/);
@@ -206,6 +223,8 @@ test('local file path detection matches the legacy highlight rule', () => {
   assert.equal(isLocalFilePath('README.md'), false);
   assert.equal(filePathFromHref('src/app.ts:12'), 'src/app.ts');
   assert.equal(filePathFromHref('a\\b\\c.ts'), 'a/b/c.ts');
+  assert.equal(fileLineFromHref('src/app.ts:12'), 12);
+  assert.equal(fileLineFromHref('src/app.ts'), null);
 });
 
 test('absolute drive paths survive react-markdown url handling and sanitizing', async () => {
