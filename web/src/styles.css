@@ -23,6 +23,10 @@
 :root.dark {
   background: var(--surface);
   color: var(--text);
+  /* Grayscale antialiasing thins light glyphs on a dark ground, which is what
+     makes the dark theme look washed out on Windows. Let the OS paint them. */
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
 }
 
 
@@ -66,7 +70,7 @@ svg { flex-shrink: 0; }
 .app-icon { width: 1.5rem; height: 1.5rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
 /* Controls */
-.icon-button { min-width: 1.75rem !important; width: 1.75rem; height: 1.75rem; padding: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .12s, color .12s; }
+.icon-button { min-width: 1.75rem !important; width: 1.75rem; height: 1.75rem; padding: 0; border-radius: var(--radius-sm); background: transparent; color: var(--secondary); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .12s, color .12s; }
 .icon-button:hover { background: var(--hover); color: var(--text); }
 .icon-button.active { background: var(--accent-soft); color: var(--accent); }
 

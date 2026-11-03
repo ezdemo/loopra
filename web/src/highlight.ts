@@ -15,7 +15,10 @@ export type ColorRun = { cls: string; text: string };
 export type ColorSegment = ColorRun & { changed: boolean };
 export type WordMark = { text: string; changed: boolean };
 
-type ThemeName = 'vs' | 'vs-dark';
+type ThemeName = 'vs' | 'loopra-dark';
+
+/** vs-dark, with comments lifted off the dim #6A9955 green. Everything else inherits. */
+const DARK_COMMENT = '9DCAA1';
 
 /**
  * Colorizing is re-run on every streamed token, so very large blocks are left
@@ -35,7 +38,16 @@ export function isDarkTheme(): boolean {
 }
 
 export function highlightThemeName(dark: boolean): ThemeName {
-  return dark ? 'vs-dark' : 'vs';
+  return dark ? 'loopra-dark' : 'vs';
+}
+
+export function installHighlightThemes(editor: Pick<typeof Monaco.editor, 'defineTheme'>): void {
+  editor.defineTheme('loopra-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [{ token: 'comment', foreground: DARK_COMMENT, fontStyle: 'italic' }],
+    colors: {},
+  });
 }
 
 /**
@@ -80,6 +92,7 @@ export function initHighlight(): Promise<void> {
     loading = import('./monaco')
       .then(module => {
         monaco = module.default;
+        installHighlightThemes(monaco.editor);
         theme = highlightThemeName(isDarkTheme());
         monaco.editor.setTheme(theme);
         watchWorkbench();

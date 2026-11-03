@@ -20,7 +20,7 @@ export default {
         success: { DEFAULT: '#1f9d55', foreground: '#fff' }, warning: { DEFAULT: '#c27803', foreground: '#fff' }, danger: { DEFAULT: '#d6453d', foreground: '#fff' },
       } },
       dark: { colors: {
-        background: '#191919', foreground: '#ececea', divider: '#2f2f2d', focus: '#6c8cff',
+        background: '#191919', foreground: '#ececea', divider: '#3f3f3a', focus: '#6c8cff',
         content1: '#1e1e1d', content2: '#242423', content3: '#2b2b29', content4: '#323230',
         default: { DEFAULT: '#323230', foreground: '#ececea' },
         primary: { DEFAULT: '#6c8cff', foreground: '#111' },

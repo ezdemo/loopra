@@ -3,7 +3,7 @@
 .loopra-conversation {
   --chat-fg: var(--text);
   --chat-fg-2: var(--secondary);
-  --chat-fg-3: var(--muted);
+  --chat-fg-3: var(--secondary);
   --chat-fg-4: var(--muted);
   --chat-border: var(--line);
   --chat-border-soft: var(--line);

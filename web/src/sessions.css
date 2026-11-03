@@ -17,7 +17,7 @@
 .session-row:hover .session-row-tools, .session-row:focus-within .session-row-tools { opacity: 1; pointer-events: auto; }
 .session-row:hover .session-item, .session-row:focus-within .session-item { padding-right: 3.5rem; }
 .session-row:hover .session-item time, .session-row:focus-within .session-item time { display: none; }
-.session-row-tools .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; color: var(--muted); background: transparent; }
+.session-row-tools .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; color: var(--secondary); background: transparent; }
 .session-row-tools .icon-button:hover { color: var(--text); background: var(--hover); }
 .session-item .wt-badge { flex-shrink: 0; font-style: normal; font-size: 0.75rem; }
 /* A clipped session title slides sideways on hover so the full name is readable

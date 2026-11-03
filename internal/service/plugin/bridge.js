@@ -101,6 +101,7 @@
   base.dataset.loopra = "base";
   base.textContent = `
 :where(html) { background: var(--surface, #fff); color: var(--text, #1c1c1a); font: 14px/1.5 var(--loopra-font, Inter, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif); -webkit-font-smoothing: antialiased; }
+:where(html[data-theme="dark"]) { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 :where(body) { margin: 0; padding: 20px 24px 32px; }
 :where(*), :where(*::before), :where(*::after) { box-sizing: border-box; }
 :where(h1, h2, h3, h4) { font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; color: var(--text, inherit); }

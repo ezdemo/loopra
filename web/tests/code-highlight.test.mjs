@@ -103,7 +103,7 @@ test('entity decoding mirrors what the colorizer escapes', () => {
 });
 
 test('theme, type scale and language fallbacks follow the workbench', () => {
-  assert.equal(highlightThemeName(true), 'vs-dark');
+  assert.equal(highlightThemeName(true), 'loopra-dark');
   assert.equal(highlightThemeName(false), 'vs');
   // The preview used to render 13px on a 16px root; --ui-scale scales the root.
   assert.equal(codeFontSize(16), 13);

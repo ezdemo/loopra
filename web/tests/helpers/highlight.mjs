@@ -23,7 +23,7 @@ export const colorRunsText = runs => runs.map(run => run.text).join('');
 export const splitRunsByMarks = runs => runs.map(run => ({ ...run, changed: false }));
 export const resolveLanguageName = name => name || 'plaintext';
 export const isDarkTheme = () => false;
-export const highlightThemeName = dark => dark ? 'vs-dark' : 'vs';
+export const highlightThemeName = dark => dark ? 'loopra-dark' : 'vs';
 export const codeFontSize = root => Math.max(9, Math.round(root * 0.8125));
 export const initHighlight = () => Promise.resolve();
 `);
