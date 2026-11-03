@@ -222,11 +222,15 @@ test('search edits the original model index and validates duplicates and token l
     await ui.input('模型 ID', 'a'); await ui.apply();
     assert.match(ui.host.querySelector('[role="alert"]').textContent, /重复/);
     await ui.input('模型 ID', 'c-new'); await ui.input('最大输出（tokens）', '999999'); await ui.apply();
-    assert.match(ui.host.querySelector('[role="alert"]').textContent, /不能超过/);
-    await ui.input('最大输出（tokens）', '32000'); await ui.input('展示名称', '新名称'); await ui.apply();
+    // 最大输出超过上下文窗口时被压到窗口大小，而不是拦下这次应用。
+    assert.equal(ui.host.querySelector('[role="alert"]'), null);
+    await ui.click('.provider-model-open');
+    assert.equal(ui.host.querySelector('input[aria-label="最大输出（tokens）"]').value, '128000');
+    await ui.input('展示名称', '新名称'); await ui.apply();
     await ui.text('保存渠道');
     assert.deepEqual(ui.saved[0][0].models.map(model => model.name), ['a', 'b', 'c-new']);
     assert.equal(ui.saved[0][0].models[2].displayName, '新名称');
+    assert.equal(ui.saved[0][0].models[2].maxTokens, 128000);
   } finally { await ui.close(); }
 });
 

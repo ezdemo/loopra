@@ -38,7 +38,8 @@ const Page = (await import(await sourceUrl('SchedulesPage', { '@nextui-org/react
 test('shows all project tasks, filters status and scopes actions to the selected project', async () => {
   const calls = [];
   const opened = [];
-  const api = { request: async (path, method = 'GET') => { calls.push({path, method}); if (method !== 'GET') return {}; const alpha = path.includes('alpha'); return [{id:'t',name:alpha?'甲任务':'乙任务',sessionName:'session',message:'执行',cronExpr:null,intervalSec:60,enabled:alpha,runs:alpha?[{id:'r1',startedAt:1,status:'success',message:'执行甲',result:'结果甲',sessionName:'session-one'},{id:'r2',startedAt:2,status:'error',message:'执行乙',error:'错误乙',sessionName:'session-two'}]:[{id:'r3',startedAt:0,status:'success',message:'执行丙',result:'结果丙',sessionName:'session-three'}]}]; } };
+  // Plugin-provided schedules are a separate feed; this page test only counts project tasks.
+  const api = { request: async (path, method = 'GET') => { calls.push({path, method}); if (path === '/plugins/schedules') return []; if (method !== 'GET') return {}; const alpha = path.includes('alpha'); return [{id:'t',name:alpha?'甲任务':'乙任务',sessionName:'session',message:'执行',cronExpr:null,intervalSec:60,enabled:alpha,runs:alpha?[{id:'r1',startedAt:1,status:'success',message:'执行甲',result:'结果甲',sessionName:'session-one'},{id:'r2',startedAt:2,status:'error',message:'执行乙',error:'错误乙',sessionName:'session-two'}]:[{id:'r3',startedAt:0,status:'success',message:'执行丙',result:'结果丙',sessionName:'session-three'}]}]; } };
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   try {

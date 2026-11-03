@@ -69,6 +69,12 @@ function harness() {
     resolveChoiceBlock: (blocks, id, label) => blocks.map(block => block.id === id ? { ...block, selected: label } : block),
     petReplyPreview: () => '', acpStopMessage: () => '',
     applyEvent: (message, event) => ({ ...message, text: message.text + (event.content || '') }),
+    // The send path reloads history, re-attaches suspended choices, pins the new
+    // session and caches its Agent options; none of that is under test here.
+    historyMessages: history => history.map(message => ({ text: message.content })),
+    attachPendingChoices: messages => messages, unresolvedChoices: () => [],
+    pinNewSession: () => {}, cacheAgentConfig: () => {}, storeNewAgentConfig: () => {}, newAgentConfigRef: { current: null },
+    prepareCompletionSound: () => {}, playCompletionSound: () => {},
     // Keep idle polling fast, but asynchronous, in these race regression tests.
     setTimeout: callback => setTimeout(callback, 1),
     api: {

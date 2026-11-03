@@ -130,7 +130,10 @@ test('drafts use backend preferences without replaying origin-scoped local defau
   // The last preset is cached so the composer can show it disabled while the
   // Agent reconnects, then swap in the authoritative options.
   assert.match(app, /useLocalState<Record<string, AgentConfigOption\[\]>>\('agent-config-cache'/);
-  assert.match(app, /newAgentConfig\?\.key === agentConfigKey \? newAgentConfig\.options : agentConfigCache\[newConfigKey\(agentId\)\]/);
+  // The cache is keyed per Agent and read back without its origin prefix, since the
+  // desktop port changes on every start; `cachedAgentOptions` owns that fallback.
+  assert.match(app, /newAgentConfig\?\.key === agentConfigKey \? newAgentConfig\.options : cachedAgentOptions\(agentId\)/);
+  assert.match(app, /key\.endsWith\(suffix\) && options\.length/);
   assert.match(app, /!agentPreferencesReady \|\| agentSelectionBusy \|\| newAgentConfig\?\.key !== agentConfigKey/);
   assert.match(app, /busy: composerConfigBusy/);
   assert.match(app, /cacheAgentConfig\(prepared\.agentId, prepared\.configOptions\)/);
