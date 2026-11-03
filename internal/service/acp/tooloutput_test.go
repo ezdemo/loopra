@@ -2,6 +2,36 @@ package acp
 
 import "testing"
 
+func TestToolOutputStreamPatchesPreserveSnapshotsAndExit(t *testing.T) {
+	out := &ToolOutput{}
+	visible := ""
+	apply := func(raw any, blocks []ToolCallItem, meta map[string]any, wantDelta bool) {
+		t.Helper()
+		patch, delta, changed := out.UpdateStream(raw, blocks, meta)
+		if delta != wantDelta {
+			t.Fatalf("patch %q delta = %v, want %v", patch, delta, wantDelta)
+		}
+		if changed {
+			if delta {
+				visible += patch
+			} else {
+				visible = patch
+			}
+		}
+		if visible != out.Text() {
+			t.Fatalf("visible = %q, full = %q", visible, out.Text())
+		}
+	}
+	apply("snapshot", nil, nil, false)
+	apply(nil, nil, map[string]any{"terminal_output_delta": map[string]any{"data": "你"}}, false)
+	apply(nil, nil, map[string]any{"terminal_output_delta": map[string]any{"data": "好\n"}}, true)
+	apply(map[string]any{"exit_code": 0}, nil, nil, false)
+
+	out, visible = &ToolOutput{}, ""
+	apply(nil, nil, map[string]any{"mcp_output_delta": map[string]any{"data": "progress"}}, true)
+	apply("", []ToolCallItem{}, nil, false)
+}
+
 func TestToolOutputPrefersTerminalAndReportsExit(t *testing.T) {
 	out := &ToolOutput{}
 	out.Update(nil, []ToolCallItem{{

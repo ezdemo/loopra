@@ -10,6 +10,26 @@ let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
 const { acpStopMessage, SseParser, StreamEventBuffer, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
+test('tool output deltas append while snapshots and final results replace', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  const events = [
+    { type: 'tool_call', toolCallId: 't1', name: 'shell' },
+    { type: 'tool_update', toolCallId: 't1', resultDelta: '你' },
+    { type: 'tool_update', toolCallId: 't1', resultDelta: '好' },
+    { type: 'tool_update', toolCallId: 't1', name: 'Shell' },
+    { type: 'tool_update', toolCallId: 't1', result: '' },
+    { type: 'tool_update', toolCallId: 't1', resultDelta: 'new' },
+    { type: 'tool_result', toolCallId: 't1', result: 'new\nExit code: 0', status: 'completed' },
+  ];
+  for (const [index, event] of events.entries()) {
+    message = applyEvent(message, event);
+    if (index === 3) assert.equal(message.blocks[0].result, '你好');
+    if (index === 4) assert.equal(message.blocks[0].result, '');
+  }
+  assert.equal(message.blocks[0].result, 'new\nExit code: 0');
+  assert.equal(message.blocks[0].status, '成功');
+});
+
 test('a view cancellation signal does not disable request deadlines', async () => {
   const originalFetch = globalThis.fetch;
   const originalTimeout = AbortSignal.timeout;
@@ -32,6 +52,22 @@ test('a view cancellation signal does not disable request deadlines', async () =
     assert.equal(deadlineMs, 30000);
     view.abort();
     await assert.rejects(cancelled, error => error.name === 'AbortError');
+  } finally { globalThis.fetch = originalFetch; AbortSignal.timeout = originalTimeout; }
+});
+
+test('fork and branch requests allow ACP startup time even with a caller signal', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = AbortSignal.timeout;
+  const deadlines = [];
+  try {
+    AbortSignal.timeout = ms => { deadlines.push(ms); return new AbortController().signal; };
+    globalThis.fetch = async () => Response.json({ success: true, data: { sessionName: 'new-session' } });
+    const client = new LoopraClient();
+    for (const route of ['/sessions/source/fork?workspaceHash=project', '/sessions/source/branch?messageCount=2']) {
+      await client.request(route, 'POST', undefined, new AbortController().signal);
+    }
+    await client.request('/sessions/source/title', 'PUT', { title: 'Title' });
+    assert.deepEqual(deadlines, [65000, 65000, 30000]);
   } finally { globalThis.fetch = originalFetch; AbortSignal.timeout = originalTimeout; }
 });
 

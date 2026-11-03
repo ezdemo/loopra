@@ -132,3 +132,40 @@ func TestACPCancelEndsActiveSubAgents(t *testing.T) {
 		t.Fatalf("end = %+v", last)
 	}
 }
+
+func TestACPSubAgentToolDeltasPersistWithFinalSnapshot(t *testing.T) {
+	turn, dir := newTestACPTurn(t)
+	send := func(update *SessionUpdate) {
+		turn.handleSub("parent", Event{Kind: EventToolCall, Tool: update})
+	}
+	send(&SessionUpdate{SessionUpdate: "tool_call", ToolCallID: "tool", Title: "Shell"})
+	for _, text := range []string{"你", "好", "\n"} {
+		send(&SessionUpdate{
+			SessionUpdate: "tool_call_update", ToolCallID: "tool",
+			Meta: map[string]any{"terminal_output_delta": map[string]any{"data": text}},
+		})
+	}
+	send(&SessionUpdate{
+		SessionUpdate: "tool_call_update", ToolCallID: "tool", Status: "completed",
+		RawOutput: map[string]any{"exit_code": 0},
+	})
+	turn.finish()
+	events, err := readSubEvents(filepath.Join(dir, "parent.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deltas, final string
+	for _, event := range events {
+		switch event["type"] {
+		case "sub_tool_update":
+			if delta, ok := event["resultDelta"].(string); ok {
+				deltas += delta
+			}
+		case "sub_tool_result":
+			final, _ = event["result"].(string)
+		}
+	}
+	if deltas != "你好\n" || final != "你好\n\nExit code: 0" {
+		t.Fatalf("recorded deltas=%q final=%q", deltas, final)
+	}
+}

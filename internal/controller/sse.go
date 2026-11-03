@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 )
@@ -76,6 +77,12 @@ func (s *sseWriter) write(event string, data []byte) {
 	defer s.mu.Unlock()
 	if s.closed {
 		return
+	}
+	// A stalled browser must not keep an ACP worker alive indefinitely.
+	// ResponseController also supports wrappers implementing Unwrap.
+	controller := http.NewResponseController(s.w)
+	if err := controller.SetWriteDeadline(time.Now().Add(10 * time.Second)); err == nil {
+		defer controller.SetWriteDeadline(time.Time{})
 	}
 	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, data); err != nil {
 		s.closed = true

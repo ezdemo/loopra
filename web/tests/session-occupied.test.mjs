@@ -197,7 +197,7 @@ function forkEnvironment() {
     historyRequest: { current: undefined }, userScrolledAway: { current: true }, lastScrollTop: { current: 10 },
     setForkBusy: value => { state.forkBusy = value; },
     setSessions: update => { state.sessions = update(state.sessions); },
-    setActiveId: value => { state.activeId = value; }, setWorkspace() {}, selectMainTab() {},
+    setActiveId: value => { state.activeId = value; }, setWorkspace() {}, selectMainTab() {}, pinNewSession() {},
     setPendingPlan() {}, setLiveSpeed() {}, setMenu() {}, setShowScrollBtn() {},
     notify: value => { state.notice = value; },
   });
@@ -340,7 +340,9 @@ test('the occupied notice exposes retry, checking and offline states without a s
   const render = patch => act(() => root.render(createElement(Notice, { ...props, ...patch })));
   try {
     render({});
+    assert.match(host.textContent, /当前会话已被占用/);
     assert.match(host.textContent, /已在另一个应用中打开/);
+    assert.equal(host.querySelectorAll('button')[1].textContent, '复刻为新会话');
     assert.equal(host.querySelector('textarea'), null);
     act(() => { host.querySelectorAll('button')[0].click(); host.querySelectorAll('button')[1].click(); });
     assert.deepEqual(calls, ['retry', 'fork']);

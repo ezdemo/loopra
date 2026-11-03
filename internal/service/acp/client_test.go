@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,10 +74,22 @@ func (a *fakeSDKAgent) NewSession(context.Context, acpsdk.NewSessionRequest) (ac
 	}, nil
 }
 
-func (a *fakeSDKAgent) Prompt(ctx context.Context, _ acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
+func (a *fakeSDKAgent) Prompt(ctx context.Context, req acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
 	sid := acpsdk.SessionId("fake-session")
 	send := func(update acpsdk.SessionUpdate) {
 		_ = a.conn.SessionUpdate(ctx, acpsdk.SessionNotification{SessionId: sid, Update: update})
+	}
+	if len(req.Prompt) > 0 && req.Prompt[0].Text != nil && req.Prompt[0].Text.Text == "burst" {
+		send(acpsdk.StartToolCall("burst-tool", "Shell", acpsdk.WithStartStatus(acpsdk.ToolCallStatusInProgress)))
+		for i := 0; i < 4096; i++ {
+			update := acpsdk.UpdateToolCall("burst-tool")
+			update.ToolCallUpdate.Meta = map[string]any{"terminal_output_delta": map[string]any{"data": strings.Repeat("x", 128)}}
+			send(update)
+		}
+		send(acpsdk.UpdateToolCall("burst-tool", acpsdk.WithUpdateStatus(acpsdk.ToolCallStatusCompleted),
+			acpsdk.WithUpdateRawOutput(map[string]any{"exit_code": 0})))
+		send(acpsdk.UpdateAgentMessageText("done"))
+		return acpsdk.PromptResponse{StopReason: acpsdk.StopReasonEndTurn}, nil
 	}
 	send(acpsdk.UpdateAgentThoughtText("想一下"))
 	send(acpsdk.UpdateAgentMessageText("答复"))

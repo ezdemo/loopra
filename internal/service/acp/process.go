@@ -15,9 +15,11 @@ import (
 
 // 进程退出后的错误，供上层映射成前端文案。
 var (
-	ErrClosed = errors.New("ACP 连接已关闭")
-	ErrExited = errors.New("ACP Agent 已退出，请检查对应 Agent 的登录状态和配置后重试")
-	ErrBroken = errors.New("ACP Agent 通信中断，请检查对应 Agent 的登录状态和配置")
+	ErrClosed               = errors.New("ACP 连接已关闭")
+	ErrExited               = errors.New("ACP Agent 已退出，请检查对应 Agent 的登录状态和配置后重试")
+	ErrBroken               = errors.New("ACP Agent 通信中断")
+	ErrNotificationOverflow = errors.New("ACP 通知队列溢出，连接已中断")
+	ErrEventBacklog         = errors.New("ACP 通知处理积压超过容量限制，本轮已停止")
 )
 
 // agentProcess 拉起外部 ACP 进程。协议读写交给 coder/acp-go-sdk，

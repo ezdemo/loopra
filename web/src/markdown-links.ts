@@ -1,7 +1,7 @@
 // Ported from the legacy `src/utils/highlight.js` link rule: markdown links that
 // point at a workspace file path (e.g. `src/app.ts:12`) are opened in the local
 // file preview instead of a browser tab.
-const LOCAL_FILE_PATH = /^(?:[A-Za-z]:\/)?(?:[\w@.-]+\/)+[\w@.-]+\.[\w-]+(?::\d+)?$/;
+const LOCAL_FILE_PATH = /^(?:\/?[A-Za-z]:\/|\/)?(?:[\w@.-]+\/)+[\w@.-]+\.[\w-]+(?::\d+)?$/;
 
 // `C:\repo\a.ts` never reaches the component as a href: react-markdown blanks
 // unknown "protocols" and the sanitize schema drops them. Links matching a local
@@ -13,7 +13,7 @@ export function isLocalFilePath(href: string): boolean {
 }
 
 export function filePathFromHref(href: string): string {
-  return String(href).replace(/\\/g, '/').replace(/:\d+$/, '');
+  return String(href).replace(/\\/g, '/').replace(/^\/(?=[A-Za-z]:\/)/, '').replace(/:\d+$/, '');
 }
 
 /** Workspace-relative or absolute path behind a link, or null when it is a URL. */

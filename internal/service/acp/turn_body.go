@@ -38,6 +38,8 @@ type acpTurn struct {
 	msgID   string
 
 	runCtx    context.Context
+	cancel    context.CancelCauseFunc
+	events    *turnEvents
 	startedAt int64
 	mu        sync.Mutex
 	text      strings.Builder
@@ -64,6 +66,10 @@ func (t *acpTurn) counters() (int, int, int) {
 
 // handle 处理一条 ACP 更新。
 func (t *acpTurn) handle(event Event) {
+	if event.notification != nil {
+		_ = event.source.sessionUpdate(*event.notification, t)
+		return
+	}
 	// 原生子会话（Codex）：生命周期事件与子会话归属的更新单独处理。
 	if event.Kind == EventSubSpawned || event.Kind == EventSubState {
 		t.handleSubLifecycle(event)
@@ -305,9 +311,11 @@ func (t *acpTurn) handleSubTool(parent, subID string, update *SessionUpdate) {
 		out = &ToolOutput{}
 		st.subOutputs[key] = out
 	}
-	previous := out.Text()
-	out.Update(update.RawOutput, update.ToolContent(), update.Meta)
-	result := out.Text()
+	patch, delta, changed := out.UpdateStream(update.RawOutput, update.ToolContent(), update.Meta)
+	var result string
+	if update.Status == "completed" || update.Status == "failed" {
+		result = out.Text()
+	}
 	failed := update.Status == "failed" || out.Failed()
 	st.mu.Unlock()
 
@@ -324,11 +332,13 @@ func (t *acpTurn) handleSubTool(parent, subID string, update *SessionUpdate) {
 		})
 	}
 	if update.Status != "completed" && update.Status != "failed" {
-		if result != previous {
-			t.sendSub("sub_tool_update", map[string]any{
+		if changed {
+			payload := map[string]any{
 				"subId": parent, "subSessionId": subID,
-				"toolCallId": update.ToolCallID, "result": result,
-			})
+				"toolCallId": update.ToolCallID,
+			}
+			setOutputPatch(payload, patch, delta)
+			t.sendSub("sub_tool_update", payload)
 		}
 		return
 	}
@@ -402,9 +412,11 @@ func (t *acpTurn) handleTool(update *SessionUpdate) {
 	if input, ok := update.RawInput.(map[string]any); ok {
 		tool.rawInput = input
 	}
-	previousOutput := tool.out.Text()
-	tool.out.Update(update.RawOutput, update.ToolContent(), update.Meta)
-	output := tool.out.Text()
+	patch, delta, changed := tool.out.UpdateStream(update.RawOutput, update.ToolContent(), update.Meta)
+	var output string
+	if update.Status == "completed" || update.Status == "failed" {
+		output = tool.out.Text()
+	}
 	failed := update.Status == "failed" || tool.out.Failed()
 	if changes := collectFileChanges(update); len(changes) > 0 {
 		// 只保留最新一次 diff：Edit 先发片段、PostToolUse 再发最终 patch。
@@ -432,11 +444,10 @@ func (t *acpTurn) handleTool(update *SessionUpdate) {
 		})
 	}
 	if update.Status != "completed" && update.Status != "failed" {
-		if output != previousOutput {
-			t.mu.Lock()
-			tool.output = output
-			t.mu.Unlock()
-			t.sink.Send("tool_update", map[string]any{"toolCallId": update.ToolCallID, "result": output})
+		if changed {
+			payload := map[string]any{"toolCallId": update.ToolCallID}
+			setOutputPatch(payload, patch, delta)
+			t.sink.Send("tool_update", payload)
 		}
 		return
 	}
@@ -475,6 +486,14 @@ func (t *acpTurn) handleTool(update *SessionUpdate) {
 		t.reportFileChanges(update.ToolCallID, diffs)
 	}
 	t.finishSubAgent(update.ToolCallID, failed, update.RawOutput)
+}
+
+func setOutputPatch(payload map[string]any, text string, delta bool) {
+	if delta {
+		payload["resultDelta"] = text
+	} else {
+		payload["result"] = text
+	}
 }
 
 // collectFileChanges 从工具内容里提取 diff 块。
@@ -599,7 +618,7 @@ func rawText(raw any) string {
 }
 
 // permission 把 ACP 审批请求注册进 HITL 注册表并等待用户选择。
-func (t *acpTurn) permission(request PermissionRequest) (string, bool) {
+func (t *acpTurn) permission(ctx context.Context, request PermissionRequest) (string, bool) {
 	if len(request.Options) == 0 {
 		return "", false
 	}
@@ -637,7 +656,7 @@ func (t *acpTurn) permission(request PermissionRequest) (string, bool) {
 	} else {
 		t.sink.Send("choice", payload)
 	}
-	option, ok := pending.Wait(t.ctx())
+	option, ok := pending.Wait(ctx)
 	if !ok {
 		t.host.Permissions().CancelOne(pending.ID)
 		t.sink.Send("permission_resolved", map[string]any{"permissionRequestId": pending.ID, "optionId": "cancelled"})
@@ -703,6 +722,20 @@ func (t *acpTurn) ctx() context.Context {
 		return t.runCtx
 	}
 	return context.Background()
+}
+
+// Requests are served by separate SDK goroutines. Either the request or the
+// turn ending must release their drain barrier and any user-input wait.
+func (t *acpTurn) requestContext(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	stop := context.AfterFunc(t.ctx(), cancel)
+	if t.ctx().Err() != nil {
+		cancel()
+	}
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // sendNative 转发适配器注入的 Loopra 原生事件。
@@ -824,6 +857,9 @@ func promptBlocks(message string, images []string) []ContentBlock {
 func translateACPFailure(err error) error {
 	if err == nil {
 		return nil
+	}
+	if FailureReason(err) == ReasonThreadActiveWriter {
+		return &occupiedFailure{cause: err}
 	}
 	switch {
 	case errors.Is(err, ErrClosed):

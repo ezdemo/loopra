@@ -12,6 +12,19 @@ import (
 )
 
 func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotification) error {
+	c.mu.Lock()
+	owner, direct := c.owner, c.replaying || c.accepting
+	c.mu.Unlock()
+	if owner != nil && !direct {
+		if turn := owner.currentTurn(); turn != nil && turn.events != nil {
+			turn.events.push(Event{notification: &params, source: c})
+			return nil
+		}
+	}
+	return c.sessionUpdate(params, nil)
+}
+
+func (c *Client) sessionUpdate(params acpsdk.SessionNotification, target *acpTurn) error {
 	update, ok := localUpdate(params.Update)
 	if !ok {
 		return nil
@@ -50,6 +63,13 @@ func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotificat
 	}
 	if child != "" {
 		event.SubSession = child
+	}
+	if target != nil {
+		if owner != nil && event.Kind == EventConfig && len(event.ConfigOptions) > 0 {
+			owner.BindSession(owner.SessionID(), event.ConfigOptions)
+		}
+		target.handle(event)
+		return nil
 	}
 	if owner != nil {
 		owner.handleEvent(event)

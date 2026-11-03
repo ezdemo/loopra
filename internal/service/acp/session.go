@@ -279,6 +279,9 @@ func abortTurn(turn *acpTurn) {
 	if turn == nil {
 		return
 	}
+	if turn.cancel != nil {
+		turn.cancel(ErrClosed)
+	}
 	turn.endActiveSubAgents("aborted")
 	if turn.host != nil {
 		turn.host.Elicitations().Cancel(turn.session)
@@ -333,21 +336,41 @@ func (c *Conn) handleEvent(event Event) {
 		c.BindSession(c.SessionID(), event.ConfigOptions)
 	}
 	if turn := c.currentTurn(); turn != nil {
-		turn.handle(event)
+		if turn.events != nil {
+			turn.events.push(event)
+		} else {
+			turn.handle(event)
+		}
 	}
 }
 
-func (c *Conn) requestPermission(_ context.Context, request PermissionRequest) (string, bool) {
+func (c *Conn) requestPermission(ctx context.Context, request PermissionRequest) (string, bool) {
 	turn := c.currentTurn()
 	if turn == nil {
 		return "", false
 	}
-	return turn.permission(request)
+	ctx, cancel := turn.requestContext(ctx)
+	defer cancel()
+	if turn.events != nil && turn.events.wait(ctx) != nil {
+		return "", false
+	}
+	if ctx.Err() != nil {
+		return "", false
+	}
+	return turn.permission(ctx, request)
 }
 
 func (c *Conn) requestElicitation(ctx context.Context, request ElicitationRequest) ElicitationResult {
 	turn := c.currentTurn()
 	if turn == nil {
+		return ElicitationResult{Action: "cancel"}
+	}
+	ctx, cancel := turn.requestContext(ctx)
+	defer cancel()
+	if turn.events != nil && turn.events.wait(ctx) != nil {
+		return ElicitationResult{Action: "cancel"}
+	}
+	if ctx.Err() != nil {
 		return ElicitationResult{Action: "cancel"}
 	}
 	return turn.elicit(ctx, request)
@@ -367,13 +390,18 @@ func (m *Manager) Cancel(host SessionHost, name string) {
 	client := conn.client
 	conn.mu.Unlock()
 	if turn := conn.currentTurn(); turn != nil {
+		if turn.cancel != nil {
+			turn.cancel(context.Canceled)
+		}
 		turn.endActiveSubAgents("aborted")
 		if turn.host != nil {
 			turn.host.Elicitations().Cancel(turn.session)
 		}
 	}
 	if client != nil {
-		_ = client.Cancel(context.Background())
+		cancelCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = client.Cancel(cancelCtx)
+		stopCancel()
 	}
 }
 
@@ -794,40 +822,58 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 	logging.Infof("chat", "turn start session=%s agent=%s chars=%d", name, agentID, len([]rune(in.Message)))
 	conn, err := m.Acquire(ctx, host, name, agentID, version)
 	if err != nil {
-		sink.SendError(err.Error())
+		sendFailure(sink, err)
 		return
 	}
 	conn.setBusy(true)
 	defer conn.setBusy(false)
 	if _, err := m.OpenSession(ctx, host, name, conn, true); err != nil {
-		sink.SendError(TranslateFailure(err).Error())
+		sendFailure(sink, err)
 		return
 	}
 	host.EnsureTitle(ctx, name, in.Message)
+	runCtx, cancelTurn := context.WithCancelCause(ctx)
+	defer cancelTurn(nil)
 	turn := &acpTurn{
-		host: host, sink: sink, session: name, agentID: agentID, cwd: conn.cwd, runCtx: ctx,
-		msgID: msgID, startedAt: time.Now().UnixMilli(), tools: map[string]*acpTool{},
+		host: host, sink: sink, session: name, agentID: agentID, cwd: conn.cwd, runCtx: runCtx,
+		cancel: cancelTurn,
+		msgID:  msgID, startedAt: time.Now().UnixMilli(), tools: map[string]*acpTool{},
 		state: conn.state, subRec: newACPSubAgentRecorder(host.SubSessionsDir(name)),
 	}
+	turn.events = newTurnEvents(turn.handle, cancelTurn)
 	turn.appendUser(in.Message, in.Images, hasSnapshot)
 	conn.bindTurn(turn)
 	defer conn.bindTurn(nil)
 
 	conn.Use()
 	blocks := promptBlocks(in.Message, in.Images)
-	result, promptErr := conn.client.Prompt(ctx, blocks)
+	result, promptErr := conn.client.Prompt(runCtx, blocks)
+	if queueErr := turn.events.finish(); queueErr != nil {
+		promptErr = queueErr
+		// A partially accepted turn must not be reused as a healthy session.
+		_ = conn.client.Close()
+	}
 	turn.finish()
 	elapsed := time.Since(started).Round(time.Millisecond)
 	if promptErr != nil {
-		if ctx.Err() != nil {
-			turn.endActiveSubAgents("aborted")
-			_ = conn.client.Cancel(context.Background())
+		turn.endActiveSubAgents("aborted")
+		if ctx.Err() != nil || errors.Is(context.Cause(runCtx), context.Canceled) {
+			cancelCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = conn.client.Cancel(cancelCtx)
+			stopCancel()
 			logging.Infof("chat", "turn cancelled session=%s agent=%s in %s", name, agentID, elapsed)
 			sink.Send("complete", map[string]any{"stopReason": "cancelled", "status": "cancelled"})
 			sink.Done()
 			return
 		}
-		sink.SendError(TranslateFailure(promptErr).Error())
+		if FailureReason(promptErr) == ReasonThreadActiveWriter {
+			// A retry must reopen the remote session instead of accepting stale
+			// cached configuration as evidence that the writer was released.
+			conn.mu.Lock()
+			conn.live = false
+			conn.mu.Unlock()
+		}
+		sendFailure(sink, promptErr)
 		return
 	}
 	status, notice := acpStopStatus(result.StopReason)

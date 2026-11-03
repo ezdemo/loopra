@@ -295,7 +295,7 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 			// 运行中允许直接作用于活动 ACP 客户端（Java AgentService）。
 			options, err := s.setACPConfigOption(r.Context(), body.SessionName, body.ConfigID, body.Value)
 			if err != nil {
-				writeFail(w, http.StatusBadRequest, err.Error())
+				writeACPFailure(w, http.StatusBadRequest, err)
 				return
 			}
 			s.persistAgentPreferences(body.SessionName, agentID)
@@ -340,7 +340,7 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 	if acp.IsExternal(s.migrateRetiredAgent(name)) {
 		options, err := s.acpConfigOptions(r.Context(), name)
 		if err != nil {
-			writeFail(w, http.StatusServiceUnavailable, acp.TranslateFailure(err).Error())
+			writeACPFailure(w, http.StatusServiceUnavailable, err)
 			return
 		}
 		writeOK(w, http.StatusOK, map[string]any{"configOptions": options})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -32,6 +33,10 @@ const (
 
 // Event 是交给上层的单条会话更新。
 type Event struct {
+	// SDK notifications are converted by the turn worker, never on the SDK's
+	// serial notification goroutine.
+	notification  *acpsdk.SessionNotification
+	source        *Client
 	Kind          EventKind
 	Text          string
 	Tool          *SessionUpdate
@@ -94,6 +99,7 @@ type Client struct {
 	accepting bool
 
 	mu              sync.Mutex
+	disconnectErr   error
 	initialized     AgentCapabilities
 	sessionID       string
 	configOptions   []ConfigOption
@@ -127,7 +133,7 @@ func NewClient(launch Launch, cwd string, handler Handler, perm PermissionFunc) 
 	}
 	client := &Client{proc: proc, handler: handler, perm: perm, children: map[string]bool{}}
 	client.conn = acpsdk.NewClientSideConnection(client, proc.stdin, proc.stdout)
-	client.conn.SetLogger(logging.LibraryLogger())
+	client.conn.SetLogger(slog.New(connectionLog{Handler: logging.LibraryLogger().Handler(), client: client}))
 	return client, nil
 }
 
@@ -613,7 +619,19 @@ func (c *Client) Close() error {
 }
 
 // Alive 报告底层进程是否仍可用。
-func (c *Client) Alive() bool { return c != nil && c.proc.Alive() }
+func (c *Client) Alive() bool {
+	if c == nil || !c.proc.Alive() {
+		return false
+	}
+	if c.conn != nil {
+		select {
+		case <-c.conn.Done():
+			return false
+		default:
+		}
+	}
+	return true
+}
 
 func (c *Client) fail(err error) error {
 	if err == nil {
@@ -622,6 +640,12 @@ func (c *Client) fail(err error) error {
 	if c.conn != nil {
 		select {
 		case <-c.conn.Done():
+			c.mu.Lock()
+			cause := c.disconnectErr
+			c.mu.Unlock()
+			if cause != nil {
+				return cause
+			}
 			if c.proc != nil && !c.proc.Alive() {
 				return ErrExited
 			}

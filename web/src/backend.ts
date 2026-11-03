@@ -22,7 +22,7 @@ export type AcpSessionState = { plan: AcpPlanEntry[]; commands: AcpCommand[] };
 export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; displayName?: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string; toolModel: string; toolModelChannelId: string };
-export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema'] };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; resultDelta?: string; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; plan?: string; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema'] };
 export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; action?: string };
 
 export function serverAddress(value: string) {
@@ -72,9 +72,10 @@ export class LoopraClient {
     return `${this.apiBase}/plugins/${encodeURIComponent(id)}/icons/${encodeURIComponent(key)}`;
   }
   async request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
-    // Opening an external ACP session has a 60s backend deadline. Keep a
+    // Opening or forking an ACP session may start an Agent process. Keep a
     // matching finite UI deadline even when a view supplies its own signal.
-    const timeout = AbortSignal.timeout(path.startsWith('/agent-engines/') ? 65000 : 30000);
+    const agentSetup = path.startsWith('/agent-engines/') || /^\/sessions\/[^/?]+\/(?:fork|branch)(?:\?|$)/.test(path);
+    const timeout = AbortSignal.timeout(agentSetup ? 65000 : 30000);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     let response: Response;
     try {
@@ -262,6 +263,7 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
       if (event.name) existing.name = event.name;
       if (event.args != null) existing.args = argsObject(event.args);
       if (event.result != null) existing.result = stringify(event.result);
+      else if (event.resultDelta != null) existing.result = (existing.result || '') + event.resultDelta;
     }
   }
   else if (event.type === 'tool_result') {

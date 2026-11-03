@@ -219,6 +219,27 @@ test('absolute drive paths survive react-markdown url handling and sanitizing', 
   await view.unmount();
 });
 
+test('slash-prefixed absolute file links use the internal preview and strip line numbers', async () => {
+  const fixtures = [
+    ['[styles.css:312](/C:/Users/15614/Documents/code/agent4j/web/src/styles.css:312)', 'C:/Users/15614/Documents/code/agent4j/web/src/styles.css'],
+    ['<a href="/C:/repo/src/app.ts:12" target="_blank">app.ts:12</a>', 'C:/repo/src/app.ts'],
+    ['[app.ts:12](/home/user/repo/src/app.ts:12)', '/home/user/repo/src/app.ts'],
+  ];
+  for (const [text, path] of fixtures) {
+    const opened = [];
+    const view = await mount(text, { onOpenFile: value => opened.push(value) });
+    try {
+      const link = view.container.querySelector('a.ai-file-link');
+      assert.ok(link, text);
+      assert.equal(link.getAttribute('target'), null);
+      const event = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+      await act(async () => { link.dispatchEvent(event); });
+      assert.equal(event.defaultPrevented, true);
+      assert.deepEqual(opened, [path]);
+    } finally { await view.unmount(); }
+  }
+});
+
 test('unsafe link protocols stay neutralised', async () => {
   const html = await render('[脚本](javascript:alert(1))');
   assert.ok(!html.includes('javascript:'));

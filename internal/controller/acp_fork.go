@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ezdemo/looprax/internal/service/acp"
 )
@@ -130,10 +129,10 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 		writeFail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	newName := "loopra-" + time.Now().Format("20060102150405")
+	newName := "loopra-" + newUUIDv4()
 	conn, err := s.acquireACP(r.Context(), newName, agentID)
 	if err != nil {
-		writeFail(w, http.StatusServiceUnavailable, err.Error())
+		writeACPFailure(w, http.StatusServiceUnavailable, err)
 		return
 	}
 	conn.PrepareSetup()
@@ -142,7 +141,7 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 	forked, err := conn.Client().ForkSession(r.Context(), remote, conn.Dir(), dirs, point.meta)
 	if err != nil && !forkUnavailable(err) {
 		s.acp.Drop(s.acpKey(newName))
-		writeFail(w, http.StatusBadGateway, acp.TranslateFailure(err).Error())
+		writeACPFailure(w, http.StatusBadGateway, err)
 		return
 	}
 	if err != nil {

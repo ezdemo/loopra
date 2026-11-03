@@ -10,6 +10,19 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { target: t
 const module = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 const { subSessionBlocks, subSessionsPath, subSessionEventsPath, subSessionChatPath, subSessionLabel, subStatusLabel, formatSubTime } = module;
 
+test('subagent output deltas replay without repeating snapshots', () => {
+  const updates = [
+    { type: 'sub_tool_call', toolCallId: 't1', name: 'shell' },
+    { type: 'sub_tool_update', toolCallId: 't1', resultDelta: '你' },
+    { type: 'sub_tool_update', toolCallId: 't1', resultDelta: '好' },
+  ];
+  assert.equal(subSessionBlocks(updates).blocks[0].result, '你好');
+  updates.push({ type: 'sub_tool_update', toolCallId: 't1', result: '' });
+  assert.equal(subSessionBlocks(updates).blocks[0].result, '');
+  updates.push({ type: 'sub_tool_result', toolCallId: 't1', result: 'final', status: 'completed' });
+  assert.equal(subSessionBlocks(updates).blocks[0].result, 'final');
+});
+
 test('endpoint helpers scope every call to the parent session', () => {
   assert.equal(subSessionsPath('a b', 's/1'), '/sub-sessions?workspaceHash=a+b&sessionName=s%2F1');
   assert.equal(subSessionEventsPath('sub-1', 'h', 's'), '/sub-sessions/sub-1/events?workspaceHash=h&sessionName=s');

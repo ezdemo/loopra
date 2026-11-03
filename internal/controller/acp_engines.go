@@ -9,6 +9,15 @@ import (
 	"github.com/ezdemo/looprax/internal/service/acp"
 )
 
+func writeACPFailure(w http.ResponseWriter, status int, err error) {
+	failure := acp.TranslateFailure(err)
+	if reason := acp.FailureReason(failure); reason != "" {
+		writeFailReason(w, http.StatusConflict, failure.Error(), reason)
+		return
+	}
+	writeFail(w, status, failure.Error())
+}
+
 // prepareExternalEngine 为外部 ACP 引擎准备会话：绑定 agentId、
 // 建立 Agent 会话并返回其配置项。
 func (s *Controller) prepareExternalEngine(w http.ResponseWriter, r *http.Request, name, agentID string) {
@@ -21,13 +30,13 @@ func (s *Controller) prepareExternalEngine(w http.ResponseWriter, r *http.Reques
 	s.sessionMetaSet(name, map[string]any{"agentId": agentID})
 	conn, err := s.acquireACP(r.Context(), name, agentID)
 	if err != nil {
-		writeFail(w, http.StatusServiceUnavailable, err.Error())
+		writeACPFailure(w, http.StatusServiceUnavailable, err)
 		return
 	}
 	fresh := len(s.sessionMessages(r.Context(), name)) == 0
 	options, err := s.openACPSession(r.Context(), name, conn, false)
 	if err != nil {
-		writeFail(w, http.StatusInternalServerError, acp.TranslateFailure(err).Error())
+		writeACPFailure(w, http.StatusInternalServerError, err)
 		return
 	}
 	// 仅新会话套用全局偏好；已有会话的配置由 restoreAgentConfig 恢复。
@@ -54,10 +63,6 @@ func (s *Controller) acpConfigOptions(ctx context.Context, name string) ([]acp.C
 	if err != nil {
 		return nil, err
 	}
-	conn.Use()
-	if conn.SessionID() != "" {
-		return conn.ConfigOptions(), nil
-	}
 	return s.openACPSession(ctx, name, conn, false)
 }
 
@@ -73,10 +78,8 @@ func (s *Controller) setACPConfigOption(ctx context.Context, name, id string, va
 		return nil, err
 	}
 	conn.Use()
-	if conn.SessionID() == "" {
-		if _, err := s.openACPSession(ctx, name, conn, false); err != nil {
-			return nil, err
-		}
+	if _, err := s.openACPSession(ctx, name, conn, false); err != nil {
+		return nil, err
 	}
 	if !conn.Client().ConfigOptionsSupported() {
 		switch id {

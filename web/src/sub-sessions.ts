@@ -10,7 +10,7 @@ export type SubSession = {
 
 export type SubSessionEvent = {
   type?: string; toolCallId?: string; subId?: string | number; subSessionId?: string; task?: string; name?: string; title?: string;
-  content?: string; token?: string; args?: unknown; result?: unknown; error?: string; status?: string;
+  content?: string; token?: string; args?: unknown; result?: unknown; resultDelta?: string; error?: string; status?: string;
   startedAt?: number; endedAt?: number; finishedAt?: number; description?: string;
   options?: { title?: string; value?: string; summary?: string }[];
 };
@@ -112,6 +112,7 @@ export function subSessionBlocks(events: SubSessionEvent[]) {
         if (event.name) target.name = event.name;
         if (event.args != null) target.args = argsObject(event.args);
         if (event.result != null) target.result = text(event.result);
+        else if (event.resultDelta != null) target.result = (target.result || '') + event.resultDelta;
       }
       return;
     }

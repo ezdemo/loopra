@@ -8,8 +8,16 @@ export const emptyWorkspaceTabs: WorkspaceTabs = { files: [], agents: [], active
 /** Sub-agent tabs share `active` with file paths, so their key is namespaced. */
 export const subAgentTabKey = (subSessionId: string) => `subagent:${subSessionId}`;
 
-export function openWorkspaceFile(state: WorkspaceTabs, file: WorkspaceFile): WorkspaceTabs {
-  const path = file.path.replaceAll('\\', '/').replace(/^\.\//, '');
+export function openWorkspaceFile(state: WorkspaceTabs, file: WorkspaceFile, workspaceRoot?: string): WorkspaceTabs {
+  let path = file.path.replaceAll('\\', '/').replace(/^\/(?=[A-Za-z]:\/)/, '').replace(/^\.\//, '');
+  // Preview endpoints accept project-relative paths. Agent links can contain
+  // absolute paths, so resolve files inside the workspace to the file-tree key.
+  const root = workspaceRoot?.replaceAll('\\', '/').replace(/\/+$/, '');
+  if (root) {
+    const prefix = `${root}/`;
+    const windows = /^[A-Za-z]:\//.test(prefix);
+    if (windows ? path.toLowerCase().startsWith(prefix.toLowerCase()) : path.startsWith(prefix)) path = path.slice(prefix.length);
+  }
   const existing = state.files.find(item => item.path === path);
   // File tree, Git and historical change links all open the same live preview.
   const next: WorkspaceFile = { path, mode: 'content', ...(file.environment ? { environment: file.environment } : {}) };

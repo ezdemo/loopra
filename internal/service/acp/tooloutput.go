@@ -21,6 +21,30 @@ type ToolOutput struct {
 	signal   string
 }
 
+// UpdateStream returns an append only when the visible source stays an
+// append-only terminal/progress stream. Snapshots, source switches and exit
+// summaries remain replacements, including an explicitly empty snapshot.
+func (o *ToolOutput) UpdateStream(raw any, blocks []ToolCallItem, meta map[string]any) (string, bool, bool) {
+	previous := o.Text()
+	terminalBytes := o.terminal.Len()
+	progressBytes := o.progress.Len()
+	hadExit := o.exitCode != nil || o.signal != ""
+	progressVisible := terminalBytes == 0 && !o.hasRaw && o.content == ""
+	o.Update(raw, blocks, meta)
+	if !hadExit && o.exitCode == nil && o.signal == "" {
+		if o.terminal.Len() > 0 && (terminalBytes > 0 || previous == "") {
+			delta := o.terminal.String()[terminalBytes:]
+			return delta, true, delta != ""
+		}
+		if progressVisible && o.terminal.Len() == 0 && !o.hasRaw && o.content == "" {
+			delta := o.progress.String()[progressBytes:]
+			return delta, true, delta != ""
+		}
+	}
+	current := o.Text()
+	return current, false, current != previous
+}
+
 // Update 吸收一次工具更新。blocks 来自 content 数组，
 // meta 是更新上的 _meta。
 func (o *ToolOutput) Update(raw any, blocks []ToolCallItem, meta map[string]any) {

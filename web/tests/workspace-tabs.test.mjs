@@ -32,6 +32,19 @@ const { default: WorkspaceTabs } = await import(await compile('../src/components
 const click = async element => act(async () => element.click());
 const tab = name => [...document.querySelectorAll('.workspace-tabs [role="tab"]')].find(element => element.textContent === name);
 
+test('absolute workspace links select the same file tab as the file tree', () => {
+  let state = openWorkspaceFile(emptyWorkspaceTabs, { path: 'web/src/styles.css', mode: 'content' });
+  for (const path of ['C:/repo/web/src/styles.css', '/C:/repo/web/src/styles.css', 'c:\\REPO\\web\\src\\styles.css']) {
+    state = openWorkspaceFile(state, { path, mode: 'content' }, 'C:\\repo\\');
+    assert.equal(state.files.length, 1);
+    assert.equal(state.active, 'web/src/styles.css');
+  }
+  const unix = openWorkspaceFile(emptyWorkspaceTabs, { path: '/home/user/repo/src/app.ts', mode: 'content' }, '/home/user/repo');
+  assert.equal(unix.active, 'src/app.ts');
+  const outside = openWorkspaceFile(emptyWorkspaceTabs, { path: 'C:/repo-other/src/app.ts', mode: 'content' }, 'C:/repo');
+  assert.equal(outside.active, 'C:/repo-other/src/app.ts');
+});
+
 async function mount({ failRead = false, gitRead, fileRead } = {}) {
   const calls = [];
   let update;
