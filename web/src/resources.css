@@ -71,9 +71,11 @@
 .plugin-card-open + .plugin-card-remove { margin-left: .625rem; }
 .plugin-card-remove { color: var(--muted); }
 .plugin-card-remove:hover { color: var(--danger); }
-.plugin-settings-frame { display: block; width: 100%; height: min(36rem, calc(100dvh - 16rem)); min-height: 22rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.plugin-settings-frame { display: block; width: 100%; height: min(36rem, calc(100dvh - 16rem)); min-height: 22rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); color-scheme: light; }
+.plugin-settings-frame[data-theme="dark"] { color-scheme: dark; }
 .plugin-app-page { flex: 1; min-height: 0; display: flex; background: var(--surface); }
-.plugin-app-frame { flex: 1; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; background: var(--surface); }
+.plugin-app-frame { flex: 1; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; background: var(--surface); color-scheme: light; }
+.plugin-app-frame[data-theme="dark"] { color-scheme: dark; }
 .plugin-page .resource-install { align-items: flex-end; background: var(--sidebar); }
 .plugin-page .resource-install .plugin-card-state { margin-bottom: .15rem; }
 .plugin-source-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-bottom: 1.25rem; }

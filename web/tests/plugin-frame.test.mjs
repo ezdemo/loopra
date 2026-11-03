@@ -42,6 +42,7 @@ test('plugin requests use its own route and current workbench context', async ()
     const frame = view.container.querySelector('iframe'), replies = [];
     frame.contentWindow.postMessage = data => replies.push(data);
     await view.message({ op: 'hello' });
+    assert.equal(frame.dataset.theme, 'light');
     assert.equal(replies.at(-1).context.workspaceHash, 'one');
     await view.render({ workspaceHash: 'two', sessionId: 'two/session', filePath: 'src/main.ts' });
     assert.equal(view.container.querySelector('iframe'), frame, 'context changes must preserve the page');
@@ -102,6 +103,7 @@ test('the page bridge updates context and reports script and promise failures', 
     assert.deepEqual(changes, ['one', 'two']);
     assert.equal(window.loopra.context.workspaceHash, 'two');
     assert.equal(window.document.documentElement.dataset.theme, 'dark');
+    assert.equal(window.document.documentElement.style.colorScheme, 'dark');
     window.dispatchEvent(new window.ErrorEvent('error', { message: 'Broken script' }));
     assert.equal(messages.at(-1).message, 'Broken script');
     const rejection = new window.Event('unhandledrejection');

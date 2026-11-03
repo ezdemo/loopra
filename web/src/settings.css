@@ -306,6 +306,8 @@
 .settings-menu-icon { width: 1.125rem; height: 1.125rem; object-fit: contain; flex: 0 0 1.125rem; }
 .rich-settings-nav .settings-submenu .settings-menu-icon { width: .875rem; height: .875rem; flex-basis: .875rem; }
 .plugin-settings-page { min-height: 0; }
+.plugin-settings-page > iframe { color-scheme: light; }
+.plugin-settings-page > iframe[data-theme="dark"] { color-scheme: dark; }
 .rich-settings-nav .settings-submenu button.selected { font-weight: 600; }
 .settings-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem; min-width: 0; color: var(--secondary); font-size: .75rem; }
 .settings-breadcrumb > span:last-child { color: var(--text); }

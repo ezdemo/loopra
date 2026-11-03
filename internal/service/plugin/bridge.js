@@ -100,9 +100,9 @@
   const base = document.createElement("style");
   base.dataset.loopra = "base";
   base.textContent = `
-:where(html) { background: var(--surface, #fff); color: var(--text, #1c1c1a); font: 14px/1.5 var(--loopra-font, Inter, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif); -webkit-font-smoothing: antialiased; }
-:where(html[data-theme="dark"]) { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
-:where(body) { margin: 0; padding: 20px 24px 32px; }
+:where(html) { color-scheme: light dark; background: var(--surface, #fff); color: var(--text, #1c1c1a); font: 14px/1.5 var(--loopra-font, Inter, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif); -webkit-font-smoothing: antialiased; }
+:where(html[data-theme="dark"]) { color-scheme: dark; -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
+:where(body) { margin: 0; min-height: 100%; background: var(--surface, #fff); padding: 20px 24px 32px; }
 :where(*), :where(*::before), :where(*::after) { box-sizing: border-box; }
 :where(h1, h2, h3, h4) { font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; color: var(--text, inherit); }
 :where(h1) { font-size: 18px; } :where(h2) { font-size: 15px; } :where(h3, h4) { font-size: 13px; }
@@ -130,6 +130,9 @@
 :where(::selection) { background: var(--accent-soft, #3b6cf61a); }
 :where([hidden]) { display: none !important; }
 `;
+  // Claim both schemes before the host answers. A light-only document inside a
+  // dark frame makes Chromium paint a white canvas around the page.
+  document.documentElement.style.colorScheme = "light dark";
   (document.head || document.documentElement).prepend(base);
   window.loopra = api;
   parent.postMessage({ type: "loopra", op: "hello" }, "*");

@@ -3,7 +3,8 @@
 .workbench-tabs button[role="tab"] { flex-shrink: 0; }
 .workbench-tabs .plugin-file-icon { width: .875rem; height: .875rem; object-fit: contain; }
 .workbench-body.workbench-plugin { display: flex; flex-direction: column; overflow: hidden; scrollbar-gutter: auto; }
-.plugin-panel-frame { display: block; flex: 1; width: 100%; min-height: 0; border: 0; background: var(--surface); }
+.plugin-panel-frame { display: block; flex: 1; width: 100%; min-height: 0; border: 0; background: var(--surface); color-scheme: light; }
+.plugin-panel-frame[data-theme="dark"] { color-scheme: dark; }
 .workbench-tabs button[role="tab"] { display: inline-flex; align-items: center; gap: .375rem; height: 1.75rem; padding: 0 .625rem; border-radius: var(--radius-md); color: var(--muted); font-size: .8125rem; white-space: nowrap; transition: background .12s, color .12s; }
 .workbench-tabs button[role="tab"]:hover { background: var(--hover); color: var(--text); }
 .workbench-tabs button[role="tab"][aria-selected="true"] { background: var(--selected); color: var(--text); font-weight: 500; }

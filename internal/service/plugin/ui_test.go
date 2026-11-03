@@ -219,7 +219,7 @@ func TestUITicketMatchesOnlyItsPlugin(t *testing.T) {
 	if !strings.Contains(policy, "connect-src 'none'") || !strings.Contains(policy, "/api/plugins/demo/ui/t/"+token+"/") || strings.Contains(policy, "allow-same-origin") {
 		t.Fatalf("policy = %s", policy)
 	}
-	if !strings.Contains(string(uiBridgeJS), ":where(button)") {
+	if !strings.Contains(string(uiBridgeJS), ":where(button)") || !strings.Contains(string(uiBridgeJS), "color-scheme: light dark") {
 		t.Fatal("bridge has no base style")
 	}
 }

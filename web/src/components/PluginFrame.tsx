@@ -6,10 +6,18 @@ export type PluginContext = { workspaceHash?: string; workspaceDir?: string; ses
 
 const pluginThemeKeys = ['surface', 'sidebar', 'soft', 'hover', 'line', 'line-strong', 'text', 'secondary', 'muted', 'blue', 'accent', 'accent-soft', 'success', 'warning', 'danger', 'radius-sm', 'radius-md', 'radius-lg', 'radius-xl', 'shadow-sm', 'shadow', 'shadow-pop'] as const;
 
+function themeNode() {
+  return document.querySelector('.workspace-theme') ?? document.documentElement;
+}
+
+function themeIsDark(node: Element = themeNode()) {
+  return node.classList.contains('dark') || node.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark');
+}
+
 function pluginTheme() {
-  const node = document.querySelector('.workspace-theme') ?? document.documentElement;
+  const node = themeNode();
   const style = getComputedStyle(node);
-  const dark = node.classList.contains('dark') || node.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark');
+  const dark = themeIsDark(node);
   return {
     ...Object.fromEntries(pluginThemeKeys.map(key => [key, style.getPropertyValue(`--${key}`).trim()])),
     font: style.getPropertyValue('--workspace-font').trim(),
@@ -34,6 +42,7 @@ export function PluginFrame({ api, id, name, slot, className, title, menuItem = 
   context?: PluginContext;
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const [dark, setDark] = useState(() => themeIsDark());
   const contextRef = useRef(context);
   contextRef.current = context;
   const announceRef = useRef<() => void>(() => {});
@@ -51,8 +60,13 @@ export function PluginFrame({ api, id, name, slot, className, title, menuItem = 
     setError('');
     const frame = () => frameRef.current;
     const send = (data: Record<string, unknown>) => { if (!gone) frame()?.contentWindow?.postMessage(data, '*'); };
-    const node = document.querySelector('.workspace-theme') ?? document.documentElement;
-    const ready = () => send({ type: 'loopra', op: 'ready', plugin: { id: currentId, name: currentName }, theme: pluginTheme(), context: contextRef.current || {} });
+    const node = themeNode();
+    const ready = () => {
+      // The frame must declare the same scheme as its document. Otherwise
+      // Chromium paints an opaque canvas around a dark page inside a light frame.
+      setDark(themeIsDark(node));
+      send({ type: 'loopra', op: 'ready', plugin: { id: currentId, name: currentName }, theme: pluginTheme(), context: contextRef.current || {} });
+    };
     announceRef.current = ready;
     const fail = (message: string) => { if (!gone) { clearTimeout(timer); controller.abort(); setError(message); } };
     const observer = node ? new MutationObserver(ready) : undefined;
@@ -97,6 +111,6 @@ export function PluginFrame({ api, id, name, slot, className, title, menuItem = 
   return <>
     {error && <div role="alert" className="panel-empty"><p className="settings-error">{error}</p><button type="button" onClick={() => setRevision(value => value + 1)}>重试</button></div>}
     {!error && !src && <p className="panel-empty" role="status">正在打开…</p>}
-    {src && !error && <iframe ref={frameRef} className={className || 'plugin-settings-frame'} title={title || name} sandbox="allow-scripts" referrerPolicy="no-referrer" src={src} onLoad={() => announceRef.current()} />}
+    {src && !error && <iframe ref={frameRef} className={className || 'plugin-settings-frame'} data-theme={dark ? 'dark' : 'light'} title={title || name} sandbox="allow-scripts" referrerPolicy="no-referrer" src={src} onLoad={() => announceRef.current()} />}
   </>;
 }
