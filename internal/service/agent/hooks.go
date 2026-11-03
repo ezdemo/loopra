@@ -199,6 +199,7 @@ func (h *hookBridge) afterRun(ctx agent.InvocationContext) {
 
 func (h *hookBridge) onEvent(ctx agent.InvocationContext, event *session.Event) (*session.Event, error) {
 	tools.AttachImageResults(ctx, event)
+	tools.AttachFileChanges(ctx, event)
 	if event == nil || event.Actions.Compaction == nil || event.Actions.Compaction.CompactedContent == nil {
 		return nil, nil
 	}

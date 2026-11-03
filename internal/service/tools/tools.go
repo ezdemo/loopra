@@ -472,12 +472,21 @@ func writeTool(root string) tool.Tool {
 			if err != nil {
 				return nil, err
 			}
+			var before *string
+			data, err := os.ReadFile(abs)
+			if err == nil {
+				text := string(data)
+				before = &text
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
 			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 				return nil, err
 			}
 			if err := os.WriteFile(abs, []byte(in.Content), 0o644); err != nil {
 				return nil, err
 			}
+			reportFileChange(ctx, root, abs, before, in.Content)
 			return map[string]any{"result": fmt.Sprintf("已写入 %s（%d 字节）", in.Path, len(in.Content))}, nil
 		})
 	return t
@@ -515,6 +524,8 @@ func editTool(root string) tool.Tool {
 			if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 				return nil, err
 			}
+			before := string(data)
+			reportFileChange(ctx, root, abs, &before, content)
 			return map[string]any{"result": fmt.Sprintf("已应用 %d 处替换", len(in.Edits))}, nil
 		})
 	return t

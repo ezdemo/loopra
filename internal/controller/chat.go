@@ -14,6 +14,7 @@ import (
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 
+	"github.com/ezdemo/looprax/internal/infrastructure/filediff"
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/service/acp"
@@ -177,6 +178,9 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatRequest) {
 	logging.Infof("chat", "turn start session=%s agent=native chars=%d images=%d", req.SessionName, len([]rune(req.Message)), len(req.Images))
 	ctx = tools.WithLinkedProjects(ctx, s.linkedProjectRoots)
+	ctx = tools.WithFileChanges(ctx, func(changes []filediff.FileChange) {
+		sse.send("file_changes", map[string]any{"changes": changes})
+	})
 	// 并行工具调用完成即上报，快的工具不必等慢的一起"变绿"。
 	ctx = agentpkg.WithToolResultSink(ctx, newSSEToolResults(sse))
 	sess, err := s.agent.Session(ctx, req.SessionName)

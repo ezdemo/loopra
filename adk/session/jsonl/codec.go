@@ -172,6 +172,12 @@ func eventLines(ev *session.Event) []map[string]any {
 			}
 			lines = append(lines, user)
 		}
+		if changes := ev.CustomMetadata["fileChanges"]; changes != nil {
+			line := cloneMap(base)
+			line["role"] = "assistant"
+			line["file_changes"] = changes
+			lines = append(lines, line)
+		}
 		return lines
 	}
 }

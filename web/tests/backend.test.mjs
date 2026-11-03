@@ -403,6 +403,25 @@ test('successive full-file diffs of one path collapse into a single net diff', (
   assert.equal(change.diff, '@@ -1,0 +1,3 @@\n+a\n+B\n+c\n');
 });
 
+test('native file changes retain reversible headers and newline markers after merging and history reload', () => {
+  const changes = [
+    { path: 'x.txt', additions: 2, deletions: 0, created: true, diff: '--- a/x.txt\n+++ b/x.txt\n@@ -1,0 +1,2 @@\n+a\r\n+b\n\\ No newline at end of file\n' },
+    { path: 'x.txt', additions: 1, deletions: 1, created: false, diff: '--- a/x.txt\n+++ b/x.txt\n@@ -1,2 +1,2 @@\n a\r\n-b\n\\ No newline at end of file\n+B\n\\ No newline at end of file\n' },
+  ];
+  let live = { id: 'm', role: 'assistant', text: '', blocks: [] };
+  for (const change of changes) live = applyEvent(live, { type: 'file_changes', changes: [change] });
+  const history = historyMessages([
+    { role: 'user', content: 'edit' },
+    ...changes.map(change => ({ role: 'assistant', file_changes: [change] })),
+  ])[1];
+  const [merged] = live.blocks.find(block => block.type === 'file_changes').changes;
+  assert.deepEqual(history.blocks.find(block => block.type === 'file_changes').changes, [merged]);
+  assert.equal(merged.created, true);
+  assert.equal(merged.additions, 2);
+  assert.equal(merged.deletions, 0);
+  assert.equal(merged.diff, '--- a/x.txt\n+++ b/x.txt\n@@ -1,0 +1,2 @@\n+a\r\n+B\n\\ No newline at end of file\n');
+});
+
 
 test('ACP tool IDs match concurrent identical tools and retain explicit status', () => {
   let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };

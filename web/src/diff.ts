@@ -215,11 +215,17 @@ function fullFileVersions(diff: string): FullDiff | null {
   if (headers.length !== 1 || !/^@@\s+-1(?:,\d+)?\s+\+1(?:,\d+)?\s+@@/.test(headers[0])) return null;
   const before: string[] = [];
   const after: string[] = [];
+  let previous = '';
   for (const line of lines.slice(lines.findIndex(item => item.startsWith('@@')) + 1)) {
-    if (line.startsWith('\\')) continue;
-    if (line.startsWith('+')) after.push(line.slice(1));
-    else if (line.startsWith('-')) before.push(line.slice(1));
-    else if (line.startsWith(' ')) { before.push(line.slice(1)); after.push(line.slice(1)); }
+    if (line === '\\ No newline at end of file') {
+      if ((previous === '-' || previous === ' ') && before.length) before[before.length - 1] = before[before.length - 1].slice(0, -1);
+      if ((previous === '+' || previous === ' ') && after.length) after[after.length - 1] = after[after.length - 1].slice(0, -1);
+      continue;
+    }
+    if (line.startsWith('+')) after.push(line.slice(1) + '\n');
+    else if (line.startsWith('-')) before.push(line.slice(1) + '\n');
+    else if (line.startsWith(' ')) { before.push(line.slice(1) + '\n'); after.push(line.slice(1) + '\n'); }
+    previous = line[0];
   }
   return { before, after };
 }
@@ -269,5 +275,7 @@ export function mergeFileDiffs(first: string | undefined, next: string | undefin
   const body = lineDiff(a.before, b.after);
   const additions = body.filter(line => line.startsWith('+')).length;
   const deletions = body.filter(line => line.startsWith('-')).length;
-  return { diff: `@@ -1,${a.before.length} +1,${b.after.length} @@\n${body.join('\n')}\n`, additions, deletions };
+  const headers = first.slice(0, first.indexOf('@@'));
+  const patch = body.map(line => line.endsWith('\n') ? line : line + '\n\\ No newline at end of file\n').join('');
+  return { diff: `${headers}@@ -1,${a.before.length} +1,${b.after.length} @@\n${patch}`, additions, deletions };
 }

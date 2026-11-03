@@ -246,6 +246,7 @@ func (a *Agent) Session(ctx context.Context, name string) (session.Session, erro
 
 // Run 驱动一个用户轮次，并流式输出 ADK 事件。
 func (a *Agent) Run(ctx context.Context, sess session.Session, msg *genai.Content) iter.Seq2[*session.Event, error] {
+	ctx = tools.WithFileChanges(ctx, nil)
 	imageConfig := a.cfg.Clone()
 	imageConfig.Model = a.Model.Name()
 	ctx = tools.WithImageRuntime(ctx, imageConfig, a.options.HTTPClient)

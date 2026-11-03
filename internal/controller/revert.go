@@ -60,8 +60,13 @@ func parseWholeFileDiff(diff string) (applyResult, error) {
 					beforeDone.WriteString(body[1:] + "\n")
 					afterDone.WriteString(body[1:] + "\n")
 				case body == "\\ No newline at end of file":
-					trimTrailingNewline(&beforeDone)
-					trimTrailingNewline(&afterDone)
+					previous := lines[i-1]
+					if strings.HasPrefix(previous, "-") || strings.HasPrefix(previous, " ") {
+						trimTrailingNewline(&beforeDone)
+					}
+					if strings.HasPrefix(previous, "+") || strings.HasPrefix(previous, " ") {
+						trimTrailingNewline(&afterDone)
+					}
 				default:
 					return res, fmt.Errorf("无法解析的 diff 行: %q", body)
 				}
