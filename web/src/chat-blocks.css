@@ -19,8 +19,10 @@
   --chat-yellow: var(--warning);
   --chat-yellow-bg: color-mix(in srgb, var(--warning) 14%, transparent);
   --chat-font: .875rem;
-  /* One vertical rhythm for the transcript: prose and the process rows share the
-     same font size and line box, so a thinking/tool row keeps one gap from text. */
+  /* Process chrome (用时 / x 次思考 · n 次工具 / tool rows) is reference material,
+     not the answer: one step smaller and one ink level lighter than prose.
+     Prose keeps `--chat-font` / `--chat-line`; `--chat-gap` owns the spacing. */
+  --chat-font-meta: .8125rem;
   --chat-line: 1.65;
   --chat-gap: .5rem;
   --chat-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
@@ -77,7 +79,8 @@
 
 /* ── Assistant process (thinking + tools) ───────────────── */
 .loopra-conversation .assistant-process-summary { display: flex; flex-direction: column; gap: var(--chat-gap); margin-bottom: var(--chat-gap); }
-.loopra-conversation .assistant-process-toggle { display: flex; align-self: flex-start; align-items: center; gap: .25rem; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; color: var(--chat-fg-3); font-size: var(--chat-font); font-weight: 400; line-height: 1.25rem; text-align: left; border-radius: var(--radius-sm); transition: color .12s; }
+.loopra-conversation .assistant-process-toggle { display: flex; align-self: flex-start; align-items: center; gap: .25rem; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; color: var(--chat-fg-4); font-size: var(--chat-font-meta); font-weight: 400; line-height: 1.25rem; text-align: left; border-radius: var(--radius-sm); transition: color .12s; }
+.loopra-conversation .assistant-process-toggle:hover { color: var(--chat-fg-3); }
 .loopra-conversation .assistant-process-toggle > svg { color: var(--chat-fg-4); transition: transform .15s; }
 .loopra-conversation .assistant-process-detail { margin: 0; padding: 0; border: 0; }
 .loopra-conversation .msg-blocks { display: flex; flex-direction: column; gap: var(--chat-gap); min-width: 0; }
@@ -86,10 +89,10 @@
 .loopra-conversation .block-reasoning,
 .loopra-conversation .block-tool { border: 0; border-radius: var(--radius-md); background: transparent; overflow: visible; margin: 0; }
 .loopra-conversation .reasoning-head,
-.loopra-conversation .tool-head { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; margin-left: 0; width: 100%; text-align: left; cursor: pointer; color: var(--chat-fg-3); line-height: 1.4; border-radius: var(--radius-md); font-size: var(--chat-font); font-weight: 400; transition: background .12s; }
-.loopra-conversation .reasoning-head { font-weight: 400; color: var(--chat-fg-3); }
+.loopra-conversation .tool-head { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; margin-left: 0; width: 100%; text-align: left; cursor: pointer; color: var(--chat-fg-4); line-height: 1.4; border-radius: var(--radius-md); font-size: var(--chat-font-meta); font-weight: 400; transition: background .12s, color .12s; }
+.loopra-conversation .reasoning-head { font-weight: 400; color: var(--chat-fg-4); }
 .loopra-conversation .tool-head:hover,
-.loopra-conversation .reasoning-head:hover { background: transparent; }
+.loopra-conversation .reasoning-head:hover { background: transparent; color: var(--chat-fg-3); }
 .loopra-conversation .tool-head > svg:last-child,
 .loopra-conversation .reasoning-head > svg:last-child { margin-left: auto; color: var(--chat-fg-4); opacity: 0; transition: opacity .12s, transform .15s; }
 .loopra-conversation .tool-head:hover > svg:last-child,
@@ -102,7 +105,7 @@
 .loopra-conversation .rotated-right,
 .loopra-conversation .user-auto-message[data-open="true"] > .disclosure-heading > svg,
 .loopra-conversation .compacted-summary[data-open="true"] > .disclosure-heading > svg:last-child { transform: rotate(90deg); }
-.loopra-conversation .reasoning-text { margin: var(--chat-gap) 0 0; padding: .125rem 0; color: var(--chat-fg-3); font-size: var(--chat-font); font-weight: 400; line-height: var(--chat-line); }
+.loopra-conversation .reasoning-text { margin: var(--chat-gap) 0 0; padding: .125rem 0; color: var(--chat-fg-3); font-size: var(--chat-font-meta); font-weight: 400; line-height: var(--chat-line); }
 .loopra-conversation .reasoning-text .block-content { color: inherit; }
 .loopra-conversation .reasoning-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loopra-conversation .reasoning-preview[data-streaming="true"] { text-overflow: clip; }
@@ -112,7 +115,7 @@
 .loopra-conversation .tool-icon.success { color: var(--chat-fg-4); }
 .loopra-conversation .tool-icon.failed { color: var(--chat-red); }
 .loopra-conversation .tool-icon.running { color: var(--chat-yellow); }
-.loopra-conversation code.tool-name { font: 400 .8125rem/1.25rem var(--chat-mono); color: var(--chat-fg-2); padding: 0; background: transparent; white-space: nowrap; }
+.loopra-conversation code.tool-name { font: 400 .8125rem/1.25rem var(--chat-mono); color: var(--chat-fg-3); padding: 0; background: transparent; white-space: nowrap; }
 .loopra-conversation .tool-status { padding: 0 .375rem; border-radius: 999px; font: 500 .6875rem/1.125rem var(--chat-mono); flex-shrink: 0; }
 .loopra-conversation .tool-status.success { display: none; }
 .loopra-conversation .tool-status.failed { color: var(--chat-red); background: var(--chat-red-bg); }
@@ -327,9 +330,10 @@
 .loopra-conversation .block-chain { margin: 0; }
 /* The process summary owns spacing around its nested chain. */
 .loopra-conversation .assistant-process-detail .block-chain { margin: 0; }
-.loopra-conversation .chain-head { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; border: 0; background: transparent; color: var(--chat-fg-3); font-size: var(--chat-font); font-weight: 400; line-height: 1.4; text-align: left; cursor: pointer; transition: color .12s; }
-.loopra-conversation .chain-summary:first-of-type { color: var(--chat-fg-3); }
-.loopra-conversation .chain-summary { color: var(--chat-fg-3); font-size: var(--chat-font); font-weight: 400; line-height: 1.25rem; white-space: nowrap; }
+.loopra-conversation .chain-head { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; border: 0; background: transparent; color: var(--chat-fg-4); font-size: var(--chat-font-meta); font-weight: 400; line-height: 1.4; text-align: left; cursor: pointer; transition: color .12s; }
+.loopra-conversation .chain-head:hover { color: var(--chat-fg-3); }
+.loopra-conversation .chain-summary:first-of-type { color: var(--chat-fg-4); }
+.loopra-conversation .chain-summary { color: var(--chat-fg-4); font-size: var(--chat-font-meta); font-weight: 400; line-height: 1.25rem; white-space: nowrap; }
 .loopra-conversation .chain-head > svg:last-child { margin-left: auto; flex-shrink: 0; color: var(--chat-fg-4); transition: transform .15s; }
 .loopra-conversation .block-chain[data-open="true"] > .chain-head > svg:last-child { transform: rotate(180deg); }
 .loopra-conversation .chain-steps { display: flex; flex-direction: column; gap: var(--chat-gap); margin: var(--chat-gap) 0 0; padding: 0; border: 0; }
