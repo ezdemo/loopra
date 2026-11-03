@@ -127,12 +127,8 @@ function Chain({ steps, streaming = false, ...actions }: { steps: ChatBlock[]; s
   const running = steps.some(step => (step.type === 'tool_call' || step.type === 'sub_agent') && step.status === '执行中');
   const tools = steps.filter((step): step is Extract<ChatBlock, { type: 'tool_call' }> => step.type === 'tool_call');
   const thoughts = steps.filter(step => step.type === 'reasoning' || step.type === 'reasoning_started').length;
-  const names = [...new Set(tools.map(tool => tool.name))];
   const summary = [thoughts ? `${thoughts} 次思考` : '', tools.length ? `${tools.length} 次工具` : ''].filter(Boolean).join(' · ');
-  return <Disclosure className="block-chain" headingClass="chain-head" heading={<>
-    {running ? <StatusIcon status="执行中" /> : <ListTree size="0.9375rem" />}<span className="chain-summary">{summary}</span>
-    {names.length > 0 && <span className="chain-tools">{names.join(' → ')}</span>}<ChevronDown size="0.875rem" />
-  </>}><div className="chain-steps">{steps.map((step, index) => <Step key={step.id} block={step} streaming={streaming && index === steps.length - 1} {...actions} />)}</div></Disclosure>;
+  return <Disclosure className="block-chain" headingClass="chain-head" heading={<>{running ? <StatusIcon status="执行中" /> : <ListTree size="0.9375rem" />}<span className="chain-summary">{summary}</span><ChevronDown size="0.875rem" /></>}><div className="chain-steps">{steps.map((step, index) => <Step key={step.id} block={step} streaming={streaming && index === steps.length - 1} {...actions} />)}</div></Disclosure>;
 }
 
 export default function BlockRenderer({ blocks, streaming = false, ...actions }: { blocks: ChatBlock[]; streaming?: boolean } & BlockActions) {
