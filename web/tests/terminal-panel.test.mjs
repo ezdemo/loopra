@@ -93,9 +93,9 @@ async function mount({ floating = false, initialSessions = sessions, actions, to
   const root = createRoot(container);
   function Floating() {
     const [open, setOpen] = useState(false);
-    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', connected: true, open, onOpenChange: setOpen, notify: () => {}, actions, toolbarTarget }, createElement('textarea', { 'aria-label': '输入消息' }));
+    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', sessionName: 'sess-1', connected: true, open, onOpenChange: setOpen, notify: () => {}, actions, toolbarTarget }, createElement('textarea', { 'aria-label': '输入消息' }));
   }
-  await act(async () => root.render(floating ? createElement(Floating) : createElement(TerminalPanel, { api, workspaceHash: 'hash 1', onClose: () => {}, notify: message => globalThis.__notify.push(message) })));
+  await act(async () => root.render(floating ? createElement(Floating) : createElement(TerminalPanel, { api, workspaceHash: 'hash 1', sessionName: 'sess-1', onClose: () => {}, notify: message => globalThis.__notify.push(message) })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   return { container, root, updateSessions(value) { currentSessions = value; }, holdRequests() { hold = true; }, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
@@ -103,8 +103,8 @@ async function mount({ floating = false, initialSessions = sessions, actions, to
 test('lists background sessions with the legacy summary and log output', async () => {
   const view = await mount();
   try {
-    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions?workspaceHash=hash%201'));
-    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?workspaceHash=hash%201&sessionId=s-1'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions?sessionName=sess-1'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?sessionName=sess-1&sessionId=s-1'));
     const text = view.container.textContent;
     assert.match(text, /1 个运行中 · 共 2 个进程/);
     assert.match(text, /pnpm build/);
@@ -118,7 +118,7 @@ test('clicking a task information block selects its logs', async () => {
   const view = await mount();
   try {
     await act(async () => { view.container.querySelector('[aria-label="查看日志 s-2"]').click(); });
-    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?workspaceHash=hash%201&sessionId=s-2'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?sessionName=sess-1&sessionId=s-2'));
     assert.match(view.container.querySelector('.bash-row.selected').textContent, /sleep 1/);
   } finally { await view.close(); }
 });
@@ -127,7 +127,7 @@ test('stopping a process posts the session id for the active workspace', async (
   const view = await mount();
   try {
     await act(async () => { view.container.querySelector('[aria-label="终止任务 s-1"]').click(); await Promise.resolve(); });
-    assert.ok(globalThis.__calls.some(call => call.method === 'POST' && call.path === '/agent/bash-sessions/terminate' && JSON.stringify(call.body) === JSON.stringify({ sessionId: 's-1', workspaceHash: 'hash 1' })));
+    assert.ok(globalThis.__calls.some(call => call.method === 'POST' && call.path === '/agent/bash-sessions/terminate' && JSON.stringify(call.body) === JSON.stringify({ sessionId: 's-1', sessionName: 'sess-1' })));
   } finally { await view.close(); }
 });
 
@@ -136,7 +136,7 @@ test('each task terminates by its own id without changing the task selected for 
   try {
     await act(async () => { view.container.querySelector('[aria-label="终止任务 s-2"]').click(); });
     const terminations = globalThis.__calls.filter(call => call.path === '/agent/bash-sessions/terminate');
-    assert.deepEqual(terminations.map(call => call.body), [{ sessionId: 's-2', workspaceHash: 'hash 1' }]);
+    assert.deepEqual(terminations.map(call => call.body), [{ sessionId: 's-2', sessionName: 'sess-1' }]);
     assert.equal(view.container.querySelector('.bash-row.selected strong').textContent, 'pnpm build');
   } finally { await view.close(); }
 });

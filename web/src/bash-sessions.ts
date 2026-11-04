@@ -1,10 +1,14 @@
 // Background command sessions, ported from legacy `components/BashSessionManager.vue`:
 // the chat tool's `bash_start` runs live on as a session the UI can inspect.
-export type BashSession = { sessionId: string; workspace?: string; command: string; workdir?: string; startedAt?: number; status: string };
+export type BashSession = { sessionId: string; owner?: string; workspace?: string; command: string; workdir?: string; startedAt?: number; status: string };
 
-export const bashSessionsPath = (workspaceHash: string) => `/agent/bash-sessions?workspaceHash=${encodeURIComponent(workspaceHash)}`;
-export const bashSessionLogPath = (workspaceHash: string, sessionId: string) =>
-  `/agent/bash-sessions/log?workspaceHash=${encodeURIComponent(workspaceHash)}&sessionId=${encodeURIComponent(sessionId)}`;
+/** Every call is scoped to the owning session: the backend registry is
+ *  process-wide, so the session name is what keeps one conversation's
+ *  background commands out of another conversation's (or project's) panel. */
+export const bashSessionsPath = (sessionName?: string) =>
+  `/agent/bash-sessions${sessionName ? `?sessionName=${encodeURIComponent(sessionName)}` : ''}`;
+export const bashSessionLogPath = (sessionName: string | undefined, sessionId: string) =>
+  `/agent/bash-sessions/log?${new URLSearchParams({ ...(sessionName ? { sessionName } : {}), sessionId }).toString()}`;
 
 export const runningCount = (sessions: BashSession[]) => sessions.filter(session => session.status === 'running').length;
 

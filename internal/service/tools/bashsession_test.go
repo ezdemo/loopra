@@ -11,7 +11,7 @@ import (
 
 func TestBashSessionLifecycle(t *testing.T) {
 	root := t.TempDir()
-	s, err := startBashSession(root, "echo hello-$$")
+	s, err := startBashSession(root, "echo hello-$$", "sess-a")
 	if err != nil {
 		t.Skipf("interactive shell unavailable: %v", err)
 	}
@@ -47,13 +47,13 @@ func TestBashSessionLifecycle(t *testing.T) {
 		}
 	}
 	// 注册表视图
-	if got := BashSessionsSnapshot(); len(got) != 1 {
+	if got := BashSessionsSnapshot("sess-a"); len(got) != 1 {
 		t.Fatalf("snapshot = %v", got)
 	}
-	if log, ok := BashSessionLog(s.id); !ok || !strings.Contains(log, "hello-") {
+	if log, ok := BashSessionLog(s.id, "sess-a"); !ok || !strings.Contains(log, "hello-") {
 		t.Fatalf("log = %q ok = %v", log, ok)
 	}
-	if n := BashSessionTerminate(s.id); n != 1 {
+	if n := BashSessionTerminate(s.id, "sess-a"); n != 1 {
 		t.Fatalf("terminate = %d", n)
 	}
 	// 等待进程完全退出，以便 TempDir 清理时能删除文件
@@ -65,11 +65,62 @@ func TestBashSessionLifecycle(t *testing.T) {
 }
 
 func TestBashSessionUnknownID(t *testing.T) {
-	if _, ok := BashSessionLog("nope"); ok {
+	if _, ok := BashSessionLog("nope", "sess-a"); ok {
 		t.Fatal("unknown id resolved")
 	}
-	if n := BashSessionTerminate("nope"); n != 0 {
+	if n := BashSessionTerminate("nope", "sess-a"); n != 0 {
 		t.Fatalf("terminate unknown = %d", n)
+	}
+}
+
+// 面板注册表是进程级共享的，但每个后台进程归属于启动它的会话：
+// 其它会话既看不到、也读不到、更杀不掉它。
+func TestBashSessionsAreScopedToTheirOwnerSession(t *testing.T) {
+	root := t.TempDir()
+	mine, err := startBashSession(root, "echo mine-$$", "sess-a")
+	if err != nil {
+		t.Skipf("interactive shell unavailable: %v", err)
+	}
+	defer mine.stop()
+	theirs, err := startBashSession(root, "echo theirs-$$", "sess-b")
+	if err != nil {
+		t.Fatalf("second session: %v", err)
+	}
+	defer theirs.stop()
+
+	// 归属过滤：各自只看得到自己的进程。
+	if got := BashSessionsSnapshot("sess-a"); len(got) != 1 || got[0]["sessionId"] != mine.id {
+		t.Fatalf("sess-a snapshot = %v", got)
+	}
+	if got := BashSessionsSnapshot("sess-b"); len(got) != 1 || got[0]["sessionId"] != theirs.id {
+		t.Fatalf("sess-b snapshot = %v", got)
+	}
+	if got := BashSessionsSnapshot("sess-missing"); len(got) != 0 {
+		t.Fatalf("unknown owner must see nothing, got %v", got)
+	}
+
+	// 跨会话读日志。
+	if _, ok := BashSessionLog(theirs.id, "sess-a"); ok {
+		t.Fatal("sess-a read sess-b output")
+	}
+	if _, ok := BashSessionEntry(mine.id, "sess-b"); ok {
+		t.Fatal("sess-b read sess-a entry")
+	}
+
+	// 跨会话终止。
+	if n := BashSessionTerminate(theirs.id, "sess-a"); n != 0 {
+		t.Fatalf("cross-session terminate = %d", n)
+	}
+	if _, ok := BashSessionEntry(theirs.id, "sess-b"); !ok {
+		t.Fatal("sess-b process was killed by another session")
+	}
+
+	// 空 sessionId 只影响调用方自己的会话。
+	if n := BashSessionTerminate("", "sess-a"); n != 1 {
+		t.Fatalf("scoped terminate all = %d", n)
+	}
+	if got := BashSessionsSnapshot("sess-b"); len(got) != 1 {
+		t.Fatalf("sess-b lost its process: %v", got)
 	}
 }
 

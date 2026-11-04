@@ -117,7 +117,10 @@ type liveRun struct {
 	imageConfig  *config.Loopra
 	subID        int
 	subSessionID string
-	title        string
+	// parentSession 是发起该子会话的父会话，续聊时仍需要它来
+	// 归属后台进程与审批请求。
+	parentSession string
+	title         string
 	runner       *runner.Runner
 	sess         session.Session
 	mu           sync.Mutex
@@ -237,7 +240,10 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 
 	status := "completed"
 	var replyErr error
-	reply := r.drive(tools.WithImageRuntime(runCtx, contextConfig, nil), run, created.Session, parentSession, task, subID, subSessionID, rec, sink)
+	// 子代理运行在独立的 sub-* 会话里，显式把后台进程归属到父会话，
+	// 否则它启动的进程在面板上会挂到用户看不到的会话下。
+	driveCtx := tools.WithSessionOwner(tools.WithImageRuntime(runCtx, contextConfig, nil), parentSession)
+	reply := r.drive(driveCtx, run, created.Session, parentSession, task, subID, subSessionID, rec, sink)
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			status = "aborted"
@@ -258,7 +264,7 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 
 	res := Result{SubSessionID: subSessionID, Title: title, Reply: reply, Status: status}
 	if status == "completed" {
-		keepResumable(subID, subSessionID, title, run, created.Session, contextConfig)
+		keepResumable(subID, subSessionID, parentSession, title, run, created.Session, contextConfig)
 	}
 	return res, replyErr
 }
@@ -290,10 +296,11 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return r.drive(tools.WithImageRuntime(runCtx, prev.imageConfig, nil), prev.runner, prev.sess, "default", message, prev.subID, subSessionID, nil, sink), nil
+	driveCtx := tools.WithSessionOwner(tools.WithImageRuntime(runCtx, prev.imageConfig, nil), prev.parentSession)
+	return r.drive(driveCtx, prev.runner, prev.sess, prev.parentSession, message, prev.subID, subSessionID, nil, sink), nil
 }
 
-func keepResumable(subID int, subSessionID, title string, run *runner.Runner, sess session.Session, cfg *config.Loopra) {
+func keepResumable(subID int, subSessionID, parentSession, title string, run *runner.Runner, sess session.Session, cfg *config.Loopra) {
 	runsMu.Lock()
 	if len(resumable) >= 20 && len(resumeOrd) > 0 {
 		oldest := resumeOrd[0]
@@ -302,7 +309,7 @@ func keepResumable(subID int, subSessionID, title string, run *runner.Runner, se
 	}
 	resumable[subSessionID] = &liveRun{
 		imageConfig: cfg,
-		subID:       subID, subSessionID: subSessionID, title: title,
+		subID:       subID, subSessionID: subSessionID, parentSession: parentSession, title: title,
 		runner: run, sess: sess,
 	}
 	resumeOrd = append(resumeOrd, subSessionID)

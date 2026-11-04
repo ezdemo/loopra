@@ -23,11 +23,11 @@ func TestWindowsShellStopKillsPing(t *testing.T) {
 			if executable == "cmd.exe" {
 				name = "CMD"
 			}
-			s, err := startShellSession(t.TempDir(), "ping.exe -t 127.0.0.1", shellenv.Shell{Name: name, Path: path})
+			s, err := startShellSession(t.TempDir(), "ping.exe -t 127.0.0.1", "sess-win", shellenv.Shell{Name: name, Path: path})
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer BashSessionTerminate(s.id)
+			defer BashSessionTerminate(s.id, "sess-win")
 			ping := waitForPing(t, uint32(s.proc.Process.Pid))
 			defer windows.CloseHandle(ping)
 			if err := s.stop(); err != nil {

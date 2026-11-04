@@ -111,8 +111,9 @@ function GitWorkspace({ api, workspaceHash, sessionName, revision, notify, onRef
       : <GitTools key={workspaceHash} {...{ api, workspaceHash, revision, notify }} showBranch={false} onRefresh={onRefresh} onFile={path => onOpenFile({ path, mode: 'diff' })} />}
   </>;
 }
-export function TerminalPanel({ api, workspaceHash, onClose, state, onInspect }: PanelProps & { notify?: (message: string) => void; state?: BashSessionsState; onInspect?: (id: string) => void }) {
-  const localState = useBashSessions(api, workspaceHash, !state);
+export function TerminalPanel({ api, sessionName, onClose, state, onInspect }: Omit<PanelProps, 'workspaceHash'> & { notify?: (message: string) => void; sessionName?: string; state?: BashSessionsState; onInspect?: (id: string) => void }) {
+  // 后台进程归属于会话：没有外部 state 时，自身按会话名拉取。
+  const localState = useBashSessions(api, sessionName, !state);
   const data = state || localState;
   const { sessions, selected, output, loading } = data;
   const [actionError, setError] = useState('');

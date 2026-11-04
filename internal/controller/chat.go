@@ -147,6 +147,8 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 	// 事件接收端与父会话。
 	ctx = context.WithValue(r.Context(), sinkKey{}, sse)
 	ctx = context.WithValue(ctx, sessionKey{}, req2Session(&req))
+	// 后台进程也按会话归属：面板与 *_start/*_wait/*_stdin/*_stop 工具据此隔离。
+	ctx = tools.WithSessionOwner(ctx, req2Session(&req))
 	r = r.WithContext(ctx)
 	// 每条用户消息开始时都会创建对应的回滚快照点。
 	msgID := newMsgID()
