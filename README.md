@@ -309,7 +309,7 @@ looprax/
 
 `write` 与 `edit` 默认也可以直接使用项目外的绝对路径。在设置 → 工具开启「限制工具工作区」后，它们只能使用项目内路径和本轮关联项目内的路径。命令工具不受该开关影响：它本身就能访问任意路径，单独限制 `cwd` 并不增加隔离。
 
-命令工具支持 `cwd`、`max_char` 和 `timeout`。一次性命令默认最多返回 64000 个字符、超时 120 秒。交互会话先调用 `_start`，再用 `_wait`、`_stdin` 和 `_stop` 管理同一进程。
+命令工具支持 `cwd`、`max_char` 和 `timeout_ms`（毫秒）。一次性命令默认最多返回 64000 个字符、超时 120000 毫秒，`timeout_ms` 上限 3600000。交互会话先调用 `_start`，再用 `_wait`、`_stdin` 和 `_stop` 管理同一进程。
 
 `web` 用一个入口完成联网：`action=search` 做网页搜索，`action=code` 检索库、SDK 和 API 文档，`action=fetch` 读取 URL 并转成 Markdown、纯文本或 HTML。
 

@@ -5,7 +5,7 @@ import { callExa } from "./mcp.js";
 const description = `联网检索与读取。用 action 选择行为：
 - search：实时网页搜索。填写 query，numResults 默认 8。
 - code：检索库、SDK 和 API 的代码与文档。填写 query，numResults 为 1-20，默认 8。
-- fetch：读取 url 指向的页面。format 为 markdown、text 或 html，默认 markdown；timeoutMs 最大 120000。`;
+- fetch：读取 url 指向的页面。format 为 markdown、text 或 html，默认 markdown；timeout_ms 为超时毫秒数，最大 120000。`;
 
 const searchEndpoint = "https://mcp.exa.ai/mcp";
 const codeEndpoint = "https://mcp.exa.ai/mcp?tools=get_code_context_exa";
@@ -29,7 +29,7 @@ export function tools() {
         url: { type: "string", description: "fetch 的完整 URL，必须以 http:// 或 https:// 开头" },
         numResults: { type: "integer", description: "search 和 code 的结果数量，默认 8，code 最大 20" },
         format: { type: "string", description: "fetch 的返回格式：markdown、text 或 html，默认 markdown" },
-        timeoutMs: { type: "integer", description: "fetch 的超时毫秒数，最大 120000" }
+        timeout_ms: { type: "integer", description: "fetch 的超时毫秒数，最大 120000" }
       },
       required: ["action"]
     }
@@ -47,7 +47,7 @@ async function run(args) {
   if (action === "search" || action === "websearch") return search(args.query, args.numResults);
   if (action === "code" || action === "codesearch") return code(args.query, args.numResults);
   if (action === "fetch" || action === "webfetch") {
-    return retry(3, () => fetchPage(args.url, args.format, Number(args.timeoutMs) || 0));
+    return retry(3, () => fetchPage(args.url, args.format, Number(args.timeout_ms) || 0));
   }
   throw new Error("action 必须是 search、code 或 fetch");
 }

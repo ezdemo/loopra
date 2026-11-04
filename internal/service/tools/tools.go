@@ -356,13 +356,13 @@ func FileTools(root string) []Tool {
 		{rgTool(root), Metadata{Name: "rg", Description: rgDescription, ReadOnly: true, AutoApprove: true}},
 		{writeTool(root), Metadata{Name: "write", Description: "创建或覆盖文件", ReadOnly: false, AutoApprove: true}},
 		{editTool(root), Metadata{Name: "edit", Description: "对文件执行多处精准替换", ReadOnly: false, AutoApprove: true}},
-		{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout）", ReadOnly: false, AutoApprove: false}},
+		{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout_ms）", ReadOnly: false, AutoApprove: false}},
 	}
 }
 
 // ShellTools 提供一次性命令和交互终端，不注册项目文件工具。
 func ShellTools(root string) []Tool {
-	return append([]Tool{{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout）", ReadOnly: false, AutoApprove: false}}}, BashTools(root)...)
+	return append([]Tool{{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout_ms）", ReadOnly: false, AutoApprove: false}}}, BashTools(root)...)
 }
 
 const readDescription = "读取本地文本文件，不受项目范围限制（可以读取依赖、日志、配置和项目外的任何文件）。用 offset 与 max_line 按行号跳读：offset 是起始行号（1 起，默认 1），max_line 是最多返回的行数（默认全部）。返回带行号的文本，同时给出 start_line、end_line、total_lines、truncated，可按需继续跳读。配合 rg 得到的行号使用，避免一次读取整个大文件。"
@@ -542,15 +542,14 @@ type shellCommandInput struct {
 	Command   string `json:"command" jsonschema:"要执行的命令"`
 	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；相对路径按项目根解析，也接受项目外的绝对路径"`
 	MaxChar   int    `json:"max_char,omitempty" jsonschema:"最多返回的字符数，默认 64000，最大 200000"`
-	Timeout   int    `json:"timeout,omitempty" jsonschema:"超时秒数，默认 120，最大 3600"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"兼容旧参数：超时毫秒数；与 timeout 同时提供时以 timeout 为准"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"超时毫秒数，默认 120000，最大 3600000；超时后终止整个进程树"`
 }
 
 func bashTool(root string) tool.Tool {
 	t, _ := functiontool.New[shellCommandInput, map[string]any](
 		functiontool.Config{
 			Name:        shellenv.Current.Name,
-			Description: "执行一次性 " + shellenv.Current.Name + " 命令，使用该 shell 的语法；支持 cwd、max_char、timeout 参数。大批量文件检索、枚举或计数请优先使用 rg 工具，避免递归枚举加逐文件文本扫描。",
+			Description: "执行一次性 " + shellenv.Current.Name + " 命令，使用该 shell 的语法；支持 cwd、max_char、timeout_ms 参数。大批量文件检索、枚举或计数请优先使用 rg 工具，避免递归枚举加逐文件文本扫描。",
 		},
 		func(ctx agentpkg.Context, in shellCommandInput) (map[string]any, error) {
 			return runShellCommand(ctx, root, in)
@@ -566,7 +565,7 @@ func runShellCommand(ctx context.Context, root string, in shellCommandInput) (ma
 	if err != nil {
 		return nil, err
 	}
-	timeout, err := normalizeShellTimeout(in.Timeout, in.TimeoutMs)
+	timeout, err := normalizeShellTimeout(in.TimeoutMs)
 	if err != nil {
 		return nil, err
 	}
@@ -658,27 +657,22 @@ func normalizeShellMaxChars(value, fallback int) (int, error) {
 	return value, nil
 }
 
-func normalizeShellTimeout(seconds, milliseconds int) (time.Duration, error) {
-	return normalizeTimeout(seconds, milliseconds, defaultShellTimeout)
+func normalizeShellTimeout(milliseconds int) (time.Duration, error) {
+	return normalizeTimeout(milliseconds, defaultShellTimeout)
 }
 
-func normalizeTimeout(seconds, milliseconds int, fallback time.Duration) (time.Duration, error) {
-	if seconds < 0 || milliseconds < 0 {
-		return 0, fmt.Errorf("timeout 和 timeout_ms 不能为负数")
+// normalizeTimeout 只认毫秒参数，并统一执行 maxShellTimeout 上限校验。
+func normalizeTimeout(milliseconds int, fallback time.Duration) (time.Duration, error) {
+	if milliseconds < 0 {
+		return 0, fmt.Errorf("timeout_ms 不能为负数")
 	}
-	if seconds > 0 {
-		if seconds > int(maxShellTimeout/time.Second) {
-			return 0, fmt.Errorf("timeout 最大为 %d 秒", int(maxShellTimeout/time.Second))
-		}
-		return time.Duration(seconds) * time.Second, nil
+	if milliseconds == 0 {
+		return fallback, nil
 	}
-	if milliseconds > 0 {
-		if milliseconds > int(maxShellTimeout/time.Millisecond) {
-			return 0, fmt.Errorf("timeout_ms 最大为 %d", int(maxShellTimeout/time.Millisecond))
-		}
-		return time.Duration(milliseconds) * time.Millisecond, nil
+	if milliseconds > int(maxShellTimeout/time.Millisecond) {
+		return 0, fmt.Errorf("timeout_ms 最大为 %d", int(maxShellTimeout/time.Millisecond))
 	}
-	return fallback, nil
+	return time.Duration(milliseconds) * time.Millisecond, nil
 }
 
 type charLimitedWriter struct {

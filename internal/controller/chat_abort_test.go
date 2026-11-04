@@ -174,7 +174,7 @@ func TestChatAbortStopsExecutingShellAndReleasesSession(t *testing.T) {
 				toolName += "_start"
 			}
 			model := echo.New("abort-shell", echo.Script{ToolCalls: []*genai.FunctionCall{{
-				ID: "long-command", Name: toolName, Args: map[string]any{"command": command, "timeout": 3600},
+				ID: "long-command", Name: toolName, Args: map[string]any{"command": command, "timeout_ms": 3600000},
 			}}}, echo.Script{Text: "finished"})
 			cfg := config.Default()
 			cfg.WorkspaceDir, cfg.Hitl = workspace, "free"

@@ -379,9 +379,9 @@ func newBashID() string {
 func BashTools(root string) []Tool {
 	name := shellenv.Current.Name
 	return []Tool{
-		{bashStartTool(root), Metadata{Name: name + "_start", Description: "启动长驻交互 " + name + " 会话并执行首条命令（支持 cwd、max_char、timeout）", ReadOnly: false, AutoApprove: false}},
-		{bashWaitTool(), Metadata{Name: name + "_wait", Description: "等待交互 " + name + " 会话产出新输出（支持 max_char、timeout）", ReadOnly: true, AutoApprove: true}},
-		{bashStdinTool(), Metadata{Name: name + "_stdin", Description: "向交互 " + name + " 会话写入输入（支持 max_char、timeout）", ReadOnly: false, AutoApprove: false}},
+		{bashStartTool(root), Metadata{Name: name + "_start", Description: "启动长驻交互 " + name + " 会话并执行首条命令（支持 cwd、max_char、timeout_ms）", ReadOnly: false, AutoApprove: false}},
+		{bashWaitTool(), Metadata{Name: name + "_wait", Description: "等待交互 " + name + " 会话产出新输出（支持 max_char、timeout_ms）", ReadOnly: true, AutoApprove: true}},
+		{bashStdinTool(), Metadata{Name: name + "_stdin", Description: "向交互 " + name + " 会话写入输入（支持 max_char、timeout_ms）", ReadOnly: false, AutoApprove: false}},
 		{bashStopTool(), Metadata{Name: name + "_stop", Description: "终止交互 " + name + " 会话及其子进程", ReadOnly: false, AutoApprove: true}},
 	}
 }
@@ -391,13 +391,12 @@ type bashStartInput struct {
 	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；相对路径按项目根解析，也接受项目外的绝对路径"`
 	Workdir   string `json:"workdir,omitempty" jsonschema:"兼容旧参数：相对工作目录；与 cwd 同时提供时以 cwd 为准"`
 	MaxChar   int    `json:"max_char,omitempty" jsonschema:"最多返回的字符数，默认 8000，最大 200000"`
-	Timeout   int    `json:"timeout,omitempty" jsonschema:"等待首屏输出的超时秒数，默认 8，最大 3600；不会终止会话"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"兼容旧参数：等待首屏输出的超时毫秒数；与 timeout 同时提供时以 timeout 为准"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"等待首屏输出的超时毫秒数，默认 8000，最大 3600000；不会终止会话"`
 }
 
 func bashStartTool(root string) tool.Tool {
 	t, _ := functiontool.New[bashStartInput, map[string]any](
-		functiontool.Config{Name: shellenv.Current.Name + "_start", Description: "启动长驻交互 " + shellenv.Current.Name + " 会话，使用该 shell 的语法；支持 cwd、max_char、timeout 参数"},
+		functiontool.Config{Name: shellenv.Current.Name + "_start", Description: "启动长驻交互 " + shellenv.Current.Name + " 会话，使用该 shell 的语法；支持 cwd、max_char、timeout_ms 参数"},
 		func(ctx agentpkg.Context, in bashStartInput) (map[string]any, error) {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -406,7 +405,7 @@ func bashStartTool(root string) tool.Tool {
 			if err != nil {
 				return nil, err
 			}
-			waitTimeout, err := normalizeTimeout(in.Timeout, in.TimeoutMs, 8*time.Second)
+			waitTimeout, err := normalizeTimeout(in.TimeoutMs, 8*time.Second)
 			if err != nil {
 				return nil, err
 			}
@@ -439,13 +438,12 @@ type bashWaitInput struct {
 	SessionID string `json:"session_id" jsonschema:"启动工具返回的会话 ID"`
 	QuietMs   int    `json:"quiet_ms,omitempty" jsonschema:"输出静默判定毫秒数，默认 1200"`
 	MaxChar   int    `json:"max_char,omitempty" jsonschema:"最多返回的字符数，默认 8000，最大 200000"`
-	Timeout   int    `json:"timeout,omitempty" jsonschema:"最长等待秒数，默认 10，最大 3600；不会终止会话"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"兼容旧参数：最长等待毫秒数；与 timeout 同时提供时以 timeout 为准"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"最长等待毫秒数，默认 10000，最大 3600000；不会终止会话"`
 }
 
 func bashWaitTool() tool.Tool {
 	t, _ := functiontool.New[bashWaitInput, map[string]any](
-		functiontool.Config{Name: shellenv.Current.Name + "_wait", Description: "等待交互 " + shellenv.Current.Name + " 会话产出新输出；支持 max_char、timeout 参数"},
+		functiontool.Config{Name: shellenv.Current.Name + "_wait", Description: "等待交互 " + shellenv.Current.Name + " 会话产出新输出；支持 max_char、timeout_ms 参数"},
 		func(ctx agentpkg.Context, in bashWaitInput) (map[string]any, error) {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -454,7 +452,7 @@ func bashWaitTool() tool.Tool {
 			if err != nil {
 				return nil, err
 			}
-			waitTimeout, err := normalizeTimeout(in.Timeout, in.TimeoutMs, 10*time.Second)
+			waitTimeout, err := normalizeTimeout(in.TimeoutMs, 10*time.Second)
 			if err != nil {
 				return nil, err
 			}
@@ -484,13 +482,12 @@ type bashStdinInput struct {
 	SessionID string `json:"session_id" jsonschema:"目标会话 ID"`
 	Input     string `json:"input" jsonschema:"要写入的一行输入"`
 	MaxChar   int    `json:"max_char,omitempty" jsonschema:"最多返回的字符数，默认 8000，最大 200000"`
-	Timeout   int    `json:"timeout,omitempty" jsonschema:"等待输出的超时秒数，默认 8，最大 3600；不会终止会话"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"兼容旧参数：等待输出的超时毫秒数；与 timeout 同时提供时以 timeout 为准"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"等待输出的超时毫秒数，默认 8000，最大 3600000；不会终止会话"`
 }
 
 func bashStdinTool() tool.Tool {
 	t, _ := functiontool.New[bashStdinInput, map[string]any](
-		functiontool.Config{Name: shellenv.Current.Name + "_stdin", Description: "向交互 " + shellenv.Current.Name + " 会话写入输入；支持 max_char、timeout 参数"},
+		functiontool.Config{Name: shellenv.Current.Name + "_stdin", Description: "向交互 " + shellenv.Current.Name + " 会话写入输入；支持 max_char、timeout_ms 参数"},
 		func(ctx agentpkg.Context, in bashStdinInput) (map[string]any, error) {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -499,7 +496,7 @@ func bashStdinTool() tool.Tool {
 			if err != nil {
 				return nil, err
 			}
-			waitTimeout, err := normalizeTimeout(in.Timeout, in.TimeoutMs, 8*time.Second)
+			waitTimeout, err := normalizeTimeout(in.TimeoutMs, 8*time.Second)
 			if err != nil {
 				return nil, err
 			}

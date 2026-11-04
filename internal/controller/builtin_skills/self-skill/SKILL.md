@@ -41,7 +41,7 @@ Loopra 的技能是包含 `SKILL.md` 的目录，可以带有 `references/`、`s
 | 任务 | 能力入口与使用方式 |
 | --- | --- |
 | 阅读、搜索与编辑项目文件 | `read`、`rg`、`write`、`edit`；`rg` 使用程序内嵌的原生 ripgrep，无需安装；修改前先理解现有内容 |
-| 运行命令与验证结果 | 使用环境提示中的实际 shell 工具：`powershell`、`CMD`、`bash` 或 `sh`；通过 `cwd` 指定项目内工作目录，`max_char` 控制返回字符数，`timeout` 指定秒级超时；交互或长时间运行时用同名前缀的 `_start`，再以 `_wait` / `_stdin` / `_stop` 管理返回的会话。命令必须使用对应 shell 的语法 |
+| 运行命令与验证结果 | 使用环境提示中的实际 shell 工具：`powershell`、`CMD`、`bash` 或 `sh`；通过 `cwd` 指定项目内工作目录，`max_char` 控制返回字符数，`timeout_ms` 指定毫秒级超时；交互或长时间运行时用同名前缀的 `_start`，再以 `_wait` / `_stdin` / `_stop` 管理返回的会话。命令必须使用对应 shell 的语法 |
 | 获取网页或检索资料 | `web`：`action=search` 做实时网页搜索，`action=code` 查库、SDK 和 API 文档，`action=fetch` 读取指定 URL 并转成 Markdown；登录、验证码等人工步骤通过 `browser_request_user_action` 请用户接管（若该工具可用） |
 | 计划、步骤清单与长期目标 | 根据任务使用 `submit_plan`、`checklist_*`、`goal_*` 等当前提供的工具；遵守当前计划模式和状态约束 |
 | 项目长期记忆 | `memory`，先检索已有事实，再按需记录可靠且可复用的信息 |
@@ -52,7 +52,7 @@ Loopra 的技能是包含 `SKILL.md` 的目录，可以带有 `references/`、`s
 
 - 只有查看目录结构时才用当前 shell：PowerShell `Get-ChildItem`、CMD `dir`、macOS/Linux `ls` 或 `find`。枚举或统计文件请用 `rg` 的 `files` 模式。旧 `ls`、`glob`、`grep` 工具已删除，不要再调用。
 - 大型仓库中不要用 `Get-ChildItem -Recurse -Include ... | Where-Object ...` 或逐文件 `Get-Content`/`Measure-Object`/`Select-String` 做统计：`Where-Object` 是遍历后才过滤，递归枚举加上逐文件读取可能要几十秒；同样的文件数、行数、匹配数用 `rg` 通常不到一秒。
-- shell 工具默认最多返回 64000 个字符（交互工具为 8000），一次性命令默认超时 120 秒，交互等待默认 8–10 秒。返回 `truncated=true` 且文本带截断提示时，不代表拿到了完整输出；可增大 `max_char` 或缩小命令输出范围。一次性命令返回 `status=timed_out` 表示进程树已被终止；交互工具的 `timeout` 只限制本次等待，不终止会话。
+- shell 工具默认最多返回 64000 个字符（交互工具为 8000），一次性命令默认超时 120000 毫秒，交互等待默认 8000–10000 毫秒；所有超时参数统一用 `timeout_ms`，上限 3600000。返回 `truncated=true` 且文本带截断提示时，不代表拿到了完整输出；可增大 `max_char` 或缩小命令输出范围。一次性命令返回 `status=timed_out` 表示进程树已被终止；交互工具的 `timeout_ms` 只限制本次等待，不终止会话。
 - 内容搜索：`rg(pattern="func\\s+New", globs=["*.go"], context_lines=2)`。默认 `mode="content"`，返回文件名、行号及原文。JSON 中反斜杠要转义，不要添加 shell 引号；不要写 HTML 实体（`&lt;`、`&gt;`、`&amp;`），XML 标签直接写 `<version>`，否则会按字面文本匹配。
 - 文件路径查找：`rg(mode="files", globs=["**/*controller*.go","!**/*_test.go"])`，不要提供 `pattern`。这是原生 `rg --files`，不是目录列表。
 - 根据内容筛选文件：`rg(mode="files_with_matches", pattern="TODO|FIXME")`，这是原生 `rg -l`，每个匹配文件只返回一次。

@@ -58,7 +58,7 @@ func TestInteractiveStdinCancellationUnblocksWrite(t *testing.T) {
 	finished := make(chan error, 1)
 	go func() {
 		_, err := bashStdinTool().(runnableShellTool).Run(cancellableShellContext{base: ctx},
-			map[string]any{"session_id": s.id, "input": "cannot be consumed", "timeout": 3600})
+			map[string]any{"session_id": s.id, "input": "cannot be consumed", "timeout_ms": 3600000})
 		finished <- err
 	}()
 	select {
@@ -114,17 +114,17 @@ func TestInteractiveShellToolsCancelImmediately(t *testing.T) {
 			toolCtx := cancellableShellContext{base: ctx}
 			command := shellTestCommand("Start-Sleep -Seconds 30", "ping -n 31 127.0.0.1 >NUL", "sleep 30")
 			target := bashStartTool(t.TempDir())
-			args := map[string]any{"command": command, "timeout": 3600}
+			args := map[string]any{"command": command, "timeout_ms": 3600000}
 			if name != "start" {
 				s, err := startBashSession(t.TempDir(), command, owner)
 				if err != nil {
 					t.Fatal(err)
 				}
-				args = map[string]any{"session_id": s.id, "timeout": 3600, "quiet_ms": 60000}
+				args = map[string]any{"session_id": s.id, "timeout_ms": 3600000, "quiet_ms": 60000}
 				target = bashWaitTool()
 				if name == "stdin" {
 					target = bashStdinTool()
-					args = map[string]any{"session_id": s.id, "input": "echo queued", "timeout": 3600}
+					args = map[string]any{"session_id": s.id, "input": "echo queued", "timeout_ms": 3600000}
 				}
 			}
 			finished := make(chan error, 1)

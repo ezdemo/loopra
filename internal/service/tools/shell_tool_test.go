@@ -26,10 +26,13 @@ func TestShellCommandSchemaIncludesExecutionControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	schema := string(raw)
-	for _, field := range []string{"command", "cwd", "max_char", "timeout", "timeout_ms"} {
+	for _, field := range []string{"command", "cwd", "max_char", "timeout_ms"} {
 		if !strings.Contains(schema, `"`+field+`"`) {
 			t.Fatalf("schema is missing %q: %s", field, schema)
 		}
+	}
+	if strings.Contains(schema, `"timeout"`) {
+		t.Fatalf("schema still exposes the removed timeout field: %s", schema)
 	}
 }
 
@@ -109,7 +112,7 @@ func TestShellCommandTimeoutIsExplicit(t *testing.T) {
 			"ping -n 11 127.0.0.1 >NUL",
 			"sleep 10",
 		),
-		Timeout: 1,
+		TimeoutMs: 1000,
 	})
 	if err != nil {
 		t.Fatal(err)
