@@ -79,6 +79,28 @@ func TestShellCommandUsesCwdAndReportsTruncation(t *testing.T) {
 	}
 }
 
+// 命令本身能访问任意路径，限制 cwd 无法增加隔离，因此 cwd 与只读工具一样
+// 不受工作区设置影响：项目外的绝对路径和 ../ 都直接可用。
+func TestShellCwdIgnoresWorkspaceScope(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	for _, restrict := range []bool{false, true} {
+		ctx := WithWorkspaceScope(context.Background(), restrict)
+		for _, cwd := range []string{outside, "../" + filepath.Base(outside)} {
+			output, err := runShellCommand(ctx, root, shellCommandInput{
+				Command: shellTestCommand("(Get-Location).Path", "cd", "pwd"),
+				Cwd:     cwd,
+			})
+			if err != nil {
+				t.Fatalf("restrict=%v cwd=%s: %v", restrict, cwd, err)
+			}
+			if got, _ := output["cwd"].(string); !sameDirectory(got, outside) {
+				t.Fatalf("restrict=%v cwd=%s resolved to %q, want %s", restrict, cwd, got, outside)
+			}
+		}
+	}
+}
+
 func TestShellCommandTimeoutIsExplicit(t *testing.T) {
 	started := time.Now()
 	output, err := runShellCommand(context.Background(), t.TempDir(), shellCommandInput{

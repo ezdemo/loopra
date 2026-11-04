@@ -305,9 +305,9 @@ looprax/
 
 `read` 支持按行跳读：`offset` 是起始行号（1 起，负数从末尾倒数），`max_line` 是最多返回的行数；返回包含行号的文本和 `start_line`、`end_line`、`total_lines`、`truncated`，可以接着上一次的结果继续读。配合 `rg` 输出的行号即可只看感兴趣的片段。
 
-`read`、`rg`、`read_image` 是只读工具，不受项目范围限制：它们可以读取依赖、日志、配置和项目外的任何文件，方便查看上下文。
+`read`、`rg`、`read_image` 和命令工具都不受项目范围限制：它们可以读取依赖、日志、配置和项目外的任何文件，方便查看上下文。
 
-会改动文件的工具（`write`、`edit` 与命令工具的工作目录）默认也可以直接使用项目外的绝对路径。在设置 → 工具开启「限制工具工作区」后，它们只能使用项目内路径和本轮关联项目内的路径。
+`write` 与 `edit` 默认也可以直接使用项目外的绝对路径。在设置 → 工具开启「限制工具工作区」后，它们只能使用项目内路径和本轮关联项目内的路径。命令工具不受该开关影响：它本身就能访问任意路径，单独限制 `cwd` 并不增加隔离。
 
 命令工具支持 `cwd`、`max_char` 和 `timeout`。一次性命令默认最多返回 64000 个字符、超时 120 秒。交互会话先调用 `_start`，再用 `_wait`、`_stdin` 和 `_stop` 管理同一进程。
 
@@ -526,7 +526,7 @@ loopra acp
 | `toolTimeoutSec` | int | `360` | 单工具超时秒数。 |
 | `subAgentTimeoutSec` | int | `3600` | 子代理完整任务超时秒数。 |
 | `disabledTools` | string[] | `[]` | 禁用的工具名称。 |
-| `toolsRestrictWorkspace` | bool | `false` | 开启后 `write`、`edit` 与命令工具的工作目录只能使用项目内及本轮关联项目内的路径；`read`、`rg`、`read_image` 不受影响。也可在设置 → 工具里切换。 |
+| `toolsRestrictWorkspace` | bool | `false` | 开启后 `write`、`edit` 只能使用项目内及本轮关联项目内的路径；`read`、`rg`、`read_image` 与命令工具不受影响。也可在设置 → 工具里切换。 |
 | `blockedPaths` | string[] | `[]` | 受限路径列表。 |
 | `worktreeBaseDir` | string | `~/.loopra/worktree` | 隔离分支模式的根目录。 |
 

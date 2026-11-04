@@ -22,13 +22,13 @@ func WithLinkedProjects(ctx context.Context, roots []string) context.Context {
 // 缺省（未安装）表示不限制：允许项目外的绝对路径。
 type scopedKey struct{}
 
-// WithWorkspaceScope 安装工作区限制开关。它只作用于会改动文件的工具
-// （write、edit 以及命令工具的工作目录）；只读工具永远不受它影响。
+// WithWorkspaceScope 安装工作区限制开关。它只作用于 write 与 edit；
+// 只读工具和命令工具都不受它影响。
 func WithWorkspaceScope(ctx context.Context, restrict bool) context.Context {
 	return context.WithValue(ctx, scopedKey{}, restrict)
 }
 
-// workspaceScope 报告当前运行是否限定在项目内。
+// workspaceScope 报告当前运行是否限定写入路径在项目内。
 func workspaceScope(ctx context.Context) bool {
 	restrict, _ := ctx.Value(scopedKey{}).(bool)
 	return restrict
@@ -81,7 +81,8 @@ func resolveInside(realRoot, abs string) (string, error) {
 	}
 }
 
-// readOnlyPath 解析只读工具（read、rg、read_image）的路径。
+// readOnlyPath 解析不改动文件的路径：read、rg、read_image
+// 以及命令工具的 cwd。
 //
 // 读取不改变任何状态，所以永远不套用工作区限制：项目外的相对路径和绝对路径
 // 都直接可用，方便查看依赖、日志、配置和项目外的参考代码。相对路径仍然
@@ -97,7 +98,7 @@ func readOnlyPath(root, path string) (string, error) {
 	return abs, nil
 }
 
-// contextualPath 解析会改动文件的工具的路径，包括命令工具的工作目录。
+// contextualPath 解析 write 与 edit 的路径。
 //
 // 限制开启时只接受项目内相对路径，以及当前项目或本轮关联项目内的绝对路径；
 // 限制关闭时项目内相对路径仍相对项目根解析，项目外路径按原样接受

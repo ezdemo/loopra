@@ -540,7 +540,7 @@ const (
 
 type shellCommandInput struct {
 	Command   string `json:"command" jsonschema:"要执行的命令"`
-	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；相对路径按项目根解析，也接受绝对路径"`
+	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；相对路径按项目根解析，也接受项目外的绝对路径"`
 	MaxChar   int    `json:"max_char,omitempty" jsonschema:"最多返回的字符数，默认 64000，最大 200000"`
 	Timeout   int    `json:"timeout,omitempty" jsonschema:"超时秒数，默认 120，最大 3600"`
 	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"兼容旧参数：超时毫秒数；与 timeout 同时提供时以 timeout 为准"`
@@ -619,11 +619,14 @@ func runShellCommand(ctx context.Context, root string, in shellCommandInput) (ma
 	return result, nil
 }
 
-func resolveShellCwd(ctx context.Context, root, cwd string) (string, error) {
+// resolveShellCwd 解析命令的工作目录。命令本身能访问任意路径，
+// 限制 cwd 并不能增加隔离，因此这里与只读工具一致：相对路径按项目根解析，
+// 绝对路径与 ../ 直接接受。
+func resolveShellCwd(_ context.Context, root, cwd string) (string, error) {
 	dir := root
 	if cwd != "" {
 		var err error
-		dir, err = contextualPath(ctx, root, cwd)
+		dir, err = readOnlyPath(root, cwd)
 		if err != nil {
 			return "", fmt.Errorf("cwd 无效: %w", err)
 		}
