@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
@@ -181,7 +181,7 @@ export default function Sidebar(props: SidebarProps) {
             <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="m4 2 4 4-4 4Z" /></svg><span>{section.title}</span>
           </button>
           {section.id === 'projects' && <div>
-            <IconButton label="添加项目" onClick={props.onManageProjects}><Plus size="0.9375rem" /></IconButton>
+            <IconButton label="添加项目" onClick={props.onManageProjects}><FolderPlus size="0.9375rem" /></IconButton>
             <IconButton label={allCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={toggleProjects}>{allCollapsed ? <CopyPlus size="0.9375rem" /> : <CopyMinus size="0.9375rem" />}</IconButton>
             <IconButton label="刷新项目列表" onClick={() => void props.onRefreshAll()}><RefreshCw size="0.875rem" /></IconButton>
           </div>}

@@ -38,7 +38,8 @@ test('the 项目 section header adds a project button that opens the manager', (
   const label = sidebar.slice(sidebar.indexOf('<div className="section-label">'), sidebar.indexOf("<Collapse open={!collapsedSections"));
   // The button sits with fold-all and refresh, in the 项目 section only.
   assert.match(label, /section\.id === 'projects'/);
-  assert.match(label, /<IconButton label="添加项目" onClick=\{props\.onManageProjects\}><Plus size="0\.9375rem" \/><\/IconButton>/);
+  // Folder + separates 添加项目 from the per-project 新建会话 plus below it.
+  assert.match(label, /<IconButton label="添加项目" onClick=\{props\.onManageProjects\}><FolderPlus size="0\.9375rem" \/><\/IconButton>/);
   // The button leads the section actions, ahead of fold-all and refresh.
   assert.ok(label.indexOf('添加项目') < label.indexOf('刷新项目列表'));
   // It reuses the dialog the welcome screen and per-project menu already open.
