@@ -8,6 +8,8 @@ import (
 
 	"github.com/ezdemo/looprax/internal/bootstrap"
 	"github.com/ezdemo/looprax/internal/config"
+	"github.com/ezdemo/looprax/internal/controller"
+	"github.com/ezdemo/looprax/internal/desktop"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/petwin"
 )
@@ -19,6 +21,9 @@ func runWeb(ctx context.Context, stop func(), options config.Options) error {
 	if err != nil {
 		return err
 	}
+	// 宠物窗口也是 mygo 的原生窗口，配色和界面语言要跟工作台一致。
+	desktop.ApplyTheme(controller.SavedUITheme(settings.Home))
+	desktop.ApplyLanguage(settings.Home)
 	host := petwin.New(settings.Home, settings.PetsDir)
 	options.PetDesktop = host
 	ready := make(chan struct{}, 1)

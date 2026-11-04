@@ -25,31 +25,10 @@ import (
 	"github.com/ezdemo/looprax/internal/bootstrap"
 	"github.com/ezdemo/looprax/internal/config"
 	"github.com/ezdemo/looprax/internal/controller"
+	"github.com/ezdemo/looprax/internal/desktop"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/petwin"
 )
-
-func desktopBackground(theme string) string {
-	switch theme {
-	case "dark":
-		return "#191919"
-	case "light":
-		return "#ffffff"
-	default:
-		return "light-dark(#ffffff, #191919)"
-	}
-}
-
-func applyDesktopTheme(theme string) {
-	switch theme {
-	case "dark":
-		mygo.Theme.SetSource(mygo.ThemeDark)
-	case "light":
-		mygo.Theme.SetSource(mygo.ThemeLight)
-	case "system":
-		mygo.Theme.SetSource(mygo.ThemeSystem)
-	}
-}
 
 func main() {
 	// 桌面窗口就是界面。默认不占控制台；LOOPRA_DEBUG=1 时仍把日志打出来。
@@ -88,14 +67,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	options.OnDesktopQuit = stop
-	options.OnUITheme = applyDesktopTheme
+	options.OnUITheme = desktop.ApplyTheme
 	theme := ""
 	var host *petwin.Host
 	if settings, err := config.Load(ctx, options); err == nil {
 		theme = controller.SavedUITheme(settings.Home)
-		applyDesktopTheme(theme)
+		desktop.ApplyTheme(theme)
+		// 原生界面的语言也存在这里；读不出来时 ApplyLanguage 会按中文。
+		desktop.ApplyLanguage(settings.Home)
 		host = petwin.New(settings.Home, settings.PetsDir)
 		options.PetDesktop = host
+	} else {
+		desktop.ApplyLanguage("")
 	}
 
 	type listened struct{ base, key string }
@@ -151,7 +134,7 @@ func main() {
 			MinWidth:        760,
 			MinHeight:       520,
 			Frameless:       true,
-			BackgroundColor: desktopBackground(theme),
+			BackgroundColor: desktop.Background(theme),
 			StateKey:        "workspace",
 			Page:            mygo.PageOptions{TrustedOrigins: []string{origin}},
 		})
