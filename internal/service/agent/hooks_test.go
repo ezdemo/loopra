@@ -37,6 +37,18 @@ func TestApplyCompactKeepsFragments(t *testing.T) {
 	}
 }
 
+func TestModelTextRewriteRetainsToolArgumentFailure(t *testing.T) {
+	part := &genai.Part{
+		FunctionCall: &genai.FunctionCall{ID: "call_bad", Name: "echo", Args: map[string]any{}},
+		PartMetadata: map[string]any{"loopra.toolArgumentError": "invalid arguments JSON", "loopra.toolArgumentRaw": `{"text":`},
+	}
+	resp := &model.LLMResponse{Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{part}}}
+	applyModelResponse(resp, map[string]any{"text": "rewritten"}, map[string]bool{"text": true})
+	if len(resp.Content.Parts) != 2 || provider.ToolArgumentError(resp.Content.Parts[1]) != provider.ToolArgumentError(part) {
+		t.Fatalf("text rewrite discarded argument failure: %+v", resp.Content)
+	}
+}
+
 func TestSystemPromptChainReachesRequestWithoutLosingOrDuplicatingAppends(t *testing.T) {
 	host := plugin.New(t.TempDir(), plugin.Hooks{})
 	installAgentPlugin(t, host, "persona", `export function systemPrompt() { return {append: "|PERSONA"}; }`)

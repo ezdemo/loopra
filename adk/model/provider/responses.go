@@ -113,7 +113,7 @@ func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 						"content": []any{map[string]any{"type": "output_text", "text": p.Text}},
 					})
 				case p.FunctionCall != nil:
-					args, err := json.Marshal(p.FunctionCall.Args)
+					args, err := marshalToolArguments(p)
 					if err != nil {
 						return nil, fmt.Errorf("encode tool args for %s: %w", p.FunctionCall.Name, err)
 					}
@@ -372,11 +372,7 @@ func responsesParts(items []responsesOutputItem) ([]*genai.Part, error) {
 			if id == "" {
 				id = item.ID
 			}
-			args, err := toolArguments("responses", item.Name, id, item.Arguments)
-			if err != nil {
-				return nil, err
-			}
-			parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: id, Name: item.Name, Args: args}})
+			parts = append(parts, toolCallPart("responses", item.Name, id, item.Arguments))
 		}
 	}
 	return parts, nil

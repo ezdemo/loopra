@@ -457,7 +457,7 @@ func needsBlob(ev *session.Event) bool {
 	}
 	if ev.Content != nil {
 		for _, p := range ev.Content.Parts {
-			if p != nil && len(p.ThoughtSignature) > 0 {
+			if p != nil && (len(p.ThoughtSignature) > 0 || len(p.PartMetadata) > 0) {
 				return true
 			}
 		}

@@ -42,6 +42,27 @@ func mustGet(t *testing.T, svc *Service, id string) session.Session {
 	return got.Session
 }
 
+func TestToolArgumentMetadataSurvivesReload(t *testing.T) {
+	root := t.TempDir()
+	svc := NewService(root)
+	sess := mustCreate(t, svc, "argument-metadata")
+	const raw = `{"text":"broken" n}`
+	ev := &session.Event{
+		ID: "malformed-call", Author: "model", Timestamp: time.Now(),
+		Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{
+			FunctionCall: &genai.FunctionCall{ID: "call_bad", Name: "echo", Args: map[string]any{}},
+			PartMetadata: map[string]any{"loopra.toolArgumentError": "invalid arguments JSON", "loopra.toolArgumentRaw": raw},
+		}}},
+	}
+	if err := svc.AppendEvent(context.Background(), sess, ev); err != nil {
+		t.Fatal(err)
+	}
+	restored := mustGet(t, NewService(root), sess.ID()).Events().At(0).Content.Parts[0]
+	if restored.FunctionCall.ID != "call_bad" || restored.PartMetadata["loopra.toolArgumentRaw"] != raw || restored.PartMetadata["loopra.toolArgumentError"] != "invalid arguments JSON" {
+		t.Fatalf("argument failure lost on reload: %+v", restored)
+	}
+}
+
 func TestEventToLinesAndBack(t *testing.T) {
 	root := t.TempDir()
 	svc := NewService(root)

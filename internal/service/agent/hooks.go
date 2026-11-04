@@ -93,9 +93,10 @@ type turnNote struct {
 }
 
 type hookBridge struct {
-	protocol string
-	turns    sync.Map
-	wires    sync.Map
+	protocol       string
+	turns          sync.Map
+	wires          sync.Map
+	argumentErrors sync.Map
 }
 
 func (h *hookBridge) onUserMessage(ctx agent.InvocationContext, msg *genai.Content) (*genai.Content, error) {
@@ -163,6 +164,7 @@ func (h *hookBridge) afterRun(ctx agent.InvocationContext) {
 		return
 	}
 	id := ctx.InvocationID()
+	h.argumentErrors.Delete(id)
 	h.releaseWire(id)
 	var note *turnNote
 	if value, ok := h.turns.LoadAndDelete(id); ok {
@@ -264,6 +266,7 @@ func (h *hookBridge) afterModel(ctx agent.Context, resp *model.LLMResponse, _ er
 	if resp == nil || resp.Partial {
 		return nil, nil
 	}
+	h.rememberToolArgumentErrors(ctx, resp)
 	host := svcplugin.Active()
 	if host == nil {
 		return nil, nil
@@ -304,6 +307,9 @@ func (h *hookBridge) onModelError(ctx agent.Context, req *model.LLMRequest, err 
 func (h *hookBridge) beforeTool(ctx agent.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
 	if ctx == nil || t == nil || t.Name() == toolconfirmation.FunctionCallName {
 		return nil, nil
+	}
+	if message := h.toolArgumentFailure(ctx, t.Name()); message != "" {
+		return map[string]any{"error": message}, nil
 	}
 	host := svcplugin.Active()
 	if host == nil {
@@ -853,9 +859,17 @@ func applyModelResponse(resp *model.LLMResponse, out map[string]any, touched map
 			continue
 		}
 		args, _ := call["args"].(map[string]any)
-		parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{
+		part := &genai.Part{FunctionCall: &genai.FunctionCall{
 			ID: asString(call["id"]), Name: asString(call["name"]), Args: args,
-		}})
+		}}
+		// Text/thought rewrites must not discard argument validation metadata.
+		for _, original := range content.Parts {
+			if original != nil && original.FunctionCall != nil && original.FunctionCall.ID == part.FunctionCall.ID && original.FunctionCall.Name == part.FunctionCall.Name {
+				part.PartMetadata = original.PartMetadata
+				break
+			}
+		}
+		parts = append(parts, part)
 	}
 	content.Parts = parts
 	if content.Role == "" {

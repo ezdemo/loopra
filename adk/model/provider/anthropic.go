@@ -257,12 +257,12 @@ func (u anthropicUsage) toUsageMetadata() *genai.GenerateContentResponseUsageMet
 
 // anthropicContentBlock 是 Messages 响应中的一个块。
 type anthropicContentBlock struct {
-	Type     string         `json:"type"`
-	Text     string         `json:"text"`
-	Thinking string         `json:"thinking"`
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Input    map[string]any `json:"input"`
+	Type     string          `json:"type"`
+	Text     string          `json:"text"`
+	Thinking string          `json:"thinking"`
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Input    json.RawMessage `json:"input"`
 }
 
 // parseSync 解码非流式的 Messages 调用。
@@ -323,11 +323,7 @@ func anthropicParts(blocks []anthropicContentBlock) ([]*genai.Part, error) {
 			if b.ID == "" || b.Name == "" {
 				return nil, errors.New("tool_use block lacks ID or name")
 			}
-			input := b.Input
-			if input == nil {
-				input = map[string]any{}
-			}
-			parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: b.ID, Name: b.Name, Args: input}})
+			parts = append(parts, toolCallPart("anthropic", b.Name, b.ID, string(b.Input)))
 		}
 	}
 	return parts, nil
@@ -363,7 +359,7 @@ func (a *anthropicAdapter) consumeStream(ctx context.Context, resp *http.Respons
 	type blockAcc struct {
 		id      string
 		name    string
-		initial map[string]any
+		initial json.RawMessage
 		args    strings.Builder
 	}
 	blocks := map[int]*blockAcc{}
@@ -483,13 +479,7 @@ func (a *anthropicAdapter) consumeStream(ctx context.Context, resp *http.Respons
 		}
 		input := b.initial
 		if b.args.Len() > 0 {
-			if err := json.Unmarshal([]byte(b.args.String()), &input); err != nil {
-				yield(nil, fmt.Errorf("anthropic tool %s JSON: %w", b.name, err))
-				return
-			}
-		}
-		if input == nil {
-			input = map[string]any{}
+			input = json.RawMessage(b.args.String())
 		}
 		assembled = append(assembled, anthropicContentBlock{Type: "tool_use", ID: b.id, Name: b.name, Input: input})
 	}

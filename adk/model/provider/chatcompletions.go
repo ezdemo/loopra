@@ -163,7 +163,7 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 				case p.Text != "" && !p.Thought:
 					texts = append(texts, p.Text)
 				case p.FunctionCall != nil:
-					args, err := json.Marshal(p.FunctionCall.Args)
+					args, err := marshalToolArguments(p)
 					if err != nil {
 						return nil, fmt.Errorf("encode tool args for %s: %w", p.FunctionCall.Name, err)
 					}
@@ -398,11 +398,7 @@ func chatParts(rawContent json.RawMessage, reasoning string, calls []wireChatCal
 		if c.ID == "" || c.Function.Name == "" {
 			continue
 		}
-		args, err := toolArguments("chat completions", c.Function.Name, c.ID, c.Function.Arguments)
-		if err != nil {
-			return nil, err
-		}
-		parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: c.ID, Name: c.Function.Name, Args: args}})
+		parts = append(parts, toolCallPart("chat completions", c.Function.Name, c.ID, c.Function.Arguments))
 	}
 	return parts, nil
 }
