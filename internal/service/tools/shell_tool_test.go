@@ -122,6 +122,26 @@ func TestShellCommandTimeoutIsExplicit(t *testing.T) {
 	}
 }
 
+func TestShellCommandCancellationIsExplicit(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	timer := time.AfterFunc(750*time.Millisecond, cancel)
+	defer timer.Stop()
+	started := time.Now()
+	output, err := runShellCommand(ctx, t.TempDir(), shellCommandInput{
+		Command: shellTestCommand("Start-Sleep -Seconds 30", "ping -n 31 127.0.0.1 >NUL", "sleep 30"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output["status"] != "canceled" || output["canceled"] != true {
+		t.Fatalf("cancellation result = %#v", output)
+	}
+	if time.Since(started) > 3*time.Second {
+		t.Fatal("command cancellation did not stop its process promptly")
+	}
+}
+
 func TestCharLimitedWriterCountsUTF8Characters(t *testing.T) {
 	writer := newCharLimitedWriter(2)
 	data := []byte("中a文")

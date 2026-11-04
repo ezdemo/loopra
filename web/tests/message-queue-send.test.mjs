@@ -46,7 +46,7 @@ function harness() {
     setOccupiedSessions: () => {}, isSessionOccupiedError: () => false,
     ...queue, runs: new SessionRuns(), sessionRunKey, draftRunKey, isRunView, sendingQueued: { current: new Set() },
     composerViewRef: { current: { server: 'http://localhost:4567', activeId: null, draft: 'unrelated draft', draftKey: '' } },
-    sendMessageRef: { current: undefined }, sessionsRef: { current: [] }, queuedRef: { current: {} }, remoteRunRef: { current: null },
+    sendMessageRef: { current: undefined }, sessionsRef: { current: [] }, queuedRef: { current: {} }, remoteRunRef: { current: null }, sessionStatusRevision: { current: 0 },
     backend: { status: 'connected', ready: true }, workspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
     CHAT_WORKSPACE: { hash: '__loopra_chat__' }, isChatWorkspace: workspace => workspace?.hash === '__loopra_chat__',
     projectWorkspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
@@ -62,7 +62,7 @@ function harness() {
     setDraft: text => drafts.push(text), setComposerContext: value => contexts.push(value), setMenu: () => {}, setShowScrollBtn: () => {},
     setPendingInputs: update => { state.inputs = update(state.inputs); }, notifyWorkspaceChanged: () => {}, setPetReply: () => {},
     setComposerOptions: update => { state.options = update(state.options); }, setPendingPlan: value => { state.plan = value; },
-    setAcpPlans: () => {}, setAcpCommands: () => {}, setRemoteRun: () => {},
+    setAcpPlans: () => {}, setAcpCommands: () => {}, setRemoteRun: value => { state.remoteRun = value; },
     setWorkspaceEditors: update => { state.editors = update(state.editors); }, emptyWorkspaceTabs: { tabs: [] },
     ensureSubAgentTab: (tabs, entry) => ({ ...tabs, tabs: [...tabs.tabs, entry] }),
     chatLogs: { push: entry => state.logs.push(entry) },
@@ -83,6 +83,7 @@ function harness() {
         if (path === '/chat/abort') { await abortGate?.promise; return; }
         if (path.startsWith('/agent/session-status')) return { running: running.has(new URLSearchParams(path.split('?')[1]).get('sessionName')) };
         if (path.startsWith('/agent/history')) return [];
+        if (path.startsWith('/chat/permissions') || path.startsWith('/chat/elicitations')) return [];
         if (path === '/agent-engines/prepare') return { sessionName: 'first', agentId: 'external', configOptions: [] };
       },
       stream(body, onEvent, signal) {
@@ -339,6 +340,47 @@ test('a delayed title status cannot overwrite a manual rename or an aborted view
     await polling;
     assert.equal(h.shared.sessionsRef.current[0].title, abort ? 'first message' : 'Manual title');
   }
+});
+
+test('an older status response cannot replace the current remote requestId', async () => {
+  const h = harness();
+  h.shared.sessionsRef.current = [original];
+  const first = deferred(), second = deferred();
+  const request = h.shared.api.request;
+  let polls = 0;
+  h.shared.api.request = (path, ...args) => path.startsWith('/agent/session-status')
+    ? (++polls === 1 ? first.promise : second.promise) : request(path, ...args);
+  const selected = h.render(original), controller = new AbortController();
+  const observe = { running: false };
+  const oldPoll = selected.syncSessionRun(original, controller, observe);
+  const newPoll = selected.syncSessionRun(original, controller, observe);
+  second.resolve({ running: true, requestId: 'current-turn' });
+  await newPoll;
+  first.resolve({ running: true, requestId: 'previous-turn' });
+  await oldPoll;
+  assert.equal(h.state.remoteRun.requestId, 'current-turn');
+});
+
+test('an older history response cannot restore messages or inputs after the run stopped', async () => {
+  const h = harness();
+  h.shared.sessionsRef.current = [original];
+  const history = deferred();
+  let polls = 0;
+  h.shared.api.request = path => {
+    if (path.startsWith('/agent/session-status'))
+      return Promise.resolve(++polls === 1 ? { running: true, requestId: 'old' } : { running: false });
+    if (path.startsWith('/agent/history')) return polls === 1 ? history.promise : Promise.resolve([]);
+    return Promise.resolve([]);
+  };
+  const selected = h.render(original), controller = new AbortController();
+  const observe = { running: false };
+  const oldPoll = selected.syncSessionRun(original, controller, observe);
+  await new Promise(resolve => setImmediate(resolve));
+  await selected.syncSessionRun(original, controller, observe);
+  history.resolve([{ content: 'stale history' }]);
+  await oldPoll;
+  assert.equal(h.state.remoteRun, null);
+  assert.deepEqual(h.shared.sessionsRef.current[0].messages, []);
 });
 
 test('interrupting the first reply waits for abort and backend idle, then keeps its session', async () => {

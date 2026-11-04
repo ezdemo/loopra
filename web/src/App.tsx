@@ -226,6 +226,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
   const [remoteRun, setRemoteRun] = useState<{ id: string; requestId?: string | null } | null>(null);
   const remoteRunRef = useRef<string | null>(null);
+  const sessionStatusRevision = useRef(0);
   const historyRequest = useRef<AbortController>();
   const [historyState, setHistoryState] = useState<{ id: string; error?: string }>();
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -928,9 +929,12 @@ export default function App({ startupPending = false, initialServer }: { startup
   // Legacy Chat.vue polls /agent/session-status so a reply started elsewhere
   // (another window, or a reload mid-run) is visible and its history stays fresh.
   async function syncSessionRun(target: Session, controller: AbortController, observe: { running: boolean }) {
+    const revision = ++sessionStatusRevision.current;
+    const current = () => !controller.signal.aborted && sessionStatusRevision.current === revision
+      && composerViewRef.current.server === server && composerViewRef.current.activeId === target.id;
     const previousTitle = sessionsRef.current.find(item => item.id === target.id)?.title;
     const status = await api.request<{ running?: boolean; requestId?: string; title?: string }>(`/agent/session-status?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
-    if (controller.signal.aborted) return;
+    if (!current()) return;
     if (status?.title) setSessions(current => current.map(item =>
       item.id === target.id && item.title === previousTitle && item.title !== status.title ? { ...item, title: status.title! } : item));
     if (runs.get(sessionRunKey(server, target.id))) return;
@@ -939,10 +943,13 @@ export default function App({ startupPending = false, initialServer }: { startup
     setRemoteRun(running ? { id: target.id, requestId: status?.requestId } : null);
     if (running || observe.running) {
       const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(target)}`, 'GET', undefined, controller.signal);
+      if (!current()) return;
       const permissions = running ? await api.request<StreamEvent[]>(`/chat/permissions?${sessionQuery(target)}`, 'GET', undefined, controller.signal) : [];
+      if (!current()) return;
       const inputs = running ? await api.request<ElicitationRequest[]>(`/chat/elicitations?${sessionQuery(target)}`, 'GET', undefined, controller.signal) : [];
-      if (!controller.signal.aborted && !runs.get(sessionRunKey(server, target.id))) setPendingInputs(current => ({ ...current, [target.id]: inputs }));
-      if (!controller.signal.aborted && !runs.get(sessionRunKey(server, target.id)) && (history.length || permissions.length)) setSessions(current => current.map(item => {
+      if (!current()) return;
+      if (!runs.get(sessionRunKey(server, target.id))) setPendingInputs(current => ({ ...current, [target.id]: inputs }));
+      if (!runs.get(sessionRunKey(server, target.id)) && (history.length || permissions.length)) setSessions(current => current.map(item => {
         if (item.id !== target.id) return item;
         const messages = historyMessages(history);
         for (const permission of permissions) {
@@ -961,7 +968,13 @@ export default function App({ startupPending = false, initialServer }: { startup
   }
   async function stopRemoteRun() {
     if (!session || !remoteRun) return;
-    try { await api.request('/chat/abort', 'POST', { requestId: remoteRun.requestId || undefined, workspaceHash: session.workspaceHash, sessionName: session.name }); notify('已请求停止后台任务'); }
+    const target = session;
+    try {
+      const result = await api.request<{ status?: string }>('/chat/abort', 'POST', { requestId: remoteRun.requestId || undefined, workspaceHash: target.workspaceHash, sessionName: target.name });
+      notify(result?.status === 'not_running' ? '该任务已结束' : '已请求停止后台任务');
+      if (composerViewRef.current.server === server && composerViewRef.current.activeId === target.id)
+        await syncSessionRun(target, new AbortController(), { running: true }).catch(() => {});
+    }
     catch (error) { notify(`停止失败：${error instanceof Error ? error.message : error}`); }
   }
   // Legacy `openStoredDiff`: a message's file list carries the diff saved with

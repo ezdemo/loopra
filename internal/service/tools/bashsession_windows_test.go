@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -11,6 +13,50 @@ import (
 
 	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 )
+
+func TestWindowsShellCancellationKillsPing(t *testing.T) {
+	for _, executable := range []string{"pwsh.exe", "powershell.exe", "cmd.exe"} {
+		t.Run(executable, func(t *testing.T) {
+			path, err := exec.LookPath(executable)
+			if err != nil {
+				t.Skip(err)
+			}
+			name := "powershell"
+			if executable == "cmd.exe" {
+				name = "CMD"
+			}
+			owner := testSessionOwner("cancel-" + executable)
+			s, err := startShellSession(t.TempDir(), "ping.exe -t 127.0.0.1", owner, shellenv.Shell{Name: name, Path: path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer BashSessionTerminate(s.id, owner)
+			ping := waitForPing(t, uint32(s.proc.Process.Pid))
+			defer windows.CloseHandle(ping)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			finished := make(chan error, 1)
+			go func() {
+				_, err := s.waitContext(ctx, 0, 60000, 3600000)
+				finished <- err
+			}()
+			cancel()
+			select {
+			case err := <-finished:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("wait error = %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("shell wait ignored cancellation")
+			}
+			state, err := windows.WaitForSingleObject(ping, 1000)
+			if err != nil || state != windows.WAIT_OBJECT_0 {
+				t.Fatalf("PING survived cancellation: state=%d error=%v", state, err)
+			}
+			requireShellExited(t, s)
+		})
+	}
+}
 
 func TestWindowsShellStopKillsPing(t *testing.T) {
 	for _, executable := range []string{"pwsh.exe", "powershell.exe", "cmd.exe"} {

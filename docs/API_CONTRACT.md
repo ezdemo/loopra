@@ -40,7 +40,7 @@
 | 方法+路径 | 参数 | data |
 |---|---|---|
 | POST `/stream` | body ChatRequest | SSE 流（见 SSE 契约文档；**唯一聊天入口**，无同步 POST、无 GET SSE） |
-| POST `/abort` | body ChatRequest（只用 requestId/workspaceHash/sessionName） | s `"已发送中断请求"` |
+| POST `/abort` | body ChatRequest（只用 requestId/workspaceHash/sessionName；requestId/sessionName 至少一项） | `{status:"stopping"/"pending"/"not_running",matched:n}`；旧 requestId 对应会话已开始新一轮时返回 409、reason=`chat_run_changed`，不取消新一轮 |
 | GET `/permissions` | q: workspaceHash*, sessionName* | `[{...pending 审批}]` |
 | POST `/permission` | body `{workspaceHash*, sessionName*, permissionRequestId*, optionId*}` | s `"审批已提交"`；409 `"审批已结束或不属于当前会话"` |
 | GET `/elicitations` | q: workspaceHash*, sessionName* | `[]` |

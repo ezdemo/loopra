@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/adk/v2/tool"
 
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
+	"github.com/ezdemo/looprax/internal/service/acp"
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
@@ -21,6 +23,8 @@ type chatJob struct {
 	mu                     sync.Mutex
 	cancel                 context.CancelFunc
 	cancelled              bool
+	finished               bool
+	stop                   func()
 	runtime                *Controller // 由 runtimeState.mu 保护
 }
 
@@ -32,12 +36,32 @@ func (j *chatJob) setCancel(cancel context.CancelFunc) {
 		cancel()
 	}
 }
-func (j *chatJob) abort() {
+func (j *chatJob) abort() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if j.finished {
+		return false
+	}
 	j.cancelled = true
 	if j.cancel != nil {
 		j.cancel()
+	}
+	if j.stop != nil {
+		j.stop()
+	}
+	return true
+}
+
+type pendingChatAbort struct {
+	Workspace, Session string
+	Expires            time.Time
+}
+
+func (s *Controller) prunePendingAborts(now time.Time) {
+	for id, pending := range s.state.pendingAborts {
+		if !now.Before(pending.Expires) {
+			delete(s.state.pendingAborts, id)
+		}
 	}
 }
 
@@ -61,13 +85,32 @@ func (s *Controller) admitChat(req *chatRequest) (*chatJob, error) {
 	default:
 		return nil, fmt.Errorf("聊天任务已满，请稍后重试")
 	}
+	s.prunePendingAborts(time.Now())
 	job := &chatJob{ID: req.RequestID, Workspace: s.agent.App(), Session: req.SessionName}
+	if pending, ok := st.pendingAborts[job.ID]; ok &&
+		(pending.Workspace == "" || pending.Workspace == job.Workspace) && (pending.Session == "" || pending.Session == job.Session) {
+		job.cancelled = true
+		delete(st.pendingAborts, job.ID)
+	}
+	job.stop = func() {
+		tools.BashSessionTerminate("", tools.SessionOwner{Workspace: job.Workspace, Session: job.Session})
+		s.permissions.Cancel(job.Session)
+		s.elicitations.Cancel(job.Session)
+		if acp.IsExternal(req.AgentID) {
+			s.cancelACP(job.Session)
+		}
+	}
 	st.jobs[job.ID] = job
 	s.inflight.Store(job.ID, job)
 	return job, nil
 }
 
 func (s *Controller) releaseChat(job *chatJob) {
+	// Keep the session occupied until cancellation has finished killing its
+	// processes, so a late cleanup cannot reach the replacement turn.
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	job.finished = true
 	s.state.mu.Lock()
 	delete(s.state.jobs, job.ID)
 	s.inflight.Delete(job.ID)

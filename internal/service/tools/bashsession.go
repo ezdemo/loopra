@@ -2,8 +2,10 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	cryptorand "crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -197,6 +199,13 @@ func (s *bashSession) stop() error {
 // wait 返回 mark 之后产生的输出，直到输出流静默 quietMs
 // 或总截止时间到达。
 func (s *bashSession) wait(mark int, quietMs, deadlineMs int) string {
+	out, _ := s.waitContext(context.Background(), mark, quietMs, deadlineMs)
+	return out
+}
+
+func (s *bashSession) waitContext(ctx context.Context, mark int, quietMs, deadlineMs int) (string, error) {
+	stopCancel := context.AfterFunc(ctx, func() { _ = s.stop() })
+	defer stopCancel()
 	if quietMs <= 0 {
 		quietMs = 1200
 	}
@@ -208,6 +217,9 @@ func (s *bashSession) wait(mark int, quietMs, deadlineMs int) string {
 	from := mark
 	last := time.Now()
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return "", errors.Join(err, s.stop())
+		}
 		s.mu.Lock()
 		logged := s.log.Len()
 		s.mu.Unlock()
@@ -219,17 +231,19 @@ func (s *bashSession) wait(mark int, quietMs, deadlineMs int) string {
 			break
 		}
 		select {
+		case <-ctx.Done():
+			return "", errors.Join(ctx.Err(), s.stop())
 		case <-s.wakeup:
 		case <-s.done:
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			return s.logSlice(from)
+			return s.logSlice(from), ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.logSlice(from)
+	return s.logSlice(from), ctx.Err()
 }
 
 // logSlice 返回从字节偏移 from 开始的日志（会收敛到有效范围）；
@@ -252,6 +266,13 @@ func startBashSession(root, command string, owner SessionOwner) (*bashSession, e
 }
 
 func startShellSession(root, command string, owner SessionOwner, shell shellenv.Shell) (*bashSession, error) {
+	return startShellSessionContext(context.Background(), root, command, owner, shell)
+}
+
+func startShellSessionContext(ctx context.Context, root, command string, owner SessionOwner, shell shellenv.Shell) (*bashSession, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cmd := shell.InteractiveCommand()
 	cmd.Dir = root
 	stdin, err := cmd.StdinPipe()
@@ -318,9 +339,24 @@ func startShellSession(root, command string, owner SessionOwner, shell shellenv.
 			bashMu.Unlock()
 		})
 	}()
+	// Cancellation must also unblock a large stdin write while the shell is busy.
+	// Disarm on return: a successfully started shell may outlive this turn.
+	stopCancel := context.AfterFunc(ctx, func() { _ = s.stop() })
+	defer stopCancel()
+	if err := ctx.Err(); err != nil {
+		_ = s.stop()
+		return nil, err
+	}
 	// 投递启动命令
 	if _, err := io.WriteString(stdin, shell.InitializeInput()+shell.Input(command)); err != nil {
 		BashSessionTerminate(s.id, owner)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		_ = s.stop()
 		return nil, err
 	}
 	return s, nil
@@ -363,6 +399,9 @@ func bashStartTool(root string) tool.Tool {
 	t, _ := functiontool.New[bashStartInput, map[string]any](
 		functiontool.Config{Name: shellenv.Current.Name + "_start", Description: "启动长驻交互 " + shellenv.Current.Name + " 会话，使用该 shell 的语法；支持 cwd、max_char、timeout 参数"},
 		func(ctx agentpkg.Context, in bashStartInput) (map[string]any, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			maxChars, err := normalizeShellMaxChars(in.MaxChar, defaultInteractiveMaxChars)
 			if err != nil {
 				return nil, err
@@ -379,11 +418,14 @@ func bashStartTool(root string) tool.Tool {
 			if err != nil {
 				return nil, err
 			}
-			s, err := startBashSession(dir, in.Command, sessionOwner(ctx))
+			s, err := startShellSessionContext(ctx, dir, in.Command, sessionOwner(ctx), shellenv.Current)
 			if err != nil {
 				return nil, err
 			}
-			out := s.wait(0, 1500, int(waitTimeout/time.Millisecond))
+			out, err := s.waitContext(ctx, 0, 1500, int(waitTimeout/time.Millisecond))
+			if err != nil {
+				return nil, err
+			}
 			result := shellOutputResult(out, maxChars)
 			result["sessionId"] = s.id
 			result["status"] = s.statusLocked()
@@ -405,6 +447,9 @@ func bashWaitTool() tool.Tool {
 	t, _ := functiontool.New[bashWaitInput, map[string]any](
 		functiontool.Config{Name: shellenv.Current.Name + "_wait", Description: "等待交互 " + shellenv.Current.Name + " 会话产出新输出；支持 max_char、timeout 参数"},
 		func(ctx agentpkg.Context, in bashWaitInput) (map[string]any, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			maxChars, err := normalizeShellMaxChars(in.MaxChar, defaultInteractiveMaxChars)
 			if err != nil {
 				return nil, err
@@ -418,7 +463,10 @@ func bashWaitTool() tool.Tool {
 			if !ok {
 				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
 			}
-			out := s.wait(s.mark(), in.QuietMs, int(waitTimeout/time.Millisecond))
+			out, err := s.waitContext(ctx, s.mark(), in.QuietMs, int(waitTimeout/time.Millisecond))
+			if err != nil {
+				return nil, err
+			}
 			result := shellOutputResult(out, maxChars)
 			result["status"] = s.statusLocked()
 			return result, nil
@@ -444,6 +492,9 @@ func bashStdinTool() tool.Tool {
 	t, _ := functiontool.New[bashStdinInput, map[string]any](
 		functiontool.Config{Name: shellenv.Current.Name + "_stdin", Description: "向交互 " + shellenv.Current.Name + " 会话写入输入；支持 max_char、timeout 参数"},
 		func(ctx agentpkg.Context, in bashStdinInput) (map[string]any, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			maxChars, err := normalizeShellMaxChars(in.MaxChar, defaultInteractiveMaxChars)
 			if err != nil {
 				return nil, err
@@ -457,10 +508,18 @@ func bashStdinTool() tool.Tool {
 				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
 			}
 			mark := s.mark()
+			stopCancel := context.AfterFunc(ctx, func() { _ = s.stop() })
+			defer stopCancel()
 			if _, err := io.WriteString(s.stdin, s.shell.Input(in.Input)); err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
 				return nil, err
 			}
-			out := s.wait(mark, 1200, int(waitTimeout/time.Millisecond))
+			out, err := s.waitContext(ctx, mark, 1200, int(waitTimeout/time.Millisecond))
+			if err != nil {
+				return nil, err
+			}
 			return shellOutputResult(out, maxChars), nil
 		})
 	return t

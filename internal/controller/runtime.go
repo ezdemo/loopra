@@ -34,6 +34,7 @@ type runtimeState struct {
 	runtimes      map[string]*ProjectRuntime
 	current       map[string]string
 	jobs          map[string]*chatJob
+	pendingAborts map[string]pendingChatAbort
 	admitted      chan struct{}
 	workers       chan struct{}
 	export        *mcpEndpoint
@@ -47,7 +48,7 @@ type runtimeState struct {
 type runtimeContextKey struct{}
 
 func newRuntimeState(s *Controller) *runtimeState {
-	st := &runtimeState{root: s, configuration: s.configuration, runtimes: map[string]*ProjectRuntime{}, current: map[string]string{}, jobs: map[string]*chatJob{}, admitted: make(chan struct{}, 80), workers: make(chan struct{}, 16), export: &mcpEndpoint{}, tunnel: &tunnelState{}}
+	st := &runtimeState{root: s, configuration: s.configuration, runtimes: map[string]*ProjectRuntime{}, current: map[string]string{}, jobs: map[string]*chatJob{}, pendingAborts: map[string]pendingChatAbort{}, admitted: make(chan struct{}, 80), workers: make(chan struct{}, 16), export: &mcpEndpoint{}, tunnel: &tunnelState{}}
 	st.metadata = &modelMetadataCache{}
 	st.updater = &updateJob{}
 	if s.agent != nil {

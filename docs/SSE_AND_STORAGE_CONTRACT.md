@@ -11,6 +11,7 @@
 - 写失败：emitter 断开后置 completed 静默丢弃后续事件，**Agent 照常执行到自然结束**。
 - 建流前校验失败（body null/message 空→400 `"message 不能为空"`；action 非法→400；mergeMode 非法→400；Agent 未就绪→503 `"Agent 未初始化"`）走 HTTP；建流后错误走 SSE `error`+`done`。
 - 并发准入：16 线程池 + 64 队列；重复 requestId→409 `"requestId 已有正在处理的聊天任务"`；队列满→503 `"聊天任务已满，请稍后重试"`；同 (workspace,session) 运行中→409（以上建流后经 SSE error 报告）。abort：POST /api/chat/abort 携 requestId。
+- 取消：任务先登记再刷新 SSE 响应头；提前到达的 requestId 取消记录保留 2 分钟，最多 4096 条，登记时消费。取消会立即唤醒命令等待并终止所属会话的后台 shell 进程树，清理完成前不释放该会话准入；旧 requestId 不得取消替代轮次。原生执行中取消以 `complete{stopReason:"cancelled",status:"cancelled"}`、`done` 结束，尚未开始执行的轮次直接 `done`。
 
 ## 1. SSE 事件协议全表
 

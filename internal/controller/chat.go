@@ -97,20 +97,28 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusConflict, "此操作仅支持 Loopra Native")
 		return
 	}
-	sse := startSSE(w)
 	job, err := s.admitChat(&req)
 	if err != nil {
-		sse.sendError(err.Error())
+		startSSE(w).sendError(err.Error())
 		return
 	}
 	defer s.releaseChat(job)
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
 	job.setCancel(cancel)
+	sse := startSSE(w)
+	if ctx.Err() != nil {
+		sse.done()
+		return
+	}
 	select {
 	case s.state.workers <- struct{}{}:
 		defer func() { <-s.state.workers }()
 	case <-ctx.Done():
+		sse.done()
+		return
+	}
+	if ctx.Err() != nil {
 		sse.done()
 		return
 	}
@@ -139,6 +147,10 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 	job.runtime = s
 	s.state.mu.Unlock()
 	defer s.closeTurnTools()
+	if ctx.Err() != nil {
+		sse.done()
+		return
+	}
 	r = r.WithContext(ctx)
 	if req.Action == "execute_plan" {
 		s.sessionMetaSet(req.SessionName, map[string]any{"planMode": false, "pendingPlan": ""})
@@ -178,6 +190,10 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 // 会发出 Loopra choice 事件，等待 POST /api/chat/permission，然后
 // 用确认 FunctionResponse 在同一条流上恢复执行。
 func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatRequest) {
+	if ctx.Err() != nil {
+		sse.done()
+		return
+	}
 	logging.Infof("chat", "turn start session=%s agent=native chars=%d images=%d", req.SessionName, len([]rune(req.Message)), len(req.Images))
 	ctx = tools.WithLinkedProjects(ctx, s.linkedProjectRoots)
 	ctx = tools.WithFileChanges(ctx, func(changes []filediff.FileChange) {
@@ -313,6 +329,12 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 		}
 	}
 	elapsed := time.Since(started).Round(time.Millisecond)
+	if ctx.Err() != nil {
+		s.permissions.Cancel(sessionName)
+		sse.send("complete", map[string]any{"stopReason": "cancelled", "status": "cancelled"})
+		sse.done()
+		return nil
+	}
 	if lastErr != nil {
 		sse.sendError(lastErr.Error())
 		return nil
@@ -472,28 +494,73 @@ func (s *Controller) abortAll() {
 // abortHandler 实现 POST /api/chat/abort。
 func (s *Controller) abortHandler(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	s.inflight.Range(func(key, value any) bool {
-		job, ok := value.(*chatJob)
-		if !ok {
-			return true
-		}
-		if req.RequestID != "" && job.ID != req.RequestID {
-			return true
-		}
-		if req.WorkspaceHash != "" && job.Workspace != req.WorkspaceHash {
-			return true
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeFail(w, http.StatusBadRequest, "请求格式不正确")
+		return
+	}
+	if req.RequestID == "" && req.SessionName == "" {
+		writeFail(w, http.StatusBadRequest, "requestId 或 sessionName 不能为空")
+		return
+	}
+	workspace := req.WorkspaceHash
+	// Request IDs are globally unique. Preserve requestId-only cancellation
+	// across workspaces; an explicit workspace uses its canonical runtime hash.
+	if s.agent != nil && (workspace != "" || req.RequestID == "") {
+		workspace = s.agent.App()
+	}
+	var targets []*chatJob
+	s.state.mu.Lock()
+	s.prunePendingAborts(time.Now())
+	stale := false
+	for _, job := range s.state.jobs {
+		if workspace != "" && job.Workspace != workspace {
+			continue
 		}
 		if req.SessionName != "" && job.Session != req.SessionName {
-			return true
+			continue
 		}
-		job.abort()
-		if job.Session != "" {
-			s.cancelACP(job.Session)
+		if req.RequestID != "" && job.ID != req.RequestID {
+			stale = stale || req.SessionName != ""
+			continue
 		}
-		return true
-	})
-	writeOK(w, http.StatusOK, "已发送中断请求")
+		targets = append(targets, job)
+	}
+	if len(targets) == 0 && stale {
+		s.state.mu.Unlock()
+		writeFailReason(w, http.StatusConflict, "会话已开始新一轮回复，请重新停止", "chat_run_changed")
+		return
+	}
+	status := "not_running"
+	if len(targets) == 0 {
+		// The stream POST may still be preparing or waiting to reach admission.
+		// Retain cancellation by request ID, bounded in size and lifetime.
+		if req.RequestID != "" {
+			_, exists := s.state.pendingAborts[req.RequestID]
+			if !exists && len(s.state.pendingAborts) >= 4096 {
+				s.state.mu.Unlock()
+				writeFail(w, http.StatusServiceUnavailable, "停止请求过多，请稍后重试")
+				return
+			}
+			s.state.pendingAborts[req.RequestID] = pendingChatAbort{
+				Workspace: workspace, Session: req.SessionName, Expires: time.Now().Add(2 * time.Minute),
+			}
+			status = "pending"
+		}
+		if workspace != "" && req.SessionName != "" {
+			tools.BashSessionTerminate("", tools.SessionOwner{Workspace: workspace, Session: req.SessionName})
+		}
+	}
+	s.state.mu.Unlock()
+	matched := 0
+	for _, job := range targets {
+		if job.abort() {
+			matched++
+		}
+	}
+	if matched > 0 {
+		status = "stopping"
+	}
+	writeOK(w, http.StatusOK, map[string]any{"status": status, "matched": matched})
 }
 
 var _ = agentpkg.DefaultInstruction // 保留该 import 以供文档引用
