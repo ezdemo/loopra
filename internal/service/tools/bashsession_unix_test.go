@@ -30,11 +30,11 @@ func TestUnixShellStopKillsDescendants(t *testing.T) {
 				} else {
 					command += "wait"
 				}
-				s, err := startShellSession(root, command, shellenv.Shell{Name: executable, Path: path})
+				s, err := startShellSession(root, command, "sess-unix", shellenv.Shell{Name: executable, Path: path})
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer BashSessionTerminate(s.id)
+				defer BashSessionTerminate(s.id, "sess-unix")
 				pids := []int{waitForSessionPID(t, root, "child.pid"), waitForSessionPID(t, root, "grandchild.pid")}
 				if mode == "stop" {
 					if err := s.stop(); err != nil {
