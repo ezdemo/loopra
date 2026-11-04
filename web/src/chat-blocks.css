@@ -82,6 +82,14 @@
 .loopra-conversation .assistant-process-toggle { display: flex; align-self: flex-start; align-items: center; gap: .25rem; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; color: var(--chat-fg-4); font-size: var(--chat-font-meta); font-weight: 400; line-height: 1.25rem; text-align: left; border-radius: var(--radius-sm); transition: color .12s; }
 .loopra-conversation .assistant-process-toggle:hover { color: var(--chat-fg-3); }
 .loopra-conversation .assistant-process-toggle > svg { color: var(--chat-fg-4); transition: transform .15s; }
+/* A turn that is still running leads its 用时 row with a spinner and lifts one
+   ink level, so "still working" reads before "how long so far"; once the turn
+   settles the row fades back into quiet chrome. `.live` is set from the same
+   `streaming` flag that swaps the composer's send button for 停止生成, so the
+   spinner lives exactly as long as that button: it never survives a finished or
+   stopped turn, and never shows up on a replayed one. */
+.loopra-conversation .assistant-process-summary.live .assistant-process-toggle { color: var(--chat-fg-2); font-variant-numeric: tabular-nums; }
+.loopra-conversation .assistant-process-summary.live .assistant-process-toggle::before { content: ''; flex: none; box-sizing: border-box; width: .75rem; height: .75rem; margin-right: .125rem; border: .09375rem solid color-mix(in srgb, var(--accent) 22%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: chat-spin .8s linear infinite; }
 .loopra-conversation .assistant-process-detail { margin: 0; padding: 0; border: 0; }
 .loopra-conversation .msg-blocks { display: flex; flex-direction: column; gap: var(--chat-gap); min-width: 0; }
 

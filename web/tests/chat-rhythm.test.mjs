@@ -74,3 +74,29 @@ test('one gap separates every transcript block, including inside a chain', () =>
   assert.match(steps, /display: flex/);
   assert.match(steps, /gap: var\(--chat-gap\)/);
 });
+
+// "Still working" has to read before the eye gets to 用时, and it has to stop the
+// instant the turn does: the `.live` class rides the very flag that swaps the
+// composer's send button for 停止生成, so spinner and button share one lifetime.
+test('a running turn leads its duration row with a spinner that stops with it', () => {
+  const live = ruleBody('.loopra-conversation .assistant-process-summary.live .assistant-process-toggle');
+  // One ink level up from the quiet chrome, so a live row reads as active.
+  assert.match(live, /color: var\(--chat-fg-2\)/);
+
+  const spinner = ruleBody('.loopra-conversation .assistant-process-summary.live .assistant-process-toggle::before');
+  assert.match(spinner, /border-radius: 50%/);
+  assert.match(spinner, /border-top-color: var\(--accent\)/);
+  assert.match(spinner, /animation: chat-spin/);
+  // Painted, not rendered: a pseudo-element leaves the DOM alone, so the ticking
+  // 用时 timer still re-renders no message body (conversation-performance.test.mjs).
+  assert.match(spinner, /content: ''/);
+
+  // Only a live turn spins — the tool rows' own `.spin` icons aside.
+  const spinning = css.split('\n').filter(line => line.includes('animation: chat-spin'));
+  assert.ok(spinning.some(line => line.includes('.live')), 'the live row must spin');
+  assert.ok(spinning.every(line => line.includes('.live') || line.includes('.spin')), 'a settled turn must not spin');
+
+  // Reduced motion has to reach the pseudo-element too, or the spinner is the one
+  // thing still turning for users who asked for stillness.
+  assert.ok(css.includes('.loopra-conversation *, .loopra-conversation *::before { animation: none !important;'), 'the reduced-motion kill switch must cover ::before');
+});

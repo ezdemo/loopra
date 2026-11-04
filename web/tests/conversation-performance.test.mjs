@@ -146,3 +146,23 @@ test('replayed turns omit elapsed time and completed turns keep their recorded d
     assert.equal(view.container.querySelector('.assistant-process-toggle').textContent, '用时 5秒');
   } finally { await view.close(); }
 });
+
+// The 用时 row is the only "still working" cue in the transcript, so it carries a
+// spinner. `.live` has to ride the same `loading` flag that swaps the composer's
+// send button for 停止生成, or the two drift apart: on for a streaming turn, gone
+// the moment it settles — while the row itself stays as the finished summary.
+test('the running spinner lives exactly as long as the turn that drives it', async () => {
+  const blocks = [
+    { id: 'reason', type: 'reasoning', content: 'thinking' },
+    { id: 'answer', type: 'content', content: 'done' },
+  ];
+  const session = { id: 'session', kind: 'remote', messages: [{ ...message('live'), blocks, startedAt: Date.now() - 1000 }] };
+  const view = await mount(session, { loading: true });
+  try {
+    assert.equal(view.container.querySelector('.assistant-process-summary').classList.contains('live'), true);
+    await view.render(session, { loading: false });
+    const summary = view.container.querySelector('.assistant-process-summary');
+    assert.ok(summary, 'the settled turn keeps its summary row');
+    assert.equal(summary.classList.contains('live'), false);
+  } finally { await view.close(); }
+});
