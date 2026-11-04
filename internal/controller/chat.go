@@ -226,7 +226,7 @@ func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatReque
 				sse.send("permission_resolved", map[string]any{
 					"permissionRequestId": p.ID, "optionId": "cancelled",
 				})
-				sse.done()
+				s.finishCancelledTurn(ctx, sse, sess, "", "", "")
 				return
 			}
 			sse.send("permission_resolved", map[string]any{
@@ -251,6 +251,8 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 	streamedReasoning := false
 	var pendings []*hitl.Request
 	var lastErr error
+	var partialText, partialReasoning strings.Builder
+	var invocationID string
 	for ev, err := range s.agent.Run(ctx, sess, content) {
 		if err != nil {
 			lastErr = err
@@ -261,9 +263,11 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 			continue
 		}
 		if ev.Partial {
+			invocationID = ev.InvocationID
 			for _, p := range ev.Content.Parts {
 				switch {
 				case p.Text != "" && p.Thought:
+					partialReasoning.WriteString(p.Text)
 					streamedReasoning = true
 					reasoningBytes += len(p.Text)
 					if !reasoningStarted {
@@ -272,10 +276,18 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 					}
 					sse.sendText("reasoning", p.Text)
 				case p.Text != "":
+					partialText.WriteString(p.Text)
 					sse.sendText("content", p.Text)
 				}
 			}
 			continue
+		}
+		// The runner already persisted full model events. Retain only the
+		// current unfinished segment so stopping after a tool cannot duplicate it.
+		if ev.Content.Role == genai.RoleModel {
+			partialText.Reset()
+			partialReasoning.Reset()
+			invocationID = ev.InvocationID
 		}
 		usage.add(ev)
 		sse.send("usage", usage.snapshot())
@@ -331,8 +343,7 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 	elapsed := time.Since(started).Round(time.Millisecond)
 	if ctx.Err() != nil {
 		s.permissions.Cancel(sessionName)
-		sse.send("complete", map[string]any{"stopReason": "cancelled", "status": "cancelled"})
-		sse.done()
+		s.finishCancelledTurn(ctx, sse, sess, partialText.String(), partialReasoning.String(), invocationID)
 		return nil
 	}
 	if lastErr != nil {
@@ -348,6 +359,32 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 	logging.Infof("chat", "turn done session=%s agent=native in %s (tools=%d, reasoning=%dB)", sessionName, elapsed, toolCalls, reasoningBytes)
 	sse.done()
 	return nil
+}
+
+const userStoppedReply = "{{用户主动打断}}"
+
+// finishCancelledTurn saves tokens that never reached a full model event before
+// closing the stream. Cancellation must not cancel this final transcript write.
+func (s *Controller) finishCancelledTurn(ctx context.Context, sse *sseWriter, sess session.Session, text, reasoning, invocationID string) {
+	if text != "" {
+		text += "\n\n"
+	}
+	text += userStoppedReply
+	parts := make([]*genai.Part, 0, 2)
+	if reasoning != "" {
+		parts = append(parts, &genai.Part{Text: reasoning, Thought: true})
+	}
+	parts = append(parts, &genai.Part{Text: text})
+	ev := &session.Event{Author: s.agent.Root.Name(), InvocationID: invocationID, Timestamp: time.Now()}
+	ev.Content = &genai.Content{Role: genai.RoleModel, Parts: parts}
+	ev.TurnComplete = true
+	if err := s.agent.Sessions.AppendEvent(context.WithoutCancel(ctx), sess, ev); err != nil {
+		sse.sendError("停止后的回复保存失败: " + err.Error())
+		return
+	}
+	sse.sendText("content", "\n\n"+userStoppedReply)
+	sse.send("complete", map[string]any{"stopReason": "cancelled", "status": "cancelled"})
+	sse.done()
 }
 
 // req2Session 返回聊天轮次所属的会话名（为空时使用 "default"）。

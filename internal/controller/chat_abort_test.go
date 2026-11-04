@@ -2,24 +2,259 @@ package controller
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
+	"iter"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/adk/model/echo"
+	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	"github.com/ezdemo/looprax/internal/model/config"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
+
+type abortStreamingModel struct {
+	parts      []*genai.Part
+	prior      model.LLM
+	priorCalls int
+	ready      chan struct{}
+	calls      int
+	resumed    []*genai.Content
+}
+
+func (*abortStreamingModel) Name() string { return "abort-stream" }
+
+func (m *abortStreamingModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
+	return func(yield func(*model.LLMResponse, error) bool) {
+		m.calls++
+		if m.calls <= m.priorCalls {
+			m.prior.GenerateContent(ctx, req, stream)(yield)
+			return
+		}
+		if m.calls > m.priorCalls+1 {
+			m.resumed = req.Contents
+			echo.New("", echo.Script{Text: "继续回复"}).GenerateContent(ctx, req, stream)(yield)
+			return
+		}
+		for _, part := range m.parts {
+			if !yield(&model.LLMResponse{
+				Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{part}},
+				Partial: true,
+			}, nil) {
+				return
+			}
+		}
+		close(m.ready)
+		<-ctx.Done()
+		yield(nil, ctx.Err())
+	}
+}
+
+func TestAbortPersistsStreamedReplyAndResumesWithIt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		parts []*genai.Part
+		prior bool
+	}{
+		{name: "text_and_reasoning", parts: []*genai.Part{{Text: "正在", Thought: true}, {Text: "分析", Thought: true}, {Text: "已经"}, {Text: "生成的内容"}}},
+		{name: "reasoning_only", parts: []*genai.Part{{Text: "只产生思考", Thought: true}}},
+		{name: "before_first_token"},
+		{name: "after_tool", prior: true, parts: []*genai.Part{{Text: "工具之后的"}, {Text: "部分回复"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			m := &abortStreamingModel{parts: tc.parts, ready: make(chan struct{})}
+			probe, err := functiontool.New[struct{}, map[string]any](functiontool.Config{Name: "probe"},
+				func(adkagent.Context, struct{}) (map[string]any, error) {
+					return map[string]any{"result": "tool done"}, nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.prior {
+				m.priorCalls = 2
+				m.prior = echo.New("",
+					echo.Script{Text: "先前正文一", Thought: "先前思考一",
+						ToolCalls: []*genai.FunctionCall{{ID: "probe-1", Name: "probe"}}},
+					echo.Script{Text: "先前正文二", Thought: "先前思考二",
+						ToolCalls: []*genai.FunctionCall{{ID: "probe-2", Name: "probe"}}})
+			}
+			cfg := config.Default()
+			a, err := agentpkg.New(home, "abort-stream", &cfg, agentpkg.Options{Model: m, Tools: []tool.Tool{probe}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctrl, key, err := New(a, Options{Home: home})
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(ctrl.Handler())
+			t.Cleanup(func() { ctrl.Close(); server.Close() })
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			req, _ := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/api/chat/stream",
+				strings.NewReader(`{"message":"start","sessionName":"stopped","requestId":"stop-stream"}`))
+			req.Header.Set("X-Loopra-Key", key)
+			resp, err := server.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			select {
+			case <-m.ready:
+			case <-ctx.Done():
+				t.Fatal("model did not stream its partial response")
+			}
+			code, result := call(t, server, http.MethodPost, "/api/chat/abort", key,
+				map[string]any{"requestId": "stop-stream", "sessionName": "stopped"})
+			if code != http.StatusOK || result["data"].(map[string]any)["matched"] != float64(1) {
+				t.Fatalf("abort = %d %v", code, result)
+			}
+			events := parseSSE(t, readAll(t, resp))
+			var streamed string
+			for _, ev := range events {
+				if ev["type"] == "error" {
+					t.Fatalf("stream error: %v", ev)
+				}
+				if ev["type"] == "content" {
+					streamed += ev["content"].(string)
+				}
+			}
+			if !strings.HasSuffix(streamed, userStoppedReply) || strings.Count(streamed, userStoppedReply) != 1 {
+				t.Fatalf("streamed reply = %q", streamed)
+			}
+			code, history := call(t, server, http.MethodGet, "/api/agent/history?sessionName=stopped", key, nil)
+			if code != http.StatusOK {
+				t.Fatalf("history = %d %v", code, history)
+			}
+			var stored, storedReasoning string
+			var userMessages, toolCalls, toolResults int
+			for _, row := range history["data"].([]any) {
+				message := row.(map[string]any)
+				if text, ok := message["content"].(string); ok {
+					stored += text
+				}
+				if reasoning, ok := message["reasoning_content"].(string); ok {
+					storedReasoning += reasoning
+				}
+				switch message["role"] {
+				case "user":
+					userMessages++
+				case "tool":
+					toolResults++
+				}
+				if calls, ok := message["tool_calls"].([]any); ok {
+					toolCalls += len(calls)
+				}
+			}
+			if !strings.HasSuffix(stored, userStoppedReply) || strings.Count(stored, userStoppedReply) != 1 {
+				t.Fatalf("stored reply = %q", stored)
+			}
+			if userMessages != 1 || toolCalls != m.priorCalls || toolResults != m.priorCalls {
+				t.Fatalf("incomplete turn: users=%d tool calls=%d results=%d", userMessages, toolCalls, toolResults)
+			}
+			if tc.prior {
+				for _, text := range []string{"先前正文一", "先前正文二"} {
+					if strings.Count(stored, text) != 1 {
+						t.Fatalf("completed model event was lost or duplicated: %q", stored)
+					}
+				}
+				if storedReasoning != "先前思考一先前思考二" || strings.Count(stored, "tool done") != 2 {
+					t.Fatalf("earlier reasoning or tool output was lost: reasoning=%q transcript=%q", storedReasoning, stored)
+				}
+			}
+			log, err := os.ReadFile(ctrl.sessionLogPath("stopped"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			audit, err := os.ReadFile(ctrl.sessionEventsPath("stopped"))
+			if err != nil || !bytes.Equal(log, audit) {
+				t.Fatalf("audit differs from transcript: %v", err)
+			}
+			fresh := jsonl.NewService(home)
+			reloaded, err := fresh.Get(ctx, getReq(a, "stopped"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var text, reasoning string
+			for ev := range reloaded.Session.Events().All() {
+				text += eventText(ev)
+				if ev.Content == nil {
+					continue
+				}
+				for _, part := range ev.Content.Parts {
+					if part.Thought {
+						reasoning += part.Text
+					}
+				}
+			}
+			var wantText, wantReasoning string
+			for _, part := range tc.parts {
+				if part.Thought {
+					wantReasoning += part.Text
+				} else {
+					wantText += part.Text
+				}
+			}
+			wantStoppedText := wantText
+			if wantStoppedText != "" {
+				wantStoppedText += "\n\n"
+			}
+			wantStoppedText += userStoppedReply
+			if !strings.Contains(text, wantStoppedText) ||
+				!strings.Contains(reasoning, wantReasoning) {
+				t.Fatalf("reloaded text=%q reasoning=%q", text, reasoning)
+			}
+			response := httptest.NewRecorder()
+			ctrl.runTurn(ctx, newSSEWriter(response), &chatRequest{SessionName: "stopped", Message: "continue"})
+			var resumed string
+			for _, content := range m.resumed {
+				for _, part := range content.Parts {
+					resumed += part.Text
+				}
+			}
+			if !strings.Contains(resumed, wantText) || !strings.Contains(resumed, userStoppedReply) {
+				t.Fatalf("next model request lost interrupted reply: %q", resumed)
+			}
+			if tc.prior {
+				for _, text := range []string{"先前正文一", "先前正文二", "先前思考一", "先前思考二"} {
+					if strings.Count(resumed, text) != 1 {
+						t.Fatalf("next model request lost or duplicated earlier turn content: %q", resumed)
+					}
+				}
+				var resumedCalls, resumedResults int
+				for _, content := range m.resumed {
+					for _, part := range content.Parts {
+						if part.FunctionCall != nil {
+							resumedCalls++
+						}
+						if part.FunctionResponse != nil {
+							resumedResults++
+						}
+					}
+				}
+				if resumedCalls != 2 || resumedResults != 2 {
+					t.Fatalf("next model request lost tool history: calls=%d results=%d", resumedCalls, resumedResults)
+				}
+			}
+		})
+	}
+}
 
 func TestAbortBeforeAdmissionIsRetained(t *testing.T) {
 	server, key, s, _ := parityServer(t, "")

@@ -117,6 +117,33 @@ test('ACP stop notices distinguish completion from cancellation and limits', () 
   assert.match(acpStopMessage('refusal'), /拒绝/);
 });
 
+test('stopped Native replies retain their blocks and append the stop marker exactly once', () => {
+  const marker = '{{用户主动打断}}';
+  for (const initial of [
+    [],
+    [{ type: 'reasoning', content: '已生成的思考' }],
+    [{ type: 'reasoning', content: '已生成的思考' }, { type: 'content', content: '部分回复' }],
+    [{ type: 'content', content: '工具前的回复' }, { type: 'tool_call', toolCallId: 't1', name: 'read' }],
+    [{ type: 'content', content: `部分回复\n\n${marker}` }],
+    [{ type: 'content', content: '部分回复' }, { type: 'sub_start', subId: 'child', task: 'background' }, { type: 'content', content: `\n\n${marker}` }],
+  ]) {
+    let message = { id: 'stopped', role: 'assistant', text: '', blocks: [] };
+    for (const event of initial) message = applyEvent(message, event);
+    const before = message;
+    message = applyEvent(message, { type: 'native_reply_stopped' });
+    assert.ok(message.text.endsWith(marker));
+    assert.equal(message.text.split(marker).length - 1, 1);
+    for (let index = 0; index < before.blocks.length; index++) {
+      const previous = before.blocks[index], current = message.blocks[index];
+      if (previous.type === 'content') assert.ok(current.content.startsWith(previous.content));
+      else assert.deepEqual(current, previous);
+    }
+    assert.deepEqual(applyEvent(message, { type: 'native_reply_stopped' }), message);
+    assert.equal(applyEvent(before, { type: 'complete', stopReason: 'end_turn' }), before);
+    assert.equal(applyEvent(before, { type: 'complete', stopReason: 'cancelled' }), before);
+  }
+});
+
 test('SSE preserves fragmented UTF-8, CRLF, comments and multiline frames', () => {
   const events = [];
   const parser = new SseParser(event => events.push(event));

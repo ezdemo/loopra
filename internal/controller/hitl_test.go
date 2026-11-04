@@ -305,6 +305,21 @@ func TestChatHITLAbortDuringApproval(t *testing.T) {
 	if resolved["optionId"] != "cancelled" {
 		t.Fatalf("abort must resolve as cancelled; got %v", resolved)
 	}
+	remaining, _ := readUntilEvent(t, scanner, "done")
+	var stoppedText string
+	for _, event := range remaining {
+		if event["type"] == "content" {
+			stoppedText += event["content"].(string)
+		}
+	}
+	if !strings.HasSuffix(stoppedText, userStoppedReply) {
+		t.Fatalf("approval stop did not append marker: %v", remaining)
+	}
+	_, history := call(t, ts, http.MethodGet, "/api/agent/history?sessionName=hitl3", key, nil)
+	rows := history["data"].([]any)
+	if rows[len(rows)-1].(map[string]any)["content"] != userStoppedReply {
+		t.Fatalf("approval stop missing from history: %v", rows)
+	}
 	// 该会话的待处理注册表现在已为空
 	pend, _ := http.NewRequest("GET", ts.URL+"/api/chat/permissions?sessionName=hitl3", nil)
 	pend.Header.Set("X-Loopra-Key", key)

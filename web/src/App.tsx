@@ -1287,10 +1287,13 @@ export default function App({ startupPending = false, initialServer }: { startup
           setComposerContext(sourceContext);
         }
       } else if (sameServer()) {
-        const content = controller.signal.aborted || request.stopping ? '> 本次回复已停止。' : `> 请求失败：${error instanceof Error ? error.message : error}`;
-        if (visible()) setPetReply({ id: answerId, text: content.replace(/^> /, ''), activity: controller.signal.aborted || request.stopping ? 'idle' : 'failed' });
-        setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, { type: 'content', content: `\n\n${content}` }) : entry) } : item));
-        notify(`${visible() ? '' : `${target?.title || target?.name || '会话'}：`}${content.replace(/^> /, '')}`);
+        const stopped = controller.signal.aborted || request.stopping;
+        const content = stopped ? '本次回复已停止。' : `请求失败：${error instanceof Error ? error.message : error}`;
+        if (visible()) setPetReply({ id: answerId, text: content, activity: stopped ? 'idle' : 'failed' });
+        const replyEvent: StreamEvent = stopped && sendAgentId === 'native'
+          ? { type: 'native_reply_stopped' } : { type: 'content', content: `\n\n> ${content}` };
+        setSessions(current => current.map(item => item.id === target?.id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? applyEvent(entry, replyEvent) : entry) } : item));
+        notify(`${visible() ? '' : `${target?.title || target?.name || '会话'}：`}${content}`);
       }
     } finally {
       // Do not let a late abort handler cancel the queued replacement turn.

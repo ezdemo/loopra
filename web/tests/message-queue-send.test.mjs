@@ -19,6 +19,12 @@ const queue = await import('data:text/javascript;base64,' + Buffer.from(queueJs)
 const composerSource = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
 const composerJs = ts.transpileModule(composerSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const { composeOutgoing, largeInputReference, withoutWorkspaceContext } = await import('data:text/javascript;base64,' + Buffer.from(composerJs).toString('base64'));
+const diffSource = await readFile(new URL('../src/diff.ts', import.meta.url), 'utf8');
+const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(diffSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText).toString('base64');
+const backendSource = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
+const backendJs = ts.transpileModule(backendSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  .replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
+const { applyEvent: realApplyEvent } = await import('data:text/javascript;base64,' + Buffer.from(backendJs).toString('base64'));
 
 function deferred() {
   let resolve, reject;
@@ -184,6 +190,43 @@ test('stopping A is deduplicated and leaves B streaming and cancellable independ
   h.streams[1].emit({ type: 'content', content: 'still-running' });
   assert.equal(h.shared.sessionsRef.current[1].messages.at(-1).text, 'still-running');
   h.streams[1].finish(); await b;
+});
+
+test('stopping Native keeps generated text and reasoning with a single interruption marker', async () => {
+  const marker = '{{用户主动打断}}';
+  for (const serverMarkerReceived of [false, true]) {
+    const h = harness();
+    h.shared.applyEvent = realApplyEvent;
+    h.shared.sessionsRef.current = [other];
+    const owner = h.render(other);
+    const sending = owner.sendMessage('A');
+    await until(() => h.streams.length === 1);
+    h.streams[0].emit({ type: 'reasoning', content: '已生成的思考' });
+    h.streams[0].emit({ type: 'content', content: '已经出来的消息' });
+    if (serverMarkerReceived) {
+      h.streams[0].emit({ type: 'content', content: `\n\n${marker}` });
+      h.streams[0].emit({ type: 'complete', stopReason: 'cancelled' });
+    }
+    await owner.stopGeneration();
+    await sending;
+    const answer = h.shared.sessionsRef.current[0].messages.at(-1);
+    assert.equal(answer.text, `已经出来的消息\n\n${marker}`);
+    assert.equal(answer.blocks[0].content, '已生成的思考');
+    assert.ok(answer.finishedAt);
+  }
+});
+
+test('stopping an external Agent keeps its existing UI notice without a Native transcript marker', async () => {
+  const h = harness();
+  h.shared.applyEvent = realApplyEvent;
+  h.shared.sessionsRef.current = [original];
+  const owner = h.render(original);
+  const sending = owner.sendMessage('A');
+  await until(() => h.streams.length === 1);
+  h.streams[0].emit({ type: 'content', content: '外部 Agent 的消息' });
+  await owner.stopGeneration();
+  await sending;
+  assert.equal(h.shared.sessionsRef.current[0].messages.at(-1).text, '外部 Agent 的消息\n\n> 本次回复已停止。');
 });
 
 test('same-session duplicate sends stay queued while its next turn can start alongside B', async () => {

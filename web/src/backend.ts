@@ -5,6 +5,7 @@ import type { AgentConfigOption } from './agent-config';
 import type { ElicitationRequest } from './elicitation';
 
 export const DEFAULT_SERVER = 'http://127.0.0.1:4567';
+export const USER_STOPPED_REPLY = '{{用户主动打断}}';
 export function acpStopMessage(reason?: string) {
   return ({ cancelled: '本次回复已停止', max_tokens: '已达到本轮输出上限，任务可能尚未完成', max_turn_requests: '已达到本轮请求次数上限，任务可能尚未完成', refusal: 'Agent 拒绝了本次请求' } as Record<string, string>)[reason || ''] || '';
 }
@@ -283,6 +284,16 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
   } else if (event.type === 'choice' && event.options?.length) blocks.push({ id, type: 'choice', ...(event.permissionRequestId ? { permissionRequestId: event.permissionRequestId } : {}), question: event.title || event.question || '请选择', description: event.description, options: event.options.map(option => ({ title: option.title, value: option.value, description: option.summary })) });
   else if (event.type === 'permission_resolved') {
     for (const block of blocks) if (block.type === 'choice' && block.permissionRequestId === event.permissionRequestId) edit(block).selected = block.options.find(option => option.value === event.optionId)?.title || '已取消';
+  }
+  // Local fallback when stopping Native aborts fetch before its final SSE marker.
+  else if (event.type === 'native_reply_stopped') {
+    const lastContent = blocks.filter(block => block.type === 'content').at(-1);
+    if (!(lastContent?.type === 'content' && lastContent.content.trimEnd().endsWith(USER_STOPPED_REPLY))) {
+      const last = blocks.at(-1);
+      if (last?.type === 'content') {
+        blocks[blocks.length - 1] = { ...last, content: `${last.content}\n\n${USER_STOPPED_REPLY}` };
+      } else blocks.push({ id: `${message.id}-${blocks.length}`, type: 'content', content: USER_STOPPED_REPLY });
+    }
   }
   else if (event.type === 'complete' && content && !blocks.some(block => block.type === 'content' && block.content.trim())) blocks.push({ id, type: 'content', content });
   if (blocks.length === previous.length && blocks.every((block, index) => block === previous[index])) return message;
