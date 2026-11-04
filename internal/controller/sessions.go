@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"iter"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"google.golang.org/adk/v2/session"
 
@@ -321,8 +321,14 @@ func (s *Controller) sessionTitle(w http.ResponseWriter, r *http.Request, name s
 
 var invalidBranchName = regexp.MustCompile(`[^\p{L}\p{N}_\-\[\]]`)
 
-// sessionBranch 将一个会话的前 messageCount 条消息复制到
-// 新建的 loopra-<ts> 会话中（Java branchSession）。
+// sessionBranch 将一个会话的前 messageCount 条可见历史复制到
+// 新建的 loopra-<uuid> 会话中（Java branchSession）。
+//
+// messageCount 按 /api/agent/history 返回的行计数（前端的
+// historyCount 就是这个值）。一个 ADK 事件可能展开成多行——
+// 并行的工具结果会写成多条 tool 行，web_hidden 事件一行都不占——
+// 所以不能拿它直接和 Events().Len() 比，否则既会误报
+// 「messageCount 超过会话消息数」，也会让分叉点偏移。
 func (s *Controller) sessionBranch(w http.ResponseWriter, r *http.Request, name string) {
 	if r.Method != http.MethodPost {
 		writeFail(w, http.StatusNotFound, "未找到路径")
@@ -350,19 +356,19 @@ func (s *Controller) sessionBranch(w http.ResponseWriter, r *http.Request, name 
 		writeFail(w, http.StatusBadRequest, "会话不存在: "+name)
 		return
 	}
-	events := got.Session.Events()
-	if count > events.Len() {
-		writeFail(w, http.StatusBadRequest, "messageCount 超过会话消息数")
+	prefix, err := branchPrefix(got.Session.Events().All(), count)
+	if err != nil {
+		writeFail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	newName := "loopra-" + time.Now().Format("20060102150405")
+	// 用随机名而不是时间戳：同一秒内建两个分支会撞名并被存储层拒掉。
+	newName := "loopra-" + newUUIDv4()
 	fresh, err := s.agent.Sessions.Create(r.Context(), createReq(s.agent, newName))
 	if err != nil {
 		writeFail(w, http.StatusInternalServerError, "新会话创建失败: "+err.Error())
 		return
 	}
-	for i := 0; i < count; i++ {
-		ev := events.At(i)
+	for _, ev := range prefix {
 		clone := *ev // 全新 ID：服务在原地分配 ID
 		clone.ID = ""
 		if err := s.agent.Sessions.AppendEvent(r.Context(), fresh.Session, &clone); err != nil {
@@ -388,6 +394,27 @@ func (s *Controller) sessionBranch(w http.ResponseWriter, r *http.Request, name 
 		"message": "已分支到新会话", "workspaceHash": s.agent.App(),
 		"sessionName": newName,
 	})
+}
+
+// branchPrefix 按可见历史行数切出分叉前缀：取前 count 行
+// 完整覆盖到的事件，且不会把一行拆成两半。
+func branchPrefix(events iter.Seq[*session.Event], count int) ([]*session.Event, error) {
+	prefix := make([]*session.Event, 0, count)
+	lines := 0
+	for ev := range events {
+		if ev == nil {
+			continue
+		}
+		if lines >= count {
+			break
+		}
+		prefix = append(prefix, ev)
+		lines += jsonl.VisibleLines(ev)
+	}
+	if lines < count {
+		return nil, fmt.Errorf("messageCount 超过会话消息数")
+	}
+	return prefix, nil
 }
 
 // sessionsCleanup 删除 mtime 早于 ?before= 的会话：已落盘的会话、

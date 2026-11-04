@@ -137,7 +137,7 @@
 | POST `/{name}` | q: workspaceHash* | `{workspaceHash, sessionName, switched:b}`（惰性切换，允许尚未落盘的会话名） |
 | DELETE `` \| `/cleanup`(before:l*) \| `/{name}` | — | `{message, workspaceHash, sessionName}` |
 | POST `/evict-all` | — | s `"已清除所有 Agent 缓存"` |
-| POST `/{name}/branch` | q: messageCount:i*(>0) | `{message:"已分支到新会话",...}` |
+| POST `/{name}/branch` | q: messageCount:i*(>0，**按 `/api/agent/history` 返回的可见行计数**，即前端 `historyCount`；一个 ADK 事件可能占多行，切点取整事件) | `{message:"已分支到新会话",...}` |
 | POST `/{name}/fork` | — | `{message:"已创建会话分叉",...}` |
 | GET `/stats` | — | `{cacheSize:i, maxCacheSize:i=50}` |
 | GET `/{name}/checklist` \| `/{name}/goal` | q: workspaceHash* | null 或清单/目标结构（见契约代理原始输出） |

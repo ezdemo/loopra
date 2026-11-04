@@ -232,6 +232,90 @@ func TestSessionBranch(t *testing.T) {
 	}
 }
 
+// 分叉的 messageCount 以 /api/agent/history 的可见行计数，而不是
+// ADK 事件数：并行的工具结果会展开成多条 tool 行，web_hidden 事件
+// 则一行都不占。用事件数当行数会让较早的分叉点整体前移，也会把
+// 靠后的回复误判成「超过会话消息数」。
+func TestSessionBranchCountsVisibleHistoryLines(t *testing.T) {
+	ts, key, a := sessServer(t)
+	ctx := contextBG()
+	created, _ := a.Sessions.Create(ctx, createReq(a, "multi"))
+	base := created.Session
+	_ = appendTextEvent(t, a, base, "ask")
+	// 一次并行工具调用：两个 FunctionResponse 落在同一事件里，
+	// 落盘时写成两条 tool 行，回放时却是两个事件。
+	// 带上用量元数据，让它落盘成 adk_event：两条 tool 行共享同一个
+	// event_id，回放时只算一个事件——这正是行数与事件数分叉的来源。
+	parallel := &session.Event{Author: "user", Timestamp: time.Now()}
+	parallel.LLMResponse.UsageMetadata = &genai.GenerateContentResponseUsageMetadata{
+		PromptTokenCount: 10, CandidatesTokenCount: 2,
+	}
+	parallel.Content = &genai.Content{Role: "user", Parts: []*genai.Part{
+		{FunctionResponse: &genai.FunctionResponse{ID: "c1", Name: "rg", Response: map[string]any{"result": "a"}}},
+		{FunctionResponse: &genai.FunctionResponse{ID: "c2", Name: "rg", Response: map[string]any{"result": "b"}}},
+	}}
+	if err := a.Sessions.AppendEvent(ctx, base, parallel); err != nil {
+		t.Fatal(err)
+	}
+	_ = appendTextEvent(t, a, base, "follow-up")
+	lines := len(sessionMessagesOf(t, a, "multi"))
+	if lines != 4 { // 两次用户输入 + 两条并行 tool 行
+		t.Fatalf("visible lines = %d, want 4", lines)
+	}
+	// 事件数（3）比可见行数（4）少：按事件数校验就会在这里误报超限。
+	if a.Sessions != nil {
+		got, err := a.Sessions.Get(ctx, getReq(a, "multi"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Session.Events().Len() == lines {
+			t.Fatalf("fixture should separate event count from line count, both = %d", lines)
+		}
+	}
+	_, env := call(t, ts, http.MethodPost, "/api/sessions/multi/branch?messageCount="+itoa(int64(lines)), key, nil)
+	if env["success"] != true {
+		t.Fatalf("full-history branch = %v", env)
+	}
+	whole := env["data"].(map[string]any)["sessionName"].(string)
+	if got := len(sessionMessagesOf(t, a, whole)); got != lines {
+		t.Fatalf("full branch lines = %d, want %d", got, lines)
+	}
+	// 切在第一条并行 tool 行之后：一个事件不能被拆成两半，前缀取整条事件。
+	_, env = call(t, ts, http.MethodPost, "/api/sessions/multi/branch?messageCount=2", key, nil)
+	if env["success"] != true {
+		t.Fatalf("prefix branch = %v", env)
+	}
+	prefix := env["data"].(map[string]any)["sessionName"].(string)
+	if prefix == whole {
+		t.Fatal("branch reused a session name")
+	}
+	if got := len(sessionMessagesOf(t, a, prefix)); got != 3 {
+		t.Fatalf("prefix lines = %d, want 3 (whole parallel event)", got)
+	}
+	// 真超过时才报错。
+	code, env := call(t, ts, http.MethodPost, "/api/sessions/multi/branch?messageCount="+itoa(int64(lines+1)), key, nil)
+	if code != http.StatusBadRequest || env["error"] != "messageCount 超过会话消息数" {
+		t.Fatalf("overlong branch = %d %v", code, env)
+	}
+}
+
+// sessionMessagesOf 读取一个会话在 /api/agent/history 里可见的行数。
+func sessionMessagesOf(t *testing.T, a *agentpkg.Agent, name string) []map[string]any {
+	t.Helper()
+	dir := filepath.Join(a.Sessions.Root(), "workspace", a.App(), "sessions")
+	raw, err := os.ReadFile(filepath.Join(dir, name+".jsonl"))
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	var out []map[string]any
+	for _, row := range decodeJSONLines(raw) {
+		if row["web_hidden"] == true || row["role"] == nil {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
 func TestSessionCleanup(t *testing.T) {
 	ts, key, a := sessServer(t)
 	ctx := contextBG()

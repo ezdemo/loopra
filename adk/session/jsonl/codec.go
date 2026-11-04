@@ -320,6 +320,24 @@ func lineEvent(m map[string]any, seq int) *session.Event {
 	}
 }
 
+// VisibleLines 返回该事件在可见历史中占用的行数。它对应
+// /api/agent/history 的返回行：一个富事件可能展开成多行
+// （例如并行工具结果），持久化时会写成多行但回放时只算一个事件。
+// 分支接口的 messageCount 与前端 historyCount 都以这些行为单位。
+func VisibleLines(ev *session.Event) int {
+	if ev == nil {
+		return 0
+	}
+	visible := 0
+	for _, line := range eventLines(ev) {
+		if line["web_hidden"] == true || line["role"] == nil {
+			continue
+		}
+		visible++
+	}
+	return visible
+}
+
 func textParts(s string) []*genai.Part {
 	if s == "" {
 		return nil
