@@ -27,8 +27,7 @@ content（默认）：pattern 必填，返回 文件名:行号:原始文本；co
 files：相当于 rg --files，仅列出符合 globs 的文件路径；不要提供 pattern。
 files_with_matches：相当于 rg -l，pattern 必填，仅列出内容匹配的文件，每个文件一次。
 默认采用区分大小写的 Rust/Unicode 正则，不支持环视和反向引用；perl_regexp=true 使用 PCRE2。fixed_strings=true 将 pattern 当作原样文本，不可与 perl_regexp 同用。ignore_case=true 忽略内容大小写，word_regexp=true 限制整词。pattern 不要添加 shell 引号；JSON 中反斜杠仍须写成 \\。不要使用 HTML 实体（&lt;、&gt;、&amp;）：它们会被当作字面文本，XML 标签应直接写 <version>。
-path 默认为项目根，支持项目内相对路径及当前/本轮关联项目内的绝对路径；目录递归搜索，max_depth=1 只处理直接子项，0 不限深度。不跟随目录内部的符号链接或 junction，不读取设备/FIFO。
-globs 如 ["*.go","!**/*_test.go","!**/vendor/**"]。使用 /，采用 rg 原生 gitignore 风格；不含 / 的模式匹配任意层级文件名，! 前缀排除，多个规则最后匹配者优先。正向 glob 可覆盖忽略/隐藏规则。支持 *、**、?、[...] 和 {go,ts} 扩展；逗号是花括号展开的分隔符，不是多个独立模式的分隔符。
+path 默认为项目根，不受项目范围限制：相对路径按项目根解析，也接受项目外的目录和文件；globs 如 ["*.go","!**/*_test.go","!**/vendor/**"]。使用 /，采用 rg 原生 gitignore 风格；不含 / 的模式匹配任意层级文件名，! 前缀排除，多个规则最后匹配者优先。正向 glob 可覆盖忽略/隐藏规则。支持 *、**、?、[...] 和 {go,ts} 扩展；逗号是花括号展开的分隔符，不是多个独立模式的分隔符。
 默认跳过二进制、隐藏项，遵守 rg 原生 .gitignore/.ignore/.rgignore 及父目录/全局忽略规则（.gitignore 按 rg 的 Git 仓库检测生效）。hidden=true 包含隐藏项；no_ignore=true 禁用忽略规则；二者独立。files 模式列文件名时可以包含二进制文件。
 max_results 默认 200、最大 1000，限制输出行数（含上下文/分隔符），输出最多 64 KiB；超限主动停止并返回 truncated=true，缩小 path/globs/pattern 后重试。timeout_ms 默认 60000、最大 120000，取消/超时会清理搜索进程树。
 返回 result（文本）、matched、exit_code、truncated；stderr 非空时附诊断。正常退出码 0=有结果，1=无结果（不是失败），2=错误；truncated=true 时 exit_code 为主动终止产生的实际退出码，不代表搜索完整完成。
@@ -42,7 +41,7 @@ max_results 默认 200、最大 1000，限制输出行数（含上下文/分隔�
 
 type rgInput struct {
 	Pattern      string   `json:"pattern,omitempty" jsonschema:"content/files_with_matches 必填的内容正则或原样文本；files 模式不得提供；不要加 shell 引号"`
-	Path         string   `json:"path,omitempty" jsonschema:"文件或目录，默认项目根；相对路径或当前/本轮关联项目内的绝对路径"`
+	Path         string   `json:"path,omitempty" jsonschema:"文件或目录，默认项目根；相对路径按项目根解析，也接受项目外的绝对路径"`
 	Mode         string   `json:"mode,omitempty" jsonschema:"选择模式：content 为内容和行号（默认）；files 为 rg --files；files_with_matches 为 rg -l；不提供目录列表"`
 	Globs        []string `json:"globs,omitempty" jsonschema:"rg -g 文件过滤，如 [\"*.go\",\"!**/*_test.go\",\"!**/vendor/**\"]；使用 /；最后匹配的规则优先"`
 	FixedStrings bool     `json:"fixed_strings,omitempty" jsonschema:"pattern 视为原样文本，对应 -F；不可与 perl_regexp 同用"`
@@ -85,7 +84,7 @@ func runRG(ctx context.Context, root string, in rgInput) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
-	path, err := contextualPath(ctx, root, in.Path)
+	path, err := readOnlyPath(root, in.Path)
 	if err != nil {
 		return nil, err
 	}

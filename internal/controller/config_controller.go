@@ -53,7 +53,7 @@ func (s *Controller) configController(w http.ResponseWriter, r *http.Request) {
 			view["price"] = map[string]any{}
 		}
 		dto := map[string]any{}
-		for _, field := range []string{"baseUrl", "model", "availableModels", "workspace", "editMode", "reasoningEffort", "lang", "hitl", "disabledTools", "blockedPaths", "apiKey", "price", "activePet", "fastMode", "modelChannels", "modelChannelsConfigured", "modelChannelId", "validationModel", "validationModelChannelId", "imageUnderstandingModel", "imageUnderstandingModelChannelId", "toolModel", "toolModelChannelId", "proxy"} {
+		for _, field := range []string{"baseUrl", "model", "availableModels", "workspace", "editMode", "reasoningEffort", "lang", "hitl", "disabledTools", "toolsRestrictWorkspace", "blockedPaths", "apiKey", "price", "activePet", "fastMode", "modelChannels", "modelChannelsConfigured", "modelChannelId", "validationModel", "validationModelChannelId", "imageUnderstandingModel", "imageUnderstandingModelChannelId", "toolModel", "toolModelChannelId", "proxy"} {
 			if value, exists := view[field]; exists {
 				dto[field] = value
 			}

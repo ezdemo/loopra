@@ -111,7 +111,7 @@ func TestRGNoMatchesErrorsAndLimits(t *testing.T) {
 		{}, {Mode: "list"}, {Pattern: "["}, {Mode: "files", Pattern: "needle"},
 		{Pattern: "x", FixedStrings: true, PerlRegexp: true},
 		{Pattern: "x", ContextLines: 21}, {Pattern: "x", MaxResults: 1001},
-		{Pattern: "x", Path: ".."}, {Pattern: "x", Globs: []string{""}},
+		{Pattern: "x", Globs: []string{""}},
 	} {
 		if _, err := runRG(context.Background(), root, in); err == nil {
 			t.Errorf("invalid arguments accepted: %+v", in)
@@ -159,8 +159,14 @@ func TestRGDoesNotFollowExternalLinks(t *testing.T) {
 	if err != nil || out["matched"] != false {
 		t.Fatalf("search followed an external link: %v %v", out, err)
 	}
-	if _, err := runRG(context.Background(), root, rgInput{Pattern: "private-outside-token", Path: "external"}); err == nil {
-		t.Fatal("explicit external link accepted")
+	// 只读工具不套用工作区限制：项目外路径一直可搜，开启限制后也一样。
+	out, err = runRG(context.Background(), root, rgInput{Pattern: "private-outside-token", Path: outside})
+	if err != nil || out["matched"] != true {
+		t.Fatalf("outside path rejected: %v %v", out, err)
+	}
+	out, err = runRG(WithWorkspaceScope(context.Background(), true), root, rgInput{Pattern: "private-outside-token", Path: outside})
+	if err != nil || out["matched"] != true {
+		t.Fatalf("rg was restricted: %v %v", out, err)
 	}
 }
 

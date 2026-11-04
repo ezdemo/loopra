@@ -250,5 +250,7 @@ func (a *Agent) Run(ctx context.Context, sess session.Session, msg *genai.Conten
 	imageConfig := a.cfg.Clone()
 	imageConfig.Model = a.Model.Name()
 	ctx = tools.WithImageRuntime(ctx, imageConfig, a.options.HTTPClient)
+	// 文件与命令工具的工作区限制按当前配置在每一轮生效。
+	ctx = tools.WithWorkspaceScope(ctx, a.cfg.ToolsRestrictWorkspace)
 	return a.Runner.Run(WithContextTurn(ctx), a.user, sess.ID(), msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE})
 }

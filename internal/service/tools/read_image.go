@@ -70,7 +70,7 @@ func AttachImageResults(ctx adkagent.InvocationContext, event *session.Event) {
 }
 
 type readImageInput struct {
-	Path   string `json:"path" jsonschema:"当前项目或本轮关联项目中的图片路径"`
+	Path   string `json:"path" jsonschema:"图片文件路径，相对路径按项目根解析，也接受项目外的绝对路径"`
 	Prompt string `json:"prompt,omitempty" jsonschema:"希望从图片获取的信息或问题；省略时描述主要内容并识别文字"`
 }
 
@@ -85,7 +85,7 @@ func runReadImage(ctx adkagent.Context, root string, in readImageInput) (map[str
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	abs, err := contextualPath(ctx, root, in.Path)
+	abs, err := readOnlyPath(root, in.Path)
 	if err != nil {
 		return nil, err
 	}

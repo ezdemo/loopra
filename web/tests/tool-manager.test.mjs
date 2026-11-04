@@ -29,7 +29,7 @@ const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, className, startContent, endContent, isIconOnly, variant, size, color, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, className: className || undefined, ...rest }, children);
 ${checkboxStub}
-export const Switch = () => null;
+export const Switch = ({ isSelected, onValueChange, isDisabled, ...rest }) => createElement('input', { type: 'checkbox', role: 'switch', 'aria-label': rest['aria-label'], checked: !!isSelected, disabled: !!isDisabled, onChange: event => onValueChange(event.target.checked) });
 `);
 const controlsStub = dataUrl(`
 const React = await import(${JSON.stringify(reactUrl)});
@@ -83,9 +83,9 @@ const tools = [
   { name: 'legacy_tool', description: '旧工具', readOnly: false, readOnlyOverride: null, stormExempt: false, enabled: false, autoApproved: false },
 ];
 
-async function mount() {
+async function mount(config = { toolsRestrictWorkspace: false }) {
   globalThis.__calls = [];
-  const api = { request: (path, method = 'GET', body) => { globalThis.__calls.push({ path, method, body }); return Promise.resolve(tools); } };
+  const api = { request: (path, method = 'GET', body) => { globalThis.__calls.push({ path, method, body }); return Promise.resolve(path === '/config' ? config : tools); } };
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   await act(async () => root.render(createElement(ToolManager, { api, onRefresh: async () => {} })));
@@ -127,6 +127,18 @@ test('enable and auto-approve toggles hit their endpoints', async () => {
     await click(buttonIn(card(), '自动放行'));
     assert.ok(globalThis.__calls.some(call => call.path === '/tools/legacy_tool/toggle' && call.method === 'POST'));
     assert.ok(globalThis.__calls.some(call => call.path === '/tools/legacy_tool/auto-toggle' && call.method === 'POST'));
+  } finally { await view.close(); }
+});
+
+test('the workspace scope switch reads and writes toolsRestrictWorkspace', async () => {
+  const view = await mount({ toolsRestrictWorkspace: true });
+  try {
+    const toggle = view.container.querySelector('input[aria-label="限制工具工作区"]');
+    assert.ok(toggle, 'scope switch missing');
+    assert.equal(toggle.checked, true);
+    await click(toggle);
+    const saved = globalThis.__calls.find(call => call.path === '/config' && call.method === 'PUT');
+    assert.deepEqual(saved?.body, { toolsRestrictWorkspace: false });
   } finally { await view.close(); }
 });
 

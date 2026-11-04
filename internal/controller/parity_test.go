@@ -106,6 +106,29 @@ func TestConfigPersistsSecretsAndUnknownSettings(t *testing.T) {
 	}
 }
 
+func TestToolWorkspaceScopeDefaultsOffAndPersists(t *testing.T) {
+	ts, key, _, home := parityServer(t, "")
+	_, env := call(t, ts, "GET", "/api/config", key, nil)
+	view := env["data"].(map[string]any)
+	if view["toolsRestrictWorkspace"] != false {
+		t.Fatalf("scope default = %v, want false", view["toolsRestrictWorkspace"])
+	}
+	if _, env = call(t, ts, "PUT", "/api/config", key, map[string]any{"toolsRestrictWorkspace": true}); env["success"] != true {
+		t.Fatalf("save = %v", env)
+	}
+	reloaded, err := repository.NewConfigRepository(home).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.ToolsRestrictWorkspace {
+		t.Fatal("workspace scope setting was not persisted")
+	}
+	_, env = call(t, ts, "GET", "/api/config", key, nil)
+	if env["data"].(map[string]any)["toolsRestrictWorkspace"] != true {
+		t.Fatalf("view did not expose the saved scope: %v", env["data"])
+	}
+}
+
 func TestPlanSubmissionAndExecution(t *testing.T) {
 	home := t.TempDir()
 	workspace := filepath.Join(home, "project")

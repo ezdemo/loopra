@@ -374,7 +374,7 @@ func BashTools(root string) []Tool {
 
 type bashStartInput struct {
 	Command   string `json:"command" jsonschema:"要在交互会话中执行的首条命令"`
-	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；可传项目内相对路径或项目内绝对路径"`
+	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；相对路径按项目根解析，也接受绝对路径"`
 	Workdir   string `json:"workdir,omitempty" jsonschema:"兼容旧参数：相对工作目录；与 cwd 同时提供时以 cwd 为准"`
 	MaxChar   int    `json:"max_char,omitempty" jsonschema:"最多返回的字符数，默认 8000，最大 200000"`
 	Timeout   int    `json:"timeout,omitempty" jsonschema:"等待首屏输出的超时秒数，默认 8，最大 3600；不会终止会话"`

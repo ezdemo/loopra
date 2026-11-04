@@ -20,7 +20,6 @@ import (
 	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
 
-	"github.com/ezdemo/looprax/internal/infrastructure/fsutil"
 	"github.com/ezdemo/looprax/internal/infrastructure/processtree"
 	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	"github.com/ezdemo/looprax/internal/service/hitl"
@@ -349,72 +348,10 @@ func (r *Registry) known(name string) bool {
 	return false
 }
 
-// safePath 在 root 下解析 rel，并拒绝路径逃逸。
-func safePath(root, rel string) (string, error) {
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	clean := filepath.Clean(rel)
-	if filepath.IsAbs(clean) {
-		return "", fmt.Errorf("仅允许项目内相对路径")
-	}
-	abs := filepath.Join(root, clean)
-	if root != abs && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("路径越出项目边界")
-	}
-	realRoot, err := fsutil.Resolve(root)
-	if err != nil {
-		return "", err
-	}
-	// 解析最近的已存在祖先目录，包含新文件之上的链接。
-	for ancestor := abs; ; ancestor = filepath.Dir(ancestor) {
-		resolved, err := fsutil.Resolve(ancestor)
-		if err == nil {
-			inside, err := filepath.Rel(realRoot, resolved)
-			if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) || filepath.IsAbs(inside) {
-				return "", fmt.Errorf("路径越出项目边界")
-			}
-			suffix, _ := filepath.Rel(ancestor, abs)
-			return filepath.Join(resolved, suffix), nil
-		}
-		if !os.IsNotExist(err) {
-			return "", err
-		}
-		if _, linkErr := os.Lstat(ancestor); linkErr == nil {
-			return "", fmt.Errorf("路径包含无法解析的符号链接")
-		}
-		if ancestor == root || filepath.Dir(ancestor) == ancestor {
-			return "", err
-		}
-	}
-}
-
-type linkedProjectsKey struct{}
-
-// WithLinkedProjects 仅授予当前轮次访问显式关联根目录的权限。
-func WithLinkedProjects(ctx context.Context, roots []string) context.Context {
-	return context.WithValue(ctx, linkedProjectsKey{}, append([]string(nil), roots...))
-}
-
-func contextualPath(ctx context.Context, root, path string) (string, error) {
-	if filepath.IsAbs(path) {
-		roots, _ := ctx.Value(linkedProjectsKey{}).([]string)
-		for _, candidate := range append([]string{root}, roots...) {
-			rel, err := filepath.Rel(candidate, path)
-			if err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return safePath(candidate, rel)
-			}
-		}
-		return "", fmt.Errorf("路径不属于当前项目或本轮关联项目")
-	}
-	return safePath(root, path)
-}
-
 // FileTools 构建作用域限定在 root 的核心文件和 shell 工具集。
 func FileTools(root string) []Tool {
 	return []Tool{
-		{readTool(root), Metadata{Name: "read", Description: "读取项目内文本文件", ReadOnly: true, AutoApprove: true}},
+		{readTool(root), Metadata{Name: "read", Description: readDescription, ReadOnly: true, AutoApprove: true}},
 		readImageTool(root),
 		{rgTool(root), Metadata{Name: "rg", Description: rgDescription, ReadOnly: true, AutoApprove: true}},
 		{writeTool(root), Metadata{Name: "write", Description: "创建或覆盖文件", ReadOnly: false, AutoApprove: true}},
@@ -428,44 +365,107 @@ func ShellTools(root string) []Tool {
 	return append([]Tool{{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout）", ReadOnly: false, AutoApprove: false}}}, BashTools(root)...)
 }
 
+const readDescription = "读取本地文本文件，不受项目范围限制（可以读取依赖、日志、配置和项目外的任何文件）。用 offset 与 max_line 按行号跳读：offset 是起始行号（1 起，默认 1），max_line 是最多返回的行数（默认全部）。返回带行号的文本，同时给出 start_line、end_line、total_lines、truncated，可按需继续跳读。配合 rg 得到的行号使用，避免一次读取整个大文件。"
+
+type readInput struct {
+	Path    string `json:"path" jsonschema:"文件路径，相对路径按项目根解析，也接受项目外的绝对路径"`
+	Offset  int    `json:"offset,omitempty" jsonschema:"起始行号，1 起，默认 1；负数表示从末尾倒数（-50 为最后 50 行）"`
+	MaxLine int    `json:"max_line,omitempty" jsonschema:"最多返回的行数，默认到文件末尾；不能为负"`
+}
+
 func readTool(root string) tool.Tool {
-	t, _ := functiontool.New[struct {
-		Path    string `json:"path" jsonschema:"项目内相对路径"`
-		MaxLine int    `json:"max_line,omitempty" jsonschema:"最多返回的行数"`
-	}, map[string]any](functiontool.Config{Name: "read", Description: "读取项目内文本文件"},
-		func(ctx agentpkg.Context, in struct {
-			Path    string `json:"path" jsonschema:"项目内相对路径"`
-			MaxLine int    `json:"max_line,omitempty" jsonschema:"最多返回的行数"`
-		}) (map[string]any, error) {
-			abs, err := contextualPath(ctx, root, in.Path)
-			if err != nil {
-				return nil, err
-			}
-			data, err := os.ReadFile(abs)
-			if err != nil {
-				return nil, err
-			}
-			lines := strings.Split(string(data), "\n")
-			limit := in.MaxLine
-			if limit <= 0 || limit > len(lines) {
-				limit = len(lines)
-			}
-			var sb strings.Builder
-			for i, line := range lines[:limit] {
-				fmt.Fprintf(&sb, "%d: %s\n", i+1, line)
-			}
-			return map[string]any{"result": sb.String()}, nil
+	t, _ := functiontool.New[readInput, map[string]any](functiontool.Config{Name: "read", Description: readDescription},
+		func(ctx agentpkg.Context, in readInput) (map[string]any, error) {
+			return runRead(ctx, root, in)
 		})
 	return t
 }
 
+func runRead(ctx context.Context, root string, in readInput) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	abs, err := readOnlyPath(root, in.Path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("read 只接受文件路径；列出目录请用 rg 的 files 模式或命令工具")
+	}
+	if in.MaxLine < 0 {
+		return nil, fmt.Errorf("max_line 不能为负数")
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, err
+	}
+	lines := splitLines(string(data))
+	total := len(lines)
+	start, end := readWindow(total, in.Offset, in.MaxLine)
+	var sb strings.Builder
+	for i := start; i < end; i++ {
+		fmt.Fprintf(&sb, "%d: %s\n", i+1, lines[i])
+	}
+	result := map[string]any{
+		"result": sb.String(), "path": displayPath(root, abs),
+		"start_line": start + 1, "end_line": end, "total_lines": total,
+		"truncated": end < total || start > 0,
+	}
+	if start > 0 {
+		result["omitted_before"] = start
+	}
+	if end < total {
+		result["omitted_after"] = total - end
+	}
+	return result, nil
+}
+
+// splitLines 按行切分文本，并丢弃文件末尾换行符产生的空行。
+func splitLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// readWindow 把 offset/max_line 换算成半开区间 [start, end)。
+// offset 为 0 时从首行开始；负数表示从末尾倒数。
+func readWindow(total, offset, maxLine int) (int, int) {
+	start := 0
+	switch {
+	case offset > 0:
+		start = offset - 1
+	case offset < 0:
+		start = total + offset
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	end := total
+	if maxLine > 0 && start+maxLine < end {
+		end = start + maxLine
+	}
+	return start, end
+}
+
 func writeTool(root string) tool.Tool {
 	t, _ := functiontool.New[struct {
-		Path    string `json:"path" jsonschema:"项目内相对路径"`
+		Path    string `json:"path" jsonschema:"文件路径，相对路径按项目根解析，也接受绝对路径"`
 		Content string `json:"content" jsonschema:"完整文件内容"`
 	}, map[string]any](functiontool.Config{Name: "write", Description: "创建或覆盖文件"},
 		func(ctx agentpkg.Context, in struct {
-			Path    string `json:"path" jsonschema:"项目内相对路径"`
+			Path    string `json:"path" jsonschema:"文件路径，相对路径按项目根解析，也接受绝对路径"`
 			Content string `json:"content" jsonschema:"完整文件内容"`
 		}) (map[string]any, error) {
 			abs, err := contextualPath(ctx, root, in.Path)
@@ -487,7 +487,7 @@ func writeTool(root string) tool.Tool {
 				return nil, err
 			}
 			reportFileChange(ctx, root, abs, before, in.Content)
-			return map[string]any{"result": fmt.Sprintf("已写入 %s（%d 字节）", in.Path, len(in.Content))}, nil
+			return map[string]any{"result": fmt.Sprintf("已写入 %s（%d 字节）", displayPath(root, abs), len(in.Content))}, nil
 		})
 	return t
 }
@@ -499,11 +499,11 @@ type editPair struct {
 
 func editTool(root string) tool.Tool {
 	t, _ := functiontool.New[struct {
-		Path  string     `json:"path" jsonschema:"项目内相对路径"`
+		Path  string     `json:"path" jsonschema:"文件路径，相对路径按项目根解析，也接受绝对路径"`
 		Edits []editPair `json:"edits" jsonschema:"有序替换列表"`
 	}, map[string]any](functiontool.Config{Name: "edit", Description: "对文件执行多处精准替换"},
 		func(ctx agentpkg.Context, in struct {
-			Path  string     `json:"path" jsonschema:"项目内相对路径"`
+			Path  string     `json:"path" jsonschema:"文件路径，相对路径按项目根解析，也接受绝对路径"`
 			Edits []editPair `json:"edits" jsonschema:"有序替换列表"`
 		}) (map[string]any, error) {
 			abs, err := contextualPath(ctx, root, in.Path)
@@ -540,7 +540,7 @@ const (
 
 type shellCommandInput struct {
 	Command   string `json:"command" jsonschema:"要执行的命令"`
-	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；可传项目内相对路径或项目内绝对路径"`
+	Cwd       string `json:"cwd,omitempty" jsonschema:"工作目录，默认项目根；相对路径按项目根解析，也接受绝对路径"`
 	MaxChar   int    `json:"max_char,omitempty" jsonschema:"最多返回的字符数，默认 64000，最大 200000"`
 	Timeout   int    `json:"timeout,omitempty" jsonschema:"超时秒数，默认 120，最大 3600"`
 	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"兼容旧参数：超时毫秒数；与 timeout 同时提供时以 timeout 为准"`

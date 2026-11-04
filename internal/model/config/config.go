@@ -131,6 +131,10 @@ type Loopra struct {
 	DisabledPlugins                  []string                   `json:"disabledPlugins,omitempty"`
 	ToolReadOnlyOverrides            map[string]bool            `json:"toolReadOnlyOverrides,omitempty"`
 	BlockedPaths                     []string                   `json:"blockedPaths"`
+	// ToolsRestrictWorkspace 限定会改动文件的工具（write、edit，
+	// 以及命令工具的工作目录）只能访问当前项目及其关联项目；
+	// 默认关闭。read、rg、read_image 是只读工具，永远不受它影响。
+	ToolsRestrictWorkspace bool `json:"toolsRestrictWorkspace"`
 	FastMode                         bool                       `json:"fastMode"`
 	AvailableModels                  []string                   `json:"availableModels,omitempty"`
 	WorkspaceDir                     string                     `json:"workspaceDir,omitempty"`

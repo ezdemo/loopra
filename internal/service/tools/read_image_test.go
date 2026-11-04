@@ -134,7 +134,7 @@ func TestReadImageRejectsInvalidInputsAndMissingVisionModel(t *testing.T) {
 	}
 	cfg := imageConfig()
 	ctx := imageTestContext{base: WithImageRuntime(t.Context(), &cfg, nil)}
-	for _, path := range []string{"bad.png", "missing.png", "large.png", ".", "../fixture.png", "escape/fixture.png", filepath.Join(outside, "fixture.png")} {
+	for _, path := range []string{"bad.png", "missing.png", "large.png", "."} {
 		if _, err := runReadImage(ctx, root, readImageInput{Path: path}); err == nil {
 			t.Fatalf("accepted %q", path)
 		}
@@ -147,9 +147,15 @@ func TestReadImageRejectsInvalidInputsAndMissingVisionModel(t *testing.T) {
 			t.Fatalf("missing capability=%v", err)
 		}
 	}
-	ctx.base = WithLinkedProjects(WithImageRuntime(t.Context(), func() *config.Loopra { c := imageConfig(); return &c }(), nil), []string{outside})
+	// read_image 是只读工具，项目外的图片一直可读。
+	ctx.base = WithImageRuntime(t.Context(), func() *config.Loopra { c := imageConfig(); return &c }(), nil)
 	if _, err := runReadImage(ctx, root, readImageInput{Path: filepath.Join(outside, "fixture.png")}); err != nil {
-		t.Fatalf("linked project rejected: %v", err)
+		t.Fatalf("outside image rejected: %v", err)
+	}
+	// 开启写入限制后依然如此。
+	ctx.base = WithWorkspaceScope(WithImageRuntime(t.Context(), func() *config.Loopra { c := imageConfig(); return &c }(), nil), true)
+	if _, err := runReadImage(ctx, root, readImageInput{Path: filepath.Join(outside, "fixture.png")}); err != nil {
+		t.Fatalf("read_image was restricted: %v", err)
 	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()

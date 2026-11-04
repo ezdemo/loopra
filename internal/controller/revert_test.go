@@ -119,6 +119,29 @@ func TestFileChangesRevertRefusesDriftedFile(t *testing.T) {
 	}
 }
 
+// 工具默认不限工作区，改正项目外的文件时变更记录的是绝对路径。
+func TestFileChangesRevertOutsideWorkspaceAbsolutePath(t *testing.T) {
+	ts, key, _ := revertServer(t)
+	outside := t.TempDir()
+	path := filepath.Join(outside, "outside.txt")
+	diff := diffOf("v1\n", "v1 changed\n")
+	if err := os.WriteFile(path, []byte("v1 changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, env := call(t, ts, http.MethodPost, "/api/sessions/file-changes/revert", key,
+		map[string]any{"workspaceHash": "rv00000001", "changes": []map[string]any{
+			{"path": path, "diff": diff, "additions": 1, "deletions": 1},
+		}})
+	data, _ := env["data"].(map[string]any)
+	if data["revertedFiles"].(float64) != 1 {
+		t.Fatalf("revert = %v", env)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "v1\n" {
+		t.Fatalf("content = %q", got)
+	}
+}
+
 func TestFileChangesRevertValidation(t *testing.T) {
 	ts, key, _ := revertServer(t)
 	// 缺少 hash

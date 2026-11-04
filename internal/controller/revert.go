@@ -21,6 +21,26 @@ type fileChange struct {
 	Diff      string `json:"diff"`
 }
 
+// changePath 解析一条变更记录的路径。项目内路径按相对根目录处理；
+// 工具也能写入项目外的文件，这类变更记录的是绝对路径。
+func (s *Controller) changePath(root, raw string) (string, string, error) {
+	if !filepath.IsAbs(raw) {
+		clean, err := gitops.ValidatePath(root, raw)
+		if err != nil {
+			return "", "", err
+		}
+		return clean, filepath.Join(root, filepath.FromSlash(clean)), nil
+	}
+	abs, err := filepath.Abs(filepath.Clean(raw))
+	if err != nil {
+		return "", "", err
+	}
+	if rel, err := filepath.Rel(root, abs); err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(rel), abs, nil
+	}
+	return raw, abs, nil
+}
+
 // applyResult 承载单个 diff 重建出的 before/after 内容对。
 type applyResult struct {
 	before string
@@ -118,21 +138,20 @@ func (s *Controller) fileChangesRevert(w http.ResponseWriter, r *http.Request) {
 			writeFail(w, http.StatusBadRequest, "变更项缺少 path 或 diff")
 			return
 		}
-		clean, err := gitops.ValidatePath(root, change.Path)
+		clean, abs, err := s.changePath(root, change.Path)
 		if err != nil {
 			writeFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if seen[clean] {
+		if seen[abs] {
 			continue // 重复条目像 Java 的 set 一样合并
 		}
-		seen[clean] = true
+		seen[abs] = true
 		res, err := parseWholeFileDiff(change.Diff)
 		if err != nil {
 			writeFail(w, http.StatusBadRequest, change.Path+": "+err.Error())
 			return
 		}
-		abs := filepath.Join(root, filepath.FromSlash(clean))
 		if change.Created && res.before == "" {
 			// 新建文件：撤销即删除（通过逐字匹配 after 内容校验）
 			data, err := os.ReadFile(abs)

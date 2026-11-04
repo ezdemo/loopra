@@ -242,7 +242,7 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 	var replyErr error
 	// 子代理运行在独立的 sub-* 会话里，显式把后台进程归属到父会话，
 	// 否则它启动的进程在面板上会挂到用户看不到的会话下。
-	driveCtx := tools.WithSessionOwner(tools.WithImageRuntime(runCtx, contextConfig, nil), parentSession)
+	driveCtx := tools.WithSessionOwner(tools.WithWorkspaceScope(tools.WithImageRuntime(runCtx, contextConfig, nil), contextConfig != nil && contextConfig.ToolsRestrictWorkspace), parentSession)
 	reply := r.drive(driveCtx, run, created.Session, parentSession, task, subID, subSessionID, rec, sink)
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
@@ -296,7 +296,7 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	driveCtx := tools.WithSessionOwner(tools.WithImageRuntime(runCtx, prev.imageConfig, nil), prev.parentSession)
+	driveCtx := tools.WithSessionOwner(tools.WithWorkspaceScope(tools.WithImageRuntime(runCtx, prev.imageConfig, nil), prev.imageConfig != nil && prev.imageConfig.ToolsRestrictWorkspace), prev.parentSession)
 	return r.drive(driveCtx, prev.runner, prev.sess, prev.parentSession, message, prev.subID, subSessionID, nil, sink), nil
 }
 

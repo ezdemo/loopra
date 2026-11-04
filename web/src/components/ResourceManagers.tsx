@@ -104,12 +104,21 @@ export function ExtensionManager({ api, notify, onChanged, context, embedded = f
 export function ToolManager({ api, onRefresh }: { api: LoopraClient; onRefresh: () => Promise<void> }) {
   const [revision, setRevision] = useState(0); const state = useRemote<Tool[]>(api, '/tools', revision);
   const [search, setSearch] = useState(''); const [filter, setFilter] = useState('all'); const [error, setError] = useState(''); const [busy, setBusy] = useState('');
+  const config = useRemote<{ toolsRestrictWorkspace?: boolean }>(api, '/config', revision);
+  const [savingScope, setSavingScope] = useState(false);
   async function act(name: string, action: string, body?: unknown) { setBusy(name); setError(''); try { await api.request(`/tools/${encodeURIComponent(name)}/${action}`, 'POST', body); setRevision(value => value + 1); await onRefresh(); } catch (cause) { setError(errorText(cause)); } finally { setBusy(''); } }
+  async function saveScope(restrict: boolean) {
+    setSavingScope(true); setError('');
+    try { await api.request('/config', 'PUT', { toolsRestrictWorkspace: restrict }); setRevision(value => value + 1); await onRefresh(); }
+    catch (cause) { setError(errorText(cause)); }
+    finally { setSavingScope(false); }
+  }
   const tools = state.data || [];
   const count = (id: string) => id === 'all' ? tools.length : id === 'readOnly' ? tools.filter(tool => tool.readOnly).length : id === 'write' ? tools.filter(tool => !tool.readOnly).length : id === 'exempt' ? tools.filter(tool => tool.stormExempt).length : tools.filter(tool => !tool.enabled).length;
   const visible = tools.filter(tool => `${tool.name} ${tool.description}`.toLowerCase().includes(search.toLowerCase()))
     .filter(tool => filter === 'all' || (filter === 'readOnly' ? tool.readOnly : filter === 'write' ? !tool.readOnly : filter === 'exempt' ? tool.stormExempt : !tool.enabled));
   return <div className="settings-resource-page resource-tools-page"><PageActions title="工具"><Field label="搜索工具" className="settings-tool-search" aria-label="搜索工具" placeholder="搜索工具…" value={search} onChange={setSearch} /><Button className="settings-outlined-action" size="sm" variant="light" onPress={() => setRevision(value => value + 1)}>刷新</Button></PageActions>
+    <div className="settings-card"><div className="setting-row" data-setting-title="限制工具工作区"><div><div className="setting-label">限制工具工作区</div><p>只作用于 write、edit 和命令工具的工作目录：开启后只能使用当前项目内路径和本轮关联项目内路径，关闭时可直接使用项目外的绝对路径。read、rg、read_image 是只读工具，不受此限制</p></div><div className="setting-control"><Switch size="sm" color="primary" className="settings-next-switch" aria-label="限制工具工作区" isSelected={config.data?.toolsRestrictWorkspace === true} isDisabled={savingScope} onValueChange={value => void saveScope(value)} /></div></div></div>
     <div className="tools-stats" aria-label="工具概览">{([['工具总数', tools.length], ['只读', count('readOnly')], ['写入', count('write')], ['风暴豁免', count('exempt')], ['已停用', count('disabled')]] as [string, number][]).map(([label, value]) => <div className="tools-stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
     <div className="tools-filters" role="group" aria-label="工具筛选">{([['all', '全部'], ['readOnly', '只读'], ['write', '写入'], ['exempt', '风暴豁免'], ['disabled', '已停用']] as [string, string][]).map(([id, label]) => <Button size="sm" variant="light" key={id} className={`tools-filter ${filter === id ? 'active' : ''}`} aria-pressed={filter === id} onPress={() => setFilter(id)}>{label}<span>{count(id)}</span></Button>)}</div>
     <RemoteState {...state} />{error && <p role="alert" className="settings-error">{error}</p>}
