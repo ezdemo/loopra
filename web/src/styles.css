@@ -110,7 +110,9 @@ svg { flex-shrink: 0; }
 .sidebar-section-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
 .section-label { color: var(--muted); display: flex; align-items: center; justify-content: space-between; padding: 0 .25rem 0 .5rem; font-size: .6875rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; height: 2rem; }
 .section-label > div { display: flex; gap: 1px; opacity: 0; transition: opacity .12s; }
-.sidebar-section:hover .section-label > div, .section-label > div:focus-within { opacity: 1; }
+/* The section actions belong to the section heading row, so only hovering that
+   row reveals them; hovering a project below must not pop them up. */
+.section-label:hover > div, .section-label > div:focus-within { opacity: 1; }
 .section-label .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; }
 /* Touch layouts have no hover, so the section actions must stay visible there. */
 @media (hover: none) { .section-label > div { opacity: 1; } }
