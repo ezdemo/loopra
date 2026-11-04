@@ -10,6 +10,17 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { target: t
 const module = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 const { subSessionBlocks, subSessionsPath, subSessionEventsPath, subSessionChatPath, subSessionLabel, subStatusLabel, formatSubTime } = module;
 
+test('file changes survive sub-session replay with their exact undo patch', () => {
+  const changes = [{ path: 'child.txt', additions: 1, deletions: 0, created: true, diff: '--- a/child.txt\n+++ b/child.txt\n@@ -1,0 +1,1 @@\n+child\n' }];
+  const { blocks, status } = subSessionBlocks([
+    { type: 'sub_start' },
+    { type: 'sub_file_changes', changes },
+    { type: 'sub_end', status: 'completed' },
+  ]);
+  assert.equal(status, 'completed');
+  assert.deepEqual(blocks, [{ id: 'sub-0', type: 'file_changes', changes }]);
+});
+
 test('subagent output deltas replay without repeating snapshots', () => {
   const updates = [
     { type: 'sub_tool_call', toolCallId: 't1', name: 'shell' },

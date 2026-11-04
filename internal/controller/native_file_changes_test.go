@@ -161,3 +161,134 @@ func TestGeneratedFileDiffRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestSubAgentFileChangesPersistThroughReplayAndResume(t *testing.T) {
+	home, workspace := t.TempDir(), t.TempDir()
+	reg := tools.NewRegistry(tools.FileTools(workspace)...)
+	cfg := config.Default()
+	cfg.Hitl, cfg.WorkspaceDir = "free", workspace
+	model := echo.New("child-files",
+		echo.Script{ToolCalls: []*genai.FunctionCall{{
+			ID: "sub", Name: "sub_agent",
+			Args: map[string]any{"name": "worker", "profile": "implement", "task": "write a file"},
+		}}},
+		echo.Script{ToolCalls: []*genai.FunctionCall{{
+			ID: "child-write", Name: "write", Args: map[string]any{"path": "child.txt", "content": "first"},
+		}}},
+		echo.Script{Text: "child finished"},
+		echo.Script{Text: "parent finished"},
+		echo.Script{ToolCalls: []*genai.FunctionCall{{
+			ID: "child-edit", Name: "edit",
+			Args: map[string]any{"path": "child.txt", "edits": []any{map[string]any{"old": "first", "new": "second"}}},
+		}}},
+		echo.Script{Text: "child resumed"},
+	)
+	a, err := agentpkg.New(home, "child-files", &cfg, agentpkg.Options{Model: model, Toolsets: []tool.Toolset{reg}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctrl, key, err := New(a, Options{Registry: reg, Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(ctrl.Handler())
+	t.Cleanup(func() { ctrl.Close(); server.Close() })
+	stream := func(path, body string) []map[string]any {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(body))
+		req.Header.Set("X-Loopra-Key", key)
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		events := parseSSE(t, readAll(t, resp))
+		for _, event := range events {
+			if event["type"] == "error" {
+				t.Fatalf("stream error: %v", event)
+			}
+		}
+		return events
+	}
+	events := stream("/api/chat/stream", `{"message":"write using a worker","sessionName":"parent"}`)
+	var subID string
+	var streamed []filediff.FileChange
+	for _, event := range events {
+		if event["type"] == "sub_start" {
+			subID, _ = event["subSessionId"].(string)
+		}
+		if event["type"] == "file_changes" {
+			streamed = append(streamed, decodeFileChanges(t, event["changes"])...)
+		}
+	}
+	if subID == "" || len(streamed) != 1 {
+		t.Fatalf("sub session=%q changes=%v", subID, streamed)
+	}
+	persisted := func() []filediff.FileChange {
+		var changes []filediff.FileChange
+		for _, row := range ctrl.sessionMessages(t.Context(), "parent") {
+			if row["file_changes"] != nil {
+				changes = append(changes, decodeFileChanges(t, row["file_changes"])...)
+			}
+		}
+		return changes
+	}
+	if got, want := mustJSON(t, persisted()), mustJSON(t, streamed); got != want {
+		t.Fatalf("parent replay=%s, live=%s", got, want)
+	}
+
+	resumed := stream("/api/sub-sessions/"+subID+"/chat?sessionName=parent", `{"message":"change first to second"}`)
+	for _, event := range resumed {
+		if event["type"] == "sub_file_changes" {
+			streamed = append(streamed, decodeFileChanges(t, event["changes"])...)
+		}
+	}
+	if len(streamed) != 2 {
+		t.Fatalf("changes after resume=%v", streamed)
+	}
+	if got, want := mustJSON(t, persisted()), mustJSON(t, streamed); got != want {
+		t.Fatalf("resumed parent replay=%s, live=%s", got, want)
+	}
+	childEvents, err := readSubEvents(filepath.Join(ctrl.subSessionsDir("parent"), subID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var childChanges []filediff.FileChange
+	for _, event := range childEvents {
+		if event["type"] == "sub_file_changes" {
+			childChanges = append(childChanges, decodeFileChanges(t, event["changes"])...)
+		}
+	}
+	if got, want := mustJSON(t, childChanges), mustJSON(t, streamed); got != want {
+		t.Fatalf("child replay=%s, live=%s", got, want)
+	}
+	// The persisted patches must remain sufficient to undo both versions.
+	for i := len(streamed) - 1; i >= 0; i-- {
+		code, body := call(t, server, http.MethodPost, "/api/sessions/file-changes/revert", key,
+			map[string]any{"workspaceHash": a.App(), "changes": []filediff.FileChange{streamed[i]}})
+		if code != http.StatusOK || body["success"] != true {
+			t.Fatalf("undo %d: %d %v", i, code, body)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "child.txt")); !os.IsNotExist(err) {
+		t.Fatalf("created child file survived undo: %v", err)
+	}
+}
+
+func decodeFileChanges(t *testing.T, value any) []filediff.FileChange {
+	t.Helper()
+	var changes []filediff.FileChange
+	if err := json.Unmarshal([]byte(mustJSON(t, value)), &changes); err != nil {
+		t.Fatal(err)
+	}
+	return changes
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}

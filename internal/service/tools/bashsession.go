@@ -2,7 +2,6 @@ package tools
 
 import (
 	"bytes"
-	"context"
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -26,9 +25,8 @@ import (
 // 输出累积到有上限的日志中，使 wait 能返回增量，
 // 面板端点也能重放完整历史。
 type bashSession struct {
-	id string
-	// owner 是启动该进程的会话名。
-	owner   string
+	id      string
+	owner   SessionOwner
 	command string
 	workdir string
 	started time.Time
@@ -51,39 +49,26 @@ var (
 	bashSessions = map[string]*bashSession{}
 )
 
-type sessionOwnerKey struct{}
-
-// WithSessionOwner 标注这一轮启动的后台进程归属于哪个会话。
-// 子代理运行在独立的 sub-* 会话里，需要显式写回父会话名，
-// 否则它启动的进程在面板上会挂在找不到的会话下。
-func WithSessionOwner(ctx context.Context, owner string) context.Context {
-	if ctx == nil || owner == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, sessionOwnerKey{}, owner)
+// belongsTo 对完整会话标识匹配；零值表示全局管理视图。
+func (s *bashSession) belongsTo(owner SessionOwner) bool {
+	return owner == (SessionOwner{}) || s.owner == owner
 }
 
-// sessionOwner 返回这一轮的归属会话：显式标注优先，
-// 其次是 ADK 会话 ID（聊天轮次里它就是会话名）。
-func sessionOwner(ctx agentpkg.Context) string {
-	if ctx == nil {
-		return ""
+func findBashSession(id string, owner SessionOwner) (*bashSession, bool) {
+	bashMu.Lock()
+	s, ok := bashSessions[id]
+	bashMu.Unlock()
+	// Ownership is fixed when the process starts; output and status use s.mu.
+	if !ok || !s.belongsTo(owner) {
+		return nil, false
 	}
-	if owner, _ := ctx.Value(sessionOwnerKey{}).(string); owner != "" {
-		return owner
-	}
-	return ctx.SessionID()
-}
-
-// belongsTo 说明该进程是否属于 owner；owner 为空时不做过滤。
-func (s *bashSession) belongsTo(owner string) bool {
-	return owner == "" || s.owner == owner
+	return s, true
 }
 
 // BashSessionsSnapshot 列出 /api/agent 接口使用的活跃面板，
 // 按启动时间升序（最新的排在后面，由调用方决定展示顺序）。
-// owner 非空时只返回该会话启动的进程。
-func BashSessionsSnapshot(owner string) []map[string]any {
+// owner 非零时只返回该项目、该会话启动的进程。
+func BashSessionsSnapshot(owner SessionOwner) []map[string]any {
 	bashMu.Lock()
 	defer bashMu.Unlock()
 	out := make([]map[string]any, 0, len(bashSessions))
@@ -91,7 +76,8 @@ func BashSessionsSnapshot(owner string) []map[string]any {
 		s.mu.Lock()
 		if s.belongsTo(owner) {
 			out = append(out, map[string]any{
-				"sessionId": s.id, "owner": s.owner, "workspace": s.workdir, "command": s.command,
+				"sessionId": s.id, "owner": s.owner.Session, "workspaceHash": s.owner.Workspace,
+				"workspace": s.workdir, "command": s.command,
 				"workdir": s.workdir, "startedAt": s.started.UnixMilli(), "status": s.status,
 			})
 		}
@@ -104,7 +90,7 @@ func BashSessionsSnapshot(owner string) []map[string]any {
 }
 
 // BashSessionLog 返回某个会话累积的输出。
-func BashSessionLog(id, owner string) (string, bool) {
+func BashSessionLog(id string, owner SessionOwner) (string, bool) {
 	entry, ok := BashSessionEntry(id, owner)
 	if !ok {
 		return "", false
@@ -114,45 +100,37 @@ func BashSessionLog(id, owner string) (string, bool) {
 }
 
 // BashSessionEntry 返回某个会话的完整面板视图；
-// owner 非空时只解析归属该会话的进程。
-func BashSessionEntry(id, owner string) (map[string]any, bool) {
-	bashMu.Lock()
-	s, ok := bashSessions[id]
-	bashMu.Unlock()
+// owner 非零时只解析归属该项目、该会话的进程。
+func BashSessionEntry(id string, owner SessionOwner) (map[string]any, bool) {
+	s, ok := findBashSession(id, owner)
 	if !ok {
 		return nil, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.belongsTo(owner) {
-		return nil, false
-	}
 	return map[string]any{
-		"sessionId": s.id, "owner": s.owner, "workspace": s.workdir, "command": s.command,
+		"sessionId": s.id, "owner": s.owner.Session, "workspaceHash": s.owner.Workspace,
+		"workspace": s.workdir, "command": s.command,
 		"workdir": s.workdir, "startedAt": s.started.UnixMilli(),
 		"status": s.status, "output": s.log.String(),
 	}, true
 }
 
 // BashSessionTerminate 终止一个会话（"" 表示终止查询范围内的全部），
-// 并立即将其从注册表中移除。owner 非空时只影响归属该会话的进程。
-func BashSessionTerminate(id, owner string) int {
+// 并立即将其从注册表中移除。owner 非零时只影响归属该项目、该会话的进程。
+func BashSessionTerminate(id string, owner SessionOwner) int {
 	bashMu.Lock()
 	var targets []*bashSession
 	if id == "" {
 		for _, s := range bashSessions {
-			s.mu.Lock()
 			if s.belongsTo(owner) {
 				targets = append(targets, s)
 			}
-			s.mu.Unlock()
 		}
 	} else if s, ok := bashSessions[id]; ok {
-		s.mu.Lock()
 		if s.belongsTo(owner) {
 			targets = append(targets, s)
 		}
-		s.mu.Unlock()
 	}
 	bashMu.Unlock()
 	n := 0
@@ -269,11 +247,11 @@ func (s *bashSession) mark() int {
 	return s.log.Len()
 }
 
-func startBashSession(root, command, owner string) (*bashSession, error) {
+func startBashSession(root, command string, owner SessionOwner) (*bashSession, error) {
 	return startShellSession(root, command, owner, shellenv.Current)
 }
 
-func startShellSession(root, command, owner string, shell shellenv.Shell) (*bashSession, error) {
+func startShellSession(root, command string, owner SessionOwner, shell shellenv.Shell) (*bashSession, error) {
 	cmd := shell.InteractiveCommand()
 	cmd.Dir = root
 	stdin, err := cmd.StdinPipe()
@@ -436,17 +414,8 @@ func bashWaitTool() tool.Tool {
 				return nil, err
 			}
 			// 只允许操作本会话启动的进程：注册表是进程级共享的。
-			owner := sessionOwner(ctx)
-			bashMu.Lock()
-			s, ok := bashSessions[in.SessionID]
-			bashMu.Unlock()
+			s, ok := findBashSession(in.SessionID, sessionOwner(ctx))
 			if !ok {
-				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
-			}
-			s.mu.Lock()
-			allowed := s.belongsTo(owner)
-			s.mu.Unlock()
-			if !allowed {
 				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
 			}
 			out := s.wait(s.mark(), in.QuietMs, int(waitTimeout/time.Millisecond))
@@ -483,17 +452,8 @@ func bashStdinTool() tool.Tool {
 			if err != nil {
 				return nil, err
 			}
-			owner := sessionOwner(ctx)
-			bashMu.Lock()
-			s, ok := bashSessions[in.SessionID]
-			bashMu.Unlock()
+			s, ok := findBashSession(in.SessionID, sessionOwner(ctx))
 			if !ok {
-				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
-			}
-			s.mu.Lock()
-			allowed := s.belongsTo(owner)
-			s.mu.Unlock()
-			if !allowed {
 				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
 			}
 			mark := s.mark()
@@ -513,17 +473,8 @@ func bashStopTool() tool.Tool {
 		func(ctx agentpkg.Context, in struct {
 			SessionID string `json:"session_id" jsonschema:"要终止的会话 ID"`
 		}) (map[string]any, error) {
-			owner := sessionOwner(ctx)
-			bashMu.Lock()
-			s, ok := bashSessions[in.SessionID]
-			bashMu.Unlock()
+			s, ok := findBashSession(in.SessionID, sessionOwner(ctx))
 			if !ok {
-				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
-			}
-			s.mu.Lock()
-			allowed := s.belongsTo(owner)
-			s.mu.Unlock()
-			if !allowed {
 				return nil, fmt.Errorf("会话不存在: %s", in.SessionID)
 			}
 			if err := s.stop(); err != nil {

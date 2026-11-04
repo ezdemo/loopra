@@ -36,22 +36,15 @@ func TestReadOnlyPathsIgnoreWorkspaceScope(t *testing.T) {
 	if err := os.WriteFile(target, []byte("outside"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, restrict := range []bool{false, true} {
-		ctx := WithWorkspaceScope(context.Background(), restrict)
-		if restrict {
-			// 即使开启了写入限制，只读工具也不受影响。
-			_ = ctx
-		}
-		got, err := readOnlyPath(root, target)
-		if err != nil {
-			t.Fatalf("restrict=%v: absolute read path rejected: %v", restrict, err)
-		}
-		if filepath.Clean(got) != filepath.Clean(target) {
-			t.Fatalf("restrict=%v: path = %s, want %s", restrict, got, target)
-		}
+	got, err := readOnlyPath(root, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(got) != filepath.Clean(target) {
+		t.Fatalf("path = %s, want %s", got, target)
 	}
 	// 相对路径仍然相对项目根解析。
-	got, err := readOnlyPath(root, "nested/file.txt")
+	got, err = readOnlyPath(root, "nested/file.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,26 +105,48 @@ func TestWorkspaceScopeRejectsEscapesWhenEnabled(t *testing.T) {
 func TestSafePathRejectsSymlinkEscape(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()
 	link := filepath.Join(root, "escape")
-	if err := os.Symlink(outside, link); err != nil {
-		if runtime.GOOS != "windows" {
-			t.Skipf("symlink creation unavailable: %v", err)
-		}
-		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `New-Item -ItemType Junction -Path $env:LOOPRAX_TEST_LINK -Target $env:LOOPRAX_TEST_TARGET -ErrorAction Stop | Out-Null`)
-		cmd.Env = append(os.Environ(), "LOOPRAX_TEST_LINK="+link, "LOOPRAX_TEST_TARGET="+outside)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("junction fixture failed: %s: %v", output, err)
-		}
-	}
+	createDirectoryLink(t, link, outside)
 	ctx := WithWorkspaceScope(context.Background(), true)
-	for _, path := range []string{"escape", "escape/new/deep/file.txt", "../outside"} {
+	for _, path := range []string{"escape", "escape/new/deep/file.txt", filepath.Join(link, "new.txt"), "../outside"} {
 		if _, err := contextualPath(ctx, root, path); err == nil {
-			resolved, resolveErr := filepath.EvalSymlinks(link)
-			info, _ := os.Lstat(link)
-			target, linkErr := os.Readlink(link)
-			t.Fatalf("accepted escaped path %q (root=%s outside=%s resolved=%s err=%v mode=%s target=%s linkErr=%v)", path, root, outside, resolved, resolveErr, info.Mode(), target, linkErr)
+			t.Fatalf("accepted escaped path %q", path)
 		}
 	}
 	if _, err := safePath(root, "new/deep/file.txt"); err != nil {
 		t.Fatalf("rejected a new workspace file: %v", err)
+	}
+}
+
+func TestUnrestrictedWritePathsFollowDirectoryLinks(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	link := filepath.Join(root, "linked")
+	createDirectoryLink(t, link, outside)
+	ctx := WithWorkspaceScope(context.Background(), false)
+	for _, path := range []string{"linked/new.txt", filepath.Join(link, "new.txt")} {
+		abs, err := contextualPath(ctx, root, path)
+		if err != nil {
+			t.Fatalf("unrestricted path %q: %v", path, err)
+		}
+		if err := os.WriteFile(abs, []byte("outside"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(outside, "new.txt"))
+		if err != nil || string(data) != "outside" {
+			t.Fatalf("write through %q: content=%q err=%v", path, data, err)
+		}
+	}
+}
+
+func createDirectoryLink(t *testing.T, link, target string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if runtime.GOOS != "windows" {
+			t.Skipf("symlink creation unavailable: %v", err)
+		}
+		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `New-Item -ItemType Junction -Path $env:LOOPRAX_TEST_LINK -Target $env:LOOPRAX_TEST_TARGET -ErrorAction Stop | Out-Null`)
+		cmd.Env = append(os.Environ(), "LOOPRAX_TEST_LINK="+link, "LOOPRAX_TEST_TARGET="+target)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("junction fixture failed: %s: %v", output, err)
+		}
 	}
 }

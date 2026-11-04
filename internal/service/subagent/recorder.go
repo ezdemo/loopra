@@ -27,7 +27,7 @@ type recorder struct {
 	mu  sync.Mutex
 }
 
-func openRecorder(subDir string) *recorder {
+func newRecorder(subDir string) *recorder {
 	_ = os.MkdirAll(subDir, 0o755)
 	return &recorder{dir: subDir}
 }
@@ -55,8 +55,6 @@ func (rec *recorder) record(payload map[string]any) {
 	defer f.Close()
 	_, _ = f.Write(append(data, '\n'))
 }
-
-func (rec *recorder) close() {}
 
 func nowMillis() int64 { return time.Now().UnixMilli() }
 
@@ -132,6 +130,16 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 				}
 			}
 			continue
+		}
+		if changes := ev.CustomMetadata["fileChanges"]; changes != nil {
+			payload := map[string]any{
+				"type": "sub_file_changes", "subId": subID,
+				"subSessionId": subSessionID, "changes": changes,
+			}
+			send(sink, "sub_file_changes", payload)
+			if rec != nil {
+				rec.record(payload)
+			}
 		}
 		for _, p := range ev.Content.Parts {
 			if p == nil {

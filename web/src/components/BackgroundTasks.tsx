@@ -7,19 +7,19 @@ import { TerminalPanel } from './Panels';
 import BackgroundTaskLog from './BackgroundTaskLog';
 
 type Props = {
-  api: LoopraClient; sessionName?: string; connected: boolean; open: boolean;
+  api: LoopraClient; workspaceHash: string; sessionName?: string; connected: boolean; open: boolean;
   onOpenChange: (open: boolean) => void; notify: (message: string) => void;
   children: ReactNode; actions?: ReactNode; toolbarTarget?: HTMLElement | null;
 };
 
-export default function BackgroundTasks({ api, sessionName, connected, open, onOpenChange, notify, children, actions, toolbarTarget }: Props) {
+export default function BackgroundTasks({ api, workspaceHash, sessionName, connected, open, onOpenChange, notify, children, actions, toolbarTarget }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const toolbar = useRef<HTMLDivElement>(null);
   const panelId = useId();
   const [unread, setUnread] = useState(false);
-  const tasks = useBashSessions(api, sessionName, connected);
+  const tasks = useBashSessions(api, workspaceHash, sessionName, connected);
   const taskCount = tasks.sessions.length;
   const [logOpen, setLogOpen] = useState(false);
   const [placement, setPlacement] = useState({ below: false, height: 400, offset: 28 });
@@ -75,7 +75,7 @@ export default function BackgroundTasks({ api, sessionName, connected, open, onO
   return <div className={`composer-task-anchor${taskCount > 0 ? ' has-tasks' : ''}`} ref={root} data-popover>
     {toolbarTarget ? createPortal(taskToolbar, toolbarTarget) : taskToolbar}
     {open && <div ref={dialog} id={panelId} className={`background-tasks-popover${placement.below ? ' below' : ''}`} style={{ '--background-tasks-height': `${placement.height}px`, '--background-tasks-offset': `${placement.offset}px` } as CSSProperties} role="dialog" aria-label="后台任务" tabIndex={-1}>
-      <TerminalPanel key={sessionName} api={api} sessionName={sessionName} onClose={close} notify={notify} state={tasks} onInspect={() => { onOpenChange(false); setLogOpen(true); }} />
+      <TerminalPanel key={sessionName} api={api} workspaceHash={workspaceHash} sessionName={sessionName} onClose={close} notify={notify} state={tasks} onInspect={() => { onOpenChange(false); setLogOpen(true); }} />
     </div>}
     {children}
     <BackgroundTaskLog state={tasks} open={logOpen} onClose={() => { setLogOpen(false); trigger.current?.focus(); }} notify={notify} />

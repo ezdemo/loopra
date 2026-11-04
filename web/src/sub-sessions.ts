@@ -1,7 +1,7 @@
 // Sub-agent session replay, ported from legacy `src/utils/subAgentBlocks.js` and
 // the `subSessionsAPI` helpers: list a parent session's sub-agent runs, rebuild
 // their blocks from the stored events, and continue an active run.
-import type { ChatBlock, ToolStatus } from './chat';
+import type { ChatBlock, FileChange, ToolStatus } from './chat';
 
 export type SubSession = {
   subSessionId: string; task?: string; name?: string; title?: string; profile?: string;
@@ -13,6 +13,7 @@ export type SubSessionEvent = {
   content?: string; token?: string; args?: unknown; result?: unknown; resultDelta?: string; error?: string; status?: string;
   startedAt?: number; endedAt?: number; finishedAt?: number; description?: string;
   options?: { title?: string; value?: string; summary?: string }[];
+  changes?: FileChange[];
 };
 
 const subParams = (workspaceHash: string, sessionName: string) => new URLSearchParams({ workspaceHash, sessionName }).toString();
@@ -75,6 +76,10 @@ export function subSessionBlocks(events: SubSessionEvent[]) {
   events.forEach(event => {
     const type = String(event.type || '');
     if (type === 'sub_start') return;
+    if (type === 'sub_file_changes' && event.changes?.length) {
+      blocks.push({ id: nextId(), type: 'file_changes', changes: event.changes });
+      return;
+    }
     // Local-only event appended when the user continues an active run.
     if (type === 'sub_user') {
       blocks.push({ id: nextId(), type: 'content', content: `**你：** ${text(event.content)}` });

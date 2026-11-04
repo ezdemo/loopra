@@ -52,9 +52,9 @@
 |---|---|---|
 | GET `/status` | — | `AgentStatusDTO{ready:b, model:s, workspace:s, cacheSize:i, historySize:i, hitlMode:s, sessionName:s, promptTokens:l, completionTokens:l}` |
 | GET `/session-status` | q: workspaceHash*, sessionName* | `SessionStatusDTO{running:b, requestId:s?, title:s?}` |
-| GET `/bash-sessions` | q: sessionName? | `[BashSessionDTO{sessionId:s, owner:s, workspace:s, command:s, workdir:s, startedAt:l, status:s}]`（仅含该会话启动的进程；省略 sessionName 时返回全局视图） |
-| POST `/bash-sessions/terminate` | body `{sessionId?, sessionName?}` | s（跨会话终止无效；省略 sessionId 时必须有 sessionName） |
-| GET `/bash-sessions/log` | q: sessionId*, sessionName? | `BashSessionLogDTO{...,output:s}` |
+| GET `/bash-sessions` | q: workspaceHash?, sessionName? | `[BashSessionDTO{sessionId:s, owner:s, workspaceHash:s, workspace:s, command:s, workdir:s, startedAt:l, status:s}]`（按项目与会话名共同隔离；省略 workspaceHash 时使用默认项目，省略 sessionName 时返回全局管理视图） |
+| POST `/bash-sessions/terminate` | body `{workspaceHash?, sessionId?, sessionName?}` | s（跨项目或跨会话终止无效；省略 sessionId 时必须有 sessionName） |
+| GET `/bash-sessions/log` | q: workspaceHash?, sessionId*, sessionName? | `BashSessionLogDTO{...,output:s}` |
 | GET `/history` | q: workspaceHash*, sessionName* | `[]`（编译后历史视图） |
 | GET `/history/events` | q: workspaceHash*, sessionName* | `[]`（ChatMessage 行，见 SSE 契约 §3） |
 | GET `/mode` | q: workspaceHash*, sessionName* | `{}` 计划模式状态 |

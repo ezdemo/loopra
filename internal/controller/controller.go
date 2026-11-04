@@ -331,6 +331,7 @@ func (s *Controller) installSubRunner() {
 	s.subRunner = &subagent.Runner{
 		ParentModel: s.agent.Model,
 		Config:      s.cfg,
+		Workspace:   s.agent.App(),
 		Environment: shellenv.Instruction(s.workspaceRoot()),
 		BuildModel: func(channelID, modelName string) (model.LLM, error) {
 			if s.cfg == nil {

@@ -60,7 +60,7 @@
 | `acp_commands` | `{commands: [{name, description, inputHint: string\|null}]}` |
 
 ### 1.6 子代理事件（payload 含 `subId`；Native 为进程内自增 int 字符串化，ACP 路由时为父 toolCallId；另含 `subSessionId`：匹配 `[A-Za-z0-9_-]{1,64}` 原样，否则 SHA-256 hex = 磁盘 `.sub/{subSessionId}.jsonl` 文件名）
-`sub_start{subId,subSessionId?,task,name?,title?,parentSubId?,startedAt:l}`、`sub_content{subId,token}`、`sub_reasoning{subId,token}`、`sub_reasoning_started{subId}`、`sub_tool_call{subId,toolCallId?,name,args:string}`、`sub_tool_update`、`sub_tool_result{subId,toolCallId?,name,result,status}`（并行调用时每个工具一完成就发送，同一 `toolCallId` 仅一次；`.sub` 审计日志仍按合并事件记录一次）、`sub_usage{subId,model?,promptTokens,completionTokens,totalTokens,cacheHit,cacheMiss}`、`sub_error{subId,error}`、`sub_log`、`sub_plan{subId,entries:[...]}`、`sub_complete{subId}`、`sub_end{subId,status:"completed"/"aborted"/"error",error?(仅error),endedAt:l}`。
+`sub_start{subId,subSessionId?,task,name?,title?,parentSubId?,startedAt:l}`、`sub_content{subId,token}`、`sub_reasoning{subId,token}`、`sub_reasoning_started{subId}`、`sub_tool_call{subId,toolCallId?,name,args:string}`、`sub_tool_update`、`sub_tool_result{subId,toolCallId?,name,result,status}`（并行调用时每个工具一完成就发送，同一 `toolCallId` 仅一次；`.sub` 审计日志仍按合并事件记录一次）、`sub_file_changes{subId,subSessionId,changes:[...]}`（与 `file_changes` 使用同一变更格式，持久化到子会话日志并保留父会话的变更记录）、`sub_usage{subId,model?,promptTokens,completionTokens,totalTokens,cacheHit,cacheMiss}`、`sub_error{subId,error}`、`sub_log`、`sub_plan{subId,entries:[...]}`、`sub_complete{subId}`、`sub_end{subId,status:"completed"/"aborted"/"error",error?(仅error),endedAt:l}`。
 顺序约定：首 `sub_start`，末 `sub_end`（幂等；取消补发 aborted）。
 
 ## 2. 前端消息模型（loopra-front 拼装规则，Go 端只需按上表发事件）

@@ -67,6 +67,7 @@ type Runner struct {
 	// ParentModel 是父智能体使用的模型。
 	ParentModel model.LLM
 	Config      *config.Loopra
+	Workspace   string
 	// BuildModel 解析角色的渠道覆盖。
 	BuildModel func(channelID, modelName string) (model.LLM, error)
 	// Profiles 按 id 解析角色定义。
@@ -114,13 +115,11 @@ func BuildTitle(name, task string) string {
 
 // liveRun 跟踪一次已完成的子运行，用于继续对话。
 type liveRun struct {
+	owner        tools.SessionOwner
 	imageConfig  *config.Loopra
 	subID        int
 	subSessionID string
-	// parentSession 是发起该子会话的父会话，续聊时仍需要它来
-	// 归属后台进程与审批请求。
-	parentSession string
-	title         string
+	title        string
 	runner       *runner.Runner
 	sess         session.Session
 	mu           sync.Mutex
@@ -225,8 +224,7 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	rec := openRecorder(r.SubDir(parentSession))
-	defer rec.close()
+	rec := newRecorder(r.SubDir(parentSession))
 
 	started := time.Now().UnixMilli()
 	rec.record(map[string]any{
@@ -242,7 +240,8 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 	var replyErr error
 	// 子代理运行在独立的 sub-* 会话里，显式把后台进程归属到父会话，
 	// 否则它启动的进程在面板上会挂到用户看不到的会话下。
-	driveCtx := tools.WithSessionOwner(tools.WithWorkspaceScope(tools.WithImageRuntime(runCtx, contextConfig, nil), contextConfig != nil && contextConfig.ToolsRestrictWorkspace), parentSession)
+	owner := tools.SessionOwner{Workspace: r.Workspace, Session: parentSession}
+	driveCtx := executionContext(runCtx, contextConfig, owner)
 	reply := r.drive(driveCtx, run, created.Session, parentSession, task, subID, subSessionID, rec, sink)
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
@@ -264,7 +263,10 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 
 	res := Result{SubSessionID: subSessionID, Title: title, Reply: reply, Status: status}
 	if status == "completed" {
-		keepResumable(subID, subSessionID, parentSession, title, run, created.Session, contextConfig)
+		keepResumable(&liveRun{
+			owner: owner, imageConfig: contextConfig, subID: subID,
+			subSessionID: subSessionID, title: title, runner: run, sess: created.Session,
+		})
 	}
 	return res, replyErr
 }
@@ -274,7 +276,7 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 	runsMu.Lock()
 	prev, ok := resumable[subSessionID]
 	runsMu.Unlock()
-	if !ok {
+	if !ok || prev.owner.Workspace != r.Workspace {
 		return "", fmt.Errorf("子会话不可续聊或已过期")
 	}
 	prev.mu.Lock()
@@ -296,23 +298,41 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	driveCtx := tools.WithSessionOwner(tools.WithWorkspaceScope(tools.WithImageRuntime(runCtx, prev.imageConfig, nil), prev.imageConfig != nil && prev.imageConfig.ToolsRestrictWorkspace), prev.parentSession)
-	return r.drive(driveCtx, prev.runner, prev.sess, prev.parentSession, message, prev.subID, subSessionID, nil, sink), nil
+	rec := newRecorder(r.SubDir(prev.owner.Session))
+	rec.record(map[string]any{
+		"type": "sub_user", "subId": prev.subID, "subSessionId": subSessionID, "content": message,
+	})
+	driveCtx := executionContext(runCtx, prev.imageConfig, prev.owner)
+	reply := r.drive(driveCtx, prev.runner, prev.sess, prev.owner.Session, message, prev.subID, subSessionID, rec, sink)
+	status := "completed"
+	if runCtx.Err() != nil {
+		status = "aborted"
+	}
+	end := map[string]any{
+		"type": "sub_end", "subId": prev.subID, "subSessionId": subSessionID,
+		"status": status, "endedAt": time.Now().UnixMilli(),
+	}
+	rec.record(end)
+	send(sink, "sub_end", end)
+	return reply, runCtx.Err()
 }
 
-func keepResumable(subID int, subSessionID, parentSession, title string, run *runner.Runner, sess session.Session, cfg *config.Loopra) {
+func executionContext(ctx context.Context, cfg *config.Loopra, owner tools.SessionOwner) context.Context {
+	ctx = tools.WithFileChanges(ctx, nil)
+	ctx = tools.WithImageRuntime(ctx, cfg, nil)
+	ctx = tools.WithWorkspaceScope(ctx, cfg != nil && cfg.ToolsRestrictWorkspace)
+	return tools.WithSessionOwner(ctx, owner)
+}
+
+func keepResumable(run *liveRun) {
 	runsMu.Lock()
 	if len(resumable) >= 20 && len(resumeOrd) > 0 {
 		oldest := resumeOrd[0]
 		resumeOrd = resumeOrd[1:]
 		delete(resumable, oldest)
 	}
-	resumable[subSessionID] = &liveRun{
-		imageConfig: cfg,
-		subID:       subID, subSessionID: subSessionID, parentSession: parentSession, title: title,
-		runner: run, sess: sess,
-	}
-	resumeOrd = append(resumeOrd, subSessionID)
+	resumable[run.subSessionID] = run
+	resumeOrd = append(resumeOrd, run.subSessionID)
 	runsMu.Unlock()
 }
 

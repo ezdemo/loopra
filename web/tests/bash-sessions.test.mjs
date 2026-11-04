@@ -9,11 +9,11 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { target: t
 const { bashSessionLogPath, bashSessionState, bashSessionSummary, bashSessionsPath, formatBashDuration, formatBashUptime, runningCount, workspaceName } =
   await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
-test('endpoints scope every call to the owning session', () => {
-  assert.equal(bashSessionsPath('sess 1'), '/agent/bash-sessions?sessionName=sess%201');
-  assert.equal(bashSessionsPath(undefined), '/agent/bash-sessions');
-  assert.equal(bashSessionLogPath('sess 1', 'a/b'), '/agent/bash-sessions/log?sessionName=sess+1&sessionId=a%2Fb');
-  assert.equal(bashSessionLogPath(undefined, 'a/b'), '/agent/bash-sessions/log?sessionId=a%2Fb');
+test('endpoints scope every call to both the workspace and session', () => {
+  assert.equal(bashSessionsPath('project a', 'sess 1'), '/agent/bash-sessions?workspaceHash=project+a&sessionName=sess+1');
+  assert.equal(bashSessionsPath('project a'), '/agent/bash-sessions?workspaceHash=project+a');
+  assert.equal(bashSessionLogPath('project a', 'sess 1', 'a/b'), '/agent/bash-sessions/log?workspaceHash=project+a&sessionName=sess+1&sessionId=a%2Fb');
+  assert.notEqual(bashSessionsPath('project-a', 'default'), bashSessionsPath('project-b', 'default'));
 });
 
 test('durations collapse to a single legacy unit', () => {

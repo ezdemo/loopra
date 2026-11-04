@@ -9,8 +9,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ezdemo/looprax/adk/session/jsonl"
+	"github.com/ezdemo/looprax/internal/infrastructure/filediff"
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 // 子会话目录布局：{sessionsDir}/{sanitize(parent)}.sub/{id}.jsonl，
@@ -202,8 +205,21 @@ func (s *Controller) subSessionChat(w http.ResponseWriter, r *http.Request, id s
 		writeFail(w, http.StatusBadRequest, "子会话不可续聊或已过期")
 		return
 	}
+	parent := r.URL.Query().Get("sessionName")
+	if _, err := os.Stat(filepath.Join(s.subSessionsDir(parent), id+".jsonl")); err != nil {
+		writeFail(w, http.StatusBadRequest, "子会话不存在: "+id)
+		return
+	}
 	sse := startSSE(w)
-	reply, err := s.subRunner.Resume(r.Context(), id, body.Message, ctxSink{s: sse})
+	ctx := tools.WithFileChanges(r.Context(), func(changes []filediff.FileChange) {
+		err := s.agent.Sessions.AppendTranscript(s.agent.App(), parent, []map[string]any{{
+			"role": "assistant", "file_changes": changes, "timestamp": time.Now().UnixMilli(),
+		}})
+		if err != nil {
+			sse.sendError("保存文件变更失败: " + err.Error())
+		}
+	})
+	reply, err := s.subRunner.Resume(ctx, id, body.Message, ctxSink{s: sse})
 	if err != nil {
 		sse.sendError(err.Error())
 		return

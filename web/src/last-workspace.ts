@@ -38,53 +38,55 @@ export function preferredWorkspace(current: string, workspaces: WorkspaceRef[], 
   return workspaces.find(item => !!item.path && item.path === configuredPath)?.hash || workspaces[0]?.hash || '';
 }
 
-/** What the page knows about the service record of the last opened project. */
-export type LastWorkspaceSync = {
-  /** The service answered and named a project, or answered that it has none. */
-  answered: boolean;
-  /** The read failed, so the record is unknown and must not be overwritten. */
-  unread: boolean;
-  /** The record the service reported, empty when it has none. */
-  stored: string;
-  /** The project the page is showing right now. */
+type WorkspaceRecord =
+  | { status: 'loading' }
+  | { status: 'received'; hash: string }
+  | { status: 'ready'; hash: string }
+  | { status: 'failed' };
+
+export type WorkspaceSelection = {
+  server: string;
   current: string;
-  /** The last value this page wrote, so an unchanged project is not reported again. */
-  reported: string;
-  /** The user picked a project here, which outranks a record that arrives later. */
   picked: boolean;
-  /** Whether a hash still names a project that exists. */
-  exists: (hash: string) => boolean;
+  record: WorkspaceRecord;
 };
 
-/**
- * Both effects below ask the same questions - is the record known, is it still valid,
- * and is it worth writing back - so the answers live here instead of in the component.
- * A null project means 'settle and restore', while the empty string is a real answer
- * from the service: it has no record, so the configured project may stand.
- */
-export function settledLastWorkspace(state: Pick<LastWorkspaceSync, 'answered' | 'stored' | 'exists'>): string | null {
-  if (!state.answered) return null;
-  return state.exists(state.stored) ? state.stored : '';
+type WorkspaceAction =
+  | { type: 'reset'; server: string; cached: string }
+  | { type: 'select'; server: string; hash: string }
+  | { type: 'received'; server: string; hash: string }
+  | { type: 'failed'; server: string }
+  | { type: 'reconcile'; server: string; workspaces: WorkspaceRef[]; cached: string; configuredPath?: string };
+
+export function initialWorkspaceSelection(server: string, cached: string): WorkspaceSelection {
+  return { server, current: cached, picked: false, record: { status: 'loading' } };
 }
 
-export function shouldRestoreWorkspace(state: Pick<LastWorkspaceSync, 'answered' | 'stored' | 'picked' | 'current' | 'exists'>): boolean {
-  const settled = settledLastWorkspace(state);
-  // A pick already made here wins, and re-selecting the visible project would only
-  // reset the scroll position and reload the sessions below it.
-  return !!settled && !state.picked && state.current !== settled;
-}
-
-/**
- * Reporting is what makes the record follow the user to another browser, so it has to
- * be both useful and safe: never before the service answered, never after a failed read,
- * never for a project that is not on screen, and never twice for the same one.
- */
-export function shouldRecordWorkspace(state: LastWorkspaceSync): boolean {
-  if (!state.answered || state.unread) return false;
-  if (!state.current || !state.exists(state.current)) return false;
-  if (state.current === state.reported) return false;
-  // A restored project is not a switch: the service already knows it, and writing it
-  // back would let one browser's startup undo a record another browser just made.
-  const settled = settledLastWorkspace(state) || '';
-  return state.picked || state.current !== settled;
+/** Restore once the project list is known. Every explicit selection wins over a late read. */
+export function workspaceSelectionReducer(state: WorkspaceSelection, action: WorkspaceAction): WorkspaceSelection {
+  if (action.type === 'reset') {
+    return state.server === action.server ? state : initialWorkspaceSelection(action.server, action.cached);
+  }
+  if (action.server !== state.server) return state;
+  switch (action.type) {
+    case 'select':
+      return { ...state, current: action.hash, picked: true };
+    case 'received':
+      return { ...state, record: { status: 'received', hash: action.hash } };
+    case 'failed':
+      return { ...state, record: { status: 'failed' } };
+    case 'reconcile': {
+      if (!action.workspaces.length) return state;
+      const exists = (hash: string) => action.workspaces.some(item => item.hash === hash);
+      let { current, record } = state;
+      if (record.status === 'received') {
+        const hash = exists(record.hash) ? record.hash : '';
+        record = { status: 'ready', hash };
+        if (hash && !state.picked) current = hash;
+      }
+      const stored = record.status === 'ready' ? record.hash : '';
+      current = preferredWorkspace(current, action.workspaces, lastWorkspaceChoice(action.cached, stored, exists), action.configuredPath);
+      return current === state.current && record === state.record ? state : { ...state, current, record };
+    }
+  }
 }

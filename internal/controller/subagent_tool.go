@@ -8,6 +8,7 @@ import (
 	"google.golang.org/adk/v2/tool/functiontool"
 
 	"github.com/ezdemo/looprax/internal/service/subagent"
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 // sinkKey 通过请求上下文传递实时 SSE sink，
@@ -56,7 +57,8 @@ func (s *Controller) newSubAgentTool() tool.Tool {
 		if v, ok := ctx.Value(sessionKey{}).(string); ok && v != "" {
 			parent = v
 		}
-		res, err := s.subRunner.Run(ctx, parent, in.Name, in.Profile, in.Task, in.Instructions, sinkFromContext(ctx))
+		runCtx := tools.WithChildFileChanges(ctx)
+		res, err := s.subRunner.Run(runCtx, parent, in.Name, in.Profile, in.Task, in.Instructions, sinkFromContext(ctx))
 		if err != nil {
 			// Java 工具以纯文本返回校验失败。
 			return map[string]any{"result": err.Error(), "status": "failed"}, nil

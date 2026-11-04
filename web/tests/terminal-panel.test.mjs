@@ -103,8 +103,8 @@ async function mount({ floating = false, initialSessions = sessions, actions, to
 test('lists background sessions with the legacy summary and log output', async () => {
   const view = await mount();
   try {
-    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions?sessionName=sess-1'));
-    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?sessionName=sess-1&sessionId=s-1'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions?workspaceHash=hash+1&sessionName=sess-1'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?workspaceHash=hash+1&sessionName=sess-1&sessionId=s-1'));
     const text = view.container.textContent;
     assert.match(text, /1 个运行中 · 共 2 个进程/);
     assert.match(text, /pnpm build/);
@@ -118,7 +118,7 @@ test('clicking a task information block selects its logs', async () => {
   const view = await mount();
   try {
     await act(async () => { view.container.querySelector('[aria-label="查看日志 s-2"]').click(); });
-    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?sessionName=sess-1&sessionId=s-2'));
+    assert.ok(globalThis.__calls.some(call => call.path === '/agent/bash-sessions/log?workspaceHash=hash+1&sessionName=sess-1&sessionId=s-2'));
     assert.match(view.container.querySelector('.bash-row.selected').textContent, /sleep 1/);
   } finally { await view.close(); }
 });
@@ -127,7 +127,7 @@ test('stopping a process posts the session id for the active workspace', async (
   const view = await mount();
   try {
     await act(async () => { view.container.querySelector('[aria-label="终止任务 s-1"]').click(); await Promise.resolve(); });
-    assert.ok(globalThis.__calls.some(call => call.method === 'POST' && call.path === '/agent/bash-sessions/terminate' && JSON.stringify(call.body) === JSON.stringify({ sessionId: 's-1', sessionName: 'sess-1' })));
+    assert.ok(globalThis.__calls.some(call => call.method === 'POST' && call.path === '/agent/bash-sessions/terminate' && JSON.stringify(call.body) === JSON.stringify({ workspaceHash: 'hash 1', sessionId: 's-1', sessionName: 'sess-1' })));
   } finally { await view.close(); }
 });
 
@@ -136,7 +136,7 @@ test('each task terminates by its own id without changing the task selected for 
   try {
     await act(async () => { view.container.querySelector('[aria-label="终止任务 s-2"]').click(); });
     const terminations = globalThis.__calls.filter(call => call.path === '/agent/bash-sessions/terminate');
-    assert.deepEqual(terminations.map(call => call.body), [{ sessionId: 's-2', sessionName: 'sess-1' }]);
+    assert.deepEqual(terminations.map(call => call.body), [{ workspaceHash: 'hash 1', sessionId: 's-2', sessionName: 'sess-1' }]);
     assert.equal(view.container.querySelector('.bash-row.selected strong').textContent, 'pnpm build');
   } finally { await view.close(); }
 });

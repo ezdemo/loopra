@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/last-workspace.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { LAST_WORKSPACE_KEY, lastWorkspaceChoice, preferredWorkspace, readLastWorkspace, settledLastWorkspace, shouldRecordWorkspace, shouldRestoreWorkspace, writeLastWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { LAST_WORKSPACE_KEY, lastWorkspaceChoice, preferredWorkspace, readLastWorkspace, initialWorkspaceSelection, workspaceSelectionReducer, writeLastWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 function memory() {
   const values = new Map();
@@ -75,82 +75,21 @@ test('the last choice is stored per browser and a blank choice does not erase it
   assert.equal(readLastWorkspace(storage), '');
 });
 
-// The two startup effects in App.tsx reduce to these predicates, so the ordering they
-// depend on is pinned here rather than in a component that cannot be mounted cheaply.
-const live = hash => hash === 'looprax' || hash === 'other';
-const sync = (overrides = {}) => ({ answered: true, unread: false, stored: '', current: '', reported: '', picked: false, exists: live, ...overrides });
-
-test('an unanswered service record settles to nothing instead of to "no record"', () => {
-  // null is 'still unknown': the page must not treat it as an answer and must not write.
-  assert.equal(settledLastWorkspace({ answered: false, stored: 'looprax', exists: live }), null);
-  assert.equal(settledLastWorkspace({ answered: true, stored: 'looprax', exists: live }), 'looprax');
-  // A real answer with no record is the empty string, which lets the configured project stand.
-  assert.equal(settledLastWorkspace({ answered: true, stored: '', exists: live }), '');
+test('a received record waits for the project list and then restores once', () => {
+  let state = initialWorkspaceSelection('server', '');
+  state = workspaceSelectionReducer(state, { type: 'received', server: 'server', hash: 'other' });
+  const reconcile = { type: 'reconcile', server: 'server', workspaces: [], cached: '', configuredPath: projects[1].path };
+  assert.equal(workspaceSelectionReducer(state, reconcile), state);
+  state = workspaceSelectionReducer(state, { ...reconcile, workspaces: projects });
+  assert.equal(state.current, 'other');
+  assert.deepEqual(state.record, { status: 'ready', hash: 'other' });
 });
 
-test('a record naming a deleted project settles as no record', () => {
-  assert.equal(settledLastWorkspace({ answered: true, stored: 'gone', exists: live }), '');
-  // The chat workspace is a real entry in the project list, so it restores like any other.
-  assert.equal(settledLastWorkspace({ answered: true, stored: '__loopra_chat__', exists: hash => hash === '__loopra_chat__' }), '__loopra_chat__');
-});
-
-test('a service record is restored over the configured project once it arrives', () => {
-  // This is the cold start the feature exists for: config.workspace pointed the page at
-  // the default project, and the record has to win over it.
-  assert.equal(shouldRestoreWorkspace(sync({ stored: 'looprax', current: 'other' })), true);
-  // Nothing to change when the page already shows the recorded project.
-  assert.equal(shouldRestoreWorkspace(sync({ stored: 'looprax', current: 'looprax' })), false);
-  assert.equal(shouldRestoreWorkspace(sync({ answered: false, stored: 'looprax', current: 'other' })), false);
-  assert.equal(shouldRestoreWorkspace(sync({ stored: '', current: 'other' })), false);
-  assert.equal(shouldRestoreWorkspace(sync({ stored: 'gone', current: 'other' })), false);
-});
-
-test('a project the user picked is not dragged back by a late record', () => {
-  assert.equal(shouldRestoreWorkspace(sync({ stored: 'looprax', current: 'other', picked: true })), false);
-});
-
-test('nothing is reported before the service answers', () => {
-  assert.equal(shouldRecordWorkspace(sync({ answered: false, current: 'looprax' })), false);
-  // Even a restored-looking project must wait: writing the configured project now would
-  // save a guess as if the user had chosen it.
-  assert.equal(shouldRecordWorkspace(sync({ answered: false, current: 'looprax', stored: 'looprax' })), false);
-});
-
-test('a failed read never overwrites the record it could not read', () => {
-  // The regression this pins: settling on 'no record' after an error used to open the
-  // write path, and the page then saved the configured project over the real record.
-  assert.equal(shouldRecordWorkspace(sync({ unread: true, stored: '', current: 'other' })), false);
-  // Switching projects afterwards is still suppressed for that session.
-  assert.equal(shouldRecordWorkspace(sync({ unread: true, stored: '', current: 'looprax' })), false);
-  assert.equal(shouldRecordWorkspace(sync({ unread: false, stored: '', current: 'looprax' })), true);
-});
-
-test('only a project that exists and changed is reported', () => {
-  assert.equal(shouldRecordWorkspace(sync({ current: '' })), false);
-  assert.equal(shouldRecordWorkspace(sync({ current: 'gone' })), false);
-  assert.equal(shouldRecordWorkspace(sync({ current: 'looprax', reported: 'looprax' })), false);
-  assert.equal(shouldRecordWorkspace(sync({ current: 'looprax', reported: 'other' })), true);
-});
-
-test('a restored project is not reported back, but a real switch is', () => {
-  // Restoring is not a switch: the service already knows this project, and reporting it
-  // would let one browser's startup undo a record another browser just made.
-  assert.equal(shouldRecordWorkspace(sync({ stored: 'looprax', current: 'looprax' })), false);
-  assert.equal(shouldRecordWorkspace(sync({ stored: 'looprax', current: 'other' })), true);
-  assert.equal(shouldRecordWorkspace(sync({ stored: '', current: 'looprax' })), true);
-  // A pick outranks the record even when both name the same project, because the user
-  // chose it deliberately after a failed read or a stale cache.
-  assert.equal(shouldRecordWorkspace(sync({ stored: 'looprax', current: 'looprax', picked: true })), true);
-});
-
-test('the write path keeps the record behind the answered-read gate', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  // The guard is now expressed once, in shouldRecordWorkspace; the effect must not
-  // re-derive its own conditions next to it.
-  assert.match(app, /if \(!report\) return;/);
-  assert.match(app, /unread: lastWorkspaceUnread\.current/);
-  assert.match(app, /answered: serverLastWorkspace !== null/);
-  // A failed read settles the record without claiming the project list is authoritative
-  // for it, so the write-back above stays closed for the rest of the session.
-  assert.match(app, /lastWorkspaceUnread\.current = true;\s*\n\s*setServerLastWorkspace\(''\);/);
+test('switching services resets user intent and ignores responses from the old service', () => {
+  let state = initialWorkspaceSelection('first', 'looprax');
+  state = workspaceSelectionReducer(state, { type: 'select', server: 'first', hash: 'other' });
+  state = workspaceSelectionReducer(state, { type: 'reset', server: 'second', cached: '' });
+  assert.equal(state.picked, false);
+  assert.deepEqual(state.record, { status: 'loading' });
+  assert.equal(workspaceSelectionReducer(state, { type: 'received', server: 'first', hash: 'other' }), state);
 });

@@ -31,6 +31,28 @@ func WithFileChanges(ctx context.Context, sink func([]filediff.FileChange)) cont
 	})
 }
 
+// WithChildFileChanges gives a child runner its own tool-event metadata while
+// collecting the same changes on the parent's sub_agent call for durable replay.
+func WithChildFileChanges(ctx agent.Context) context.Context {
+	parent, _ := ctx.Value(fileChangesKey{}).(*fileChangesRuntime)
+	if parent == nil {
+		return WithFileChanges(ctx, nil)
+	}
+	key := ctx.InvocationID() + "/" + ctx.FunctionCallID()
+	child := &fileChangesRuntime{
+		pending: map[string][]filediff.FileChange{},
+		sink: func(changes []filediff.FileChange) {
+			parent.mu.Lock()
+			parent.pending[key] = append(parent.pending[key], changes...)
+			parent.mu.Unlock()
+			if parent.sink != nil {
+				parent.sink(changes)
+			}
+		},
+	}
+	return context.WithValue(ctx, fileChangesKey{}, child)
+}
+
 func reportFileChange(ctx agent.Context, root, abs string, before *string, after string) {
 	r, _ := ctx.Value(fileChangesKey{}).(*fileChangesRuntime)
 	if r == nil || (before != nil && *before == after) {
@@ -43,8 +65,8 @@ func reportFileChange(ctx agent.Context, root, abs string, before *string, after
 	change := filediff.CompareFile(filepath.ToSlash(path), before, after)
 	key := ctx.InvocationID() + "/" + ctx.FunctionCallID()
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.pending[key] = append(r.pending[key], change)
+	r.mu.Unlock()
 	if r.sink != nil {
 		r.sink([]filediff.FileChange{change})
 	}

@@ -104,7 +104,9 @@ func readOnlyPath(root, path string) (string, error) {
 // 限制关闭时项目内相对路径仍相对项目根解析，项目外路径按原样接受
 // （包含符号链接在内的越界检查交给操作系统）。
 func contextualPath(ctx context.Context, root, path string) (string, error) {
-	restrict := workspaceScope(ctx)
+	if !workspaceScope(ctx) {
+		return readOnlyPath(root, path)
+	}
 	if filepath.IsAbs(path) {
 		roots, _ := ctx.Value(linkedProjectsKey{}).([]string)
 		for _, candidate := range append([]string{root}, roots...) {
@@ -113,23 +115,9 @@ func contextualPath(ctx context.Context, root, path string) (string, error) {
 				return safePath(candidate, rel)
 			}
 		}
-		if restrict {
-			return "", fmt.Errorf("路径不属于当前项目或本轮关联项目")
-		}
-		return filepath.Abs(path)
+		return "", fmt.Errorf("路径不属于当前项目或本轮关联项目")
 	}
-	if restrict {
-		return safePath(root, path)
-	}
-	if abs, err := safePath(root, path); err == nil {
-		return abs, nil
-	}
-	// 相对路径也可能指向项目内目录之外的普通位置（例如 ../ 或盘符相对写法）。
-	relative, err := filepath.Abs(filepath.Join(root, path))
-	if err != nil {
-		return "", err
-	}
-	return relative, nil
+	return safePath(root, path)
 }
 
 // displayPath 返回用于展示与 diff 的路径：尽量相对项目根。

@@ -5,10 +5,10 @@ import { bashSessionLogPath, bashSessionsPath, type BashSession } from './bash-s
 /** One live cache for the task entry, task list and selected task's output.
  *
  *  The backend shell registry is process-wide, so every request carries the
- *  owning session name: a conversation only ever sees (and can only stop) the
+ *  owning workspace and session name: a conversation only ever sees (and can only stop) the
  *  background commands it started itself. Without a session (home page, chat
  *  workspace) there is nothing to show and no request is made. */
-export function useBashSessions(api: LoopraClient, sessionName?: string, enabled = true) {
+export function useBashSessions(api: LoopraClient, workspaceHash: string, sessionName?: string, enabled = true) {
   const [sessions, setSessions] = useState<BashSession[]>([]);
   const [selected, setSelected] = useState('');
   const selectedRef = useRef('');
@@ -26,13 +26,13 @@ export function useBashSessions(api: LoopraClient, sessionName?: string, enabled
       if (pending) return;
       pending = true;
       try {
-        const list = await api.request<BashSession[]>(bashSessionsPath(sessionName), 'GET', undefined, controller.signal);
+        const list = await api.request<BashSession[]>(bashSessionsPath(workspaceHash, sessionName), 'GET', undefined, controller.signal);
         if (controller.signal.aborted) return;
         setSessions(list);
         const id = list.some(item => item.sessionId === selectedRef.current) ? selectedRef.current : list[0]?.sessionId || '';
         selectedRef.current = id; setSelected(id);
         if (id) {
-          const log = await api.request<{ output: string }>(bashSessionLogPath(sessionName, id), 'GET', undefined, controller.signal);
+          const log = await api.request<{ output: string }>(bashSessionLogPath(workspaceHash, sessionName, id), 'GET', undefined, controller.signal);
           if (controller.signal.aborted) return;
           setLogs(current => ({ ...current, [id]: log.output }));
         }
@@ -47,7 +47,7 @@ export function useBashSessions(api: LoopraClient, sessionName?: string, enabled
     void load();
     const timer = setInterval(() => void load(), 3000);
     return () => { controller.abort(); clearInterval(timer); };
-  }, [api, sessionName, enabled, revision]);
+  }, [api, workspaceHash, sessionName, enabled, revision]);
   useEffect(() => {
     if (!enabled) return;
     window.addEventListener('loopra:bash-start', refresh);
@@ -61,7 +61,7 @@ export function useBashSessions(api: LoopraClient, sessionName?: string, enabled
     if (!id || terminating.includes(id)) return;
     setTerminating(current => [...current, id]);
     try {
-      await api.request('/agent/bash-sessions/terminate', 'POST', { sessionId: id, ...(sessionName ? { sessionName } : {}) });
+      await api.request('/agent/bash-sessions/terminate', 'POST', { workspaceHash, sessionId: id, ...(sessionName ? { sessionName } : {}) });
       refresh();
     } finally { setTerminating(current => current.filter(value => value !== id)); }
   }
