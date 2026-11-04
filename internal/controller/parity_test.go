@@ -615,6 +615,30 @@ func TestHistoryRollbackPreservesAudit(t *testing.T) {
 	}
 }
 
+func TestPureChatRollbackIgnoresMissingCodeSnapshot(t *testing.T) {
+	ts, key, _, home := parityServer(t, "")
+	call(t, ts, "POST", "/api/sessions/new?sessionName=chat&workspaceHash="+chatWorkspace, key, nil)
+	dir := filepath.Join(home, "workspace", chatWorkspace, "sessions")
+	raw := []byte("{\"role\":\"user\",\"content\":\"hello\",\"rollback_id\":\"7573abbb\",\"snapshot_id\":\"7573abbb\",\"timestamp\":100}\n{\"role\":\"assistant\",\"content\":\"hi\",\"timestamp\":200}\n")
+	if err := os.WriteFile(filepath.Join(dir, "chat.jsonl"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, env := call(t, ts, "POST", "/api/snapshots/rollback?workspaceHash="+chatWorkspace, key, map[string]any{
+		"sessionName": "chat", "msgId": "7573abbb", "rollbackCode": true,
+	})
+	data, _ := env["data"].(map[string]any)
+	if env["success"] != true || data["rollbackUserText"] != "hello" || data["message"] != "会话消息已撤回，项目代码未修改" {
+		t.Fatalf("chat rollback = %v", env)
+	}
+	kept, err := os.ReadFile(filepath.Join(dir, "chat.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(kept)) != "" {
+		t.Fatalf("chat history = %q", kept)
+	}
+}
+
 // MCP 导出的工具调用属于内部派发，整个调用期间都不能在用户会话目录
 // 里物化临时会话（Java 直接 delegate，不创建会话）。
 func TestMcpExportUsesIsolatedSessionStore(t *testing.T) {

@@ -163,7 +163,7 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		sse.send("mode_changed", map[string]any{"mode": "execute"})
 	}
 	s.setCurrentSession(req.SessionName)
-	ctx = withTurnSnapshot(r.Context(), msgID)
+	ctx = withTurnSnapshot(r.Context(), msgID, hasSnapshot)
 	r = r.WithContext(ctx)
 	if req.AgentID != "native" {
 		s.runACPTurn(ctx, sse, &req, msgID, hasSnapshot)

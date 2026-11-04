@@ -762,8 +762,11 @@ func (t *acpTurn) appendUser(message string, images []string, hasSnapshot bool) 
 		}
 		row["content"] = parts
 	}
-	if hasSnapshot {
-		row["snapshot_id"], row["rollback_id"] = t.msgID, t.msgID
+	if id := strings.TrimSpace(t.msgID); id != "" {
+		row["rollback_id"] = id
+		if hasSnapshot {
+			row["snapshot_id"] = id
+		}
 	}
 	t.appendLines([]map[string]any{row})
 }

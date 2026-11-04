@@ -3,8 +3,9 @@ import { Button, Checkbox, Modal, ModalBody, ModalContent, ModalFooter, ModalHea
 import { CircleAlert, Undo2 } from 'lucide-react';
 import { errorText } from './RemoteControls';
 
-export default function RollbackMessageDialog({ hasSnapshot, onConfirm, onClose }: {
+export default function RollbackMessageDialog({ hasSnapshot, allowRestoreCode = true, onConfirm, onClose }: {
   hasSnapshot: boolean;
+  allowRestoreCode?: boolean;
   onConfirm: (rollbackCode: boolean) => Promise<void>;
   onClose: () => void;
 }) {
@@ -12,7 +13,7 @@ export default function RollbackMessageDialog({ hasSnapshot, onConfirm, onClose 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const locked = useRef(false);
-  const restoreCode = hasSnapshot && rollbackCode;
+  const restoreCode = allowRestoreCode && hasSnapshot && rollbackCode;
 
   function close() {
     if (!locked.current) onClose();
@@ -45,12 +46,12 @@ export default function RollbackMessageDialog({ hasSnapshot, onConfirm, onClose 
       </ModalHeader>
       <ModalBody className="app-dialog-body rollback-dialog-body">
         <p className="rollback-dialog-description">将移除这条消息及之后的所有对话记录。</p>
-        {hasSnapshot ? <Checkbox size="sm" color="primary" isSelected={rollbackCode} onValueChange={setRollbackCode}
+        {allowRestoreCode && (hasSnapshot ? <Checkbox size="sm" color="primary" isSelected={rollbackCode} onValueChange={setRollbackCode}
           isDisabled={busy} aria-label="同时恢复代码"
           classNames={{ base: 'rollback-code-option', wrapper: 'rollback-code-checkbox', label: 'rollback-code-label' }}>
           <span className="rollback-code-title">同时恢复代码</span>
           <span className="rollback-code-description">将项目文件恢复到这条消息之前的快照。</span>
-        </Checkbox> : <p className="rollback-dialog-note">当前代码文件会保留。</p>}
+        </Checkbox> : <p className="rollback-dialog-note">当前代码文件会保留。</p>)}
         {error && <div className="rollback-dialog-error" role="alert"><CircleAlert size={16} aria-hidden="true" /><p>{error}</p></div>}
       </ModalBody>
       <ModalFooter className="app-dialog-footer rollback-dialog-footer">

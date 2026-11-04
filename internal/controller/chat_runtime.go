@@ -283,6 +283,10 @@ func (s *Controller) worktreeBase() string {
 	return gitops.WorktreeBase(s.home)
 }
 
-func withTurnSnapshot(ctx context.Context, id string) context.Context {
-	return jsonl.WithSnapshot(ctx, id)
+func withTurnSnapshot(ctx context.Context, id string, hasCode bool) context.Context {
+	ctx = jsonl.WithSnapshot(ctx, id)
+	if hasCode {
+		ctx = jsonl.WithCodeSnapshot(ctx, id)
+	}
+	return ctx
 }

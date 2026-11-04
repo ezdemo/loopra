@@ -13,9 +13,16 @@ import (
 )
 
 type snapshotKey struct{}
+type codeSnapshotKey struct{}
 
 func WithSnapshot(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, snapshotKey{}, id)
+}
+
+// WithCodeSnapshot 标记这一轮真正创建了 Git 代码快照。
+// 只有这时才写 snapshot_id；rollback_id 仍由 WithSnapshot 写入，用来定位消息。
+func WithCodeSnapshot(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, codeSnapshotKey{}, id)
 }
 
 func (s *Service) addDailyUsage(event *session.Event) error {

@@ -60,7 +60,7 @@ func (s *Controller) runTurnQuiet(ctx context.Context, sessionName, message stri
 		msgID := newMsgID()
 		if snap, err := gitops.Checkpoint(s.workspaceRoot(), msgID); err == nil {
 			if err := s.recordSnapshot(sessionName, s.workspaceRoot(), snap); err == nil {
-				ctx = withTurnSnapshot(ctx, msgID)
+				ctx = withTurnSnapshot(ctx, msgID, true)
 			}
 		}
 	}

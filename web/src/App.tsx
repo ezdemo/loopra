@@ -47,7 +47,7 @@ import usePets from './usePets';
 import { petActivity, petReplyPreview, petScale, type PetReply } from './pets';
 import { useNativePet } from './pet-desktop';
 import SessionDetails, { SessionProgress } from './components/SessionDetails';
-import { ConfirmAction, query } from './components/RemoteControls';
+import { ConfirmAction } from './components/RemoteControls';
 import RollbackMessageDialog from './components/RollbackMessageDialog';
 import ProjectSessions from './components/ProjectSessions';
 import ProjectManager from './components/ProjectManager';
@@ -1572,8 +1572,8 @@ export default function App({ startupPending = false, initialServer }: { startup
     {sessionsOpen && <SessionsManager api={api} sessions={sessions} workspaceHash={workspace} workspaceName={workspaceName} activeId={activeId} onClose={() => setSessionsOpen(false)} onOpen={id => { setSessionsOpen(false); void selectSession(id); }} onNew={() => { setSessionsOpen(false); newSession(); }} onChanged={() => backend.refresh()} notify={notify} />}
     <Help open={helpOpen} onClose={() => setHelpOpen(false)} server={server} />
     {requirementsOpen && <RequirementBoard api={api} onClose={() => setRequirementsOpen(false)} notify={notify} />}
-    {rollbackMessage && session && <RollbackMessageDialog hasSnapshot={!!rollbackMessage.snapshotId} onClose={() => setRollbackMessage(undefined)} onConfirm={async rollbackCode => {
-      const result = await api.request<{ success: boolean; message: string; rollbackUserText?: string }>(`/snapshots/rollback?${sessionQuery(session)}&${query({ msgId: rollbackMessage.rollbackId, rollbackTimestamp: rollbackMessage.rollbackTimestamp, rollbackCode })}`, 'POST');
+    {rollbackMessage && session && <RollbackMessageDialog hasSnapshot={!!rollbackMessage.snapshotId} allowRestoreCode={!chatMode} onClose={() => setRollbackMessage(undefined)} onConfirm={async rollbackCode => {
+      const result = await api.request<{ success: boolean; message: string; rollbackUserText?: string }>(`/snapshots/rollback?${sessionQuery(session)}`, 'POST', { msgId: rollbackMessage.rollbackId, rollbackTimestamp: rollbackMessage.rollbackTimestamp, rollbackCode });
       if (!result.success) throw new Error(result.message);
       await refreshCurrentSession(result.rollbackUserText);
     }} />}

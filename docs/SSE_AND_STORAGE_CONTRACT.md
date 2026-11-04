@@ -84,7 +84,7 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 - 位置：`~/.loopra/workspace/{hash}/sessions/{sanitize(name)}.jsonl`；无项目 `~/.loopra/sessions/`。sanitize：`[^\p{L}\p{N}_\-\[\]]`→`_`；默认会话名 `loopra-yyyyMMddHHmm`。
 - 每行一个 JSON（UTF-8，`\n` 结尾），**全部 snake_case**：
   - `role`（user/assistant/tool/system，必有）、`content`（string 或多模态数组 `[{type:"text",text},{type:"image_url",image_url:{url,detail?}}]`）、`reasoning_content`、`response_reasoning`（原始思考 JSON）、`acp_message_id`
-  - `file_changes`: `[{path,additions,deletions,created,diff}]`、`snapshot_id`、`rollback_id`（8 位 msgId）、`web_hidden`(true 才写)、`timestamp`(ms)
+  - `file_changes`: `[{path,additions,deletions,created,diff}]`、`snapshot_id`（仅在创建了 Git 代码快照时写入）、`rollback_id`（8 位 msgId，用来定位要撤回的消息）、`web_hidden`(true 才写)、`timestamp`(ms)
   - 回合计时：`turn_started_at`/`turn_finished_at`/`elapsed_ms`；工具计时：`tool_started_at`/`tool_finished_at`/`tool_duration_ms`
   - `tool_call_id`（tool 行关联）、`tool_image_url`/`tool_image_detail`、`tool_calls`（assistant 行：`[{id(缺失→"unknown"),type:"function",function:{name,arguments:string(JSON 字符串)}}]`）、`thinking_blocks`
 - 追加：逐条同步写+立即 flush；rewrite 走 `.tmp` + `Files.move(REPLACE_EXISTING)` 原子替换；**`.events` 从不重写**。

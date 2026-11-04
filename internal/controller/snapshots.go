@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -150,7 +151,8 @@ func (s *Controller) snapshotCheckpoint(w http.ResponseWriter, r *http.Request) 
 }
 
 // snapshotRollback 实现 POST /api/snapshots/rollback。rollbackCode
-// 默认为 true；恢复代码需要提供 msgId。
+// 默认为 true，JSON 和查询参数都认；恢复代码需要提供 msgId。
+// 纯聊天没有项目代码，始终只撤回会话。
 func (s *Controller) snapshotRollback(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		MsgID             string `json:"msgId"`
@@ -170,6 +172,13 @@ func (s *Controller) snapshotRollback(w http.ResponseWriter, r *http.Request) {
 	restoreCode := true
 	if body.RollbackCode != nil {
 		restoreCode = *body.RollbackCode
+	} else if raw := strings.TrimSpace(r.URL.Query().Get("rollbackCode")); raw != "" {
+		if value, err := strconv.ParseBool(raw); err == nil {
+			restoreCode = value
+		}
+	}
+	if s.agent != nil && s.agent.App() == chatWorkspace {
+		restoreCode = false
 	}
 	if restoreCode && strings.TrimSpace(body.MsgID) == "" {
 		writeFail(w, http.StatusOK, "撤回代码需要有效的快照 ID")

@@ -331,3 +331,46 @@ func TestDeleteAndList(t *testing.T) {
 		t.Fatalf("after delete sessions = %d err = %v", len(list.Sessions), err)
 	}
 }
+
+func TestSnapshotIDRequiresCodeSnapshot(t *testing.T) {
+	root := t.TempDir()
+	svc := NewService(root)
+	sess := mustCreate(t, svc, "snap")
+	ctx := WithSnapshot(context.Background(), "msg00001")
+	if err := svc.AppendEvent(ctx, sess, &session.Event{
+		ID: "u1", Author: "user", Content: genai.NewContentFromText("chat only", genai.RoleUser),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "workspace", "a1b2c3", "sessions", "snap.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row["rollback_id"] != "msg00001" || row["snapshot_id"] != nil {
+		t.Fatalf("message ids = %s", raw)
+	}
+	ctx = WithCodeSnapshot(WithSnapshot(context.Background(), "msg00002"), "msg00002")
+	if err := svc.AppendEvent(ctx, sess, &session.Event{
+		ID: "u2", Author: "user", Content: genai.NewContentFromText("with code", genai.RoleUser),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(filepath.Join(root, "workspace", "a1b2c3", "sessions", "snap.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines = %d: %s", len(lines), raw)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row["rollback_id"] != "msg00002" || row["snapshot_id"] != "msg00002" {
+		t.Fatalf("code snapshot line = %s", lines[1])
+	}
+}

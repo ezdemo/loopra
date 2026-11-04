@@ -167,7 +167,7 @@ GET `` → `[]`。POST `/install` 及其他写操作返回 400，提示改到插
 主要端点：GET `/branch|diff|status|diff-content|file-content|working-file-content|log(limit 50)|config`、POST `/init|commit|toggle|config|generate-commit-message|generate-environment-commit-message`、GET `/environment(+/status|/log)`、POST `/environment/commit|push|toggle`、GET `/environment/diff-content|working-file-content`、POST `/worktree/create`（`{workspaceHash*, sessionName*, discardChanges?}`，幂等）。workspaceHash 大多可选（空=当前项目）。
 
 ### 3.11 Snapshots（/api/snapshots）
-POST `/checkpoint`（q: msgId*）→ `{msgId,commitHash,treeHash,createdAt:l}`；POST `/rollback`（msgId? / rollbackTimestamp? / rollbackCode:b=true）→ `{msgId,commitHash,treeHash,success,message,rollbackUserText?}`；GET ``；GET `/status`；DELETE `/{msgId}`。
+POST `/checkpoint`（q: msgId*）→ `{msgId,commitHash,treeHash,createdAt:l}`；POST `/rollback`（JSON 或 query：msgId? / rollbackTimestamp? / rollbackCode:b=true；纯聊天忽略 rollbackCode，只撤回消息）→ `{msgId,commitHash,treeHash,success,message,rollbackUserText?}`；GET ``；GET `/status`；DELETE `/{msgId}`。
 
 ### 3.12 Requirements（/api/requirements）
 实体：`{id,title,description,priority(high/medium/low),projectHash,projectName,status(todo/doing/done/failed),scheduleMode(immediate/scheduled),model,modelChannelId,reasoningEffort,hitl,approvalPending:b,scheduledAt:l,summary,sessionName:"req_<id>",createdAt,updatedAt}`。

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
 	"github.com/ezdemo/looprax/internal/model/config"
+	"github.com/ezdemo/looprax/internal/repository"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 )
 
@@ -501,6 +502,35 @@ func TestSnapshotCheckpointRollbackDelete(t *testing.T) {
 	}
 	if got := len(env["data"].([]any)); got != 0 {
 		t.Fatalf("list after delete = %d", got)
+	}
+}
+
+func TestRollbackCodeQuerySkipsMissingSnapshot(t *testing.T) {
+	ts, key, _, ws := newGitServer(t)
+	home := filepath.Dir(ws)
+	call(t, ts, http.MethodPost, "api/sessions/new?sessionName=history", key, nil)
+	dir := filepath.Join(home, "workspace", "git0000001", "sessions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteJSON(filepath.Join(home, "workspace", "git0000001", "workspace.json"), map[string]any{"path": ws}); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte("{\"role\":\"user\",\"content\":\"keep\",\"rollback_id\":\"aaaa1111\",\"timestamp\":100}\n{\"role\":\"assistant\",\"content\":\"answer\",\"timestamp\":200}\n{\"role\":\"user\",\"content\":\"drop me\",\"rollback_id\":\"bbbb2222\",\"timestamp\":300}\n")
+	if err := os.WriteFile(filepath.Join(dir, "history.jsonl"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, env := call(t, ts, http.MethodPost, "api/snapshots/rollback?sessionName=history&msgId=bbbb2222&rollbackCode=false", key, nil)
+	data, _ := env["data"].(map[string]any)
+	if env["success"] != true || data["rollbackUserText"] != "drop me" {
+		t.Fatalf("query rollback = %v", env)
+	}
+	kept, err := os.ReadFile(filepath.Join(dir, "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(kept), "drop me") || !strings.Contains(string(kept), "keep") {
+		t.Fatalf("history = %s", kept)
 	}
 }
 

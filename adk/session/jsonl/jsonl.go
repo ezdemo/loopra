@@ -293,9 +293,13 @@ func (s *Service) AppendEvent(ctx context.Context, cur session.Session, event *s
 	trimTempState(event)
 	lines := eventLines(event)
 	if snapshot, _ := ctx.Value(snapshotKey{}).(string); snapshot != "" {
+		code, _ := ctx.Value(codeSnapshotKey{}).(string)
 		for _, line := range lines {
 			if line["role"] == "user" {
-				line["rollback_id"], line["snapshot_id"] = snapshot, snapshot
+				line["rollback_id"] = snapshot
+				if code != "" {
+					line["snapshot_id"] = code
+				}
 			}
 		}
 	}
