@@ -1523,6 +1523,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
         plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
+        onManageProjects={() => { setMenu(null); setProjectsOpen(true); if (narrow) setSidebar(false); }}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={surfaceOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}

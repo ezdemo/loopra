@@ -112,6 +112,8 @@ svg { flex-shrink: 0; }
 .section-label > div { display: flex; gap: 1px; opacity: 0; transition: opacity .12s; }
 .sidebar-section:hover .section-label > div, .section-label > div:focus-within { opacity: 1; }
 .section-label .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; }
+/* Touch layouts have no hover, so the section actions must stay visible there. */
+@media (hover: none) { .section-label > div { opacity: 1; } }
 
 .workspace-group + .workspace-group { margin-top: .125rem; }
 .workspace-group.dragging { opacity: .5; }

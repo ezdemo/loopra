@@ -34,6 +34,20 @@ test('the sidebar keeps refresh and fold-all but drops locate and sort controls'
   assert.doesNotMatch(sidebar, /按最新排序/);
 });
 
+test('the 项目 section header adds a project button that opens the manager', () => {
+  const label = sidebar.slice(sidebar.indexOf('<div className="section-label">'), sidebar.indexOf("<Collapse open={!collapsedSections"));
+  // The button sits with fold-all and refresh, in the 项目 section only.
+  assert.match(label, /section\.id === 'projects'/);
+  assert.match(label, /<IconButton label="添加项目" onClick=\{props\.onManageProjects\}><Plus size="0\.9375rem" \/><\/IconButton>/);
+  // The button leads the section actions, ahead of fold-all and refresh.
+  assert.ok(label.indexOf('添加项目') < label.indexOf('刷新项目列表'));
+  // It reuses the dialog the welcome screen and per-project menu already open.
+  assert.match(app, /onManageProjects=\{\(\) => \{ setMenu\(null\); setProjectsOpen\(true\); if \(narrow\) setSidebar\(false\); \}\}/);
+  assert.match(app, /\{projectsOpen && <ProjectManager /);
+  // The 智能体 section keeps its two-state header without an add button.
+  assert.equal(label.match(/label="添加项目"/g).length, 1);
+});
+
 test('the right workbench panel inherits the legacy drag-to-resize behaviour', () => {
   // Persisted width, the shared clamp helper, and the drag wiring.
   assert.match(panels, /useLocalState<number>\('right-panel-width'/);

@@ -58,6 +58,8 @@ export type SidebarProps = {
   onRefreshProject: (hash: string) => void;
   onRefreshSession: (session: Session) => void;
   onManageProject: (workspace: Workspace) => void;
+  /** Opens the project manager dialog from the 项目 section header. */
+  onManageProjects: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (session: Session) => void;
   onReorder: (from: string, to: string) => void;
@@ -179,6 +181,7 @@ export default function Sidebar(props: SidebarProps) {
             <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="m4 2 4 4-4 4Z" /></svg><span>{section.title}</span>
           </button>
           {section.id === 'projects' && <div>
+            <IconButton label="添加项目" onClick={props.onManageProjects}><Plus size="0.9375rem" /></IconButton>
             <IconButton label={allCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={toggleProjects}>{allCollapsed ? <CopyPlus size="0.9375rem" /> : <CopyMinus size="0.9375rem" />}</IconButton>
             <IconButton label="刷新项目列表" onClick={() => void props.onRefreshAll()}><RefreshCw size="0.875rem" /></IconButton>
           </div>}
