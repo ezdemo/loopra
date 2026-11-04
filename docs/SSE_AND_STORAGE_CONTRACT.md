@@ -113,6 +113,8 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 - 原生 Agent 的 `contextCompaction.enabled` 缺省为开启，`retainEvents` 缺省为 12；`retainRatio`、`compactionRetries`、`keepTailChars` 为兼容保留字段。循环内压缩、原始工具结果投影和诊断见[上下文管理](CONTEXT_COMPACTION.md)。
 
 ### 5.2 其它
+- 长期记忆：全局 `~/.loopra/memories.json`（`LOOPRA_HOME` 可替换数据根目录），项目 `<项目根目录>/.loopra/memory/memories.json`。项目根目录从 `workspace/{hash}/workspace.json` 的注册路径解析，隔离工作树沿用主项目目录。若新文件缺失而旧位置 `~/.loopra/workspace/{hash}/memories.json` 存在，首次读取时先校验，再原子写入新位置并保留旧文件作备份；新位置已有文件（包括空列表）时不再读取旧位置，损坏的新文件也不回退到旧数据。格式为 `{version:1, entries:[{id,title,content,kind,source,revision,createdAt,updatedAt}]}`。`kind` 为 `fact|preference|environment`，`source` 为最后写入方 `user|agent`，时间为 UTC RFC3339 纳秒格式。缺失文件按空列表读取，损坏或不支持的版本返回错误，禁止自动清空；顶层未知字段保留。应用共享仓库串行化读改写，写入使用临时文件加原子替换。更新、删除要求匹配 `revision`，避免手工编辑与 Agent 并发覆盖。纯聊天只加载全局记忆。每作用域最多 500 条，标题 1–120 字、内容 1–4000 字，文件不超过 8 MiB。
+- 记忆读取：系统提示词引导新会话先用 `memory_search(action="list")` 查看全局和当前项目的目录（仅 ID 与标题），再按需用 `action="read"`、scope、id 读取正文；也支持 `action="search"`、query 搜索与目录分页。目录从记录生成，不存在独立索引文件。后台不自动读取记忆或附加正文；AI 主动调用工具后的结果作为普通工具事件进入对话，沿用现有持久化和上下文管理。未读取的记忆文件损坏不阻止普通对话，实际检索或保存失败时返回错误。记忆存储不改写 `loopra.md`、`AGENTS.md` 或会话 JSONL。入口与正文分离的思路参考 [Claude Code 的记忆设计](https://code.claude.com/docs/en/memory#how-it-works)，Loopra 沿用 JSON 记录与现有管理页。
 - `~/.loopra/agent-preferences.json`：`{selectedAgent:null, agents:{agentId:{optionId: string|boolean}}}`（排除 plan 选项）。
 - `~/.loopra/ui-preferences.json`：尚未单独成接口的工作台设置 `{theme:light|dark|system, language:zh|en, fontScale, notifications, sound, openWith, autoContext, animations, petEnabled, lastWorkspace(上次打开的项目 hash), profile:{nickname,avatar,color}}`。不存在时 GET 不创建。若已有 `desktop.json`，保存时同步其 `theme` 字段。服务地址仍只存在客户端。lastWorkspace 让换浏览器或换设备后仍回到上次的项目（浏览器 `loopra:last-workspace` 仅作为服务端记录到达前的缓存）。旧的 `hiddenSessions` 不再读取，下次保存时从文件中去掉。
 - `~/.loopra/agent-mcp.json`：`{agents:{agentId:{serverName: boolean}}}`。
@@ -121,8 +123,8 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 
 ## 6. ~/.loopra 目录清单
 
-config.json、agent-preferences.json、ui-preferences.json、agent-mcp.json、mcp-servers.json、mcp-server.json、model_meta.json、prompt-presets.json、loopra.md、usage_daily.jsonl、sessions/（无项目会话）、workspace/{hash}/（workspace.json、sessions/、goals/、schedules/）、requirements/requirements.json、skills/、plugins/（installed.json、packages/&lt;id&gt;/）、worktree/、chat-workspace/（纯聊天，hash=`__loopra_chat__`）、defaultWorkSpace/、pet/、logs/http/。
-项目内 `.loopra/`：mcp-servers.json、skills/、read_img/、paste/、workspace/workspace.json（共享上下文）、checklists/{sessionId}.json、loopra-memory.md。
+config.json、agent-preferences.json、ui-preferences.json、agent-mcp.json、mcp-servers.json、mcp-server.json、model_meta.json、prompt-presets.json、loopra.md、memories.json（全局记忆）、usage_daily.jsonl、sessions/（无项目会话）、workspace/{hash}/（workspace.json、sessions/、goals/、schedules/、可能保留旧版 memories.json 备份）、requirements/requirements.json、skills/、plugins/（installed.json、packages/&lt;id&gt;/）、worktree/、chat-workspace/（纯聊天，hash=`__loopra_chat__`）、defaultWorkSpace/、pet/、logs/http/。
+项目内 `.loopra/`：mcp-servers.json、skills/、memory/memories.json（项目记忆）、read_img/、paste/、workspace/workspace.json（共享上下文）、checklists/{sessionId}.json。旧文档曾列出的 `loopra-memory.md` 没有对应的当前读写实现，结构化项目记忆使用 `memory/memories.json`。
 
 ## 7. 复刻要点
 

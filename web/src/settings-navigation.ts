@@ -10,6 +10,7 @@ export const settingsCategories = [
   { name: '智能体', sections: [
     { name: '智能体与会话', label: '会话默认', keywords: '权限 推理 计划 快速' },
     { name: '系统提示词', label: '系统提示词', keywords: 'prompt loopra.md' },
+    { name: '记忆', label: '记忆', keywords: '全局 项目 个人偏好 系统环境 Java Node nvm memory 长期 跨会话' },
     { name: '子代理', label: '子代理', keywords: '角色 提示词 白名单 subagent' },
   ] },
   { name: '工具与集成', sections: [

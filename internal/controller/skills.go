@@ -127,6 +127,7 @@ func (s *Controller) readSkill(name, path string) (string, error) {
 }
 
 func (s *Controller) installSkillTools() {
+	s.installMemoryTools()
 	type readInput struct {
 		Name string `json:"name" jsonschema:"清单中的完整标识，例如 @loopra-skills/find-skills"`
 		Path string `json:"path,omitempty" jsonschema:"可选。省略则读取 SKILL.md。只能填该技能目录里已有文件的相对路径，例如 README.md 或 references/guide.txt。不要填目录，也不要猜测 SKILL.md 没点名的路径"`

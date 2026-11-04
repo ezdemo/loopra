@@ -44,7 +44,7 @@ Loopra 的技能是包含 `SKILL.md` 的目录，可以带有 `references/`、`s
 | 运行命令与验证结果 | 使用环境提示中的实际 shell 工具：`powershell`、`CMD`、`bash` 或 `sh`；通过 `cwd` 指定项目内工作目录，`max_char` 控制返回字符数，`timeout_ms` 指定毫秒级超时；交互或长时间运行时用同名前缀的 `_start`，再以 `_wait` / `_stdin` / `_stop` 管理返回的会话。命令必须使用对应 shell 的语法 |
 | 获取网页或检索资料 | `web`：`action=search` 做实时网页搜索，`action=code` 查库、SDK 和 API 文档，`action=fetch` 读取指定 URL 并转成 Markdown；登录、验证码等人工步骤通过 `browser_request_user_action` 请用户接管（若该工具可用） |
 | 计划、步骤清单与长期目标 | 根据任务使用 `submit_plan`、`checklist_*`、`goal_*` 等当前提供的工具；遵守当前计划模式和状态约束 |
-| 项目长期记忆 | `memory`，先检索已有事实，再按需记录可靠且可复用的信息 |
+| 全局与项目长期记忆 | 新会话先用 `memory_search(action="list")` 查看 ID 与标题目录，按需用 `action="read"`、scope、id 读正文，或用 `action="search"`、query 搜索；用 `memory` 保存、更新或删除。个人偏好和本机环境归 `global`，项目背景与约定归 `project`；环境信息使用前核实 |
 | 子任务与共享上下文 | 使用当前子代理工具；`workspace_read` / `workspace_write` / `workspace_list` 是代理间共享通道，与项目文件系统不同 |
 | 外部服务与业务接口 | 按 MCP 或 OpenAPI 网关当前提供的工具和发现规范操作，见下文 |
 

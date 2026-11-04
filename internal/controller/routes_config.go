@@ -1,6 +1,10 @@
 package controller
 
 func (s *Controller) registerConfigRoutes(api *apiRouter) {
+	readRoute(api, "/memories", s.action((*Controller).memoriesController))
+	api.POST("/memories", s.action((*Controller).memoriesController))
+	api.PUT("/memories/:id", s.action((*Controller).memoriesController))
+	api.DELETE("/memories/:id", s.action((*Controller).memoriesController))
 	readRoute(api, "/config", s.action((*Controller).configController))
 	api.PUT("/config", s.action((*Controller).configController))
 	readRoute(api, "/ui-preferences", s.action((*Controller).uiPreferences))

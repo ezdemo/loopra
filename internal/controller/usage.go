@@ -187,7 +187,8 @@ func (s *Controller) usageController(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Controller) contextEstimate(ctx context.Context, name string) map[string]any {
-	estimate := map[string]any{"systemTokens": (len(s.systemInstruction(s.workspaceRoot())) + 3) / 4, "toolDefinitionTokens": 0, "userTokens": 0, "assistantTokens": 0, "toolResultTokens": 0, "exactTokenizer": false, "estimator": "utf8-text-approximation"}
+	instruction := s.turnInstruction(s.workspaceRoot())
+	estimate := map[string]any{"systemTokens": (len(instruction) + 3) / 4, "toolDefinitionTokens": 0, "userTokens": 0, "assistantTokens": 0, "toolResultTokens": 0, "exactTokenizer": false, "estimator": "utf8-text-approximation"}
 	if s.registry != nil {
 		for _, entry := range s.registry.Entries() {
 			if s.registry.Disabled(entry.Meta.Name) {

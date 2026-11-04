@@ -115,7 +115,7 @@ func (s *Controller) agentDeepController(w http.ResponseWriter, r *http.Request)
 	case "commands":
 		writeOK(w, http.StatusOK, nativeCommandMetadata())
 	case "prompt":
-		text := s.systemInstruction(s.workspaceRoot())
+		text := s.turnInstruction(s.workspaceRoot())
 		writeOK(w, http.StatusOK, map[string]any{"content": text, "length": len(utf16.Encode([]rune(text)))})
 	case "skills":
 		writeOK(w, http.StatusOK, s.globalSkillMetadata())

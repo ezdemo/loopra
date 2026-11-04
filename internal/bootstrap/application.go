@@ -23,6 +23,7 @@ import (
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service"
 	"github.com/ezdemo/looprax/internal/service/agent"
+	"github.com/ezdemo/looprax/internal/service/memory"
 	"github.com/ezdemo/looprax/internal/service/tools"
 	"github.com/ezdemo/looprax/internal/spring"
 	"github.com/ezdemo/looprax/web"
@@ -38,6 +39,8 @@ func Run(ctx context.Context, options config.Options) error {
 			config.Load,         // @ConfigurationProperties：命令行 > 环境变量 > config.yaml > 默认值
 			newConfigRepository, // @Repository
 			newConfigService,    // @Service
+			newMemoryRepository,
+			memory.NewService,
 			service.NewFileService,
 			newToolRegistry,
 			newAgent,
@@ -50,6 +53,10 @@ func Run(ctx context.Context, options config.Options) error {
 
 func newConfigRepository(settings *config.Server) *repository.ConfigRepository {
 	return repository.NewConfigRepository(settings.Home)
+}
+
+func newMemoryRepository(settings *config.Server) *repository.MemoryRepository {
+	return repository.NewMemoryRepository(settings.Home)
 }
 
 func newConfigService(settings *config.Server, repository *repository.ConfigRepository) (*service.ConfigService, error) {
@@ -91,7 +98,7 @@ type backend struct {
 	closeErr  error
 }
 
-func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registry, configuration *service.ConfigService, files *service.FileService) (*backend, error) {
+func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registry, configuration *service.ConfigService, files *service.FileService, memories *memory.Service) (*backend, error) {
 	dir, bundle, label := frontend.Resolve(settings.StaticDir, settings.Home, frontend.DistCandidates(), web.Bundle())
 	settings.StaticDir = dir
 	settings.StaticLabel = label
@@ -105,7 +112,7 @@ func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registr
 	api, key, err := controller.New(a, controller.Options{
 		Home: settings.Home, AccessKey: settings.AccessKey,
 		StaticDir: dir, StaticFS: bundle, PetsDir: settings.PetsDir,
-		Registry: registry, Configuration: configuration, Files: files,
+		Registry: registry, Configuration: configuration, Files: files, Memories: memories,
 		OnUITheme: settings.OnUITheme, PetDesktop: desk, OnDesktopQuit: settings.OnDesktopQuit,
 	})
 	if err != nil {

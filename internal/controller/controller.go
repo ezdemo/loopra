@@ -27,6 +27,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service/acp"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
+	"github.com/ezdemo/looprax/internal/service/memory"
 	openapiservice "github.com/ezdemo/looprax/internal/service/openapi"
 	"github.com/ezdemo/looprax/internal/service/plugin"
 	"github.com/ezdemo/looprax/internal/service/requirement"
@@ -79,6 +80,7 @@ type Controller struct {
 	routes             *routeTable
 	configuration      ConfigService
 	files              FileService
+	memories           *memory.Service
 	acp                *acp.Manager
 	plugins            *plugin.Host
 	onUITheme          func(theme string)
@@ -97,6 +99,7 @@ type Options struct {
 	PetsDir       string // 默认为 ~/.petdex/pets
 	Configuration ConfigService
 	Files         FileService
+	Memories      *memory.Service
 	// OnUITheme 在界面偏好写入成功后调用，参数为 light、dark 或 system。
 	OnUITheme func(theme string)
 	// PetDesktop 在本进程里绘制原生宠物窗口。为空时页面仍把宠物画在输入框旁。
@@ -155,6 +158,10 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s.files = opts.Files
 	if s.files == nil {
 		s.files = service.NewFileService()
+	}
+	s.memories = opts.Memories
+	if s.memories == nil {
+		s.memories = memory.NewService(repository.NewMemoryRepository(s.home))
 	}
 	s.state = newRuntimeState(s)
 	if opts.OnDesktopQuit != nil {

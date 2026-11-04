@@ -52,11 +52,20 @@ test('settings search finds individual controls, aliases and category destinatio
 });
 
 
-test('model usage controls and background tasks search to their dedicated settings page', () => {
+test('model usage controls search to their dedicated settings page', () => {
   const sections = settingsCategories.flatMap(category => category.sections);
-  for (const query of ['新会话默认模型', '当前聊天模型', '工具模型', '命令校验模型', '图片理解模型', '标题', '记忆', 'memory']) {
+  for (const query of ['新会话默认模型', '当前聊天模型', '工具模型', '命令校验模型', '图片理解模型', '标题']) {
     const results = searchSettings(query, sections);
     assert.ok(results.length, query);
     assert.ok(results.every(result => result.category === '模型用途'), query);
+  }
+});
+
+test('long-term memory and system environment search to the memory manager', () => {
+  const sections = settingsCategories.flatMap(category => category.sections);
+  for (const query of ['记忆', 'memory', '个人偏好', '系统环境', 'nvm']) {
+    const results = searchSettings(query, sections);
+    assert.ok(results.length, query);
+    assert.ok(results.every(result => result.category === '记忆'), query);
   }
 });

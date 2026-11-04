@@ -34,6 +34,33 @@
 
 ## 3. 控制器契约清单
 
+### 长期记忆（Go 原生运行时）
+
+以下端点沿用普通 API 包装与公共鉴权；查询必须指定 `scope=global|project`。`project` 还要求已注册项目的 `workspaceHash`，不接受纯聊天或路径。全局请求不依赖当前项目。
+
+项目记忆实际存放于注册项目根目录的 `.loopra/memory/memories.json`；API 和工具仍使用项目 hash，隔离工作树共享主项目记忆。旧版数据目录中的项目记忆仅在新位置文件缺失时校验并迁移，旧文件保留作备份。
+
+| 方法与路径 | 请求 | data |
+| --- | --- | --- |
+| GET / HEAD `/api/memories` | `scope`、`workspaceHash?`、`query?`（标题与内容的空格分词匹配） | 记忆数组，按更新时间倒序；HEAD 无响应体 |
+| POST `/api/memories` | JSON `{title,content,kind}` | 新记忆，`revision:1` |
+| PUT `/api/memories/{id}` | JSON `{title,content,kind,revision}` | 更新后的记忆，revision 加一 |
+| DELETE `/api/memories/{id}` | 查询 `revision` | `记忆已删除` |
+
+条目为 `{id,title,content,kind,source,revision,createdAt,updatedAt}`，手工 API 写入的 `source` 固定为 `user`。参数无效返回 400 / `invalid_memory`，条目缺失返回 404 / `memory_not_found`，版本或同名标题冲突返回 409 / `memory_conflict`，存储失败返回 500 / `memory_storage_failed`。冲突后先重新读取，不得盲目覆盖。
+
+只读 Agent 工具 `memory_search({action?,id?,query?,scope?,offset?,limit?})` 保留同一个入口，支持：
+
+| action | 参数与行为 | 返回 |
+| --- | --- | --- |
+| `list`（默认） | 列全局及当前项目目录，可指定 scope；不接受 id 或非空 query | `{global?:{entries:[{id,title}],total,offset},project?:{entries:[{id,title}],total,offset}}`，不包含正文 |
+| `read` | 必须明确提供 scope 与 id；仅读取该作用域，不接受 query 或分页参数 | `{scope,entry}`，entry 为完整记忆，包含最新 revision |
+| `search` | 必须提供非空 query；按标题与正文匹配，可指定 scope | 分页结构同 list，但 entries 为匹配的完整记忆 |
+
+list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；省略 action 且传非空 query 时兼容旧的 search 调用。目录由现有记录生成，更新和删除后不维护另一份索引。HTTP GET `/api/memories` 仍返回完整条目供管理页使用。
+
+`memory({action:"save"|"delete",scope,id?,revision?,title?,content?,kind?})` 写入时 `source` 固定为 `agent`；更新、删除必须提供 ID 与最新 revision。纯聊天不可使用项目作用域。以上三种只读操作及写入操作沿用禁用名单、计划模式过滤与现有审批策略。系统提示词引导新会话先查看目录，再由 Agent 根据对话按需读取正文；不自动加载目录或正文。环境信息使用前核实。
+
 `→` 后为 `data` 字段结构。多数端点先检查 `agentService.isReady()`，未就绪 400 `"Agent 未初始化"`。
 
 ### 3.1 Chat（/api/chat）

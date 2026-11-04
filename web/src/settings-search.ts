@@ -13,7 +13,7 @@ const fields: Record<string, string[]> = {
 };
 const aliases: Record<string, string> = {
   '个人资料': '头像 昵称 用户名 本地 profile avatar nickname username',
-  '工具模型': '标题 会话命名 做梦 记忆 title dream memory',
+  '工具模型': '标题 会话命名 title',
   '外观': '主题 深色 浅色 跟随系统 theme',
   '界面缩放': '字体 大小 比例 font size zoom',
   '通知提示音': '声音 音效 sound',

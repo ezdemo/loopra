@@ -29,6 +29,7 @@ import { VersionInfoPanel } from './VersionInfo';
 import type { CoreServiceUpdateController } from './CoreServiceUpdate';
 import type { DesktopUpdateController } from './DesktopUpdate';
 import ProxySettings from './ProxySettings';
+import MemorySettings from './MemorySettings';
 import { GITEE_HOME_URL, GITHUB_HOME_URL } from '../update-scripts';
 import type { VersionCheck } from '../version';
 
@@ -196,6 +197,7 @@ export default function Settings(props: Props) {
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
         {tab === 'MCP' && <IntegrationManager api={api} kind="mcp" />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}
+        {tab === '记忆' && <MemorySettings api={api} workspaces={props.workspaces} initialWorkspaceHash={props.pluginContext?.workspaceHash} onNestedDialog={setNestedDialog} />}
         {tab === '快捷键' && <><PageActions title="快捷键" /><div className="settings-card">{[['新建会话', 'Ctrl / ⌘ + N'], ['搜索会话或工作区', 'Ctrl / ⌘ + K'], ['打开设置', 'Ctrl / ⌘ + ,'], ['切换侧边栏', 'Ctrl / ⌘ + B'], ['发送消息', 'Enter'], ['消息换行', 'Shift + Enter'], ['输入指令 / 文件引用', '/ 或 @'], ['选择建议', '↑ ↓ / Tab / Enter'], ['关闭弹窗', 'Esc']].map(([name, key]) => <SettingRow key={name} title={name}><kbd>{key}</kbd></SettingRow>)}</div></>}
         {tab === '关于' && <div className="about-settings">
           <header className="about-heading"><LoopraMark /><div><h2>关于 Loopra</h2><p>版本、更新与数据存储</p></div></header>

@@ -146,7 +146,7 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	}
 	model, channel, effort := settings["model"].(string), settings["modelChannelId"].(string), settings["reasoningEffort"].(string)
 	chat := s.agent != nil && s.agent.App() == chatWorkspace
-	instruction := s.systemInstruction(s.workspaceRoot())
+	instruction := s.turnInstruction(s.workspaceRoot())
 	seen := map[string]bool{}
 	linkedRoots := []string{}
 	if chat {
