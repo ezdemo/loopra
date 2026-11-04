@@ -167,13 +167,15 @@ func (s *Controller) remoteModelsController(w http.ResponseWriter, r *http.Reque
 	writeOK(w, http.StatusOK, names)
 }
 
+// orderIndex 返回 key 在已保存顺序中的位置。不在其中说明是新加的项目，
+// 用 -1 表示，于是排在所有已排序项目之前（新项目默认出现在最上面）。
 func orderIndex(order []string, key string) int {
 	for i, item := range order {
 		if item == key {
 			return i
 		}
 	}
-	return len(order)
+	return -1
 }
 
 func (s *Controller) registerProject(hash, path string) error {
@@ -211,11 +213,13 @@ func (s *Controller) projectList() []map[string]any {
 	}
 	order := s.configSnapshot().WorkspaceOrder
 	sort.SliceStable(out, func(i, j int) bool {
+		// 拖拽保存的顺序继续生效。还没写进这份顺序的是新加的项目，排在
+		// 最前面；同时新加的多个项目按创建时间从新到旧。
 		a, b := orderIndex(order, out[i]["hash"].(string)), orderIndex(order, out[j]["hash"].(string))
 		if a != b {
 			return a < b
 		}
-		return number(out[i]["createdAt"]) < number(out[j]["createdAt"])
+		return number(out[i]["createdAt"]) > number(out[j]["createdAt"])
 	})
 	return out
 }
