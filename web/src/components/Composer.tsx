@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
 import { acpSlashCommands, appendPreset, attachmentViews, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
@@ -17,6 +17,7 @@ import AgentMcpControls from './AgentMcpControls';
 import { agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
 import { useMenuPlacement } from '../layout/menu-placement';
 import ComposerQueue from './ComposerQueue';
+import { clampComposerHeight, composerHeight, composerHeightCeiling, composerSessionKey, COMPOSER_HEIGHT_STEP_REM, FALLBACK_COMPOSER_FLOOR_REM, nudgeComposerHeight, resizeComposerHeight, storeComposerHeight } from '../composer-resize';
 
 type Props = {
   loading?: boolean;
@@ -42,6 +43,8 @@ type Props = {
   onNew: () => void; onTerminal: () => void; onManage: () => void; onOpen: () => void; notify: (text: string) => void;
   onExport: () => void; onSessions: () => void;
   onClear: () => void;
+  /** Fires whenever the composer's height changes, so the chat pane can stay pinned. */
+  onInputResize?: () => void;
 };
 type Menu = 'model-settings' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more' | 'mcp';
 
@@ -81,6 +84,14 @@ export default function Composer(props: Props) {
   const dragDepth = useRef(0);
   const root = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Dragging the composer's top edge only grows it: the height the stylesheet
+  // renders is the floor. The value is keyed per session (workspace/session) so a
+  // reopened session returns at the size it was left; `dragHeight` is the live drag.
+  const [inputHeights, setInputHeights] = useLocalState<Record<string, number>>('composer-heights', {});
+  const [dragHeight, setDragHeight] = useState<number | null>(null);
+  const inputResize = useRef<{ pointerId: number; startY: number; startRem: number; floorRem: number; height: number; handle: HTMLDivElement } | null>(null);
+  const inputKey = composerSessionKey(props.workspaceHash, props.sessionName);
+  const inputHeight = dragHeight ?? composerHeight(inputHeights, inputKey);
   const menuPlacement = useMenuPlacement(!!menu, root, { offsetRem: 4.375 });
   const suggestionPlacement = useMenuPlacement(!menu && (slash || /(?:^|\s)@[^\s]*$/.test(draft)), root);
   const menuPlacementStyle = {
@@ -133,6 +144,106 @@ export default function Composer(props: Props) {
     setDismissedDraft(draft);
   }
   function focusInput() { requestAnimationFrame(() => inputRef.current?.focus()); }
+  function rootRem() { return parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16; }
+  /**
+   * The floor is the card's shipped default height, read from its computed
+   * `min-height` (always px in a browser) so a stored height — which only ever
+   * sets `height` — cannot raise or lower its own floor. Home, session and
+   * narrow-window layouts each ship a different default.
+   */
+  function floorHeight() {
+    const element = root.current;
+    if (!element) return FALLBACK_COMPOSER_FLOOR_REM;
+    const minHeight = parseFloat(window.getComputedStyle(element).minHeight);
+    const minRem = Number.isFinite(minHeight) && minHeight > 0 ? minHeight / rootRem() : FALLBACK_COMPOSER_FLOOR_REM;
+    // Without a stored height the rendered card *is* the default: chips, a queue
+    // row or a narrow-window rule can make it taller than min-height, and
+    // dragging back down has to stop there instead of shrinking past it.
+    if (inputHeight > 0) return minRem;
+    const rendered = element.getBoundingClientRect().height / rootRem();
+    return Number.isFinite(rendered) ? Math.max(minRem, rendered) : minRem;
+  }
+  function ceilingHeight() { return composerHeightCeiling(window.innerHeight, rootRem(), floorHeight()); }
+  /**
+   * The height the card shows now: the stored/dragged value, else whatever the
+   * card currently renders — chips or a queue row can exceed `min-height`, and
+   * a drag must pick up from there instead of jumping down. A height stored on a
+   * taller window is capped by the current one.
+   */
+  function currentInputHeight() {
+    const ceiling = ceilingHeight();
+    if (inputHeight > 0) return Math.min(inputHeight, ceiling);
+    const element = root.current;
+    const rendered = element ? element.getBoundingClientRect().height / rootRem() : 0;
+    return clampComposerHeight(Math.max(floorHeight(), Number.isFinite(rendered) ? rendered : 0), floorHeight(), ceiling);
+  }
+  /** A height back at the default clears the entry instead of pinning it. */
+  function saveInputHeight(heightRem: number, floorRem: number) {
+    setInputHeights(current => storeComposerHeight(current, inputKey, heightRem > floorRem + 0.01 ? heightRem : 0));
+  }
+  function stopInputResize() {
+    const drag = inputResize.current;
+    inputResize.current = null;
+    // Pointer capture is unsupported in jsdom and in older WebViews.
+    if (drag && drag.handle.hasPointerCapture?.(drag.pointerId)) drag.handle.releasePointerCapture(drag.pointerId);
+  }
+  function startInputResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || inputResize.current) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const startRem = currentInputHeight();
+    // The floor is captured now: while the drag runs the card is resized, so its
+    // rendered height no longer describes the default.
+    inputResize.current = { pointerId: event.pointerId, startY: event.clientY, startRem, floorRem: floorHeight(), height: startRem, handle };
+    // Pointer capture keeps the drag alive when the pointer leaves the handle,
+    // but jsdom and older WebViews do not implement it.
+    handle.setPointerCapture?.(event.pointerId);
+    setDragHeight(startRem);
+  }
+  function moveInputResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = inputResize.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag.height = resizeComposerHeight(drag.startRem, event.clientY - drag.startY, rootRem(), drag.floorRem, ceilingHeight());
+    setDragHeight(drag.height);
+  }
+  function endInputResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = inputResize.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    stopInputResize();
+    setDragHeight(null);
+    // Persist once, on release: a drag would otherwise write localStorage per move.
+    saveInputHeight(drag.height, drag.floorRem);
+  }
+  /** Arrow keys step by a rem; Escape/Home and a double-click restore the default. */
+  function nudgeInputHeight(deltaRem: number) {
+    const floorRem = floorHeight();
+    const next = nudgeComposerHeight(currentInputHeight(), deltaRem, floorRem, ceilingHeight());
+    setDragHeight(null);
+    saveInputHeight(next, floorRem);
+  }
+  function resetInputHeight() {
+    setDragHeight(null);
+    setInputHeights(current => storeComposerHeight(current, inputKey, 0));
+  }
+  // Alt-tabbing or opening a native dialog drops the pointer-up event; without
+  // this the composer would keep following the pointer with no button held.
+  useEffect(() => {
+    const cancel = () => { stopInputResize(); setDragHeight(null); };
+    window.addEventListener('blur', cancel);
+    return () => { window.removeEventListener('blur', cancel); stopInputResize(); };
+  }, []);
+  // The transcript above shares the pane with the composer, so every height
+  // change moves it. Let the owner keep the chat pinned while the drag runs —
+  // but only inside one session: opening another session swaps in its own stored
+  // height, and that must not steal the restored scroll position.
+  const onInputResize = useRef(props.onInputResize);
+  onInputResize.current = props.onInputResize;
+  const lastComposerSize = useRef({ key: inputKey, height: inputHeight });
+  useEffect(() => {
+    const previous = lastComposerSize.current;
+    lastComposerSize.current = { key: inputKey, height: inputHeight };
+    if (previous.key === inputKey && previous.height !== inputHeight) onInputResize.current?.();
+  }, [inputKey, inputHeight]);
   async function addFiles(files: FileList | File[]) {
     const attachments = [...(context.attachments || [])];
     let imageCount = attachments.filter(file => file.image).length;
@@ -323,11 +434,22 @@ export default function Composer(props: Props) {
   return <>
     <ComposerQueue key={`${props.workspaceHash}/${props.sessionName || ''}`} queue={props.queue} onRemove={props.onRemoveQueued} onGuide={props.onGuideQueued}
       onEdit={id => { if (props.onEditQueued(id)) { close(); focusInput(); } }} onMove={props.onMoveQueued} />
-    <div ref={root} data-popover data-placement={menuPlacement.side} data-suggestions-placement={suggestionPlacement.side} style={menuPlacementStyle} className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''}`}
+    <div ref={root} data-popover data-placement={menuPlacement.side} data-suggestions-placement={suggestionPlacement.side}
+    style={inputHeight > 0 ? { ...menuPlacementStyle, '--composer-height': `${inputHeight}rem` } as CSSProperties : menuPlacementStyle}
+    className={`composer rich-composer ${home ? 'welcome-composer' : ''} ${dragging ? 'is-dragging' : ''} ${inputHeight > 0 ? 'is-resized' : ''} ${dragHeight !== null ? 'is-resizing' : ''}`}
     onDragEnter={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); dragDepth.current++; setDragging(true); } }}
     onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
     onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); addFiles(event.dataTransfer.files); }}>
+    <div className="composer-resize-handle" role="separator" aria-orientation="horizontal" tabIndex={0}
+      aria-label="拖动调整输入框高度" aria-valuenow={inputHeight > 0 ? Math.round(inputHeight * 10) / 10 : undefined} title="拖动调整输入框高度，双击恢复默认"
+      onPointerDown={startInputResize} onPointerMove={moveInputResize} onPointerUp={endInputResize} onPointerCancel={endInputResize} onLostPointerCapture={endInputResize}
+      onDoubleClick={resetInputHeight}
+      onKeyDown={event => {
+        if (event.key === 'ArrowUp') { event.preventDefault(); nudgeInputHeight(COMPOSER_HEIGHT_STEP_REM); }
+        else if (event.key === 'ArrowDown') { event.preventDefault(); nudgeInputHeight(-COMPOSER_HEIGHT_STEP_REM); }
+        else if (event.key === 'Home' || event.key === 'Escape') { event.preventDefault(); resetInputHeight(); }
+      }} />
     {props.petEnabled && props.pets.active && !props.desktopPet && <PetCompanion key={props.pets.active.name} src={props.pets.imageUrl} name={props.pets.active.displayName || props.pets.active.name} scale={petScale(props.pets.active)} position={props.pets.active.position}
       activity={props.petActivity} reply={props.petReply} latestReply={props.latestPetReply} hidden={!!menu || !!suggestions.length} onMove={props.pets.move} onResize={props.pets.resize} onClose={props.onPetClose} onError={props.notify} />}
     <div className="composer-context-chips">

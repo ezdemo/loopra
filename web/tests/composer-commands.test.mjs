@@ -83,6 +83,7 @@ const Composer = (await import(await sourceUrl('components/Composer.tsx', {
   `),
   './PetCompanion': placeholder, './ModelReasoningSelector': selector, './AgentConfigControls': placeholder, './AgentMcpControls': mcpControls, './ComposerQueue': placeholder,
   '../pets': dataUrl('export const petScale=()=>1;'),
+  '../composer-resize': await sourceUrl('composer-resize.ts'),
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
 }))).default;
 
@@ -603,5 +604,60 @@ test('MCP toolbar manages the current Agent, persists changes, and retains state
     assert.equal(view.host.querySelector('.composer-mcp-controls'), null, 'Agent switch closes stale controls');
     await view.update({ chatMode: true });
     assert.equal(view.host.querySelector('[aria-label="管理 MCP 透传"]'), null);
+  } finally { await view.close(); }
+});
+
+test('the composer exposes a centred drag handle and only grows from the default height', async () => {
+  const view = await mount({ draft: '' });
+  try {
+    const handle = view.host.querySelector('.composer-resize-handle');
+    assert.ok(handle, 'the composer exposes a drag handle');
+    assert.equal(handle.getAttribute('role'), 'separator');
+    assert.equal(handle.getAttribute('aria-orientation'), 'horizontal');
+    assert.equal(handle.getAttribute('aria-label'), '拖动调整输入框高度');
+    const composer = view.host.querySelector('.rich-composer');
+    const height = () => composer.style.getPropertyValue('--composer-height');
+    // The stylesheet default is the smallest size: nothing is pinned until a drag.
+    assert.equal(composer.className.includes('is-resized'), false);
+    assert.equal(height(), '');
+    // jsdom reports no rendered sizes, so the drag starts at the 6.5rem floor.
+    await act(async () => Simulate.pointerDown(handle, { button: 0, pointerId: 1, clientY: 200 }));
+    assert.match(composer.className, /is-resizing/);
+    await act(async () => Simulate.pointerMove(handle, { pointerId: 1, clientY: 100 }));
+    assert.equal(parseFloat(height()), 12.75, 'a 100px upward drag adds 6.25rem to the 6.5rem floor');
+    await act(async () => Simulate.pointerUp(handle, { pointerId: 1, clientY: 100 }));
+    assert.equal(composer.className.includes('is-resizing'), false);
+    assert.equal(composer.className.includes('is-resized'), true);
+    assert.equal(parseFloat(height()), 12.75, 'releasing keeps the dragged height');
+    // Dragging back down never shrinks below the default.
+    await act(async () => Simulate.pointerDown(handle, { button: 0, pointerId: 2, clientY: 200 }));
+    await act(async () => Simulate.pointerMove(handle, { pointerId: 2, clientY: 900 }));
+    assert.equal(parseFloat(height()), 6.5, 'the shipped height is the floor');
+    await act(async () => Simulate.pointerUp(handle, { pointerId: 2, clientY: 900 }));
+    // A height back at the floor is dropped, so the card returns to its default.
+    assert.equal(height(), '');
+    assert.equal(composer.className.includes('is-resized'), false);
+  } finally { await view.close(); }
+});
+
+test('the resize handle is keyboard operable inside the same range', async () => {
+  const view = await mount({ draft: '' });
+  try {
+    const handle = view.host.querySelector('.composer-resize-handle');
+    const composer = view.host.querySelector('.rich-composer');
+    const height = () => parseFloat(composer.style.getPropertyValue('--composer-height'));
+    await act(async () => Simulate.keyDown(handle, { key: 'ArrowUp' }));
+    assert.equal(height(), 7.5, 'one step up from the 6.5rem floor');
+    await act(async () => Simulate.keyDown(handle, { key: 'ArrowUp' }));
+    assert.equal(height(), 8.5);
+    await act(async () => Simulate.keyDown(handle, { key: 'ArrowDown' }));
+    assert.equal(height(), 7.5);
+    // Repeated ArrowDown presses stop at the default instead of collapsing.
+    for (let index = 0; index < 4; index++) await act(async () => Simulate.keyDown(handle, { key: 'ArrowDown' }));
+    assert.equal(composer.style.getPropertyValue('--composer-height'), '');
+    // ArrowUp followed by a double-click restores the default.
+    await act(async () => Simulate.keyDown(handle, { key: 'ArrowUp' }));
+    await act(async () => Simulate.doubleClick(handle));
+    assert.equal(composer.style.getPropertyValue('--composer-height'), '');
   } finally { await view.close(); }
 });

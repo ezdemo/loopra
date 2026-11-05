@@ -19,6 +19,29 @@
   .session-occupied-actions { grid-column: 2; justify-content: flex-end; padding: 0; border: 0; }
 }
 .rich-composer > textarea { min-height: 3.25rem; max-height: 10rem; font-size: .9375rem; }
+/* Dragging the composer's top edge only grows the card: the shipped default is
+   also the minimum. The stored card height goes in `--composer-height` (rem,
+   so it follows the UI scale). Only the centred pill is grabbable — the rest of
+   the top edge stays inert. */
+.composer-resize-handle { position: absolute; top: 0; left: 50%; width: 3.5rem; height: .5rem; transform: translateX(-50%); z-index: 2; cursor: ns-resize; touch-action: none; border-radius: 999px; }
+.composer-resize-handle::after { content: ''; position: absolute; top: 50%; left: 50%; width: 2.25rem; height: .1875rem; transform: translate(-50%, -50%); border-radius: 999px; background: var(--line-strong); opacity: .6; transition: opacity .12s, background .12s, width .12s; }
+.composer-resize-handle:hover::after, .composer-resize-handle:focus-visible::after, .rich-composer.is-resizing > .composer-resize-handle::after { opacity: 1; width: 2.75rem; background: var(--accent, var(--blue)); }
+.composer-resize-handle:focus-visible { outline: 2px solid var(--blue); outline-offset: 0; }
+.rich-composer.is-resizing { user-select: none; }
+.rich-composer.is-resizing > textarea { cursor: ns-resize; }
+/* A resized composer owns the card height from `--composer-height` (rem, so it
+   follows the UI scale). The card's own `min-height` keeps the shipped default as
+   the floor when the window narrows (see the 760px block), and `max-height`
+   keeps a height stored on a tall window from swallowing a short one. */
+.rich-composer.is-resized,
+.rich-composer.is-resized.welcome-composer { height: var(--composer-height); max-height: 45dvh; }
+/* The textarea keeps the space above the toolbar, so chips and tools stay inside
+   the resized card. */
+.rich-composer.is-resized > textarea { flex: 1 1 auto; height: auto; min-height: 3.25rem; max-height: none; overflow-y: auto; }
+/* The session transcript is a flex child with `min-height: 0`, so it gives up
+   exactly the space the composer takes. On home nothing else competes for the
+   pane, so let it scroll once the taller composer no longer fits. */
+.home-content:has(.rich-composer.is-resized) { overflow-y: auto; }
 .rich-composer .composer-bottom { gap: 0.375rem; flex-wrap: wrap; }
 .rich-composer .composer-left { gap: 0.25rem; }
 .rich-composer .composer-right { gap: 0.125rem; margin-left: auto; max-width: 100%; }

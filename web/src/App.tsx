@@ -806,6 +806,22 @@ export default function App({ startupPending = false, initialServer }: { startup
     setShowScrollBtn(next.showScrollButton);
     lastScrollTop.current = element.scrollTop;
   }
+  // The composer grows and shrinks the transcript from below; a reader who is
+  // already at the bottom stays at the bottom instead of drifting up by the
+  // height they just added. One frame is enough — a drag can fire per move.
+  const followFrame = useRef(0);
+  function keepChatPinned() {
+    if (followFrame.current) return;
+    followFrame.current = requestAnimationFrame(() => {
+      followFrame.current = 0;
+      const area = scrollArea.current;
+      if (!area || userScrolledAway.current) return;
+      area.scrollTop = area.scrollHeight;
+      lastScrollTop.current = area.scrollTop;
+      setShowScrollBtn(false);
+    });
+  }
+  useEffect(() => () => { if (followFrame.current) cancelAnimationFrame(followFrame.current); }, []);
   function scrollToBottom() {
     userScrolledAway.current = false;
     const element = scrollArea.current;
@@ -1461,7 +1477,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
     onSend={() => sendMessage()} onStop={() => void stopGeneration()} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
-    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')}
+    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onInputResize={keepChatPinned}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
