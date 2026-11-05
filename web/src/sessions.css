@@ -19,6 +19,8 @@
 .session-row:hover .session-item time, .session-row:focus-within .session-item time { display: none; }
 .session-row-tools .icon-button { width: 1.5rem; min-width: 1.5rem !important; height: 1.5rem; color: var(--secondary); background: transparent; }
 .session-row-tools .icon-button:hover { color: var(--text); background: var(--hover); }
+.session-item > .composer-agent-icon { flex: 0 0 1rem; width: 1rem; height: 1rem; color: var(--muted); }
+.session-item > .composer-agent-icon[data-agent="native"] { color: var(--blue); }
 .session-item .wt-badge { flex-shrink: 0; font-style: normal; font-size: 0.75rem; }
 /* A clipped session title slides sideways on hover so the full name is readable
    without widening the sidebar; the distance comes from SessionTitle's measurement. */
