@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 )
 
@@ -853,6 +854,9 @@ func promptBlocks(message string, images []string) []ContentBlock {
 	if len(blocks) == 0 {
 		blocks = append(blocks, ContentBlock{Type: "text", Text: reqPlaceholder})
 	}
+	// ACP 没有通用的 system prompt 字段；把宿主展示约定作为单独的
+	// 运行上下文块传入，不改写用户消息或其持久化转录。
+	blocks = append(blocks, ContentBlock{Type: "text", Text: "[Loopra 回复展示约定]\n" + agentpkg.ReplyImageInstruction})
 	return blocks
 }
 

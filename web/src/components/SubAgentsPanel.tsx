@@ -5,6 +5,8 @@ import type { LoopraClient } from '../backend';
 import { ConfirmAction, RemoteState, errorText, useRemote } from './RemoteControls';
 import { IconButton } from './ui';
 import BlockRenderer from './BlockRenderer';
+import { SessionImageSourceProvider } from './ChatImage';
+import { ImagePreviewProvider } from './ImagePreview';
 import { continueSubSession, formatSubTime, subSessionBlocks, subSessionEventsPath, subSessionsPath, subSessionLabel, subStatusLabel, type SubSession, type SubSessionEvent } from '../sub-sessions';
 
 // Ported from legacy `src/components/SubAgentPanel.vue` plus the desktop chat
@@ -81,7 +83,7 @@ export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify
     setListRevision(value => value + 1);
     setEventRevision(value => value + 1);
   }
-  return <div className="workbench-subagents">
+  return <SessionImageSourceProvider api={api} workspaceHash={workspaceHash} sessionName={sessionName}><ImagePreviewProvider><div className="workbench-subagents">
     <section className="workbench-card subagent-list-card">
       <header className="workbench-card-head"><strong>子代理会话</strong><span className="section-note">{canLoad ? `${list.data?.length ?? 0} 个` : '未打开会话'}</span><IconButton label="刷新子代理会话" onClick={refresh}><RefreshCw size="0.875rem" /></IconButton></header>
       {!canLoad ? <p className="panel-empty">打开一个会话后可以查看它的子代理执行记录</p> : <>
@@ -111,5 +113,5 @@ export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify
     {deleting && <ConfirmAction title="删除子代理会话" onClose={() => setDeleting(undefined)} action={() => remove(deleting)}>
       <p>“{subSessionLabel(deleting)}”将被永久删除，无法恢复。</p>
     </ConfirmAction>}
-  </div>;
+  </div></ImagePreviewProvider></SessionImageSourceProvider>;
 }

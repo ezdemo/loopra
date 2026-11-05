@@ -6,6 +6,7 @@ import type { Session } from '../lib';
 import { RemoteState, useRemote } from './RemoteControls';
 import { IconButton } from './ui';
 import { Messages } from './Conversation';
+import { SessionImageSourceProvider } from './ChatImage';
 import { subSessionBlocks, subSessionEventsPath, type SubSessionEvent } from '../sub-sessions';
 
 /**
@@ -62,7 +63,7 @@ export default function SubAgentView({ api, workspaceHash, sessionName, subSessi
   }), [label, message, subSessionId]);
   const running = replay.status === 'running';
 
-  return <div className="workspace-subagent-view-body">
+  return <SessionImageSourceProvider api={api} workspaceHash={workspaceHash} sessionName={sessionName}><div className="workspace-subagent-view-body">
     <header className="workspace-file-toolbar">
       <span className="workspace-file-path" title={label || subSessionId}>{label || '子代理'}</span>
       <div className="workspace-file-actions">
@@ -76,5 +77,5 @@ export default function SubAgentView({ api, workspaceHash, sessionName, subSessi
             onEdit={() => {}} onBranch={() => {}} onRollback={() => {}} busy /></div>
         : !stored.loading && <p className="panel-empty">没有可回放的内容</p>}
     </div>
-  </div>;
+  </div></SessionImageSourceProvider>;
 }

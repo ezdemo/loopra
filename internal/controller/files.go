@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/ezdemo/looprax/internal/infrastructure/fsutil"
@@ -29,7 +30,17 @@ func (s *Controller) filesImage(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, "path 参数必填")
 		return
 	}
-	data, mime, err := s.files.Image(s.workspaceRoot(), path)
+	root := s.workspaceRoot()
+	// 普通会话直接使用项目根目录，避免每张图片都触发 Git 状态扫描。
+	if session := r.URL.Query().Get("sessionName"); session != "" && !filepath.IsAbs(path) && s.sessionMetaRead(session)["worktreeMode"] == true {
+		env := s.resolveEnvironment(session)
+		if env.Current == "" {
+			writeFail(w, http.StatusBadRequest, "当前环境不可用："+env.Message)
+			return
+		}
+		root = env.Current
+	}
+	data, mime, err := s.files.Image(root, path)
 	if err != nil {
 		writeFail(w, http.StatusBadRequest, err.Error())
 		return

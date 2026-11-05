@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
+	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 )
 
 func TestTurnEnvironmentFollowsWorkspace(t *testing.T) {
@@ -40,6 +41,19 @@ func TestTurnEnvironmentFollowsWorkspace(t *testing.T) {
 			if strings.Count(text, "[Runtime environment]") != 1 {
 				t.Fatalf("duplicated environment in prompt: %s", text)
 			}
+		}
+	}
+}
+
+func TestReplyImageInstructionReachesNativeAndChat(t *testing.T) {
+	_, _, s, _ := parityServer(t, "")
+	turn, err := s.prepareTurn(&chatRequest{SessionName: "images"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, instruction := range []string{turn.agent.Instruction(), s.chatSystemInstruction()} {
+		if strings.Count(instruction, agentpkg.ReplyImageInstruction) != 1 {
+			t.Fatalf("image convention missing or duplicated: %s", instruction)
 		}
 	}
 }

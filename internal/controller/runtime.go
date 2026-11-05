@@ -193,6 +193,7 @@ const chatInstruction = `你是 Loopra，当前处于纯聊天。
 func (s *Controller) chatSystemInstruction() string {
 	var text strings.Builder
 	text.WriteString(chatInstruction)
+	text.WriteString("\n\n" + agentpkg.ReplyImageInstruction)
 	text.WriteString("\n可以通过 memory_search 和 memory 专用工具读取和维护全局长期记忆。")
 	fmt.Fprintf(&text, "\n\n命令环境：%s（%s）；系统临时目录：%s。\n技能目录：%s；%s。", shellenv.Current.Name, shellenv.Current.Path, os.TempDir(), filepath.Join(s.home, "skills"), s.agentsSkillsRoot())
 	text.WriteString("\n可用技能（先使用 skillread 读取完整规约；可用 skilllist、skillsearch、skillrefresh 查询）：\n")
@@ -224,6 +225,7 @@ func (s *Controller) systemInstructionFor(workspace, hash string, projects []lin
 		base = s.state.root.agent.Instruction()
 	}
 	text.WriteString(base)
+	text.WriteString("\n\n" + agentpkg.ReplyImageInstruction)
 	text.WriteString("\n\n")
 	text.WriteString(shellenv.Instruction(workspace))
 	text.WriteString(projectEnvironment(workspace, projects))

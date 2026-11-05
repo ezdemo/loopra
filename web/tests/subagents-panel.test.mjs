@@ -67,6 +67,8 @@ const Panel = (await import(await sourceUrl('components/SubAgentsPanel.tsx', {
   './ui': uiStub,
   './RemoteControls': controlsStub,
   './BlockRenderer': blocksStub,
+  './ChatImage': dataUrl('export const SessionImageSourceProvider = ({ children }) => children;'),
+  './ImagePreview': dataUrl('export const ImagePreviewProvider = ({ children }) => children;'),
   '../sub-sessions': subSessionsUrl,
 }))).default;
 

@@ -452,6 +452,7 @@ func configValue(params acpsdk.SetSessionConfigOptionRequest) (id, value, sessio
 func instruction(home, workspace string) string {
 	var text strings.Builder
 	text.WriteString(agentpkg.DefaultInstruction)
+	text.WriteString("\n\n" + agentpkg.ReplyImageInstruction)
 	text.WriteString("\n\n")
 	text.WriteString(shellenv.Instruction(workspace))
 	for _, path := range []string{

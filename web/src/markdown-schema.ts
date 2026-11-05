@@ -42,7 +42,7 @@ export const markdownSchema: Schema = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    src: ['http', 'https', 'data'],
+    src: ['http', 'https', 'data', 'loopra-image'],
     // Workspace file links are rewritten to `loopra-file:` by rehypeLocalFileLinks.
     href: [...(defaultSchema.protocols?.href || []), 'loopra-file'],
   },

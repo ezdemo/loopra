@@ -340,6 +340,7 @@ func keepResumable(run *liveRun) {
 func subInstruction(profile Profile, extra string) string {
 	sb := strings.Builder{}
 	sb.WriteString(profile.Instructions)
+	sb.WriteString("\n\n" + loopraagent.ReplyImageInstruction)
 	if extra != "" {
 		sb.WriteString("\n\n补充指示：\n")
 		sb.WriteString(extra)

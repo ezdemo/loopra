@@ -32,6 +32,7 @@ const linksSource = await readFile(new URL('../src/markdown-links.ts', import.me
 const linksTranspiled = ts.transpileModule(linksSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const linksUrl = dataUrl(linksTranspiled);
 const { isLocalFilePath, filePathFromHref, fileLineFromHref } = await import(linksUrl);
+const imagesUrl = dataUrl(ts.transpileModule(await readFile(new URL('../src/markdown-images.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText);
 
 const schemaSource = await readFile(new URL('../src/markdown-schema.ts', import.meta.url), 'utf8');
 const schemaTranspiled = ts.transpileModule(schemaSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -44,6 +45,10 @@ for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runt
 }
 const previewUrl = dataUrl(previewTranspiled);
 const { ImagePreviewProvider } = await import(previewUrl);
+let imageText = ts.transpileModule(await readFile(new URL('../src/components/ChatImage.tsx', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), '../markdown-images': imagesUrl, './ImagePreview': previewUrl })) imageText = imageText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
+const chatImageUrl = dataUrl(imageText);
+const { SessionImageSourceProvider } = await import(chatImageUrl);
 
 // Real LinkPopover (link hover toolbar) so the markdown wiring is covered here.
 const linkPureText = ts.transpileModule(await readFile(new URL('../src/link-popover.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -60,6 +65,8 @@ const specifiers = {
   '../markdown-math': mathUrl,
   '../markdown-alert': alertUrl,
   '../markdown-links': linksUrl,
+  '../markdown-images': imagesUrl,
+  './ChatImage': chatImageUrl,
   '../markdown-schema': schemaUrl,
   '../markdown-reveal': dataUrl('export const rehypeStreamReveal = () => () => {};'),
   'react-markdown': import.meta.resolve('react-markdown'),
@@ -184,6 +191,144 @@ test('markdown images stay plain without a preview provider', async () => {
   assert.ok(html.includes('<img'));
   assert.ok(!html.includes('markdown-image-button'));
   assert.equal(document.querySelector('.image-preview-overlay'), null);
+});
+
+function imageHarness() {
+  const originalFetch = globalThis.fetch;
+  const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+  const requests = [], revoked = [];
+  let next = 0;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), signal: options.signal });
+    return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'Content-Type': 'image/png' } });
+  };
+  URL.createObjectURL = () => `blob:image-${++next}`;
+  URL.revokeObjectURL = url => revoked.push(url);
+  const api = { assetUrl: path => `http://backend.invalid/api${path}` };
+  const wrap = ({ children }) => createElement(ImagePreviewProvider, null,
+    createElement(SessionImageSourceProvider, { api, workspaceHash: 'workspace', sessionName: 'session one' }, children));
+  return { api, wrap, requests, revoked, restore() {
+    globalThis.fetch = originalFetch;
+    URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
+  } };
+}
+
+test('reply image paths use the authenticated session endpoint, including bare and escaped names', async () => {
+  const harness = imageHarness();
+  const fixtures = [
+    ['qr.png', 'qr.png'],
+    ['images/二维码.png', 'images/二维码.png'],
+    ['C:/repo/二维码 result.png', 'C:/repo/二维码 result.png'],
+    ['/C:/repo/qr.png', 'C:/repo/qr.png'],
+    ['C:\\repo\\image.png', 'C:/repo/image.png'],
+    ['/tmp/image.png', '/tmp/image.png'],
+    ['images/100%25%20done%23%3F.png', 'images/100% done#?.png'],
+    ['images/literal%2520.png', 'images/literal%20.png'],
+  ];
+  try {
+    for (const [path, expected] of fixtures) {
+      const view = await mount(`![二维码](<${path}>)`, {}, harness.wrap);
+      try {
+        const request = new URL(harness.requests.at(-1).url);
+        assert.equal(request.pathname, '/api/files/image');
+        assert.equal(request.searchParams.get('workspaceHash'), 'workspace');
+        assert.equal(request.searchParams.get('sessionName'), 'session one');
+        assert.equal(request.searchParams.get('path'), expected);
+        const image = view.container.querySelector('img');
+        assert.match(image.getAttribute('src'), /^blob:image-/);
+        assert.equal(image.alt, '二维码');
+        await act(async () => view.container.querySelector('.markdown-image-button').click());
+        assert.equal(document.querySelector('.image-preview-full').getAttribute('src'), image.getAttribute('src'));
+        await act(async () => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+      } finally { await view.unmount(); }
+    }
+    assert.equal(harness.revoked.length, fixtures.length);
+  } finally { harness.restore(); }
+});
+
+test('streaming and historical Markdown keep image references without fetching every delta', async () => {
+  const harness = imageHarness();
+  const text = '![二维码](qr.png)';
+  const view = await mount(text, { streaming: true }, harness.wrap);
+  try {
+    const first = view.container.querySelector('img').getAttribute('src');
+    await act(async () => view.root.render(createElement(harness.wrap, null,
+      createElement(Markdown, { text: text + '\n\n完成', streaming: true, notify() {} }))));
+    assert.equal(harness.requests.length, 1);
+    assert.equal(view.container.querySelector('img').getAttribute('src'), first);
+    await act(async () => view.root.render(createElement(harness.wrap, null,
+      createElement(Markdown, { text: text + '\n\n完成', notify() {} }))));
+    assert.equal(harness.requests.length, 1);
+  } finally { await view.unmount(); }
+  try {
+    const history = await mount(text, {}, harness.wrap);
+    assert.equal(harness.requests.length, 2);
+    assert.match(history.container.querySelector('img').getAttribute('src'), /^blob:/);
+    await history.unmount();
+  } finally { harness.restore(); }
+});
+
+test('switching sessions hides the previous image, aborts stale reads and releases blobs', async () => {
+  const harness = imageHarness();
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  const pending = [];
+  globalThis.fetch = (url, options) => new Promise(resolve => pending.push({ url: String(url), signal: options.signal, resolve }));
+  const render = sessionName => act(async () => root.render(createElement(SessionImageSourceProvider,
+    { api: harness.api, workspaceHash: 'workspace', sessionName }, createElement(Markdown, { text: '![图片](qr.png)', notify() {} }))));
+  const respond = async index => act(async () => pending[index].resolve(new Response(new Uint8Array([1]), { headers: { 'Content-Type': 'image/png' } })));
+  try {
+    await render('first'); await respond(0);
+    assert.equal(container.querySelector('img').getAttribute('src'), 'blob:image-1');
+    await render('second');
+    assert.equal(container.querySelector('img'), null);
+    assert.ok(pending[0].signal.aborted);
+    assert.deepEqual(harness.revoked, ['blob:image-1']);
+    await render('third');
+    assert.ok(pending[1].signal.aborted);
+    await respond(1);
+    assert.equal(container.querySelector('img'), null, 'late response cannot replace the next session');
+    await respond(2);
+    assert.equal(container.querySelector('img').getAttribute('src'), 'blob:image-2');
+    assert.equal(new URL(pending[2].url).searchParams.get('sessionName'), 'third');
+  } finally { await act(async () => root.unmount()); container.remove(); harness.restore(); }
+  assert.deepEqual(harness.revoked, ['blob:image-1', 'blob:image-2']);
+});
+
+test('failed reads and browser decode failures offer retry, with no broken image left behind', async () => {
+  const harness = imageHarness();
+  let calls = 0;
+  globalThis.fetch = async () => ++calls === 1 ? new Response('{}', { status: 401 })
+    : calls === 2 ? new Response('<html/>', { headers: { 'Content-Type': 'text/html' } })
+    : new Response(new Uint8Array([1]), { headers: { 'Content-Type': 'image/avif' } });
+  const view = await mount('![图片](qr.png)', {}, harness.wrap);
+  try {
+    for (let i = 0; i < 2; i++) {
+      assert.equal(view.container.querySelector('img'), null);
+      assert.match(view.container.textContent, /图片无法读取/);
+      await act(async () => view.container.querySelector('.chat-image-state button').click());
+    }
+    await act(async () => view.container.querySelector('img').dispatchEvent(new window.Event('error')));
+    assert.equal(view.container.querySelector('img'), null);
+    await act(async () => view.container.querySelector('.chat-image-state button').click());
+    assert.ok(view.container.querySelector('img'));
+  } finally { await view.unmount(); harness.restore(); }
+});
+
+test('external images bypass local fetching and unsafe protocols or code fences never load images', async () => {
+  const harness = imageHarness();
+  try {
+    const remote = await render('![示例](https://example.com/a.png)', {}, harness.wrap);
+    assert.match(remote, /src="https:\/\/example.com\/a.png"/);
+    assert.match(remote, /referrerpolicy="no-referrer"/);
+    for (const src of ['javascript:alert(1)', 'file:///etc/a.png', '//example.com/a.png', 'data:image/svg+xml;base64,PHN2Zz4=']) {
+      const html = await render(`<img src="${src}" onerror="alert(1)">`, {}, harness.wrap);
+      assert.ok(!html.includes('<img'));
+    }
+    const code = await render('```markdown\n![二维码](qr.png)\n```', {}, harness.wrap);
+    assert.ok(!code.includes('<img'));
+    assert.equal(harness.requests.length, 0);
+  } finally { harness.restore(); }
 });
 
 test('workspace file links are intercepted rather than opened in a tab', async () => {

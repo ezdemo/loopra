@@ -5,6 +5,7 @@
 
 ## 0. 传输与链路
 
+- AI 回复图片使用普通 Markdown `![说明](<图片路径>)`，随现有正文事件与 JSONL 文本保存，不新增图片事件或附件字段。本地路径通过 `/api/files/image` 按消息所属工作区和会话读取；HTTP/HTTPS 图片由浏览器直接加载。主会话、历史恢复和子代理回放共用图片加载与放大预览。历史引用原文件当前内容，不保存图片快照，原文件删除后显示不可读取。原生、纯聊天及子代理提示词共用展示约定；外部 ACP 通过独立的 prompt 文本块接收该约定，该块不改写 Loopra 保存的用户转录。
 - 文档附件随用户 `message` 文本持久化：末尾独立的 `loopra-attachments` 代码围栏包含单行 JSON 数组 `[{name,text,size?}]`，`text` 为提取后的全文，`size` 为原始字节数。围栏长度大于内容中的连续反引号长度；图片仍使用 `images` / `contentParts`。实时气泡与历史恢复均从同一文本解析附件，以图标和文件名标签显示，点击在模态浮层预览全文，正文不重复展示附件全文。格式无效时保留原文；旧消息保持可读，不推断普通文字中的附件边界。
 - SSE 端点：`POST /api/chat/stream`，请求体 `ChatRequest`：`{message, requestId(UUID), workspaceHash(12位md5), sessionName(默认"default"), agentId?, model?, modelChannelId?, reasoningEffort?, fastMode?, stream?(遗留不消费), images?:string[](dataURL), linkedProjectHashes?:string[], action?("execute_plan")}`。
 - SSE 帧：`event: <type>\n` + `data: <json>\n\n`，UTF-8；响应头 `Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`Connection: keep-alive`、`X-Accel-Buffering: no`。

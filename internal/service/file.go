@@ -114,6 +114,13 @@ func (s *FileService) Image(root, path string) ([]byte, string, error) {
 		return nil, "", errors.New("图片不存在或不可读取")
 	}
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, "", errors.New("图片路径必须是普通文件")
+	}
+	if info.Size() > 5<<20 {
+		return nil, "", errors.New("图片超过 5 MiB")
+	}
 	data, err := io.ReadAll(io.LimitReader(file, (5<<20)+1))
 	if err != nil || len(data) > 5<<20 {
 		return nil, "", errors.New("图片不存在或超过 5 MiB")

@@ -279,7 +279,12 @@
 
 /* 消息 / Markdown 中的图片（对齐 ChatMessage.vue / BlockRenderer.vue） */
 .loopra-conversation .block-content img { max-width: 100%; border-radius: var(--radius-sm); }
-.loopra-conversation .markdown-image-button { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+.markdown-image-button { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+.markdown-image-button img { display: block; max-width: 100%; max-height: 32rem; width: auto; height: auto; object-fit: contain; }
+.markdown-image-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.chat-image-state { display: inline-flex; align-items: center; gap: .5rem; padding: .5rem 0; color: var(--muted); font-size: .8125rem; }
+.chat-image-state button { padding: .125rem .25rem; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--blue); cursor: pointer; }
+.chat-image-state button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 /* Inline file chip in the message body: glyph + file name + (line N), all in
    the accent blue; the line hint is dimmed so the name stays the anchor. */
 .loopra-conversation .block-content a.ai-file-link { display: inline-flex; align-items: baseline; gap: .25rem; max-width: 100%; padding: 0 .25rem; margin: 0 -.125rem; border-radius: var(--radius-sm); color: var(--accent); font-weight: 500; text-decoration: none; vertical-align: baseline; cursor: pointer; }

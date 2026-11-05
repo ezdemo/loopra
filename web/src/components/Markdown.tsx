@@ -12,10 +12,11 @@ import 'katex/dist/katex.min.css';
 import { normalizeMathMarkdown } from '../markdown-math';
 import { normalizeAlertMarkdown } from '../markdown-alert';
 import { LOCAL_FILE_SCHEME, fileLineFromHref, localFilePath, rehypeLocalFileLinks } from '../markdown-links';
+import { isDirectImage, LOCAL_IMAGE_SCHEME, rehypeLocalImages } from '../markdown-images';
 import { markdownSchema } from '../markdown-schema';
 import { rehypeStreamReveal } from '../markdown-reveal';
 import { useColorizedFence } from '../highlight';
-import { useImagePreview } from './ImagePreview';
+import ChatImage from './ChatImage';
 import FileGlyph from './FileGlyph';
 import { LinkPopoverProvider, useLinkPopover } from './LinkPopover';
 import { Check, ChevronDown, Code2, Copy } from 'lucide-react';
@@ -88,10 +89,8 @@ function plainText(node: ReactNode): string {
   return '';
 }
 
-function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
-  const preview = useImagePreview();
-  if (!preview || !src) return <img src={src} alt={alt} />;
-  return <button type="button" className="markdown-image-button" aria-label="放大图片" title="放大图片" onClick={() => preview(src)}><img src={src} alt={alt} /></button>;
+function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+  return <ChatImage source={src} alt={alt} title={title} />;
 }
 
 const components: Components = {
@@ -108,7 +107,10 @@ const ALERT_MARKER = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i;
 // which kills Windows drive paths (`C:\repo\a.ts`) before we can turn them into
 // file previews. Keep those verbatim; everything else still goes through the
 // default transform and the sanitize schema.
-const urlTransform = (url: string) => url.startsWith(LOCAL_FILE_SCHEME) || localFilePath(url) ? url : defaultUrlTransform(url);
+const urlTransform: NonNullable<Options['urlTransform']> = (url, key, node) => {
+  if (key === 'src' && node.tagName === 'img') return url.startsWith(LOCAL_IMAGE_SCHEME) || isDirectImage(url) ? url : '';
+  return url.startsWith(LOCAL_FILE_SCHEME) || localFilePath(url) ? url : defaultUrlTransform(url);
+};
 
 function firstText(node: ReactNode): string | null {
   // Markdown emits whitespace-only text nodes between blocks; skip those so the
@@ -148,8 +150,8 @@ export default memo(function Markdown({ text, notify, onOpenFile, streaming = fa
   // stable identity across deltas: a new plugin list per token would hand
   // react-markdown fresh props for no benefit.
   const rehypePlugins = useMemo<NonNullable<Options['rehypePlugins']>>(() => streaming
-    ? [rehypeRaw, rehypeLocalFileLinks, [rehypeSanitize, markdownSchema], rehypeKatex, rehypeStreamReveal]
-    : [rehypeRaw, rehypeLocalFileLinks, [rehypeSanitize, markdownSchema], rehypeKatex], [streaming]);
+    ? [rehypeRaw, rehypeLocalFileLinks, rehypeLocalImages, [rehypeSanitize, markdownSchema], rehypeKatex, rehypeStreamReveal]
+    : [rehypeRaw, rehypeLocalFileLinks, rehypeLocalImages, [rehypeSanitize, markdownSchema], rehypeKatex], [streaming]);
   const remarkPlugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => [remarkGfm, remarkMath, remarkBreaks], []);
   return <LinkPopoverProvider><NoticeContext.Provider value={notify}><OpenFileContext.Provider value={onOpenFile ?? null}><div className="block-content"><ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={components}>{source}</ReactMarkdown></div></OpenFileContext.Provider></NoticeContext.Provider></LinkPopoverProvider>;
 });

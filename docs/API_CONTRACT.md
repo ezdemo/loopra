@@ -226,6 +226,7 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
 - POST `/api/system/open-workspace`（`{workspaceHash?, application?}`）；GET `/open-applications`；POST `/pick-directory`；GET `/health`（`{status:"ok",version,buildTime}`）；GET `/system/version`。
 - Pets：GET `/api/pets`、`/{name}`、`/{name}/spritesheet`（webp，支持 ?rk=）、`/active`（active 时含 position、scale?、desktop?；desktop 为原生窗口右下角的屏幕坐标）、`/desktop`（`{native, dismissed}`；native 为真时本进程用 mygo 画宠物，页面不再叠在输入框上）；PUT `/active`（`{name*}`）、`/position`（x、y、sizeIndex、scale、desktopX、desktopY；任一桌面坐标为 null 时清除 desktop）、`/desktop`（`{shown, name, label, activity, reply, replyId, replyActivity, latest, scale, seen, reset?}`；seen 小于 dismissed 时忽略显示）；DELETE `/{name}`。
 - Files：GET `/api/files/image|tree|search`、DELETE `/delete`（禁删项目根）、POST `/paste`（`{content*}` → `.loopra/paste`）。
+  - `/api/files/image`：`path` 必填，`workspaceHash` 与可选 `sessionName` 确定文件所属环境。相对路径基于会话实际工作目录（含隔离工作树），缺失工作树不回退主项目；省略会话时保持项目根目录行为。绝对路径沿用只读图片访问语义，可读取临时目录图片。只接受普通文件、最多 5 MiB，以及 PNG/JPEG/GIF/WebP/BMP/AVIF 内容类型；拒绝 SVG。响应为图片二进制，保留鉴权、GET/HEAD、`nosniff` 与 `no-store`。
 - PromptPresets：GET/PUT `/api/prompt-presets`（`[{id,label≤24,text≤500}]`，id 空自动 UUID）。
 
 ## 4. 静态资源与 /config.json

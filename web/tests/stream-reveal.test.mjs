@@ -37,12 +37,18 @@ const componentUrl = async path => dataUrl(rewrite(transpile(await readFile(new 
 const schemaUrl = dataUrl(transpile(await readFile(new URL('../src/markdown-schema.ts', import.meta.url), 'utf8'))
   .replaceAll("'rehype-sanitize'", JSON.stringify(import.meta.resolve('rehype-sanitize'))));
 
+const imagesUrl = await moduleUrl('../src/markdown-images.ts');
+const previewUrl = await componentUrl('../src/components/ImagePreview.tsx');
+const chatImageUrl = dataUrl(rewrite(transpile(await readFile(new URL('../src/components/ChatImage.tsx', import.meta.url), 'utf8'), true), { ...jsxImports, '../markdown-images': imagesUrl, './ImagePreview': previewUrl }));
+
 const specifiers = {
   react: reactUrl,
   'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'),
   '../markdown-math': await moduleUrl('../src/markdown-math.ts'),
   '../markdown-alert': await moduleUrl('../src/markdown-alert.ts'),
   '../markdown-links': await moduleUrl('../src/markdown-links.ts'),
+  '../markdown-images': imagesUrl,
+  './ChatImage': chatImageUrl,
   '../markdown-schema': schemaUrl,
   '../markdown-reveal': await moduleUrl('../src/markdown-reveal.ts'),
   'react-markdown': import.meta.resolve('react-markdown'),
