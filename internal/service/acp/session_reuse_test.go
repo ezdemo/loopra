@@ -15,9 +15,10 @@ type reuseHost struct {
 	linked    []string
 }
 
-func (h *reuseHost) App() string          { return h.app }
-func (h *reuseHost) Workspace() string    { return h.workspace }
-func (h *reuseHost) LinkedDirs() []string { return h.linked }
+func (h *reuseHost) App() string                     { return h.app }
+func (h *reuseHost) Workspace() string               { return h.workspace }
+func (h *reuseHost) LinkedDirs() []string            { return h.linked }
+func (h *reuseHost) HasHistory(string) (bool, error) { return false, nil }
 func (h *reuseHost) Meta(name string) map[string]any {
 	if h.meta == nil {
 		return nil

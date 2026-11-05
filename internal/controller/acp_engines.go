@@ -21,6 +21,12 @@ func writeACPFailure(w http.ResponseWriter, status int, err error) {
 // prepareExternalEngine 为外部 ACP 引擎准备会话：绑定 agentId、
 // 建立 Agent 会话并返回其配置项。
 func (s *Controller) prepareExternalEngine(w http.ResponseWriter, r *http.Request, name, agentID string) {
+	scoped, err := s.prepareACPWorkspace(&chatRequest{SessionName: name})
+	if err != nil {
+		writeACPFailure(w, http.StatusInternalServerError, err)
+		return
+	}
+	s = scoped
 	meta := s.sessionMetaRead(name)
 	bound := strOr(meta, "agentId", "")
 	if bound != "" && bound != agentID && len(s.sessionMessages(r.Context(), name)) > 0 {
@@ -55,6 +61,11 @@ func (s *Controller) prepareExternalEngine(w http.ResponseWriter, r *http.Reques
 
 // acpConfigOptions 返回（必要时先建立）外部会话的配置项。
 func (s *Controller) acpConfigOptions(ctx context.Context, name string) ([]acp.ConfigOption, error) {
+	scoped, err := s.prepareACPWorkspace(&chatRequest{SessionName: name})
+	if err != nil {
+		return nil, err
+	}
+	s = scoped
 	agentID := strOr(s.sessionMetaRead(name), "agentId", "")
 	if !acp.IsExternal(agentID) {
 		return nil, fmt.Errorf("Agent 引擎不可用: %s", agentID)
@@ -69,6 +80,11 @@ func (s *Controller) acpConfigOptions(ctx context.Context, name string) ([]acp.C
 // setACPConfigOption 更新外部会话配置；旧版 Agent 的 mode/model
 // 走 set_mode / set_model。
 func (s *Controller) setACPConfigOption(ctx context.Context, name, id string, value any) ([]acp.ConfigOption, error) {
+	scoped, err := s.prepareACPWorkspace(&chatRequest{SessionName: name})
+	if err != nil {
+		return nil, err
+	}
+	s = scoped
 	agentID := strOr(s.sessionMetaRead(name), "agentId", "")
 	if !acp.IsExternal(agentID) {
 		return nil, fmt.Errorf("Agent 引擎不可用: %s", agentID)

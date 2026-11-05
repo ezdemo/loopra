@@ -98,6 +98,7 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 - `{name}.jsonl`：主日志（见 §3）。**延迟创建**：新建会话只切换当前会话并写 `.meta` 设置快照，首条消息写入时才创建 `.jsonl`/`.events`；会话列表只包含已写入过消息的会话（`.jsonl` 或从不重写的 `.events` 有内容；回滚截断为空也仍算），唯一例外是仅剩 `.meta` 且 `planMode=true` 或 `pendingPlan` 非空的计划会话（刷新后需能被重新发现）。旧版本遗留的“只有 0 字节 `.jsonl`、无 `.events`”空白会话不进入列表。
 - `{name}.events`：**append-only 审计镜像**（append 时与 .jsonl 同步双写，rewrite 不触碰）。
 - `{name}.meta`：JSON 读-改-写 + temp 原子替换，**必须保留未知键**。键：`title`、`planMode:b`、`pendingPlan`、`worktreeMode:b`、`mergeMode`(默认"manual")、`model`、`modelChannelId`、`reasoningEffort`、`agentId`(默认"native")、`acpSessionId`、`acpCwd`、`acpUsage:{used,size,cost?,currency?,model?}`、`acpPlan:[...]`、`acpCommands:[...]`、`agentConfig:{}`。`agentConfig` 记录用户在会话里选定的 Agent 配置（模型、权限模式、思考强度等）。恢复 ACP 会话时先读这份快照、把与 Agent 默认值不同的项重新下发，再回写；Agent 拒绝或未列出的键一律保留，不能因一次恢复失败丢失用户的选择。
+- Codex 空白线程在首条消息前可能没有 rollout。恢复该线程明确返回 `no rollout found for thread id <当前 acpSessionId>` 时，只有 `.jsonl` 和 `.events` 均不存在或为 0 字节才允许重建远端线程，并恢复保存的 `agentConfig`；重建成功后更新绑定。已有审计记录（即使可见历史被回滚清空）、损坏但非空的日志、历史检查失败、取消及其他远端错误都不触发重建，失败保留旧绑定及原文件。
 - `{name}.usage`：`{prompt,completion,cacheHit,cacheMiss,lastPromptTokens}`（long；全 0 删除）。
 - `{name}.model_usage`：`{"<model>": [prompt,completion,cacheHit,cacheMiss]}`（空删除）。
 - `{name}.sub/{subSessionId}.jsonl`：子代理会话（每行 `{type:"sub_*",...payload}`；subSessionId 白名单校验防穿越；缺 `sub_end` 视为运行中）。

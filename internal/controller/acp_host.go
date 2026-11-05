@@ -28,6 +28,10 @@ func (h acpHost) Meta(session string) map[string]any { return h.s.sessionMetaRea
 
 func (h acpHost) SetMeta(session string, kv map[string]any) { h.s.sessionMetaSet(session, kv) }
 
+func (h acpHost) HasHistory(session string) (bool, error) {
+	return h.s.sessionFiles().HasHistory(session)
+}
+
 func (h acpHost) AppendTranscript(session string, lines []map[string]any) error {
 	if h.s.agent == nil {
 		return nil
@@ -81,6 +85,23 @@ func (s *Controller) acquireACP(ctx context.Context, name, agentID string) (*acp
 
 func (s *Controller) openACPSession(ctx context.Context, name string, conn *acp.Conn, replayHistory bool) ([]acp.ConfigOption, error) {
 	return s.acp.OpenSession(ctx, s.acpHost(), name, conn, replayHistory)
+}
+
+// prepareACPWorkspace 让预热、配置与发送使用相同的工作目录和默认关联项目。
+// 否则首次发送才加入关联项目会关闭预热进程，丢失尚未持久化的 Codex 线程。
+func (s *Controller) prepareACPWorkspace(req *chatRequest) (*Controller, error) {
+	view, err := s.prepareWorktree(req)
+	if err != nil {
+		return nil, err
+	}
+	linked, err := view.resolveLinkedProjects(req)
+	if err != nil {
+		return nil, err
+	}
+	// prepareWorktree 对纯聊天工作区可返回原对象，目录快照仍仅属于本次请求。
+	scoped := *view
+	scoped.linkedProjectRoots = linked
+	return &scoped, nil
 }
 
 func (s *Controller) runACPTurn(ctx context.Context, sse *sseWriter, req *chatRequest, msgID string, hasSnapshot bool) {

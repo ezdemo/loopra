@@ -33,6 +33,7 @@ type SessionHost interface {
 	LinkedDirs() []string
 	Meta(session string) map[string]any
 	SetMeta(session string, kv map[string]any)
+	HasHistory(session string) (bool, error)
 	AppendTranscript(session string, lines []map[string]any) error
 	SubSessionsDir(session string) string
 	MCPServers(agentID string) []any
@@ -734,6 +735,19 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 		result, err = conn.client.LoadSession(ctx, remote, conn.cwd, dirs)
 	default:
 		return nil, errors.New("Agent 不支持恢复会话，请创建新会话")
+	}
+	if err != nil && ctx.Err() == nil && conn.agentID == "codex" && remote != "" &&
+		strings.Contains(err.Error(), "no rollout found for thread id "+remote) {
+		history, historyErr := host.HasHistory(name)
+		if historyErr != nil {
+			return nil, fmt.Errorf("恢复 Codex 会话前检查历史失败: %w", historyErr)
+		}
+		if !history {
+			// Codex 首条消息之前的线程可能只存在于原进程内存里。
+			// 只重建没有日志及审计记录的空白会话，随后仍恢复保存的模型等配置。
+			logging.Debugf("acp", "recreate unmaterialized codex session=%s remote=%s", name, remote)
+			result, err = conn.client.NewSession(ctx, conn.cwd, dirs)
+		}
 	}
 	if err != nil {
 		return nil, err

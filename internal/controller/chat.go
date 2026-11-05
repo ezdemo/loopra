@@ -126,21 +126,11 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 	if req.AgentID == "native" {
 		scoped, err = s.prepareTurn(&req)
 	} else {
-		// 外部 ACP 引擎只需要工作区视图（隔离分支、关联项目），
-		// 不装配原生智能体。
-		scoped, err = s.prepareWorktree(&req)
+		scoped, err = s.prepareACPWorkspace(&req)
 	}
 	if err != nil {
 		sse.sendError(err.Error())
 		return
-	}
-	if req.AgentID != "native" {
-		linked, linkErr := scoped.resolveLinkedProjects(&req)
-		if linkErr != nil {
-			sse.sendError(linkErr.Error())
-			return
-		}
-		scoped.linkedProjectRoots = linked
 	}
 	s = scoped
 	s.state.mu.Lock()

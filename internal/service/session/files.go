@@ -4,6 +4,8 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +41,27 @@ func (s *Store) MetaPath(name string) string {
 // （回滚会把可见日志截断为空，但 .events 从不重写）都算。
 func (s *Store) Persisted(name string) bool {
 	return fileHasContent(s.LogPath(name)) || fileHasContent(s.EventsPath(name))
+}
+
+// HasHistory 在重建空白远端会话前检查日志与审计记录。
+// 回滚、隐藏消息或损坏行都不能被当成从未发送过消息；检查失败也不能按空白处理。
+func (s *Store) HasHistory(name string) (bool, error) {
+	for _, path := range []string{s.LogPath(name), s.EventsPath(name)} {
+		info, err := os.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("检查会话历史失败: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return false, fmt.Errorf("会话历史不是普通文件: %s", path)
+		}
+		if info.Size() > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Store) ReadMeta(name string) map[string]any {
