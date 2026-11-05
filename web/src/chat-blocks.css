@@ -123,13 +123,16 @@
 .loopra-conversation .tool-icon.success { color: var(--chat-fg-4); }
 .loopra-conversation .tool-icon.failed { color: var(--chat-red); }
 .loopra-conversation .tool-icon.running { color: var(--chat-yellow); }
-.loopra-conversation code.tool-name { font: 400 .8125rem/1.25rem var(--chat-mono); color: var(--chat-fg-3); padding: 0; background: transparent; white-space: nowrap; }
+.loopra-conversation code.tool-name { min-width: 0; max-width: 50%; overflow: hidden; font: 400 .8125rem/1.25rem var(--chat-mono); color: var(--chat-fg-3); padding: 0; background: transparent; white-space: nowrap; }
 .loopra-conversation .tool-status { padding: 0 .375rem; border-radius: 999px; font: 500 .6875rem/1.125rem var(--chat-mono); flex-shrink: 0; }
 .loopra-conversation .tool-status.success { display: none; }
 .loopra-conversation .tool-status.failed { color: var(--chat-red); background: var(--chat-red-bg); }
 .loopra-conversation .tool-status.running { color: var(--chat-yellow); background: var(--chat-yellow-bg); }
-.loopra-conversation .tool-param { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8125rem; font-weight: 400; color: var(--chat-fg-4); }
-.loopra-conversation .tool-file { flex-shrink: 0; max-width: 12rem; padding: 0 .375rem; border: none; border-radius: var(--radius-sm); background: var(--chat-muted); color: var(--chat-fg-3); font: .6875rem/1.25rem var(--chat-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.loopra-conversation .tool-param { flex: 1; min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8125rem; font-weight: 400; color: var(--chat-fg-4); }
+.loopra-conversation .tool-file { min-width: 0; max-width: min(12rem, 50%); padding: 0 .375rem; border: none; border-radius: var(--radius-sm); background: var(--chat-muted); color: var(--chat-fg-3); font: .6875rem/1.25rem var(--chat-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.loopra-conversation :is(.tool-name, .tool-param, .tool-file)[data-overflow="true"] { text-overflow: clip; mask-image: linear-gradient(to right, #000 max(0px, calc(100% - 2rem)), transparent); }
+.loopra-conversation .tool-head > svg:last-child,
+.loopra-conversation .tool-duration { flex-shrink: 0; }
 .loopra-conversation .tool-file:hover, .loopra-conversation .tool-file:focus-visible { color: var(--chat-fg); background: var(--chat-hover); outline: none; }
 .loopra-conversation .tool-duration { margin-left: auto; white-space: nowrap; font: .6875rem var(--chat-mono); color: var(--chat-fg-4); }
 .loopra-conversation .tool-duration + svg:last-child { margin-left: 0 !important; }

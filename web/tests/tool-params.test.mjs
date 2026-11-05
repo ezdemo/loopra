@@ -42,6 +42,18 @@ test('unknown tools fall back to the generic param and empty is null', () => {
   assert.equal(toolParam('custom', undefined), null);
 });
 
+test('ACP command titles do not repeat their command in the parameter preview', () => {
+  for (const command of [
+    "git config --global http.proxy 'http://127.0.0.1:7890'",
+    'curl.exe --silent --show-error --output NUL --write-out "%{http_code}" https://example.com',
+  ]) {
+    assert.equal(toolParam(command, { command }), null);
+    assert.equal(toolParam(` ${command} `, { command }), null);
+    assert.deepEqual(toolParam('shell', { command }), { text: command });
+    assert.deepEqual(toolParam(`${command} && echo done`, { command }), { text: command });
+  }
+});
+
 test('the tool card renders the clickable file button', async () => {
   const blockRenderer = await readFile(new URL('../src/components/BlockRenderer.tsx', import.meta.url), 'utf8');
   assert.match(blockRenderer, /toolParam\(block\.name, block\.args\)/);

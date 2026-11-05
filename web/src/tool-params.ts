@@ -61,7 +61,9 @@ export function toolParam(name: string, args?: Record<string, unknown>): ToolPar
     const question = text('question');
     return { text: `${truncate(question, QUESTION_MAX)}${count > 0 ? ` (${count} 项)` : ''}` };
   }
-  // Generic fallback keeps prior behaviour for every other tool.
+  // ACP titles can already be the command (e.g. Codex). Keep its arguments in
+  // the detail without repeating the same command alongside the title.
   const fallback = text('command') || filePath || text('pattern') || text('path');
+  if (fallback.trim() === name.trim()) return null;
   return fallback ? { text: fallback } : null;
 }

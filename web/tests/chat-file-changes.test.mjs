@@ -9,7 +9,14 @@ import { JSDOM } from 'jsdom';
 // message list itself is covered elsewhere; here the real BlockRenderer is
 // mounted with only its heavy leaves stubbed.
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://test.invalid' });
-const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
+class ResizeObserverStub {
+  static instances = [];
+  elements = [];
+  constructor(callback) { this.callback = callback; ResizeObserverStub.instances.push(this); }
+  observe(element) { this.elements.push(element); }
+  disconnect() { this.disconnected = true; }
+}
+const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, ResizeObserver: ResizeObserverStub, IS_REACT_ACT_ENVIRONMENT: true };
 const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
 after(() => { dom.window.close(); for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
@@ -194,6 +201,45 @@ test('an edit landing after an undo brings the card back', async () => {
   } finally { await view.close(); }
 });
 
+
+test('tool previews fade only while overflowing and keep the full detail accessible', async () => {
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  const command = 'git status --short; Get-Content internal/service/projectlinks/service.go';
+  const render = name => act(async () => root.render(createElement(BlockRenderer, {
+    notify() {}, blocks: [{ id: 'tool', type: 'tool_call', name, status: '成功', args: { command }, result: 'done' }],
+  })));
+  let observer;
+  try {
+    await render(`Run ${command}`);
+    const name = host.querySelector('.tool-name');
+    const param = host.querySelector('.tool-param');
+    observer = ResizeObserverStub.instances.find(item => item.elements.includes(name));
+    assert.equal(name.dataset.overflow, 'false');
+    assert.equal(name.title, `Run ${command}`);
+    for (const element of [name, param]) {
+      Object.defineProperties(element, {
+        clientWidth: { configurable: true, value: 200 },
+        scrollWidth: { configurable: true, value: 800 },
+      });
+    }
+    observer.callback();
+    assert.equal(name.dataset.overflow, 'true');
+    assert.equal(param.dataset.overflow, 'true');
+    Object.defineProperty(name, 'clientWidth', { configurable: true, value: 900 });
+    observer.callback();
+    assert.equal(name.dataset.overflow, 'false', 'widening the panel removes the fade');
+    await click(host.querySelector('.tool-head'));
+    assert.ok(host.querySelector('.tool-detail').textContent.includes(command));
+    await render(command);
+    assert.equal(host.querySelector('.tool-param'), null, 'ACP command titles show the command once');
+    assert.ok(host.querySelector('.tool-detail').textContent.includes(command), 'deduplication preserves full arguments');
+    await render('shell');
+    assert.equal(observer.disconnected, true, 'updated previews release their previous observer');
+    assert.equal(host.querySelector('.tool-name').title, 'shell');
+    observer = ResizeObserverStub.instances.at(-1);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+  assert.equal(observer.disconnected, true, 'unmount releases measurement');
+});
 
 test('the exact View Image title from the screenshot renders its path as an image inside the tool detail', async () => {
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
