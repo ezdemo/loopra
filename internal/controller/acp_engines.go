@@ -94,7 +94,7 @@ func (s *Controller) setACPConfigOption(ctx context.Context, name, id string, va
 		default:
 			return nil, fmt.Errorf("Agent 不支持此配置: %s", id)
 		}
-		s.sessionMetaSet(name, map[string]any{"agentConfig": map[string]any{id: fmt.Sprint(value)}})
+		s.sessionMetaSet(name, map[string]any{"agentConfig": acp.MergedAgentConfig(s.sessionMetaRead(name), map[string]string{id: fmt.Sprint(value)})})
 		conn.BindSession(conn.SessionID(), conn.Client().ConfigOptions())
 		return conn.ConfigOptions(), nil
 	}

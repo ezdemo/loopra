@@ -741,9 +741,12 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 	if result.SessionID == "" {
 		return nil, errors.New("Agent returned an empty session ID")
 	}
+	// 恢复必须在写入前读快照：result.ConfigOptions 是 Agent 恢复会话时给的默认值，
+	// 先落盘会让恢复读到这份默认值，用户的选择被静默覆盖。
+	options, config := restoreSessionConfig(ctx, conn.client, host.Meta(name), result.ConfigOptions)
 	patch := map[string]any{"agentId": conn.agentID, "acpSessionId": result.SessionID, "acpCwd": conn.cwd}
-	if len(result.ConfigOptions) > 0 {
-		patch["agentConfig"] = configValues(result.ConfigOptions)
+	if len(config) > 0 {
+		patch["agentConfig"] = config
 	}
 	if plan, commands, _ := conn.client.ReplayState(); len(plan) > 0 || len(commands) > 0 {
 		if len(plan) > 0 {
@@ -754,45 +757,117 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 		}
 	}
 	host.SetMeta(name, patch)
-	restoreAgentConfig(ctx, host, name, conn, result.ConfigOptions)
-	conn.BindSession(result.SessionID, conn.client.ConfigOptions())
+	conn.BindSession(result.SessionID, options)
 	conn.mu.Lock()
 	conn.linkedDirs = linkedDirsKey(dirs)
 	conn.mu.Unlock()
 	return conn.ConfigOptions(), nil
 }
 
-func restoreAgentConfig(ctx context.Context, host SessionHost, name string, conn *Conn, options []ConfigOption) {
-	saved := host.Meta(name)["agentConfig"]
-	values, ok := saved.(map[string]any)
-	if !ok || len(values) == 0 {
-		return
+// restoreSessionConfig 恢复会话时把保存的选择重新下发给 Agent，并生成新的 .meta 快照。
+// 两步都基于同一份旧快照，不能先写 .meta：Agent 恢复会话时提交的是它自己的默认值，
+// 先落盘会把用户上次的选择当成默认值发回去，看上去就像重启后被重置了。
+func restoreSessionConfig(ctx context.Context, writer configWriter, meta map[string]any, options []ConfigOption) ([]ConfigOption, map[string]any) {
+	saved := savedAgentConfig(meta)
+	options = restoreAgentConfig(ctx, writer, saved, options)
+	return options, agentConfigValues(saved, options)
+}
+
+// agentConfigValues 生成新的 agentConfig 快照。保存值优先：用户设置过、但 Agent 本次
+// 拒绝或未列出的键仍留在 .meta 里，下次恢复再试，不会因一次失败就丢掉选择。
+func agentConfigValues(saved map[string]string, options []ConfigOption) map[string]any {
+	values := map[string]any{}
+	for key, value := range configValues(options) {
+		values[key] = value
 	}
-	accepted := map[string]string{}
+	for key, value := range saved {
+		values[key] = value
+	}
+	return values
+}
+
+// MergedAgentConfig 把用户刚改的一项合并进已保存的 agentConfig，保留其他键。
+func MergedAgentConfig(meta map[string]any, override map[string]string) map[string]any {
+	values := map[string]any{}
+	for key, value := range savedAgentConfig(meta) {
+		values[key] = value
+	}
+	for key, value := range override {
+		values[key] = value
+	}
+	return values
+}
+
+// savedAgentConfig 读出 .meta 里保存的用户选择。
+func savedAgentConfig(meta map[string]any) map[string]string {
+	values := map[string]string{}
+	switch raw := meta["agentConfig"].(type) {
+	case map[string]any:
+		for key, value := range raw {
+			values[key] = fmt.Sprint(value)
+		}
+	case map[string]string:
+		for key, value := range raw {
+			values[key] = value
+		}
+	}
+	return values
+}
+
+// pendingAgentConfig 列出需要重新下发的配置：Agent 恢复会话时提交的是它自己的默认值，
+// 与保存值不同就以保存值覆盖，这才是用户上次的选择。
+func pendingAgentConfig(saved map[string]string, options []ConfigOption) []ConfigOption {
+	pending := []ConfigOption{}
 	for _, option := range options {
 		if option.ID == "" {
 			continue
 		}
-		value, exists := values[option.ID]
-		if !exists || fmt.Sprint(option.CurrentValue) == fmt.Sprint(value) {
+		value, exists := saved[option.ID]
+		if !exists || fmt.Sprint(option.CurrentValue) == value {
 			continue
 		}
-		if updated, err := conn.client.SetConfigOption(ctx, option.ID, value); err == nil {
-			accepted[option.ID] = fmt.Sprint(value)
-			options = updated
+		pending = append(pending, ConfigOption{ID: option.ID, CurrentValue: value})
+	}
+	return pending
+}
+
+// configWriter 是恢复会话时需要的配置下发能力；*Client 是其实现。
+type configWriter interface {
+	SetConfigOption(ctx context.Context, id string, value any) ([]ConfigOption, error)
+}
+
+// restoreAgentConfig 把保存的选择下发给 Agent，返回生效后的配置项。
+// 每个回包都可能是局部快照，只按 ID 覆盖回去，不移除 Agent 未在本次回包里列出的选项。
+func restoreAgentConfig(ctx context.Context, writer configWriter, saved map[string]string, options []ConfigOption) []ConfigOption {
+	for _, pending := range pendingAgentConfig(saved, options) {
+		updated, err := writer.SetConfigOption(ctx, pending.ID, pending.CurrentValue)
+		if err != nil {
+			// 某个保存值已不再被该 Agent 接受时跳过，不阻塞打开会话。
+			continue
+		}
+		options = overwriteOptions(options, updated)
+	}
+	return options
+}
+
+// overwriteOptions 用 updated 里同 ID 的值覆盖 options，其余选项保持原样。
+func overwriteOptions(options, updated []ConfigOption) []ConfigOption {
+	merged := append([]ConfigOption(nil), options...)
+	for _, change := range updated {
+		found := false
+		for index := range merged {
+			if merged[index].ID != change.ID {
+				continue
+			}
+			merged[index] = change
+			found = true
+			break
+		}
+		if !found {
+			merged = append(merged, change)
 		}
 	}
-	if len(accepted) == 0 {
-		return
-	}
-	merged := map[string]any{}
-	for key, value := range values {
-		merged[key] = value
-	}
-	for key, value := range accepted {
-		merged[key] = value
-	}
-	host.SetMeta(name, map[string]any{"agentConfig": merged})
+	return merged
 }
 
 func resumeSupported(capabilities AgentCapabilities) bool {
