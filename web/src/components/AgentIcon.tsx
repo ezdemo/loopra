@@ -1,11 +1,9 @@
 export default function AgentIcon({ agentId = 'native' }: { agentId?: string }) {
+  if (agentId === 'native') {
+    return <img className="composer-agent-icon" data-agent={agentId} src={`${import.meta.env?.BASE_URL ?? '/'}favicon.svg`} width="16" height="16" alt="" aria-hidden="true" draggable={false} />;
+  }
   const icon = (() => {
     switch (agentId) {
-      case 'native':
-        return <>
-          <rect x="4" y="4" width="16" height="16" rx="5.25" fill="none" stroke="currentColor" strokeWidth="2" />
-          <path d="M10.25 8.75v5a1.75 1.75 0 0 0 1.75 1.75h2.75" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </>;
       case 'codex':
         // Vendored from @lobehub/icons-static-svg@1.97.0/icons/openai.svg.
         // License: src/assets/LOBE-ICONS-LICENSE.txt.

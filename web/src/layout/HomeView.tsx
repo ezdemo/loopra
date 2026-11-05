@@ -38,7 +38,7 @@ export default function HomeView({ workspaces, workspacesLoading, enginesLoading
   const placement = useMenuPlacement(menuOpen, anchorRef);
   const placementStyle = (placement.maxHeight ? { '--menu-max-height': `${placement.maxHeight}px` } : undefined) as CSSProperties | undefined;
   return <section className="welcome-shell">
-    <Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark />Loopra</h1></Enter>
+    <Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark /><span className="welcome-wordmark">Loopra</span></h1></Enter>
     <div className="welcome-switchers">
       {workspacesLoading ? <div className="welcome-selector-loading" role="status" aria-label="正在加载工作区"><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <div ref={anchorRef} className="workspace-selector menu-anchor" data-popover="workspace" data-placement={placement.side} style={placementStyle}>
         <button type="button" aria-label="选择工作区或模式" aria-expanded={menuOpen} onClick={onToggleMenu}>{workspaces.find(item => item.hash === workspace)?.kind === 'chat' ? <MessageCircle size="1rem" /> : <FolderClosed size="1rem" />}{workspaceName}<ChevronDown size="0.875rem" /></button>

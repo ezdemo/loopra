@@ -1,14 +1,55 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
   <title id="title">Loopra</title>
-  <desc id="desc">A compact letter L inside a balanced rounded loop.</desc>
+  <desc id="desc">A compact letter L on white inside a balanced rounded blue loop.</desc>
+  <style>
+    .loopra-frame, .loopra-letter { transform-origin: 48px 48px; }
+    .loopra-frame { animation: loopra-arrive 1200ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .loopra-ring, .loopra-letter { stroke-dasharray: 1; stroke-dashoffset: 0; }
+    .loopra-ring { animation: loopra-draw 1000ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .loopra-letter {
+      animation: loopra-draw 650ms 280ms cubic-bezier(0.22, 1, 0.36, 1) both,
+                 loopra-letter-land 950ms 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .loopra-glint { opacity: 0; animation: loopra-glint 800ms 750ms ease-out both; }
+    @keyframes loopra-draw {
+      from { stroke-dashoffset: 1; }
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes loopra-arrive {
+      0% { transform: rotate(-100deg) scale(0.65); opacity: 0; }
+      55% { transform: rotate(7deg) scale(1.04); opacity: 1; }
+      78% { transform: rotate(-3deg) scale(0.99); }
+      100% { transform: rotate(0deg) scale(1); opacity: 1; }
+    }
+    @keyframes loopra-letter-land {
+      0% { transform: translateY(8px) scale(0.8); opacity: 0; }
+      55% { transform: translateY(-2px) scale(1.06); opacity: 1; }
+      78% { transform: translateY(1px) scale(0.99); }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    @keyframes loopra-glint {
+      0% { stroke-dashoffset: 1; opacity: 0; }
+      20% { opacity: 0.9; }
+      75% { opacity: 0.7; }
+      100% { stroke-dashoffset: -0.3; opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .loopra-frame, .loopra-ring, .loopra-letter, .loopra-glint { animation: none; }
+    }
+  </style>
   <defs>
     <linearGradient id="loopra-ring" x1="20" y1="18" x2="78" y2="80" gradientUnits="userSpaceOnUse">
       <stop stop-color="#2F80ED"/>
       <stop offset="1" stop-color="#5B9CF2"/>
     </linearGradient>
   </defs>
-  <rect x="16" y="16" width="64" height="64" rx="21"
-        fill="none" stroke="url(#loopra-ring)" stroke-width="8"/>
-  <path d="M41 35v20c0 3.87 3.13 7 7 7h11"
+  <g class="loopra-frame">
+    <rect x="16" y="16" width="64" height="64" rx="21" fill="#fff"/>
+    <rect class="loopra-ring" pathLength="1" x="16" y="16" width="64" height="64" rx="21"
+          fill="none" stroke="url(#loopra-ring)" stroke-width="8"/>
+  </g>
+  <path class="loopra-letter" pathLength="1" d="M41 35v20c0 3.87 3.13 7 7 7h11"
         fill="none" stroke="#173A70" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"/>
+  <rect class="loopra-glint" pathLength="1" x="16" y="16" width="64" height="64" rx="21"
+        fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-dasharray="0.14 0.86"/>
 </svg>
