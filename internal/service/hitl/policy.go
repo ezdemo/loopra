@@ -6,6 +6,7 @@
 package hitl
 
 import (
+	"path/filepath"
 	"strings"
 )
 
@@ -54,6 +55,8 @@ type Policy struct {
 	BlockedPaths func() []string
 	// Workspace 是用于路径检查的绝对工作区根目录。
 	Workspace func() string
+	// LinkedWorkspaces 返回本次执行已解析的副项目根目录。
+	LinkedWorkspaces func() []string
 	// AIReview 执行 "auto" 模式的模型预审，返回
 	// (allowed, requiresHuman)。钩子为 nil 时禁用该阶段。
 	AIReview     func(session, tool string, args map[string]any) (allowed, requiresHuman bool, err error)
@@ -152,7 +155,27 @@ func (p *Policy) escapesWorkspace(rel string) bool {
 	if p.Workspace == nil {
 		return false
 	}
+	if filepath.IsAbs(rel) {
+		for _, root := range p.workspaceRoots() {
+			inside, err := filepath.Rel(root, rel)
+			if err == nil && withinRoot(root, inside) {
+				return false
+			}
+		}
+		return true
+	}
 	return !withinRoot(p.Workspace(), rel)
+}
+
+func (p *Policy) workspaceRoots() []string {
+	var roots []string
+	if p.Workspace != nil {
+		roots = append(roots, p.Workspace())
+	}
+	if p.LinkedWorkspaces != nil {
+		roots = append(roots, p.LinkedWorkspaces()...)
+	}
+	return roots
 }
 
 func (p *Policy) pathBlocked(args map[string]any) bool {
@@ -164,9 +187,20 @@ func (p *Policy) pathBlocked(args map[string]any) bool {
 		return false
 	}
 	path := pathOf(args)
+	paths := []string{filepath.Clean(path)}
+	if filepath.IsAbs(path) {
+		for _, root := range p.workspaceRoots() {
+			if rel, err := filepath.Rel(root, path); err == nil && withinRoot(root, rel) {
+				paths = append(paths, rel)
+			}
+		}
+	}
 	for _, b := range blocked {
-		if path != "" && (path == b || strings.HasPrefix(path, b+"/") || strings.HasPrefix(path, b+`\`)) {
-			return true
+		b = filepath.Clean(b)
+		for _, candidate := range paths {
+			if path != "" && (candidate == b || strings.HasPrefix(candidate, b+string(filepath.Separator))) {
+				return true
+			}
 		}
 	}
 	return false

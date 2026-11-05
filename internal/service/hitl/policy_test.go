@@ -1,10 +1,36 @@
 package hitl
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
+func TestPolicyLinkedWorkspaces(t *testing.T) {
+	main, linked, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	p := &Policy{
+		Mode:             func() string { return ModeApproval },
+		Workspace:        func() string { return main },
+		LinkedWorkspaces: func() []string { return []string{linked} },
+		BlockedPaths:     func() []string { return []string{"secrets"} },
+	}
+	for _, name := range []string{"write", "edit"} {
+		for _, path := range []string{"src/file.go", filepath.Join(main, "file.go"), filepath.Join(linked, "src", "file.go")} {
+			if p.Require("s", name, map[string]any{"path": path}) {
+				t.Fatalf("%s should be workspace-local: %s", name, path)
+			}
+		}
+		for _, path := range []string{filepath.Join(outside, "file.go"), filepath.Join(linked+"-other", "file.go"), "../file.go", filepath.Join(linked, "secrets", "key.pem"), filepath.Join(main, "secrets", "key.pem")} {
+			if !p.Require("s", name, map[string]any{"path": path}) {
+				t.Fatalf("%s bypassed approval: %s", name, path)
+			}
+		}
+	}
+	p.LinkedWorkspaces = nil
+	if !p.Require("s", "write", map[string]any{"path": filepath.Join(linked, "src", "file.go")}) {
+		t.Fatal("removed linked workspace retained approval")
+	}
+}
 func TestAutoWhitelistOnlySkipsAutoReview(t *testing.T) {
 	mode := "auto"
 	p := &Policy{Mode: func() string { return mode }, AutoApproved: func(name string) bool { return name == "custom" }}

@@ -18,6 +18,7 @@ func (s *Controller) registerConfigRoutes(api *apiRouter) {
 	readRoute(api, "/workspaces/order", s.action((*Controller).workspaceController))
 	api.PUT("/workspaces/order", s.action((*Controller).workspaceController))
 	api.PUT("/workspaces/:hash/name", s.action((*Controller).workspaceController))
+	api.PUT("/workspaces/:hash/links", s.action((*Controller).workspaceLinksController))
 	api.DELETE("/workspaces/:hash", s.action((*Controller).workspaceController))
 	readRoute(api, "/loopra-md", s.action((*Controller).loopraMDController))
 	api.PUT("/loopra-md", s.action((*Controller).loopraMDController))

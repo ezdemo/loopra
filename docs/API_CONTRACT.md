@@ -119,11 +119,16 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 | GET `/usage` | q: workspaceHash*, sessionName? | `UsageDTO{promptTokens,completionTokens,cacheHit,cacheMiss,lastPromptTokens,maxContextTokens,totalTokens,model,hasPrice,inputCost,cacheCost,outputCost,totalCost,currency,contextEstimate:{...},contextSource,contextEstimateScope}` |
 | GET `/workspace` | — | s |
 | POST `/workspace` | body `{path*}` | `{message, workspace, currentSession:null}`（400 `"无效的工作目录路径: ..."`） |
-| GET `/workspaces` | — | `[{hash,name,path,createdAt,lastAccessedAt,sessionCount,displayName?}]` |
+| GET `/workspaces` | — | `[{hash,name,path,createdAt,lastAccessedAt,sessionCount,displayName?,linkedProjectHashes?}]` |
 | PUT `/workspaces/{hash}/name` | body `{displayName}` | ProjectInfoDTO |
+| PUT `/workspaces/{hash}/links` | body `{linkedProjectHashes:[hash...]}`，空数组解除全部关联 | 更新后的 ProjectInfoDTO；去重并排除自身，最多 8 个已注册且目录可用的副项目；无效项目或纯聊天返回 400 |
 | DELETE `/workspaces/{hash}` | — | s `"项目已删除"` |
 | PUT `/workspaces/order` | body `[hash...]` | s `"排序已保存"` |
 | GET `/workspaces/order` | — | `[s]` |
+
+项目长期关联保存在主项目元数据中，旧记录缺省为空。原生 Agent 的系统提示词列出主项目、副项目及绝对路径；不拼接到用户消息。每轮执行合并长期关联与 `ChatRequest.linkedProjectHashes` 临时关联，去重后最多 8 个，且不递归继承副项目的关联。已移除或目录不可用的长期关联不授予权限；显式临时关联无效时返回错误。修改从下一轮生效，已开始的轮次沿用其目录快照。外部 ACP 引擎接收相同的目录列表，列表变化后重新建立或恢复会话。
+
+开启 `toolsRestrictWorkspace` 时，`write` / `edit` 接受主项目内相对路径，以及主项目或有效副项目内的绝对路径，仍检查符号链接越界。审批策略将这些目录视为工作区，`blockedPaths` 在各工作区继续生效。只读工具和 shell `cwd` 保持原有范围；关联不额外授予副项目的记忆、技能或插件配置。
 | GET `/loopra-md` | — | s |
 | PUT `/loopra-md` | body 裸字符串 | s `"loopra.md 已保存，Agent 已重新初始化，新会话将使用更新后的提示词"` |
 | GET `/usage/dashboard` | q: days?(7) | `{totalPromptTokens,...,dailyStats:[...],modelStats:[...],modelPrices:{}}` |

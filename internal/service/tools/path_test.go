@@ -29,6 +29,18 @@ func TestLinkedPathsExistOnlyInCurrentTurn(t *testing.T) {
 	}
 }
 
+func TestLinkedWorkspaceRejectsSymlinkEscape(t *testing.T) {
+	root, linked, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	escape := filepath.Join(linked, "escape")
+	createDirectoryLink(t, escape, outside)
+	ctx := WithWorkspaceScope(WithLinkedProjects(context.Background(), []string{linked}), true)
+	for _, path := range []string{filepath.Join(escape, "new.txt"), filepath.Join(linked+"-sibling", "new.txt")} {
+		if _, err := contextualPath(ctx, root, path); err == nil {
+			t.Fatalf("linked workspace escape accepted: %s", path)
+		}
+	}
+}
+
 // 只读工具在任何设置下都直接解析路径，不套用项目范围。
 func TestReadOnlyPathsIgnoreWorkspaceScope(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()

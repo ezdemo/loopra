@@ -237,9 +237,10 @@ func (s *Controller) installApprovalPolicy() {
 			}
 			return nil
 		},
-		BlockedPaths: func() []string { return s.configSnapshot().BlockedPaths },
-		Workspace:    s.workspaceRoot,
-		AIReview:     s.buildAIReviewer(),
+		BlockedPaths:     func() []string { return s.configSnapshot().BlockedPaths },
+		Workspace:        s.workspaceRoot,
+		LinkedWorkspaces: func() []string { return append([]string(nil), s.linkedProjectRoots...) },
+		AIReview:         s.buildAIReviewer(),
 		AutoApproved: func(name string) bool {
 			for _, saved := range s.configSnapshot().AutoWhitelist {
 				if tools.ResolveName(saved) == name {
@@ -278,7 +279,7 @@ func (s *Controller) buildAIReviewer() func(session, tool string, args map[strin
 	}
 	return func(session, tool string, args map[string]any) (bool, bool, error) {
 		payload, _ := json.Marshal(map[string]any{
-			"workspace": s.workspaceRoot(), "tool": tool, "arguments": args,
+			"workspace": s.workspaceRoot(), "linkedWorkspaces": s.linkedProjectRoots, "tool": tool, "arguments": args,
 		})
 		req := &model.LLMRequest{
 			Contents: []*genai.Content{
@@ -339,7 +340,7 @@ func (s *Controller) installSubRunner() {
 		ParentModel: s.agent.Model,
 		Config:      s.cfg,
 		Workspace:   s.agent.App(),
-		Environment: shellenv.Instruction(s.workspaceRoot()),
+		Environment: shellenv.Instruction(s.workspaceRoot()) + s.linkedProjectEnvironment(),
 		BuildModel: func(channelID, modelName string) (model.LLM, error) {
 			if s.cfg == nil {
 				return nil, fmt.Errorf("no config")

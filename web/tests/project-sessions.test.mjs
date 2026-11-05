@@ -31,6 +31,7 @@ export const SelectField = ({ label, value, onChange, options, disabled }) => cr
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Button = ({ children, onPress, isDisabled, isLoading, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, ...rest }, children);
+export const Checkbox = ({ children, isSelected, isDisabled, onValueChange, classNames }) => createElement('label', { className: classNames?.base }, createElement('input', { type: 'checkbox', checked: !!isSelected, disabled: !!isDisabled, onChange: event => onValueChange(event.target.checked) }), createElement('span', { className: classNames?.label }, children));
 export const Modal = ({ children }) => createElement('div', { role: 'dialog' }, children);
 export const ModalContent = ({ children }) => createElement('div', null, children);
 export const ModalHeader = ({ children }) => createElement('header', null, children);
@@ -60,10 +61,13 @@ async function mount(count = 3, options = {}) {
     mtime: Date.now() - 31 * 24 * 60 * 60 * 1000,
   }));
   globalThis.__calls = [];
-  const api = { request: (path, method = 'GET', body) => {
+  const api = { request: async (path, method = 'GET', body) => {
     globalThis.__calls.push({ path, method, body });
+    if (options.pending) await options.pending;
+    if (options.respond) return options.respond(path, method, body);
     if (fail) return Promise.reject(new Error('保存失败'));
     if (path.endsWith('/name')) return Promise.resolve({ ...workspace, name: body.displayName || workspace.name, displayName: body.displayName || null });
+    if (path.endsWith('/links')) return Promise.resolve({ ...targetWorkspace, linkedProjectHashes: body.linkedProjectHashes });
     if (path.startsWith('/sessions/cleanup?')) return Promise.resolve({ sessionNames: ['old-1', 'old-2'] });
     return Promise.resolve('ok');
   } };
@@ -71,11 +75,12 @@ async function mount(count = 3, options = {}) {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   await act(async () => root.render(createElement(ProjectSessions, {
-    api, workspace: targetWorkspace, count, sessions,
+    api, workspace: targetWorkspace, workspaces: options.workspaces ?? [], count, sessions,
     onClose: () => events.push('close'),
     onRefresh: async () => { events.push('refresh'); if (refreshFail) throw new Error('离线'); },
     onCompleted: kind => events.push(`completed:${kind}`),
     onRenamed: (previous, next) => events.push(`renamed:${previous.name}:${next.name}`),
+    onUpdated: (_hash, hashes) => events.push(`updated:${hashes.join(',')}`),
     notify: message => events.push(`notify:${message}`),
   })));
   return { container, root, calls: () => globalThis.__calls, events, async close() { await act(async () => root.unmount()); container.remove(); } };
@@ -100,6 +105,119 @@ async function selectCleanupScope(view, value) {
   });
 }
 
+test('persistent links distinguish same-name projects by hash and save without closing', async () => {
+  const view = await mount(3, { workspaces: [workspace, { hash: 'bbb', name: 'same', path: 'C:\\one' }, { hash: 'ccc', name: 'same', path: 'D:\\two' }, { hash: 'chat', name: '纯聊天', kind: 'chat' }] });
+  try {
+    const checkboxes = view.container.querySelectorAll('.project-dialog-links input');
+    assert.equal(checkboxes.length, 2);
+    await click(checkboxes[1]);
+    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: { linkedProjectHashes: ['ccc'] } }]);
+    assert.deepEqual(view.events, ['updated:ccc', 'notify:关联副项目已保存，将在下一轮生效', 'refresh']);
+    assert.equal(buttonIn(view.container, '保存关联'), undefined);
+  } finally { await view.close(); }
+});
+
+test('removing a saved link persists an empty list', async () => {
+  const view = await mount(3, { workspace: { ...workspace, linkedProjectHashes: ['bbb'] }, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
+  try {
+    await click(view.container.querySelector('.project-dialog-links input'));
+    assert.deepEqual(view.calls()[0].body, { linkedProjectHashes: [] });
+    assert.ok(!view.events.includes('close'));
+  } finally { await view.close(); }
+});
+
+test('failed automatic link saves roll back the selection and allow retry', async () => {
+  const view = await mount(3, { fail: true, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
+  try {
+    await click(view.container.querySelector('.project-dialog-links input'));
+    assert.equal(view.container.querySelector('.project-dialog-links input').checked, false);
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /保存失败/);
+    assert.equal(view.container.querySelector('.project-dialog-links input').disabled, false);
+    await click(view.container.querySelector('.project-dialog-links input'));
+    assert.equal(view.calls().length, 2);
+  } finally { await view.close(); }
+});
+
+test('a failed refresh retains saved links and distinguishes the refresh error', async () => {
+  const view = await mount(3, { refreshFail: true, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
+  try {
+    await click(view.container.querySelector('.project-dialog-links input'));
+    assert.equal(view.container.querySelector('.project-dialog-links input').checked, true);
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /关联已保存，刷新项目失败：离线/);
+  } finally { await view.close(); }
+});
+
+test('link selection enforces eight projects and permits removing missing links', async () => {
+  const projects = Array.from({ length: 9 }, (_, i) => ({ hash: `p${i}`, name: `project ${i}`, path: `C:\\p${i}` }));
+  const view = await mount(3, { workspace: { ...workspace, linkedProjectHashes: projects.slice(0, 8).map(item => item.hash) }, workspaces: projects });
+  try {
+    const checkboxes = view.container.querySelectorAll('.project-dialog-links input');
+    assert.equal(checkboxes[8].disabled, true);
+    await click(checkboxes[0]);
+    assert.equal(checkboxes[8].disabled, false);
+  } finally { await view.close(); }
+  const missing = await mount(3, { workspace: { ...workspace, linkedProjectHashes: ['removed'] } });
+  try {
+    assert.match(missing.container.textContent, /项目已移除/);
+    await click(missing.container.querySelector('.project-dialog-links input'));
+    assert.deepEqual(missing.calls()[0].body, { linkedProjectHashes: [] });
+  } finally { await missing.close(); }
+});
+
+test('background link saves keep controls active and persist the latest selection in order', async () => {
+  let resolve;
+  const pending = new Promise(done => { resolve = done; });
+  const view = await mount(3, { pending, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }, { hash: 'ccc', name: '另一个项目', path: 'C:\\other' }] });
+  try {
+    const checkbox = view.container.querySelector('.project-dialog-links input');
+    await click(checkbox);
+    assert.equal(checkbox.checked, true);
+    assert.equal(checkbox.disabled, false);
+    assert.equal(buttonIn(view.container, '关闭').disabled, false);
+    await click(checkbox);
+    await click(view.container.querySelectorAll('.project-dialog-links input')[1]);
+    assert.equal(view.calls().length, 1);
+    assert.equal(checkbox.checked, false);
+    await act(async () => { resolve(); await pending; });
+    assert.deepEqual(view.calls().map(call => call.body.linkedProjectHashes), [['bbb'], ['ccc']]);
+    assert.equal(checkbox.disabled, false);
+    assert.equal(buttonIn(view.container, '关闭').disabled, false);
+    assert.equal(checkbox.checked, false);
+    assert.equal(view.container.querySelectorAll('.project-dialog-links input')[1].checked, true);
+  } finally { resolve(); await view.close(); }
+});
+
+test('closing the dialog keeps queued saves running without reopening it', async () => {
+  let resolve;
+  const pending = new Promise(done => { resolve = done; });
+  const view = await mount(3, { pending, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
+  await click(view.container.querySelector('.project-dialog-links input'));
+  await click(view.container.querySelector('.project-dialog-links input'));
+  await click(buttonIn(view.container, '关闭'));
+  await view.close();
+  await act(async () => { resolve(); await pending; });
+  assert.deepEqual(view.calls().map(call => call.body.linkedProjectHashes), [['bbb'], []]);
+  assert.ok(!view.events.some(event => event.startsWith('updated:')));
+  assert.ok(view.events.includes('refresh'));
+});
+
+test('a failed older save cannot roll back a more recent selection', async () => {
+  let reject;
+  let requests = 0;
+  const first = new Promise((_resolve, fail) => { reject = fail; });
+  const view = await mount(3, { workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }, { hash: 'ccc', name: '另一个项目', path: 'C:\\other' }], respond(_path, _method, body) {
+    if (++requests === 1) return first;
+    return { ...workspace, linkedProjectHashes: body.linkedProjectHashes };
+  } });
+  try {
+    const checkboxes = view.container.querySelectorAll('.project-dialog-links input');
+    await click(checkboxes[0]); await click(checkboxes[1]);
+    await act(async () => { reject(new Error('旧请求失败')); await first.catch(() => {}); });
+    assert.deepEqual(view.calls().map(call => call.body.linkedProjectHashes), [['bbb'], ['bbb', 'ccc']]);
+    assert.equal(checkboxes[0].checked, true); assert.equal(checkboxes[1].checked, true);
+    assert.equal(view.container.querySelector('[role="alert"]'), null);
+  } finally { await view.close(); }
+});
 test('the project sessions dialog saves display names without closing and updates its summary', async () => {
   const view = await mount();
   try {
@@ -141,12 +259,12 @@ test('a failed refresh after saving retains the confirmed name and reports the r
   } finally { await view.close(); }
 });
 
-test('project dialog shows the session count and refresh only reloads', async () => {
+test('project dialog shows the session count without a duplicate refresh action', async () => {
   const view = await mount(4);
   assert.match(view.container.textContent, /4 个会话/);
-  await click(buttonIn(view.container, '刷新会话列表'));
+  assert.equal(buttonIn(view.container, '刷新会话列表'), undefined);
   assert.deepEqual(view.calls(), []);
-  assert.deepEqual(view.events, ['refresh', 'completed:refresh', 'notify:会话列表已刷新', 'close']);
+  assert.deepEqual(view.events, []);
   await view.close();
 });
 
@@ -224,9 +342,9 @@ test('pure chat offers session maintenance without project name or deletion cont
     assert.equal(view.container.querySelector('.project-dialog-rename'), null);
     assert.equal(buttonIn(view.container, '删除项目'), undefined);
     assert.equal(view.container.querySelector('.project-dialog-summary p'), null);
-    await click(buttonIn(view.container, '刷新会话列表'));
+    assert.equal(buttonIn(view.container, '刷新会话列表'), undefined);
     assert.deepEqual(view.calls(), []);
-    assert.deepEqual(view.events, ['refresh', 'completed:refresh', 'notify:会话列表已刷新', 'close']);
+    assert.deepEqual(view.events, []);
   } finally { await view.close(); }
 });
 

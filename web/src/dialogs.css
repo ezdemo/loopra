@@ -33,6 +33,7 @@
 .agent-install-prompt { margin: 0; padding: .75rem .875rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--sidebar); color: var(--text); font: .75rem/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 .project-sessions-dialog { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; }
+.project-sessions-dialog .app-dialog-body { overflow-x: hidden; }
 .project-dialog-summary { padding: .875rem 1rem; background: var(--sidebar); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .project-dialog-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .75rem; }
 .project-dialog-summary strong { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
@@ -45,6 +46,16 @@
 .project-dialog-rename input:focus { outline: 1px solid var(--blue); border-color: var(--blue); }
 .project-dialog-rename button { flex-shrink: 0; }
 .project-dialog-rename > p { margin: .5rem 0 0; color: var(--muted); font-size: .6875rem; }
+.project-dialog-links { min-width: 0; padding: 0 0 1rem; border-bottom: 1px solid var(--line); }
+.project-dialog-links-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
+.project-dialog-links-heading h3 { margin: 0; font-size: .8125rem; font-weight: 500; }
+.project-dialog-links-heading span { color: var(--muted); font-size: .6875rem; }
+.project-dialog-links > p { margin-top: .25rem; color: var(--secondary); font-size: .75rem; }
+.project-dialog-links-list { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; max-height: min(18rem, 45dvh); gap: .25rem; margin-top: .75rem; padding: .125rem; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; }
+.project-dialog-links-list .project-dialog-link { box-sizing: border-box; width: 100%; min-width: 0; max-width: none; margin: 0; padding: .5rem .625rem; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.project-dialog-link-info { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.project-dialog-link-info strong { font-size: .75rem; font-weight: 500; }
+.project-dialog-link-info small, .project-dialog-links-list > p { color: var(--muted); font-size: .6875rem; overflow-wrap: anywhere; }
 .project-dialog-operations { display: grid; }
 .project-dialog-operation { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding: 1rem 0; }
 .project-dialog-operation + .project-dialog-operation { border-top: 1px solid var(--line); }

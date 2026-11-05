@@ -150,7 +150,7 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 		if hash == root.agent.App() && root.registry != nil && filepath.Clean(resolved) == filepath.Clean(root.workspaceRoot()) {
 			reg = tools.NewRegistry(root.registry.Entries()...)
 		}
-		instruction = root.systemInstruction(resolved)
+		instruction = root.systemInstructionFor(resolved, hash, nil)
 	}
 	root.attachPluginTools(reg)
 	a, err := root.agent.Derive(hash, cfg, []tool.Toolset{reg}, instruction)
@@ -203,8 +203,20 @@ func (s *Controller) chatSystemInstruction() string {
 }
 
 func (s *Controller) systemInstruction(workspace string) string {
-	if s.agent != nil && s.agent.App() == chatWorkspace {
+	hash := service.WorkspaceHash(workspace)
+	if s.agent != nil {
+		hash = s.agent.App()
+	}
+	projects, _ := s.linkedProjects(hash, nil)
+	return s.systemInstructionFor(workspace, hash, projects)
+}
+
+func (s *Controller) systemInstructionFor(workspace, hash string, projects []linkedProject) string {
+	if hash == chatWorkspace {
 		return s.chatSystemInstruction()
+	}
+	if projects == nil {
+		projects, _ = s.linkedProjects(hash, nil)
 	}
 	var text strings.Builder
 	base := agentpkg.DefaultInstruction
@@ -214,6 +226,7 @@ func (s *Controller) systemInstruction(workspace string) string {
 	text.WriteString(base)
 	text.WriteString("\n\n")
 	text.WriteString(shellenv.Instruction(workspace))
+	text.WriteString(projectEnvironment(workspace, projects))
 	for _, path := range []string{filepath.Join(s.home, "loopra.md"), filepath.Join(workspace, "loopra.md"), filepath.Join(workspace, "AGENTS.md")} {
 		if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
 			text.WriteString("\n\n")

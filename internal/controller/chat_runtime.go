@@ -146,31 +146,15 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	}
 	model, channel, effort := settings["model"].(string), settings["modelChannelId"].(string), settings["reasoningEffort"].(string)
 	chat := s.agent != nil && s.agent.App() == chatWorkspace
-	instruction := s.turnInstruction(s.workspaceRoot())
-	seen := map[string]bool{}
-	linkedRoots := []string{}
 	if chat {
 		req.LinkedProjectHashes = nil
 	}
-	for _, hash := range req.LinkedProjectHashes {
-		hash = strings.TrimSpace(hash)
-		if hash == s.agent.App() || seen[hash] || hash == "" {
-			continue
-		}
-		seen[hash] = true
-		if len(seen) > 8 {
-			return nil, fmt.Errorf("单次最多关联 8 个项目")
-		}
-		if filepath.IsAbs(hash) {
-			return nil, fmt.Errorf("关联项目不存在或未注册: %s", hash)
-		}
-		path, err := s.resolveProject(hash)
-		if err != nil {
-			return nil, fmt.Errorf("关联项目不存在或未注册: %s", hash)
-		}
-		linkedRoots = append(linkedRoots, path)
-		instruction += "\n[系统注入：本轮关联项目]\nhash: " + hash + "\n根目录: " + path + "\n读取或修改时必须遵守工具权限与审批边界。"
+	projects, err := s.linkedProjects(s.agent.App(), req.LinkedProjectHashes)
+	if err != nil {
+		return nil, err
 	}
+	linkedRoots := projectRoots(projects)
+	instruction := s.withMemoryInstruction(s.systemInstructionFor(s.workspaceRoot(), s.agent.App(), projects))
 	if chat && req.Action == "execute_plan" {
 		return nil, fmt.Errorf("纯聊天不支持计划执行")
 	}
@@ -183,7 +167,7 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	} else if !chat && meta["planMode"] == true {
 		instruction += "\n当前为计划模式：只进行只读探索并制定计划，使用 submit_plan 提交，禁止修改文件和执行写入命令。"
 	}
-	changed := model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(seen) > 0 || (!chat && meta["planMode"] == true) || strings.TrimSpace(instruction) != s.agent.Instruction()
+	changed := model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || (!chat && meta["planMode"] == true) || strings.TrimSpace(instruction) != s.agent.Instruction()
 	var mcpSets []tool.Toolset
 	var closers []io.Closer
 	if !chat {
@@ -270,7 +254,7 @@ func (s *Controller) prepareWorktree(req *chatRequest) (*Controller, error) {
 		if s.agent != nil {
 			view.registry = tools.NewRegistry(append(tools.FileTools(target), tools.BashTools(target)...)...)
 			view.attachPluginTools(view.registry)
-			a, err := s.agent.Derive(s.agent.App(), view.cfg, []tool.Toolset{view.registry}, s.systemInstruction(target))
+			a, err := s.agent.Derive(s.agent.App(), view.cfg, []tool.Toolset{view.registry}, view.systemInstruction(target))
 			if err != nil {
 				return nil, err
 			}
@@ -294,29 +278,10 @@ func (s *Controller) prepareWorktree(req *chatRequest) (*Controller, error) {
 	return &view, nil
 }
 
-// resolveLinkedProjects 把请求里关联的项目哈希解析成根目录。
+// resolveLinkedProjects 为外部引擎合并项目默认关联与本轮临时关联。
 func (s *Controller) resolveLinkedProjects(req *chatRequest) ([]string, error) {
-	seen := map[string]bool{}
-	linkedRoots := []string{}
-	for _, hash := range req.LinkedProjectHashes {
-		hash = strings.TrimSpace(hash)
-		if hash == s.agent.App() || seen[hash] || hash == "" {
-			continue
-		}
-		seen[hash] = true
-		if len(seen) > 8 {
-			return nil, fmt.Errorf("单次最多关联 8 个项目")
-		}
-		if filepath.IsAbs(hash) {
-			return nil, fmt.Errorf("关联项目不存在或未注册: %s", hash)
-		}
-		path, err := s.resolveProject(hash)
-		if err != nil {
-			return nil, fmt.Errorf("关联项目不存在或未注册: %s", hash)
-		}
-		linkedRoots = append(linkedRoots, path)
-	}
-	return linkedRoots, nil
+	projects, err := s.linkedProjects(s.agent.App(), req.LinkedProjectHashes)
+	return projectRoots(projects), err
 }
 
 func (s *Controller) worktreeBase() string {

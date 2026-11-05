@@ -12,11 +12,12 @@ type reuseHost struct {
 	app       string
 	workspace string
 	meta      map[string]map[string]any
+	linked    []string
 }
 
 func (h *reuseHost) App() string          { return h.app }
 func (h *reuseHost) Workspace() string    { return h.workspace }
-func (h *reuseHost) LinkedDirs() []string { return nil }
+func (h *reuseHost) LinkedDirs() []string { return h.linked }
 func (h *reuseHost) Meta(name string) map[string]any {
 	if h.meta == nil {
 		return nil
@@ -54,6 +55,27 @@ func stubCodex(t *testing.T) {
 			return Launch{}, errors.New("unexpected process start")
 		},
 	}}
+}
+
+func TestAcquireInvalidatesSessionWhenLinkedDirsChange(t *testing.T) {
+	stubCodex(t)
+	for _, linked := range [][]string{{`C:\linked`}, nil} {
+		host := &reuseHost{app: "app", workspace: `C:\work`, linked: linked}
+		manager := NewManager()
+		client := &Client{proc: &agentProcess{}, children: map[string]bool{}}
+		manager.conns[manager.key(host, "one")] = &Conn{
+			name: "one", agentID: "codex", cwd: host.Workspace(), client: client,
+			runtimeKey: runtimeKey(host, "codex"), acpSession: "ses-1", live: true,
+			linkedDirs: linkedDirsKey([]string{`C:\previous`}),
+		}
+		conn, err := manager.Acquire(context.Background(), host, "one", "codex", "test")
+		if err == nil || conn != nil {
+			t.Fatal("changed linked directories reused a live ACP session")
+		}
+		if _, ok := manager.conns[manager.key(host, "one")]; ok {
+			t.Fatal("stale ACP session retained after failed replacement")
+		}
+	}
 }
 
 func TestOpenSessionUsesConnLocalOptions(t *testing.T) {

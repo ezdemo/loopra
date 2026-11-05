@@ -329,7 +329,10 @@ func (s *Controller) workspaceController(w http.ResponseWriter, r *http.Request)
 			writeFail(w, http.StatusConflict, "项目有正在运行的会话")
 			return
 		}
-		if err := os.RemoveAll(filepath.Join(s.home, "workspace", hash)); err != nil {
+		s.state.files.Lock()
+		err := os.RemoveAll(filepath.Join(s.home, "workspace", hash))
+		s.state.files.Unlock()
+		if err != nil {
 			writeFail(w, http.StatusInternalServerError, err.Error())
 			return
 		}

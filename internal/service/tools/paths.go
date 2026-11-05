@@ -10,10 +10,10 @@ import (
 	"github.com/ezdemo/looprax/internal/infrastructure/fsutil"
 )
 
-// linkedProjectsKey 携带本轮显式关联的项目根目录。
+// linkedProjectsKey 携带项目默认关联与本轮显式关联的有效根目录。
 type linkedProjectsKey struct{}
 
-// WithLinkedProjects 仅授予当前轮次访问显式关联根目录的权限。
+// WithLinkedProjects 为当前执行授予访问已解析的关联根目录的权限。
 func WithLinkedProjects(ctx context.Context, roots []string) context.Context {
 	return context.WithValue(ctx, linkedProjectsKey{}, append([]string(nil), roots...))
 }
@@ -100,7 +100,7 @@ func readOnlyPath(root, path string) (string, error) {
 
 // contextualPath 解析 write 与 edit 的路径。
 //
-// 限制开启时只接受项目内相对路径，以及当前项目或本轮关联项目内的绝对路径；
+// 限制开启时只接受项目内相对路径，以及当前项目或关联副项目内的绝对路径；
 // 限制关闭时项目内相对路径仍相对项目根解析，项目外路径按原样接受
 // （包含符号链接在内的越界检查交给操作系统）。
 func contextualPath(ctx context.Context, root, path string) (string, error) {
@@ -115,7 +115,7 @@ func contextualPath(ctx context.Context, root, path string) (string, error) {
 				return safePath(candidate, rel)
 			}
 		}
-		return "", fmt.Errorf("路径不属于当前项目或本轮关联项目")
+		return "", fmt.Errorf("路径不属于当前项目或关联副项目")
 	}
 	return safePath(root, path)
 }

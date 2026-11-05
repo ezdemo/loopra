@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
-import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
+import { useEffect, useRef, useState } from 'react';
+import { Button, Checkbox, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import type { LoopraClient, Workspace } from '../backend';
 import type { Session } from '../lib';
 import { SelectField } from './SettingControls';
 
-type Maintenance = 'refresh' | 'clear-all' | 'delete';
+type Maintenance = 'clear-all' | 'delete';
 type MaintenanceResult = Maintenance | 'clear-old';
 type CleanupPeriod = 3 | 7 | 30;
 type CleanupScope = `${CleanupPeriod}` | 'all';
@@ -22,17 +22,35 @@ const CLEANUP_SCOPES: { value: CleanupScope; days?: CleanupPeriod; label: string
   { value: 'all', label: '全部会话' },
 ];
 
-// Ported from App.vue's "管理项目会话" dialog: refresh the project's sessions,
-// clear sessions by age or all at once, or drop the project record from Loopra.
-export default function ProjectSessions({ api, workspace, count, sessions, onClose, onRefresh, onCompleted, onRenamed, notify }: { api: LoopraClient; workspace: Workspace; count: number; sessions?: Session[]; onClose: () => void; onRefresh: () => Promise<void>; onCompleted: (kind: MaintenanceResult, sessionNames?: string[]) => void; onRenamed?: (previous: Workspace, renamed: Workspace) => void; notify: (message: string) => void }) {
+// Clear sessions by age or all at once, or drop the project record from Loopra.
+export default function ProjectSessions({ api, workspace, workspaces = [], count, sessions, onClose, onRefresh, onCompleted, onRenamed, onUpdated, notify }: { api: LoopraClient; workspace: Workspace; workspaces?: Workspace[]; count: number; sessions?: Session[]; onClose: () => void; onRefresh: () => Promise<void>; onCompleted: (kind: MaintenanceResult, sessionNames?: string[]) => void; onRenamed?: (previous: Workspace, renamed: Workspace) => void; onUpdated?: (hash: string, linkedProjectHashes: string[]) => void; notify: (message: string) => void }) {
   const [project, setProject] = useState(workspace);
   const chat = workspace.kind === 'chat';
   const title = chat ? '管理纯聊天会话' : '管理项目会话';
   const [displayName, setDisplayName] = useState(workspace.displayName ?? workspace.name);
+  const [linkedHashes, setLinkedHashes] = useState(workspace.linkedProjectHashes ?? []);
+  const [savingLinks, setSavingLinks] = useState(false);
+  const desiredLinks = useRef(linkedHashes);
+  const confirmedLinks = useRef(linkedHashes);
+  const linkWorker = useRef(false);
+  const linkVersion = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [cleanupScope, setCleanupScope] = useState<CleanupScope>('3');
   const [busy, setBusy] = useState<BusyOperation>('');
   const [error, setError] = useState('');
   const locked = useRef(false);
+  const candidates = workspaces.filter(item => item.hash !== workspace.hash && item.kind !== 'chat');
+  const missingLinks = linkedHashes.filter(hash => !candidates.some(item => item.hash === hash));
+  function toggleLinkedProject(hash: string) {
+    if (locked.current) return;
+    const current = desiredLinks.current;
+    const next = current.includes(hash) ? current.filter(value => value !== hash) : [...current, hash];
+    if (next.length > 8) return;
+    desiredLinks.current = next; linkVersion.current++;
+    setLinkedHashes(next); setError('');
+    void saveLinkedProjects();
+  }
   const selectedScope = CLEANUP_SCOPES.find(scope => scope.value === cleanupScope) ?? CLEANUP_SCOPES[0];
   const cleanupCount = selectedScope.days === undefined
     ? count
@@ -96,6 +114,44 @@ export default function ProjectSessions({ api, workspace, count, sessions, onClo
       setError(`${saved ? '名称已保存，刷新项目失败：' : ''}${cause instanceof Error ? cause.message : '保存名称失败'}`);
     } finally { locked.current = false; setBusy(''); }
   }
+  async function saveLinkedProjects() {
+    if (linkWorker.current) return;
+    linkWorker.current = true; setSavingLinks(true);
+    const sameLinks = (a: string[], b: string[]) => a.length === b.length && a.every((hash, index) => hash === b[index]);
+    let saved = false, failed = false;
+    // 每个弹窗只保留一个请求在途；后续勾选合并成最新快照，关闭后继续提交。
+    while (!sameLinks(desiredLinks.current, confirmedLinks.current)) {
+      const next = [...desiredLinks.current];
+      try {
+        const updated = await api.request<Workspace>(`/workspaces/${encodeURIComponent(workspace.hash)}/links`, 'PUT', { linkedProjectHashes: next });
+        confirmedLinks.current = updated.linkedProjectHashes ?? [];
+        saved = true;
+        if (sameLinks(desiredLinks.current, next)) {
+          desiredLinks.current = confirmedLinks.current;
+          if (mounted.current) setLinkedHashes(confirmedLinks.current);
+        }
+      } catch (cause) {
+        if (!sameLinks(desiredLinks.current, next)) continue;
+        desiredLinks.current = confirmedLinks.current; failed = true;
+        const detail = cause instanceof Error ? cause.message : '保存关联失败';
+        if (mounted.current) { setLinkedHashes(confirmedLinks.current); setError(detail); }
+        else notify(`关联副项目保存失败：${detail}`);
+      }
+    }
+    linkWorker.current = false;
+    if (mounted.current) {
+      setSavingLinks(false);
+      setProject(previous => ({ ...previous, linkedProjectHashes: confirmedLinks.current }));
+      if (saved) onUpdated?.(workspace.hash, confirmedLinks.current);
+    }
+    if (!saved) return;
+    if (!failed) notify('关联副项目已保存，将在下一轮生效');
+    const version = linkVersion.current;
+    try { await onRefresh(); }
+    catch (cause) {
+      if (mounted.current && linkVersion.current === version) setError(`关联已保存，刷新项目失败：${cause instanceof Error ? cause.message : '刷新失败'}`);
+    }
+  }
   return <Modal isOpen onClose={() => { if (!busy) onClose(); }} isDismissable={!busy} isKeyboardDismissDisabled={!!busy} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog project-sessions-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label={title}><ModalContent>
     <ModalHeader className="app-dialog-header"><h2>{title}</h2></ModalHeader>
     <ModalBody className="app-dialog-body">
@@ -105,8 +161,18 @@ export default function ProjectSessions({ api, workspace, count, sessions, onClo
         <div><input id="project-session-display-name" value={displayName} maxLength={80} disabled={!!busy} onChange={event => setDisplayName(event.target.value)} autoComplete="off" placeholder="留空恢复文件夹名称" /><Button type="submit" size="sm" color="primary" isLoading={busy === 'rename'} isDisabled={!!busy || displayName.trim() === (project.displayName ?? project.name)}>保存名称</Button></div>
         <p>最多 80 个字符，留空恢复文件夹名称。</p>
       </form>}
+      {!chat && <section className="project-dialog-links" aria-label="关联副项目">
+        <div className="project-dialog-links-heading"><h3>关联副项目</h3><span>{linkedHashes.length} / 8</span></div>
+        <p>勾选后自动保存，从下一轮生效。</p>
+        <div className="project-dialog-links-list" aria-busy={savingLinks}>
+          {candidates.map(item => <Checkbox key={item.hash} size="sm" classNames={{ base: 'project-dialog-link', label: 'project-dialog-link-info' }} isSelected={linkedHashes.includes(item.hash)} isDisabled={!!busy || (!linkedHashes.includes(item.hash) && linkedHashes.length >= 8)} onValueChange={() => toggleLinkedProject(item.hash)}>
+            <strong>{item.name}</strong><small>{item.path}</small>
+          </Checkbox>)}
+          {missingLinks.map(hash => <Checkbox key={hash} size="sm" classNames={{ base: 'project-dialog-link', label: 'project-dialog-link-info' }} isSelected isDisabled={!!busy} onValueChange={() => toggleLinkedProject(hash)}><strong>项目已移除</strong><small>{hash} · 取消勾选以解除关联</small></Checkbox>)}
+          {!candidates.length && !missingLinks.length && <p>暂无其他项目，请先在项目列表中添加副项目。</p>}
+        </div>
+      </section>}
       <div className="project-dialog-operations">
-        <div className="project-dialog-operation"><div><h3>刷新会话</h3><p>{chat ? '重新获取纯聊天的会话列表。' : '重新获取该项目的会话列表。'}</p></div><Button size="sm" variant="bordered" isLoading={busy === 'refresh'} isDisabled={!!busy} onPress={() => void run('refresh', '刷新', async () => {}, '会话列表已刷新')}>刷新会话列表</Button></div>
         <div className="project-dialog-operation project-dialog-cleanup">
           <div><h3>清理会话</h3><p>{chat ? '按最后活动时间清理，也可以删除全部会话。' : '按最后活动时间清理，也可以删除全部会话；项目记录会保留。'}</p></div>
           <div className="project-dialog-cleanup-controls">
@@ -119,6 +185,6 @@ export default function ProjectSessions({ api, workspace, count, sessions, onClo
       </div>
       {error && <p role="alert" className="settings-error">{error}</p>}
     </ModalBody>
-    <ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" isDisabled={!!busy} onPress={onClose}>取消</Button></ModalFooter>
+    <ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" isDisabled={!!busy} onPress={onClose}>关闭</Button></ModalFooter>
   </ModalContent></Modal>;
 }

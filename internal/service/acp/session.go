@@ -96,6 +96,7 @@ type Conn struct {
 	acpSession string
 	options    []ConfigOption
 	live       bool
+	linkedDirs string
 	turn       *acpTurn
 	running    bool
 	busy       bool
@@ -423,6 +424,9 @@ func (m *Manager) Acquire(ctx context.Context, host SessionHost, name, agentID, 
 		conn.mu.Lock()
 		usable := conn.agentID == agentID && filepath.Clean(conn.cwd) == filepath.Clean(cwd) &&
 			conn.client != nil && conn.client.Alive()
+		if conn.live && host != nil && conn.linkedDirs != linkedDirsKey(host.LinkedDirs()) {
+			usable = false
+		}
 		conn.mu.Unlock()
 		if usable {
 			if m.blockedByOther(conn) {
@@ -670,6 +674,15 @@ func runtimeKey(host SessionHost, agentID string) string {
 	return app + "\x00" + agentID + "\x00" + cwd
 }
 
+func linkedDirsKey(dirs []string) string {
+	dirs = append([]string(nil), dirs...)
+	for i := range dirs {
+		dirs[i] = filepath.Clean(dirs[i])
+	}
+	sort.Strings(dirs)
+	return strings.Join(dirs, "\x00")
+}
+
 func privateRuntimeKey(shared, name string) string {
 	return shared + "\x00" + name
 }
@@ -743,6 +756,9 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 	host.SetMeta(name, patch)
 	restoreAgentConfig(ctx, host, name, conn, result.ConfigOptions)
 	conn.BindSession(result.SessionID, conn.client.ConfigOptions())
+	conn.mu.Lock()
+	conn.linkedDirs = linkedDirsKey(dirs)
+	conn.mu.Unlock()
 	return conn.ConfigOptions(), nil
 }
 

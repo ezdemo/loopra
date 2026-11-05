@@ -30,7 +30,10 @@ func (s *Controller) installMemoryTools() {
 const memoryInstruction = `长期记忆：新会话首次处理任务时，先用 memory_search(action="list") 查看全局和当前项目的记忆目录；目录只含 ID 和标题，依据完整对话判断需要哪些信息，再用 action="read"、scope、id 读取正文。目录较多时分页，或用 action="search" 配合 query 搜索；不要默认读取全部正文，也不必每轮重复列目录。用 memory 保存、更新或删除可靠且可复用的信息，一条记忆一个主题，标题具体说明用途；已有主题先读取原条目，以最新 revision 更新，避免重复。个人偏好和本机环境使用 global，项目背景和约定使用 project；纯聊天仅使用 global。记忆仅供参考，以当前用户要求为准；环境信息使用前核实，不记录密钥或临时任务进度。`
 
 func (s *Controller) turnInstruction(workspace string) string {
-	text := s.systemInstruction(workspace)
+	return s.withMemoryInstruction(s.systemInstruction(workspace))
+}
+
+func (s *Controller) withMemoryInstruction(text string) string {
 	if s.memories == nil || s.agent == nil {
 		return text
 	}
