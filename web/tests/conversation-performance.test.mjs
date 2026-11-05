@@ -56,6 +56,7 @@ const specifiers = {
   '../lib': dataUrl('export const getSessionMessages = session => session.messages;'),
   './Motion': motionUrl,
   './BlockRenderer': blockUrl,
+  './MessageContext': dataUrl('export default () => null;'),
   './Markdown': dataUrl('export const copyText = async () => {};'),
   './ui': dataUrl(`import { createElement } from ${JSON.stringify(reactUrl)}; export const IconButton = ({ label, ...props }) => createElement('button', { ...props, 'aria-label': label });`),
   './ImagePreview': dataUrl('export const ImagePreviewProvider = ({ children }) => children; export const useImagePreview = () => null;'),

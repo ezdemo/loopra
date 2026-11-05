@@ -29,7 +29,7 @@ import { DesktopUpdateDialog, useDesktopUpdate } from './components/DesktopUpdat
 import type { Preferences } from './components/Settings';
 import { mergeStoredSettings, toStoredSettings, type ClientSettings, type StoredUIPreferences } from './ui-preferences';
 import Search from './components/Search';
-import type { FileChange, Message } from './chat';
+import type { FileChange, Message, MessageDocument } from './chat';
 import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
 import SessionOccupiedNotice from './components/SessionOccupiedNotice';
@@ -1030,7 +1030,15 @@ export default function App({ startupPending = false, initialServer }: { startup
     return () => { controller.abort(); clearInterval(timer); remoteRunRef.current = null; setRemoteRun(null); };
   }, [api, session?.id, generatingId, backend.status]);
   async function revertChanges(changes: FileChange[]) { await mutation(async () => { await api.request('/sessions/file-changes/revert', 'POST', { workspaceHash: workspace, changes }); }); }
-  function fillDraft(text: string) { setDraft(text); textarea.current?.focus(); }
+  function fillDraft(text: string, documents?: MessageDocument[]) {
+    setDraft(text);
+    if (documents?.length) setComposerContext(current => ({
+      ...current,
+      files: [...new Set([...current.files, ...documents.map(file => file.name)])],
+      attachments: [...(current.attachments || []).filter(file => !documents.some(document => document.name === file.name)), ...documents],
+    }));
+    textarea.current?.focus();
+  }
   // Answering a pending choice auto-sends silently: normal choices (HITL 同意/拒绝
   // and ask_choice) go out as control messages — no user bubble — while sub-agent
   // approvals post to their own endpoint. Each answer resumes the suspended turn
@@ -1177,7 +1185,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (preferences.sound) prepareCompletionSound();
     const sourceContext = overrideContext || composerContext;
     const context = isChatWorkspace(sendWorkspace) ? { ...withoutWorkspaceContext(sourceContext), skills: [...sourceContext.skills] } : { ...sourceContext };
-    const text = action ? prompt : composeOutgoing(prompt, context, savedInput);
+    const text = action ? composeOutgoing(prompt, { ...emptyContext, attachments: context.attachments }) : composeOutgoing(prompt, context, savedInput);
     const controller = new AbortController(); const requestId = crypto.randomUUID();
     const request = runs.claim(requestKey, { controller, requestId, server, workspaceHash: sendWorkspace.hash, session: fresh ? undefined : sendSession });
     if (!request) { if (!queuedSession && !runs.get(requestKey)) notify(`已有 ${runs.limit} 个会话正在运行，请稍后发送`); return false; }
@@ -1253,8 +1261,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         setShowScrollBtn(false);
       }
       const attachments = context.attachments || [];
-      const documentText = attachments.filter(file => file.text !== undefined).map(file => `附件：${file.name}\n${file.text}`).join('\n\n');
-      await api.stream({ message: [text, documentText].filter(Boolean).join('\n\n'), requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: target.workspaceHash === CHAT_WORKSPACE.hash ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: target.workspaceHash === CHAT_WORKSPACE.hash ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
         if (!runs.owns(request) || controller.signal.aborted || !sameServer()) return;
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }

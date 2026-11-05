@@ -11,6 +11,25 @@ export type ChatBlock =
   | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
 export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number; rollbackId?: string; snapshotId?: string; rollbackTimestamp?: number; images?: string[] };
 
+export type MessageDocument = { name: string; text: string; size?: number };
+
+/** Read only the document envelope; malformed content stays visible. */
+export function splitUserAttachments(text: string): { text: string; documents: MessageDocument[] } {
+  const match = /(?:^|\n\n)(`{3,})loopra-attachments\r?\n([^\r\n]*)\r?\n\1[ \t]*$/.exec(text);
+  if (match) {
+    try {
+      const value: unknown = JSON.parse(match[2]);
+      if (Array.isArray(value) && value.length && value.every((file: unknown): file is MessageDocument => {
+        if (!file || typeof file !== 'object') return false;
+        const item = file as Record<string, unknown>;
+        return typeof item.name === 'string' && typeof item.text === 'string'
+          && (item.size === undefined || (typeof item.size === 'number' && Number.isFinite(item.size) && item.size >= 0));
+      })) return { text: text.slice(0, match.index), documents: value };
+    } catch { /* Preserve unrecognized messages verbatim. */ }
+  }
+  return { text, documents: [] };
+}
+
 // Accept longer fences when a system prompt itself contains Markdown code blocks.
 export function splitUserContext(text: string) {
   const match = /^(`{3,})折叠块[ \t]*\r?\n([\s\S]*?)\r?\n\1[ \t]*(?:\r?\n|$)(?:\r?\n)*/.exec(text);

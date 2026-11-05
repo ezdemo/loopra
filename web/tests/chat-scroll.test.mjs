@@ -21,7 +21,7 @@ class ResizeObserverStub {
 globals.ResizeObserver = ResizeObserverStub;
 const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
-after(() => { dom.window.close(); for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
+after(() => { delete globalThis.__loopraTestImagePreviews; dom.window.close(); for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
 
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
@@ -66,13 +66,28 @@ const { default: BlockRenderer } = await import(await sourceUrl('components/Bloc
 
 const chatWindowUrl = await sourceUrl('chat-window.ts');
 // Conversation.tsx must tag every message so the dock can jump to it.
+const imagePreviews = [];
+globalThis.__loopraTestImagePreviews = imagePreviews;
+const messageContextUrl = await sourceUrl('components/MessageContext.tsx', {
+  '../message-context': await sourceUrl('message-context.ts'),
+  './ImagePreview': dataUrl('export const useImagePreview = () => src => globalThis.__loopraTestImagePreviews.push(src);'),
+  'lucide-react': import.meta.resolve('lucide-react'),
+  './FileGlyph': dataUrl('export default () => null;'),
+  '@nextui-org/react': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});
+export const Button = ({ onPress, children, ...props }) => createElement('button', { className: props.className, 'aria-label': props['aria-label'], 'aria-haspopup': props['aria-haspopup'], onClick: onPress }, children);
+export const Modal = ({ isOpen, children, onClose }) => isOpen ? createElement('div', { role: 'dialog' }, children, createElement('button', { 'aria-label': '关闭', onClick: onClose }, '关闭')) : null;
+export const ModalContent = ({ children }) => createElement('div', null, children);
+export const ModalHeader = ({ children }) => createElement('header', null, children);
+export const ModalBody = ({ children, className }) => createElement('div', { className }, children);`),
+});
 const conversationUrl = await sourceUrl('components/Conversation.tsx', {
+  './MessageContext': messageContextUrl,
   './Motion': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Collapse = ({ open, children }) => open ? createElement('div', null, children) : null;
-export const Disclosure = ({ children }) => createElement('div', null, children);
+export { Disclosure } from ${JSON.stringify(motionUrl)};
 export const Enter = ({ children, className, 'aria-label': label, 'data-message-id': id }) => createElement('article', { className, 'aria-label': label, 'data-message-id': id }, children);
 export const useCollapseAll = () => {};`),
-  'lucide-react': dataUrl('export default {};export const AlignLeft=()=>null;export const ChevronRight=()=>null;export const Copy=()=>null;export const GitBranch=()=>null;export const Pencil=()=>null;export const Undo2=()=>null;'),
+  'lucide-react': dataUrl('export default {};export const AlignLeft=()=>null;export const ChevronRight=()=>null;export const Copy=()=>null;export const GitBranch=()=>null;export const Paperclip=()=>null;export const Pencil=()=>null;export const Undo2=()=>null;'),
   '../chat': chatUrl,
   '../chat-window': chatWindowUrl,
   '../file-stats': await sourceUrl('file-stats.ts'),
@@ -382,4 +397,42 @@ test('chain summary stays neutral after a tool fails while details retain its st
     await act(async () => root.unmount());
     container.remove();
   }
+});
+
+
+test('user document chips preview safely in a dialog and restore attachments when editing', async () => {
+  const documents = [{ name: '参考.txt', size: 2100, text: '<script>alert(1)</script>\n附件内容' }];
+  const payload = '这是哪个文件？\n\n```loopra-attachments\n' + JSON.stringify(documents) + '\n```';
+  const edits = [];
+  const view = await renderMessages([{ id: 'u', role: 'user', text: payload }], { onEdit: (...args) => edits.push(args) });
+  try {
+    const chip = view.container.querySelector('.message-context-chip');
+    assert.ok(chip, view.container.innerHTML);
+    assert.equal(chip.textContent, '参考.txt');
+    assert.equal(chip.getAttribute('aria-haspopup'), 'dialog');
+    assert.equal(view.container.querySelector('[role=dialog]'), null);
+    assert.equal(view.container.querySelector('.msg-text').textContent, '这是哪个文件？');
+    await act(async () => chip.click());
+    assert.ok(view.container.querySelector('[role=dialog]'));
+    assert.equal(view.container.querySelector('.message-context-body pre').textContent, documents[0].text);
+    assert.equal(view.container.querySelector('script'), null);
+    await act(async () => view.container.querySelector('[aria-label=关闭]').click());
+    assert.equal(view.container.querySelector('[role=dialog]'), null);
+    await act(async () => view.container.querySelector('[aria-label="重新编辑消息"]').click());
+    assert.deepEqual(edits, [['这是哪个文件？', documents]]);
+  } finally { await view.close(); }
+});
+
+
+test('images share the context chip row and open the image preview', async () => {
+  const images = ['data:image/png;base64,first', 'data:image/png;base64,second'];
+  const view = await renderMessages([{ id: 'u', role: 'user', text: '调用技能' , images }]);
+  try {
+    const chips = view.container.querySelectorAll('.message-context-image');
+    assert.equal(chips.length, 2);
+    assert.deepEqual([...view.container.querySelectorAll('.message-context-thumbnail')].map(image => image.src), images);
+    assert.equal(view.container.querySelector('.user-images'), null);
+    await act(async () => chips[1].click());
+    assert.equal(imagePreviews.at(-1), images[1]);
+  } finally { await view.close(); }
 });

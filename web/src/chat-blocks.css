@@ -63,9 +63,6 @@
 .loopra-conversation .msg-actions > button:hover:not(:disabled) { color: var(--chat-fg); background: var(--chat-hover); }
 .loopra-conversation .user-expand-btn { font-size: .75rem; color: var(--chat-fg-3); margin-top: .125rem; }
 .loopra-conversation .user-expand-btn:hover { color: var(--chat-fg); }
-.loopra-conversation .user-auto-message { border: 1px solid var(--chat-border); border-radius: var(--radius-md); background: var(--chat-bg); margin: 0 0 .375rem; overflow: hidden; }
-.loopra-conversation .user-auto-message > .disclosure-heading { padding: .375rem .625rem; display: flex; align-items: center; justify-content: space-between; font-size: .75rem; color: var(--chat-fg-3); cursor: pointer; }
-.loopra-conversation .user-auto-message pre { margin: 0; padding: .625rem; border-top: 1px solid var(--chat-border); font: .75rem/1.5 var(--chat-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .loopra-conversation summary { list-style: none; }
 .loopra-conversation summary::-webkit-details-marker { display: none; }
 .loopra-conversation .compacted-summary { border: 1px dashed var(--chat-border); border-radius: var(--radius-md); background: transparent; overflow: hidden; }
@@ -111,7 +108,6 @@
 .loopra-conversation [data-open="true"] > .tool-head > svg:last-child,
 .loopra-conversation [data-open="true"] > .reasoning-head > svg:last-child { transform: rotate(180deg); }
 .loopra-conversation .rotated-right,
-.loopra-conversation .user-auto-message[data-open="true"] > .disclosure-heading > svg,
 .loopra-conversation .compacted-summary[data-open="true"] > .disclosure-heading > svg:last-child { transform: rotate(90deg); }
 .loopra-conversation .reasoning-text { margin: var(--chat-gap) 0 0; padding: .125rem 0; color: var(--chat-fg-3); font-size: var(--chat-font-meta); font-weight: 400; line-height: var(--chat-line); }
 .loopra-conversation .reasoning-text .block-content { color: inherit; }
@@ -282,12 +278,6 @@
 .dark .loopra-conversation .block-content .markdown-alert-caution { color: #ff7b72; border-color: rgba(255, 123, 114, 0.35); background: rgba(255, 123, 114, 0.08); }
 
 /* 消息 / Markdown 中的图片（对齐 ChatMessage.vue / BlockRenderer.vue） */
-.loopra-conversation .user-images { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; }
-.loopra-conversation .user-image-button { display: block; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; cursor: zoom-in; }
-.loopra-conversation .user-image { display: block; width: 5rem; height: 5rem; object-fit: cover; border: 1px solid var(--chat-border); border-radius: var(--radius-sm); transition: transform 0.15s, box-shadow 0.15s; }
-.loopra-conversation .user-image-button:hover .user-image,
-.loopra-conversation .user-image-button:focus-visible .user-image { transform: scale(1.05); box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.15); }
-.loopra-conversation .user-image-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .loopra-conversation .block-content img { max-width: 100%; border-radius: var(--radius-sm); }
 .loopra-conversation .markdown-image-button { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
 /* Inline file chip in the message body: glyph + file name + (line N), all in
@@ -379,3 +369,17 @@
 .tool-image-thumbnail:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .tool-image-thumbnail:disabled { cursor: default; }
 .tool-image-unavailable { padding: .75rem; color: var(--muted); font-size: .75rem; }
+
+/* Context chips stay compact; previews live in the shared modal portal. */
+.loopra-conversation .message-context-items { display: flex; flex-wrap: wrap; gap: .375rem; margin: .125rem 0 .5rem; max-width: 100%; }
+.loopra-conversation .message-context-chip { display: inline-flex; justify-content: flex-start; gap: .5rem; min-width: 0; max-width: 100%; height: 2.25rem; padding: .25rem .625rem .25rem .25rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--surface); color: var(--text); font-size: .75rem; font-weight: 500; box-shadow: 0 .0625rem .125rem #00000005; transition: border-color .15s, background .15s; }
+.loopra-conversation .message-context-chip:hover { border-color: var(--muted); background: var(--hover); }
+.loopra-conversation .message-context-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.message-context-icon { display: inline-flex; align-items: center; justify-content: center; width: 1.625rem; height: 1.625rem; flex-shrink: 0; border-radius: .5rem; background: var(--soft); color: var(--secondary); }
+.message-context-skill .message-context-icon, .message-context-icon.message-context-skill { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); }
+.message-context-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.app-dialog.message-context-dialog { width: min(42rem, calc(100vw - 2rem)) !important; max-width: 42rem !important; }
+.message-context-header { align-items: center; gap: .625rem; }
+.message-context-body pre { margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; font: .8125rem/1.75 "Cascadia Code", Consolas, "Microsoft YaHei", monospace; }
+
+.message-context-thumbnail { display: block; width: 1.625rem; height: 1.625rem; flex-shrink: 0; object-fit: cover; border-radius: .5rem; background: var(--soft); }

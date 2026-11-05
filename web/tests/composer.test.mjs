@@ -99,9 +99,9 @@ test('outgoing context is folded into a leading block ahead of the prompt', asyn
   assert.match(text, /调用技能：\n\/skill:code-review/);
   assert.ok(text.endsWith('```\n\n修复登录问题'));
   // Attachment chips are delivered as document text, not file references.
-  assert.ok(!composeOutgoing('hi', { ...context, files: ['report.pdf'], attachments: [{ name: 'report.pdf', text: 'x' }] }).includes('report.pdf'));
+  assert.ok(!composeOutgoing('hi', { ...context, files: ['report.pdf'], attachments: [{ name: 'report.pdf', text: 'x' }] }).includes('引用文件：'));
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /const text = action \? prompt : composeOutgoing\(prompt, context, savedInput\)/);
+  assert.match(app, /const text = action \? composeOutgoing\(prompt, \{ \.\.\.emptyContext, attachments: context\.attachments \}\) : composeOutgoing\(prompt, context, savedInput\)/);
   // Externalized typed input is folded with no visible prompt remainder.
   assert.equal(composeOutgoing('', { projects: [], skills: [], files: [], attachments: [] }, '大段输入内容（已保存）：\n- a.txt'), '```折叠块\n大段输入内容（已保存）：\n- a.txt\n```');
 });
@@ -124,7 +124,11 @@ test('switching workspaces drops local references and skills while retaining exp
   };
   const clean = withoutWorkspaceContext(original);
   assert.deepEqual(clean, { projects: [], skills: [], files: ['report.pdf', 'image.png'], attachments: original.attachments });
-  assert.equal(composeOutgoing('hello', clean), 'hello');
+  const outgoing = composeOutgoing('hello', clean);
+  assert.ok(outgoing.startsWith('hello\n\n'));
+  assert.ok(outgoing.includes(JSON.stringify([{ name: 'report.pdf', text: 'uploaded content' }])));
+  assert.equal(outgoing.includes('src/secret.ts'), false);
+  assert.equal(outgoing.includes('/skill:old-skill'), false);
   assert.notEqual(clean.attachments, original.attachments);
   assert.deepEqual(original.skills, ['old-skill']);
   assert.ok(original.files.includes('src/secret.ts'));

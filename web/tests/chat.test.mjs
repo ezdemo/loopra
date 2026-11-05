@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { splitAssistantBlocks, groupToolBlocks, chainBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, formatTurnDuration, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { splitUserAttachments, splitAssistantBlocks, groupToolBlocks, chainBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, formatTurnDuration, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const reasoning = { id: 'r', type: 'reasoning', content: '检查项目' };
 const read = { id: 'read', type: 'tool_call', name: 'read', status: '成功' };
@@ -142,4 +142,17 @@ test('turn duration never renders as zero seconds', () => {
   assert.equal(formatTurnDuration(59_900), '59秒');
   assert.equal(formatTurnDuration(60_000), '1分');
   assert.equal(formatTurnDuration(125_000), '2分5秒');
+});
+
+
+test('attachment parsing leaves ordinary and malformed messages intact', () => {
+  for (const text of [
+    '附件：notes.txt\n普通正文',
+    '问题\n\n```loopra-attachments\nnot json\n```',
+    '```loopra-attachments\n[{"name":"x","text":12}]\n```',
+    '```loopra-attachments\n[{"name":"x","text":"x","size":-1}]\n```',
+    '```loopra-attachments\n[]\n```',
+  ]) assert.deepEqual(splitUserAttachments(text), { text, documents: [] });
+  const raw = '```loopra-attachments\n[{"name":"empty.txt","text":"","size":0}]\n```';
+  assert.deepEqual(splitUserAttachments(raw), { text: '', documents: [{ name: 'empty.txt', text: '', size: 0 }] });
 });

@@ -5,6 +5,7 @@
 
 ## 0. 传输与链路
 
+- 文档附件随用户 `message` 文本持久化：末尾独立的 `loopra-attachments` 代码围栏包含单行 JSON 数组 `[{name,text,size?}]`，`text` 为提取后的全文，`size` 为原始字节数。围栏长度大于内容中的连续反引号长度；图片仍使用 `images` / `contentParts`。实时气泡与历史恢复均从同一文本解析附件，以图标和文件名标签显示，点击在模态浮层预览全文，正文不重复展示附件全文。格式无效时保留原文；旧消息保持可读，不推断普通文字中的附件边界。
 - SSE 端点：`POST /api/chat/stream`，请求体 `ChatRequest`：`{message, requestId(UUID), workspaceHash(12位md5), sessionName(默认"default"), agentId?, model?, modelChannelId?, reasoningEffort?, fastMode?, stream?(遗留不消费), images?:string[](dataURL), linkedProjectHashes?:string[], action?("execute_plan")}`。
 - SSE 帧：`event: <type>\n` + `data: <json>\n\n`，UTF-8；响应头 `Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`Connection: keep-alive`、`X-Accel-Buffering: no`。
 - 前端解析：按 `\n` 切行去 `\r`；`event:` 行设 type；`data:` 行累积 join `\n`；空行=帧结束。data 先 JSON.parse：对象→`{...obj,type}`，字符串→`{type,content}`；`[DONE]`→`{type:'done'}`；无 `event:` 名默认 `'content'`。**没有名为 `message` 的 SSE 事件**。

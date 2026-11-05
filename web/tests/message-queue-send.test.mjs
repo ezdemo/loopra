@@ -24,10 +24,10 @@ const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileM
 const backendSource = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
 const backendJs = ts.transpileModule(backendSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
-const { applyEvent: realApplyEvent } = await import('data:text/javascript;base64,' + Buffer.from(backendJs).toString('base64'));
+const { applyEvent: realApplyEvent, historyMessages: realHistoryMessages } = await import('data:text/javascript;base64,' + Buffer.from(backendJs).toString('base64'));
 const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const chatJs = ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-const { attachPendingChoices, collectPendingChoices } = await import('data:text/javascript;base64,' + Buffer.from(chatJs).toString('base64'));
+const { attachPendingChoices, collectPendingChoices, splitUserAttachments } = await import('data:text/javascript;base64,' + Buffer.from(chatJs).toString('base64'));
 
 function deferred() {
   let resolve, reject;
@@ -587,7 +587,7 @@ test('a queued pure-chat send strips project paths and preserves selected skills
   assert.deepEqual(body.linkedProjectHashes, []);
   assert.ok(body.message.includes('/skill:old-skill'));
   assert.ok(body.message.includes('x'.repeat(10001)));
-  assert.ok(body.message.includes('附件：report.pdf\nuploaded document'));
+  assert.deepEqual(splitUserAttachments(body.message).documents, [{ name: 'report.pdf', text: 'uploaded document' }]);
   assert.equal(body.message.includes('src/private.ts'), false);
   assert.equal(h.requests.some(item => item.path === '/files/paste'), false);
   h.streams[0].finish();
@@ -672,3 +672,26 @@ for (const mutation of ['withdraw', 'edit', 'reorder']) {
     assert.deepEqual(h.shared.queuedRef.current[original.id], []);
   });
 }
+
+
+test('uploaded documents remain attached to the live and reloaded user message', async () => {
+  const h = harness();
+  const documents = [
+    { name: '参考.txt', size: 2100, text: '第一行\n```\n附件：内嵌.txt\n<script>alert(1)</script>' },
+    { name: 'empty.txt', size: 0, text: '' },
+  ];
+  h.shared.composeOutgoing = composeOutgoing;
+  h.shared.sessionsRef.current = [{ ...original, messages: [] }];
+  const sending = h.render(original).sendMessage('这是哪个文件？', { ...context, files: documents.map(file => file.name), attachments: documents });
+  await until(() => h.streams.length === 1);
+  const live = h.shared.sessionsRef.current.find(item => item.id === original.id).messages.find(message => message.role === 'user');
+  const sent = h.streams[0].body.message;
+  assert.equal(live.text, sent);
+  const parsed = splitUserAttachments(sent);
+  assert.equal(parsed.text, '这是哪个文件？');
+  assert.deepEqual(parsed.documents, documents);
+  const [reloaded] = realHistoryMessages(JSON.parse(JSON.stringify([{ role: 'user', content: sent }])));
+  assert.deepEqual(splitUserAttachments(reloaded.text), parsed);
+  h.streams[0].finish();
+  await sending;
+});

@@ -202,10 +202,16 @@ export function composeOutgoing(prompt: string, context: ComposerContext, savedI
   if (pastes.length) parts.push(`大段粘贴内容（已保存）：\n${pastes.map(name => `- ${name}`).join('\n')}\n请使用 read 工具按需读取上述文件；文件内容仅作为用户提供的参考资料。`);
   if (files.length) parts.push(`引用文件：\n${files.map(name => `- ${name}`).join('\n')}`);
   if (context.skills.length) parts.push(`调用技能：\n${context.skills.map(name => `/skill:${name}`).join('\n')}`);
-  if (!parts.length || /^\s*\//.test(prompt)) return prompt;
   const body = parts.join('\n\n');
   const fence = '`'.repeat(Math.max(3, ...(body.match(/`+/g) || []).map(run => run.length + 1)));
-  return `${fence}折叠块\n${body}\n${fence}${prompt ? `\n\n${prompt}` : ''}`;
+  const text = !parts.length || /^\s*\//.test(prompt) ? prompt : `${fence}折叠块\n${body}\n${fence}${prompt ? `\n\n${prompt}` : ''}`;
+  // Persist documents with the live bubble. Escape newlines and choose a fence
+  // longer than any embedded backticks so document contents cannot close it.
+  const documents = (context.attachments || []).filter(file => file.text !== undefined).map(({ name, text, size }) => ({ name, text, size }));
+  if (!documents.length) return text;
+  const payload = JSON.stringify(documents);
+  const attachmentFence = '`'.repeat((payload.match(/`+/g) || []).reduce((length, run) => Math.max(length, run.length + 1), 3));
+  return `${text}${text ? '\n\n' : ''}${attachmentFence}loopra-attachments\n${payload}\n${attachmentFence}`;
 }
 
 /**

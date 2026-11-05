@@ -1,19 +1,20 @@
 import { Collapse, Disclosure, Enter, useCollapseAll } from './Motion';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlignLeft, ChevronRight, Copy, GitBranch, Pencil, Undo2 } from 'lucide-react';
-import type { ChatBlock, Message } from '../chat';
-import { formatTurnDuration, splitAssistantBlocks, splitUserContext } from '../chat';
+import type { ChatBlock, Message, MessageDocument } from '../chat';
+import { formatTurnDuration, splitAssistantBlocks, splitUserAttachments, splitUserContext } from '../chat';
 import { ESTIMATED_MESSAGE_HEIGHT, VIRTUALIZATION_THRESHOLD, virtualMessageWindow } from '../chat-window';
 import type { Session } from '../lib';
 import { getSessionMessages } from '../lib';
 import { IconButton } from './ui';
 import BlockRenderer from './BlockRenderer';
 import type { BlockActions } from './BlockRenderer';
-import { ImagePreviewProvider, useImagePreview } from './ImagePreview';
+import { ImagePreviewProvider } from './ImagePreview';
 import { copyText } from './Markdown';
+import MessageContext from './MessageContext';
 import { messageFileStats } from '../file-stats';
 
-type MessageActions = BlockActions & { onEdit: (text: string) => void; onBranch: (id: string) => void; onRollback: (message: Message) => void; busy: boolean; onRawEvents?: () => void };
+type MessageActions = BlockActions & { onEdit: (text: string, documents?: MessageDocument[]) => void; onBranch: (id: string) => void; onRollback: (message: Message) => void; busy: boolean; onRawEvents?: () => void };
 type MessageViewActions = MessageActions & { canManageHistory: boolean };
 
 // App callbacks capture the current workspace/session. Keep event identities
@@ -23,7 +24,7 @@ function useMessageActions(actions: MessageActions): MessageActions {
   useLayoutEffect(() => { latest.current = actions; });
   const handlers = useMemo(() => ({
     notify: (text: string) => latest.current.notify(text),
-    onEdit: (text: string) => latest.current.onEdit(text),
+    onEdit: (text: string, documents?: MessageDocument[]) => latest.current.onEdit(text, documents),
     onBranch: (id: string) => latest.current.onBranch(id),
     onRollback: (message: Message) => latest.current.onRollback(message),
     onOpenFile: (path: string) => latest.current.onOpenFile?.(path),
@@ -40,23 +41,18 @@ function useMessageActions(actions: MessageActions): MessageActions {
   };
 }
 
-function UserImages({ images }: { images: string[] }) {
-  const preview = useImagePreview();
-  return <div className="user-images">{images.map((src, index) => <button type="button" key={index} className="user-image-button" aria-label={`预览图片 ${index + 1}`} onClick={() => preview?.(src)}><img className="user-image" src={src} alt={`图片 ${index + 1}`} /></button>)}</div>;
-}
-
 const UserMessage = memo(function UserMessage({ message, onEdit, onRollback, busy, notify, onRawEvents, canManageHistory }: { message: Message } & MessageViewActions) {
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
-  const { context, text } = splitUserContext(message.text);
+  const { text: body, documents } = splitUserAttachments(message.text);
+  const { context, text } = splitUserContext(body);
   const compacted = message.text.startsWith('[历史上下文折叠');
   if (compacted) return <Enter as="article" className="msg compacted-message" data-message-id={message.id}><div className="compacted-body"><Disclosure className="compacted-summary" heading={<><AlignLeft size="0.9375rem" /><strong>较早对话已压缩</strong><span>查看摘要</span><ChevronRight size="0.875rem" /></>}><pre>{message.text.replace(/^[\s\S]*?<compacted-summary>\s*|\s*<\/compacted-summary>[\s\S]*$/g, '')}</pre></Disclosure>{onRawEvents && <button type="button" className="compacted-raw-btn" onClick={onRawEvents}>查看原始记录</button>}</div></Enter>;
   return <Enter as="article" className="msg user" aria-label="用户消息" data-message-id={message.id}><div className="msg-body user-body">
-    {context && <Disclosure className="user-auto-message" heading={<>附加上下文<ChevronRight size="0.8125rem" /></>}><pre>{context}</pre></Disclosure>}
+    <MessageContext context={context} documents={documents} images={message.images} />
     <div className="msg-text">{text.length > 300 ? text.slice(0, 300) : text}{!expanded && text.length > 300 && '…'}<Collapse open={expanded && text.length > 300}>{text.slice(300)}</Collapse></div>
     {text.length > 300 && <button type="button" className="user-expand-btn" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '展开全部'}</button>}
-    {!!message.images?.length && <UserImages images={message.images} />}
-    <footer className="msg-footer"><time className="msg-time">{message.time}</time><span className="msg-actions">{canManageHistory && <>{(message.rollbackId || message.rollbackTimestamp) && <button aria-label="撤回到此消息" disabled={busy} onClick={() => onRollback(message)}><Undo2 size={13} /></button>}<IconButton label="重新编辑消息" onClick={() => onEdit(text)}><Pencil size="0.8125rem" /></IconButton></>}<IconButton label="复制消息" onClick={() => { void copyText(message.text, notify); }}><Copy size="0.8125rem" /></IconButton></span></footer>
+    <footer className="msg-footer"><time className="msg-time">{message.time}</time><span className="msg-actions">{canManageHistory && <>{(message.rollbackId || message.rollbackTimestamp) && <button aria-label="撤回到此消息" disabled={busy} onClick={() => onRollback(message)}><Undo2 size={13} /></button>}<IconButton label="重新编辑消息" onClick={() => onEdit(text, documents)}><Pencil size="0.8125rem" /></IconButton></>}<IconButton label="复制消息" onClick={() => { void copyText(message.text, notify); }}><Copy size="0.8125rem" /></IconButton></span></footer>
   </div></Enter>;
 });
 
