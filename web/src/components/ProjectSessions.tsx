@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Checkbox, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
-import type { LoopraClient, Workspace } from '../backend';
+import { Button, Checkbox, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
+import { Trash2 } from 'lucide-react';
+import type { LoopraClient, ProjectLinks, Workspace } from '../backend';
 import type { Session } from '../lib';
 import { SelectField } from './SettingControls';
 
@@ -8,7 +9,7 @@ type Maintenance = 'clear-all' | 'delete';
 type MaintenanceResult = Maintenance | 'clear-old';
 type CleanupPeriod = 3 | 7 | 30;
 type CleanupScope = `${CleanupPeriod}` | 'all';
-type BusyOperation = Maintenance | `clear:${CleanupPeriod}` | 'rename' | '';
+type BusyOperation = Maintenance | `clear:${CleanupPeriod}` | 'rename' | 'link-path' | 'pick-directory' | '';
 
 type CleanupResult = {
   sessionNames?: string[];
@@ -23,15 +24,19 @@ const CLEANUP_SCOPES: { value: CleanupScope; days?: CleanupPeriod; label: string
 ];
 
 // Clear sessions by age or all at once, or drop the project record from Loopra.
-export default function ProjectSessions({ api, workspace, workspaces = [], count, sessions, onClose, onRefresh, onCompleted, onRenamed, onUpdated, notify }: { api: LoopraClient; workspace: Workspace; workspaces?: Workspace[]; count: number; sessions?: Session[]; onClose: () => void; onRefresh: () => Promise<void>; onCompleted: (kind: MaintenanceResult, sessionNames?: string[]) => void; onRenamed?: (previous: Workspace, renamed: Workspace) => void; onUpdated?: (hash: string, linkedProjectHashes: string[]) => void; notify: (message: string) => void }) {
+export default function ProjectSessions({ api, workspace, workspaces = [], count, sessions, onClose, onRefresh, onCompleted, onRenamed, onUpdated, notify }: { api: LoopraClient; workspace: Workspace; workspaces?: Workspace[]; count: number; sessions?: Session[]; onClose: () => void; onRefresh: () => Promise<void>; onCompleted: (kind: MaintenanceResult, sessionNames?: string[]) => void; onRenamed?: (previous: Workspace, renamed: Workspace) => void; onUpdated?: (hash: string, links: ProjectLinks) => void; notify: (message: string) => void }) {
   const [project, setProject] = useState(workspace);
   const chat = workspace.kind === 'chat';
   const title = chat ? '管理纯聊天会话' : '管理项目会话';
   const [displayName, setDisplayName] = useState(workspace.displayName ?? workspace.name);
-  const [linkedHashes, setLinkedHashes] = useState(workspace.linkedProjectHashes ?? []);
+  const [links, setLinks] = useState<ProjectLinks>({ linkedProjectHashes: workspace.linkedProjectHashes ?? [], linkedProjectPaths: workspace.linkedProjectPaths ?? [] });
+  const { linkedProjectHashes: linkedHashes, linkedProjectPaths: linkedPaths } = links;
+  const linkCount = linkedHashes.length + linkedPaths.length;
   const [savingLinks, setSavingLinks] = useState(false);
-  const desiredLinks = useRef(linkedHashes);
-  const confirmedLinks = useRef(linkedHashes);
+  const [linkPath, setLinkPath] = useState('');
+  const [choosingProject, setChoosingProject] = useState(false);
+  const desiredLinks = useRef(links);
+  const confirmedLinks = useRef(links);
   const linkWorker = useRef(false);
   const linkVersion = useRef(0);
   const mounted = useRef(true);
@@ -42,14 +47,53 @@ export default function ProjectSessions({ api, workspace, workspaces = [], count
   const locked = useRef(false);
   const candidates = workspaces.filter(item => item.hash !== workspace.hash && item.kind !== 'chat');
   const missingLinks = linkedHashes.filter(hash => !candidates.some(item => item.hash === hash));
+  const pathName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+  function updateLinks(next: ProjectLinks) {
+    desiredLinks.current = next; linkVersion.current++;
+    setLinks(next); setError('');
+  }
   function toggleLinkedProject(hash: string) {
     if (locked.current) return;
     const current = desiredLinks.current;
-    const next = current.includes(hash) ? current.filter(value => value !== hash) : [...current, hash];
-    if (next.length > 8) return;
-    desiredLinks.current = next; linkVersion.current++;
-    setLinkedHashes(next); setError('');
+    const path = candidates.find(item => item.hash === hash)?.path;
+    const selected = current.linkedProjectHashes.includes(hash) || (path !== undefined && current.linkedProjectPaths.includes(path));
+    const next = {
+      linkedProjectHashes: selected ? current.linkedProjectHashes.filter(value => value !== hash) : [...current.linkedProjectHashes, hash],
+      linkedProjectPaths: selected ? current.linkedProjectPaths.filter(value => value !== path) : current.linkedProjectPaths,
+    };
+    if (next.linkedProjectHashes.length + next.linkedProjectPaths.length > 8) return;
+    updateLinks(next);
     void saveLinkedProjects();
+  }
+  function removeLinkedPath(path: string) {
+    if (locked.current) return;
+    updateLinks({ ...desiredLinks.current, linkedProjectPaths: desiredLinks.current.linkedProjectPaths.filter(value => value !== path) });
+    void saveLinkedProjects();
+  }
+  async function addLinkedProject(pickDirectory = false) {
+    if (locked.current || linkWorker.current || linkCount >= 8) return;
+    if (!pickDirectory && !linkPath.trim()) return;
+    locked.current = true; setBusy(pickDirectory ? 'pick-directory' : 'link-path'); setError('');
+    try {
+      let path = linkPath.trim();
+      if (pickDirectory) {
+        path = await api.request<string>('/system/pick-directory', 'POST', { path }, AbortSignal.timeout(130000));
+        if (!path) return;
+        setLinkPath(path);
+        setBusy('link-path');
+      }
+      if (desiredLinks.current.linkedProjectPaths.includes(path) || candidates.some(item => item.path === path && desiredLinks.current.linkedProjectHashes.includes(item.hash))) {
+        setLinkPath('');
+        notify('该目录已关联');
+        return;
+      }
+      updateLinks({ ...desiredLinks.current, linkedProjectPaths: [...desiredLinks.current.linkedProjectPaths, path] });
+      if (await saveLinkedProjects()) setLinkPath('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '关联项目失败');
+    } finally {
+      locked.current = false; setBusy('');
+    }
   }
   const selectedScope = CLEANUP_SCOPES.find(scope => scope.value === cleanupScope) ?? CLEANUP_SCOPES[0];
   const cleanupCount = selectedScope.days === undefined
@@ -115,62 +159,85 @@ export default function ProjectSessions({ api, workspace, workspaces = [], count
     } finally { locked.current = false; setBusy(''); }
   }
   async function saveLinkedProjects() {
-    if (linkWorker.current) return;
+    if (linkWorker.current) return false;
     linkWorker.current = true; setSavingLinks(true);
-    const sameLinks = (a: string[], b: string[]) => a.length === b.length && a.every((hash, index) => hash === b[index]);
+    const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((value, index) => value === b[index]);
+    const sameLinks = (a: ProjectLinks, b: ProjectLinks) => sameList(a.linkedProjectHashes, b.linkedProjectHashes) && sameList(a.linkedProjectPaths, b.linkedProjectPaths);
     let saved = false, failed = false;
     // 每个弹窗只保留一个请求在途；后续勾选合并成最新快照，关闭后继续提交。
     while (!sameLinks(desiredLinks.current, confirmedLinks.current)) {
-      const next = [...desiredLinks.current];
+      const next = desiredLinks.current;
       try {
-        const updated = await api.request<Workspace>(`/workspaces/${encodeURIComponent(workspace.hash)}/links`, 'PUT', { linkedProjectHashes: next });
-        confirmedLinks.current = updated.linkedProjectHashes ?? [];
+        const updated = await api.request<Workspace>(`/workspaces/${encodeURIComponent(workspace.hash)}/links`, 'PUT', next);
+        confirmedLinks.current = { linkedProjectHashes: updated.linkedProjectHashes ?? [], linkedProjectPaths: updated.linkedProjectPaths ?? [] };
         saved = true;
         if (sameLinks(desiredLinks.current, next)) {
           desiredLinks.current = confirmedLinks.current;
-          if (mounted.current) setLinkedHashes(confirmedLinks.current);
+          if (mounted.current) setLinks(confirmedLinks.current);
         }
       } catch (cause) {
         if (!sameLinks(desiredLinks.current, next)) continue;
         desiredLinks.current = confirmedLinks.current; failed = true;
         const detail = cause instanceof Error ? cause.message : '保存关联失败';
-        if (mounted.current) { setLinkedHashes(confirmedLinks.current); setError(detail); }
+        if (mounted.current) { setLinks(confirmedLinks.current); setError(detail); }
         else notify(`关联副项目保存失败：${detail}`);
       }
     }
     linkWorker.current = false;
     if (mounted.current) {
       setSavingLinks(false);
-      setProject(previous => ({ ...previous, linkedProjectHashes: confirmedLinks.current }));
+      setProject(previous => ({ ...previous, ...confirmedLinks.current }));
       if (saved) onUpdated?.(workspace.hash, confirmedLinks.current);
     }
-    if (!saved) return;
+    if (!saved) return !failed;
     if (!failed) notify('关联副项目已保存，将在下一轮生效');
     const version = linkVersion.current;
     try { await onRefresh(); }
     catch (cause) {
       if (mounted.current && linkVersion.current === version) setError(`关联已保存，刷新项目失败：${cause instanceof Error ? cause.message : '刷新失败'}`);
     }
+    return !failed;
   }
-  return <Modal isOpen onClose={() => { if (!busy) onClose(); }} isDismissable={!busy} isKeyboardDismissDisabled={!!busy} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog project-sessions-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label={title}><ModalContent>
+  function projectChoices(items: Workspace[]) {
+    return <>
+      {items.map(item => <Checkbox key={item.hash} size="sm" classNames={{ base: 'project-dialog-link', label: 'project-dialog-link-info' }} isSelected={linkedHashes.includes(item.hash) || linkedPaths.includes(item.path)} isDisabled={!!busy || (!linkedHashes.includes(item.hash) && !linkedPaths.includes(item.path) && linkCount >= 8)} onValueChange={() => toggleLinkedProject(item.hash)}>
+        <strong>{item.name}</strong><small>{item.path}</small>
+      </Checkbox>)}
+      {missingLinks.map(hash => <Checkbox key={hash} size="sm" classNames={{ base: 'project-dialog-link', label: 'project-dialog-link-info' }} isSelected isDisabled={!!busy} onValueChange={() => toggleLinkedProject(hash)}><strong>项目已移除</strong><small>{hash} · 取消勾选以解除关联</small></Checkbox>)}
+    </>;
+  }
+  return <><Modal isOpen onClose={() => { if (!busy && !choosingProject) onClose(); }} isDismissable={!busy && !choosingProject} isKeyboardDismissDisabled={!!busy || choosingProject} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog project-sessions-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label={title}><ModalContent>
     <ModalHeader className="app-dialog-header"><h2>{title}</h2></ModalHeader>
     <ModalBody className="app-dialog-body">
       <div className="project-dialog-summary"><div><strong>{project.name}</strong><span>{count} 个会话</span></div>{project.path && <p>{project.path}</p>}</div>
       {!chat && <form className="project-dialog-rename" onSubmit={event => { event.preventDefault(); void renameProject(); }}>
         <label htmlFor="project-session-display-name">项目展示名称</label>
-        <div><input id="project-session-display-name" value={displayName} maxLength={80} disabled={!!busy} onChange={event => setDisplayName(event.target.value)} autoComplete="off" placeholder="留空恢复文件夹名称" /><Button type="submit" size="sm" color="primary" isLoading={busy === 'rename'} isDisabled={!!busy || displayName.trim() === (project.displayName ?? project.name)}>保存名称</Button></div>
+        <div><Input id="project-session-display-name" aria-label="项目展示名称" value={displayName} maxLength={80} isDisabled={!!busy} onValueChange={setDisplayName} autoComplete="off" placeholder="留空恢复文件夹名称" size="md" variant="bordered" radius="lg" className="settings-field project-dialog-input" classNames={{ inputWrapper: 'project-dialog-input-wrapper' }} /><Button type="submit" size="sm" color="primary" isLoading={busy === 'rename'} isDisabled={!!busy || displayName.trim() === (project.displayName ?? project.name)}>保存名称</Button></div>
         <p>最多 80 个字符，留空恢复文件夹名称。</p>
       </form>}
       {!chat && <section className="project-dialog-links" aria-label="关联副项目">
-        <div className="project-dialog-links-heading"><h3>关联副项目</h3><span>{linkedHashes.length} / 8</span></div>
-        <p>勾选后自动保存，从下一轮生效。</p>
-        <div className="project-dialog-links-list" aria-busy={savingLinks}>
-          {candidates.map(item => <Checkbox key={item.hash} size="sm" classNames={{ base: 'project-dialog-link', label: 'project-dialog-link-info' }} isSelected={linkedHashes.includes(item.hash)} isDisabled={!!busy || (!linkedHashes.includes(item.hash) && linkedHashes.length >= 8)} onValueChange={() => toggleLinkedProject(item.hash)}>
-            <strong>{item.name}</strong><small>{item.path}</small>
-          </Checkbox>)}
-          {missingLinks.map(hash => <Checkbox key={hash} size="sm" classNames={{ base: 'project-dialog-link', label: 'project-dialog-link-info' }} isSelected isDisabled={!!busy} onValueChange={() => toggleLinkedProject(hash)}><strong>项目已移除</strong><small>{hash} · 取消勾选以解除关联</small></Checkbox>)}
-          {!candidates.length && !missingLinks.length && <p>暂无其他项目，请先在项目列表中添加副项目。</p>}
-        </div>
+        <div className="project-dialog-links-heading"><h3>关联副项目</h3><span>{linkCount} / 8</span></div>
+        <form className="project-dialog-link-add" onSubmit={event => { event.preventDefault(); void addLinkedProject(); }}>
+          <Input aria-label="副项目路径" value={linkPath} onValueChange={setLinkPath} placeholder="输入项目文件夹的绝对路径" isDisabled={!!busy} isReadOnly={linkCount >= 8} autoComplete="off" size="md" variant="bordered" radius="lg" className="settings-field project-dialog-input" classNames={{ inputWrapper: 'project-dialog-input-wrapper' }}
+            endContent={<Button type="button" size="sm" variant="light" className="project-dialog-link-picker-trigger" aria-haspopup="dialog" aria-expanded={choosingProject} isDisabled={!!busy} onPress={() => setChoosingProject(true)}>选择已有项目</Button>} />
+          <div>
+            <Button size="sm" variant="bordered" className="project-dialog-link-action" isLoading={busy === 'pick-directory'} isDisabled={!!busy || savingLinks || linkCount >= 8} onPress={() => void addLinkedProject(true)}>选择文件夹</Button>
+            <Button size="sm" type="submit" color="primary" className="project-dialog-link-action" isLoading={busy === 'link-path'} isDisabled={!!busy || savingLinks || !linkPath.trim() || linkCount >= 8}>关联</Button>
+          </div>
+        </form>
+        {linkCount > 0 && <ul className="project-dialog-links-list project-dialog-linked-list" aria-label="已关联副项目" aria-busy={savingLinks}>
+          {linkedHashes.map(hash => {
+            const item = candidates.find(candidate => candidate.hash === hash);
+            return <li key={`hash:${hash}`} className="project-dialog-link">
+              <div className="project-dialog-link-info"><strong>{item?.name ?? '项目已移除'}</strong><small>{item?.path ?? hash}</small></div>
+              <Button isIconOnly size="sm" variant="light" className="project-dialog-link-remove" aria-label={`解除关联 ${item?.name ?? hash}`} title="解除关联" isDisabled={!!busy} onPress={() => toggleLinkedProject(hash)}><Trash2 size="1rem" /></Button>
+            </li>;
+          })}
+          {linkedPaths.map(path => <li key={`path:${path}`} className="project-dialog-link">
+            <div className="project-dialog-link-info"><strong>{pathName(path)}</strong><small>{path}</small></div>
+            <Button isIconOnly size="sm" variant="light" className="project-dialog-link-remove" aria-label={`解除关联 ${pathName(path)}`} title="解除关联" isDisabled={!!busy} onPress={() => removeLinkedPath(path)}><Trash2 size="1rem" /></Button>
+          </li>)}
+        </ul>}
       </section>}
       <div className="project-dialog-operations">
         <div className="project-dialog-operation project-dialog-cleanup">
@@ -183,8 +250,20 @@ export default function ProjectSessions({ api, workspace, workspaces = [], count
         </div>
         {!chat && <div className="project-dialog-operation"><div><h3>删除项目</h3><p>移除项目及其会话，磁盘上的文件不受影响。</p></div><Button size="sm" color="danger" variant="flat" isLoading={busy === 'delete'} isDisabled={!!busy} onPress={() => void run('delete', '删除', () => api.request(`/workspaces/${encodeURIComponent(workspace.hash)}`, 'DELETE'), '项目已删除')}>删除项目</Button></div>}
       </div>
-      {error && <p role="alert" className="settings-error">{error}</p>}
+      {error && !choosingProject && <p role="alert" className="settings-error">{error}</p>}
     </ModalBody>
     <ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" isDisabled={!!busy} onPress={onClose}>关闭</Button></ModalFooter>
-  </ModalContent></Modal>;
+  </ModalContent></Modal>
+    {choosingProject && <Modal isOpen onClose={() => setChoosingProject(false)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog project-picker-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="选择已有项目"><ModalContent>
+      <ModalHeader className="app-dialog-header"><h2>选择已有项目</h2><span className="project-picker-count">{linkCount} / 8</span></ModalHeader>
+      <ModalBody className="app-dialog-body">
+        <div className="project-dialog-links-list project-picker-list" aria-busy={savingLinks}>
+          {projectChoices(candidates)}
+          {!candidates.length && !missingLinks.length && <p>暂无已有项目，可输入路径或选择文件夹关联。</p>}
+        </div>
+        {error && <p role="alert" className="settings-error">{error}</p>}
+      </ModalBody>
+      <ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setChoosingProject(false)}>完成</Button></ModalFooter>
+    </ModalContent></Modal>}
+  </>;
 }

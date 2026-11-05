@@ -30,9 +30,12 @@ export const SelectField = ({ label, value, onChange, options, disabled }) => cr
 `);
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const Button = ({ children, onPress, isDisabled, isLoading, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, ...rest }, children);
+export const Button = ({ children, onPress, isDisabled, isLoading, isIconOnly, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled || !!isLoading, onClick: onPress, ...rest }, children);
+export const Input = ({ value, onValueChange, isDisabled, isReadOnly, endContent, 'aria-label': label, placeholder, id, maxLength }) => createElement('div', null, createElement('input', {
+  'aria-label': label, value, disabled: isDisabled, readOnly: isReadOnly, placeholder, id, maxLength, onChange: event => onValueChange(event.target.value),
+}), endContent);
 export const Checkbox = ({ children, isSelected, isDisabled, onValueChange, classNames }) => createElement('label', { className: classNames?.base }, createElement('input', { type: 'checkbox', checked: !!isSelected, disabled: !!isDisabled, onChange: event => onValueChange(event.target.checked) }), createElement('span', { className: classNames?.label }, children));
-export const Modal = ({ children }) => createElement('div', { role: 'dialog' }, children);
+export const Modal = ({ children, classNames, 'aria-label': label }) => createElement('div', { role: 'dialog', className: classNames?.base, 'aria-label': label }, children);
 export const ModalContent = ({ children }) => createElement('div', null, children);
 export const ModalHeader = ({ children }) => createElement('header', null, children);
 export const ModalBody = ({ children }) => createElement('div', null, children);
@@ -41,7 +44,7 @@ export const ModalFooter = ({ children }) => createElement('footer', null, child
 
 const source = await readFile(new URL('../src/components/ProjectSessions.tsx', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } });
-for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), '@nextui-org/react': nextuiStub, './SettingControls': settingControlsStub })) {
+for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), '@nextui-org/react': nextuiStub, './SettingControls': settingControlsStub, 'lucide-react': dataUrl('export const Trash2 = () => null;') })) {
   outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
 }
 const { default: ProjectSessions } = await import(dataUrl(outputText));
@@ -67,7 +70,7 @@ async function mount(count = 3, options = {}) {
     if (options.respond) return options.respond(path, method, body);
     if (fail) return Promise.reject(new Error('保存失败'));
     if (path.endsWith('/name')) return Promise.resolve({ ...workspace, name: body.displayName || workspace.name, displayName: body.displayName || null });
-    if (path.endsWith('/links')) return Promise.resolve({ ...targetWorkspace, linkedProjectHashes: body.linkedProjectHashes });
+    if (path.endsWith('/links')) return Promise.resolve({ ...targetWorkspace, ...body });
     if (path.startsWith('/sessions/cleanup?')) return Promise.resolve({ sessionNames: ['old-1', 'old-2'] });
     return Promise.resolve('ok');
   } };
@@ -80,13 +83,20 @@ async function mount(count = 3, options = {}) {
     onRefresh: async () => { events.push('refresh'); if (refreshFail) throw new Error('离线'); },
     onCompleted: kind => events.push(`completed:${kind}`),
     onRenamed: (previous, next) => events.push(`renamed:${previous.name}:${next.name}`),
-    onUpdated: (_hash, hashes) => events.push(`updated:${hashes.join(',')}`),
+    onUpdated: (_hash, links) => events.push(`updated:${links.linkedProjectHashes.join(',')}${links.linkedProjectPaths.length ? `:${links.linkedProjectPaths.join(',')}` : ''}`),
     notify: message => events.push(`notify:${message}`),
   })));
   return { container, root, calls: () => globalThis.__calls, events, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 const buttonIn = (element, text) => [...element.querySelectorAll('button')].find(candidate => candidate.textContent.trim() === text);
 async function click(element) { await act(async () => { element.click(); await Promise.resolve(); await Promise.resolve(); }); }
+async function openProjectPicker(view) {
+  await click(buttonIn(view.container, '选择已有项目'));
+  return view.container.querySelector('.project-picker-dialog');
+}
+const pickerCheckboxes = view => view.container.querySelectorAll('.project-picker-list input[type="checkbox"]');
+const linkedRows = view => view.container.querySelectorAll('.project-dialog-linked-list > li');
+const removeLinkButton = view => view.container.querySelector('.project-dialog-link-remove');
 async function nameInput(view, value) {
   await act(async () => {
     const input = view.container.querySelector('#project-session-display-name');
@@ -105,13 +115,232 @@ async function selectCleanupScope(view, value) {
   });
 }
 
+const linked = { hash: 'bbb', name: '副项目', path: 'C:\\linked' };
+async function pathInput(view, value) {
+  await act(async () => {
+    const input = view.container.querySelector('input[aria-label="副项目路径"]');
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, value);
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+}
+async function submitPath(view) {
+  await act(async () => view.container.querySelector('.project-dialog-link-add').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+}
+function respondToLinkPath(path, _method, body) {
+  if (path === '/system/pick-directory') return linked.path;
+  if (path.endsWith('/links')) return { ...workspace, ...body };
+  throw new Error(`Unexpected request: ${path}`);
+}
+const linksBody = (hashes = [], paths = []) => ({ linkedProjectHashes: hashes, linkedProjectPaths: paths });
+
+test('the input opens an independent project picker and completion returns to the parent dialog', async () => {
+  const view = await mount(3, { workspaces: [workspace, linked] });
+  try {
+    const trigger = buttonIn(view.container, '选择已有项目');
+    assert.equal(trigger.getAttribute('aria-haspopup'), 'dialog');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(view.container.querySelector('.project-picker-dialog'), null);
+    assert.equal(view.container.querySelectorAll('input[type="checkbox"]').length, 0);
+    const picker = await openProjectPicker(view);
+    assert.equal(picker.getAttribute('role'), 'dialog');
+    assert.equal(picker.getAttribute('aria-label'), '选择已有项目');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+    assert.equal(pickerCheckboxes(view).length, 1);
+    await click(pickerCheckboxes(view)[0]);
+    await click(buttonIn(picker, '完成'));
+    assert.equal(view.container.querySelector('.project-picker-dialog'), null);
+    assert.equal(view.container.querySelectorAll('[role="dialog"]').length, 1);
+    assert.equal(linkedRows(view).length, 1);
+    assert.match(linkedRows(view)[0].textContent, /副项目/);
+    assert.equal(view.container.querySelectorAll('input[type="checkbox"]').length, 0);
+    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody(['bbb']) }]);
+    assert.ok(!view.events.includes('close'));
+  } finally { await view.close(); }
+});
+
+test('an empty project picker can close without changing associations', async () => {
+  const view = await mount();
+  try {
+    const picker = await openProjectPicker(view);
+    assert.match(picker.textContent, /暂无已有项目/);
+    await click(buttonIn(picker, '完成'));
+    assert.equal(view.container.querySelector('.project-picker-dialog'), null);
+    assert.deepEqual(view.calls(), []);
+    assert.deepEqual(view.events, []);
+  } finally { await view.close(); }
+});
+
+test('typing a path links only the directory without registering or switching projects', async () => {
+  const view = await mount(3, { respond: respondToLinkPath });
+  try {
+    await pathInput(view, `  ${linked.path}  `);
+    await submitPath(view);
+    assert.deepEqual(view.calls(), [
+      { path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody([], [linked.path]) },
+    ]);
+    assert.equal(linkedRows(view).length, 1);
+    assert.match(view.container.querySelector('.project-dialog-links-list').textContent, /linked/);
+    assert.equal(view.container.querySelector('input[aria-label="副项目路径"]').value, '');
+    assert.ok(!view.events.includes('close'));
+  } finally { await view.close(); }
+});
+
+test('folder selection links its selected directory without creating a project', async () => {
+  const view = await mount(3, { respond: respondToLinkPath });
+  try {
+    await pathInput(view, 'C:\\initial');
+    await click(buttonIn(view.container, '选择文件夹'));
+    assert.deepEqual(view.calls()[0], { path: '/system/pick-directory', method: 'POST', body: { path: 'C:\\initial' } });
+    assert.deepEqual(view.calls()[1], { path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody([], [linked.path]) });
+    assert.equal(view.calls().length, 2);
+    assert.equal(linkedRows(view).length, 1);
+  } finally { await view.close(); }
+});
+
+test('cancelling directory selection preserves the path and makes no changes', async () => {
+  const view = await mount(3, { respond: () => '' });
+  try {
+    await pathInput(view, 'C:\\draft');
+    await click(buttonIn(view.container, '选择文件夹'));
+    assert.equal(view.calls().length, 1);
+    assert.equal(view.container.querySelector('input[aria-label="副项目路径"]').value, 'C:\\draft');
+    assert.deepEqual(view.events, []);
+    assert.equal(view.container.querySelector('[role="alert"]'), null);
+  } finally { await view.close(); }
+});
+
+test('directory validation errors retain the draft and do not register a project', async () => {
+  const view = await mount(3, { fail: true });
+  try {
+    await pathInput(view, 'C:\\missing'); await submitPath(view);
+    assert.equal(view.calls().length, 1);
+    assert.equal(view.container.querySelector('input[aria-label="副项目路径"]').value, 'C:\\missing');
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /保存失败/);
+    assert.equal(buttonIn(view.container, '关联').disabled, false);
+  } finally { await view.close(); }
+});
+
+test('link save failure rolls back the directory and preserves its draft for retry', async () => {
+  let failLink = true;
+  const view = await mount(3, { respond(path, method, body) {
+    if (path.endsWith('/links') && failLink) throw new Error('关联保存失败');
+    return respondToLinkPath(path, method, body);
+  } });
+  try {
+    await pathInput(view, linked.path); await submitPath(view);
+    assert.equal(linkedRows(view).length, 0);
+    assert.equal(view.container.querySelector('input[aria-label="副项目路径"]').value, linked.path);
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /关联保存失败/);
+    failLink = false; await submitPath(view);
+    assert.equal(linkedRows(view).length, 1);
+    assert.equal(view.container.querySelectorAll('input[type="checkbox"]').length, 0);
+  } finally { await view.close(); }
+});
+
+test('the server rejects self-links and duplicate existing-project paths make no request', async () => {
+  const self = await mount(3, { respond: () => { throw new Error('不能将当前项目关联为副项目'); } });
+  try {
+    await pathInput(self, workspace.path); await submitPath(self);
+    assert.equal(self.calls().length, 1);
+    assert.match(self.container.querySelector('[role="alert"]').textContent, /不能将当前项目/);
+  } finally { await self.close(); }
+  const duplicate = await mount(3, { workspace: { ...workspace, linkedProjectHashes: [linked.hash] }, workspaces: [linked], respond: respondToLinkPath });
+  try {
+    await pathInput(duplicate, linked.path); await submitPath(duplicate);
+    assert.equal(duplicate.calls().length, 0);
+    assert.equal(linkedRows(duplicate).length, 1);
+    assert.equal(duplicate.container.querySelectorAll('input[type="checkbox"]').length, 0);
+  } finally { await duplicate.close(); }
+});
+
+test('saved directory links restore and can be removed without project records', async () => {
+  const view = await mount(3, { workspace: { ...workspace, linkedProjectPaths: [linked.path] } });
+  try {
+    assert.equal(linkedRows(view).length, 1);
+    assert.match(linkedRows(view)[0].textContent, /linked/);
+    const picker = await openProjectPicker(view);
+    assert.equal(pickerCheckboxes(view).length, 0);
+    assert.match(picker.textContent, /暂无已有项目/);
+    await click(buttonIn(picker, '完成'));
+    await click(removeLinkButton(view));
+    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody() }]);
+    assert.equal(linkedRows(view).length, 0);
+  } finally { await view.close(); }
+});
+
+test('duplicate directory paths do not save twice and canonical server paths replace the draft', async () => {
+  const canonical = 'C:\\canonical\\linked';
+  const view = await mount(3, { respond(_path, _method, body) { return { ...workspace, ...body, linkedProjectPaths: [canonical] }; } });
+  try {
+    await pathInput(view, linked.path); await submitPath(view);
+    assert.equal(view.container.querySelector('input[aria-label="副项目路径"]').value, '');
+    assert.ok(linkedRows(view)[0].textContent.includes(canonical));
+    await pathInput(view, canonical); await submitPath(view);
+    assert.equal(view.calls().length, 1);
+    assert.equal(linkedRows(view).length, 1);
+  } finally { await view.close(); }
+});
+
+test('a directory also listed as an existing project can be unchecked in the picker', async () => {
+  const view = await mount(3, { workspace: { ...workspace, linkedProjectPaths: [linked.path] }, workspaces: [linked] });
+  try {
+    await openProjectPicker(view);
+    assert.equal(pickerCheckboxes(view)[0].checked, true);
+    await click(pickerCheckboxes(view)[0]);
+    assert.deepEqual(view.calls()[0].body, linksBody());
+    assert.equal(linkedRows(view).length, 0);
+  } finally { await view.close(); }
+});
+
+test('queued project selection and directory removal preserve both lists in their latest snapshot', async () => {
+  let resolve;
+  const pending = new Promise(done => { resolve = done; });
+  const directory = 'C:\\directory-only';
+  const view = await mount(3, { pending, workspace: { ...workspace, linkedProjectPaths: [directory] }, workspaces: [linked] });
+  try {
+    await openProjectPicker(view);
+    await click(pickerCheckboxes(view)[0]);
+    await click(buttonIn(view.container, '完成'));
+    await click(view.container.querySelector('button[aria-label="解除关联 directory-only"]'));
+    assert.equal(view.calls().length, 1);
+    await act(async () => { resolve(); await pending; });
+    assert.deepEqual(view.calls().map(call => call.body), [linksBody([linked.hash], [directory]), linksBody([linked.hash])]);
+    assert.equal(linkedRows(view).length, 1);
+    assert.match(linkedRows(view)[0].textContent, /副项目/);
+  } finally { resolve(); await view.close(); }
+});
+
+test('the eight-link limit counts directories and existing projects together', async () => {
+  const view = await mount(3, { workspace: { ...workspace, linkedProjectPaths: Array.from({ length: 7 }, (_, i) => `C:\\directory-${i}`), linkedProjectHashes: [linked.hash] }, workspaces: [linked, { hash: 'ccc', name: 'other', path: 'C:\\other' }] });
+  try {
+    await openProjectPicker(view);
+    assert.equal(pickerCheckboxes(view)[0].disabled, false);
+    assert.equal(pickerCheckboxes(view)[1].disabled, true);
+    await click(pickerCheckboxes(view)[0]);
+    assert.equal(pickerCheckboxes(view)[1].disabled, false);
+    assert.equal(view.calls()[0].body.linkedProjectPaths.length, 7);
+  } finally { await view.close(); }
+});
+
+test('eight saved links disable both path entry and folder selection', async () => {
+  const view = await mount(3, { workspace: { ...workspace, linkedProjectHashes: Array.from({ length: 8 }, (_, i) => `p${i}`) } });
+  try {
+    assert.equal(view.container.querySelector('input[aria-label="副项目路径"]').readOnly, true);
+    assert.equal(buttonIn(view.container, '选择文件夹').disabled, true);
+    assert.equal(buttonIn(view.container, '选择已有项目').disabled, false);
+    await submitPath(view);
+    assert.deepEqual(view.calls(), []);
+  } finally { await view.close(); }
+});
+
 test('persistent links distinguish same-name projects by hash and save without closing', async () => {
   const view = await mount(3, { workspaces: [workspace, { hash: 'bbb', name: 'same', path: 'C:\\one' }, { hash: 'ccc', name: 'same', path: 'D:\\two' }, { hash: 'chat', name: '纯聊天', kind: 'chat' }] });
   try {
-    const checkboxes = view.container.querySelectorAll('.project-dialog-links input');
+    await openProjectPicker(view);
+    const checkboxes = pickerCheckboxes(view);
     assert.equal(checkboxes.length, 2);
     await click(checkboxes[1]);
-    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: { linkedProjectHashes: ['ccc'] } }]);
+    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody(['ccc']) }]);
     assert.deepEqual(view.events, ['updated:ccc', 'notify:关联副项目已保存，将在下一轮生效', 'refresh']);
     assert.equal(buttonIn(view.container, '保存关联'), undefined);
   } finally { await view.close(); }
@@ -120,20 +349,36 @@ test('persistent links distinguish same-name projects by hash and save without c
 test('removing a saved link persists an empty list', async () => {
   const view = await mount(3, { workspace: { ...workspace, linkedProjectHashes: ['bbb'] }, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
   try {
-    await click(view.container.querySelector('.project-dialog-links input'));
-    assert.deepEqual(view.calls()[0].body, { linkedProjectHashes: [] });
+    await click(removeLinkButton(view));
+    assert.deepEqual(view.calls()[0].body, linksBody());
+    assert.equal(linkedRows(view).length, 0);
     assert.ok(!view.events.includes('close'));
+  } finally { await view.close(); }
+});
+
+test('a failed unlink restores its project row and the remove button can retry', async () => {
+  const view = await mount(3, { fail: true, workspace: { ...workspace, linkedProjectHashes: [linked.hash] }, workspaces: [linked] });
+  try {
+    assert.equal(view.container.querySelectorAll('input[type="checkbox"]').length, 0);
+    assert.equal(removeLinkButton(view).getAttribute('aria-label'), '解除关联 副项目');
+    await click(removeLinkButton(view));
+    assert.equal(linkedRows(view).length, 1);
+    assert.match(view.container.querySelector('[role="alert"]').textContent, /保存失败/);
+    assert.equal(removeLinkButton(view).disabled, false);
+    await click(removeLinkButton(view));
+    assert.deepEqual(view.calls().map(call => call.body), [linksBody(), linksBody()]);
   } finally { await view.close(); }
 });
 
 test('failed automatic link saves roll back the selection and allow retry', async () => {
   const view = await mount(3, { fail: true, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
   try {
-    await click(view.container.querySelector('.project-dialog-links input'));
-    assert.equal(view.container.querySelector('.project-dialog-links input').checked, false);
+    await openProjectPicker(view);
+    await click(pickerCheckboxes(view)[0]);
+    assert.equal(pickerCheckboxes(view)[0].checked, false);
     assert.match(view.container.querySelector('[role="alert"]').textContent, /保存失败/);
-    assert.equal(view.container.querySelector('.project-dialog-links input').disabled, false);
-    await click(view.container.querySelector('.project-dialog-links input'));
+    assert.equal(pickerCheckboxes(view)[0].disabled, false);
+    await click(pickerCheckboxes(view)[0]);
     assert.equal(view.calls().length, 2);
   } finally { await view.close(); }
 });
@@ -141,8 +386,9 @@ test('failed automatic link saves roll back the selection and allow retry', asyn
 test('a failed refresh retains saved links and distinguishes the refresh error', async () => {
   const view = await mount(3, { refreshFail: true, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
   try {
-    await click(view.container.querySelector('.project-dialog-links input'));
-    assert.equal(view.container.querySelector('.project-dialog-links input').checked, true);
+    await openProjectPicker(view);
+    await click(pickerCheckboxes(view)[0]);
+    assert.equal(pickerCheckboxes(view)[0].checked, true);
     assert.match(view.container.querySelector('[role="alert"]').textContent, /关联已保存，刷新项目失败：离线/);
   } finally { await view.close(); }
 });
@@ -151,7 +397,8 @@ test('link selection enforces eight projects and permits removing missing links'
   const projects = Array.from({ length: 9 }, (_, i) => ({ hash: `p${i}`, name: `project ${i}`, path: `C:\\p${i}` }));
   const view = await mount(3, { workspace: { ...workspace, linkedProjectHashes: projects.slice(0, 8).map(item => item.hash) }, workspaces: projects });
   try {
-    const checkboxes = view.container.querySelectorAll('.project-dialog-links input');
+    await openProjectPicker(view);
+    const checkboxes = pickerCheckboxes(view);
     assert.equal(checkboxes[8].disabled, true);
     await click(checkboxes[0]);
     assert.equal(checkboxes[8].disabled, false);
@@ -159,8 +406,8 @@ test('link selection enforces eight projects and permits removing missing links'
   const missing = await mount(3, { workspace: { ...workspace, linkedProjectHashes: ['removed'] } });
   try {
     assert.match(missing.container.textContent, /项目已移除/);
-    await click(missing.container.querySelector('.project-dialog-links input'));
-    assert.deepEqual(missing.calls()[0].body, { linkedProjectHashes: [] });
+    await click(removeLinkButton(missing));
+    assert.deepEqual(missing.calls()[0].body, linksBody());
   } finally { await missing.close(); }
 });
 
@@ -169,13 +416,14 @@ test('background link saves keep controls active and persist the latest selectio
   const pending = new Promise(done => { resolve = done; });
   const view = await mount(3, { pending, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }, { hash: 'ccc', name: '另一个项目', path: 'C:\\other' }] });
   try {
-    const checkbox = view.container.querySelector('.project-dialog-links input');
+    await openProjectPicker(view);
+    const checkbox = pickerCheckboxes(view)[0];
     await click(checkbox);
     assert.equal(checkbox.checked, true);
     assert.equal(checkbox.disabled, false);
     assert.equal(buttonIn(view.container, '关闭').disabled, false);
     await click(checkbox);
-    await click(view.container.querySelectorAll('.project-dialog-links input')[1]);
+    await click(pickerCheckboxes(view)[1]);
     assert.equal(view.calls().length, 1);
     assert.equal(checkbox.checked, false);
     await act(async () => { resolve(); await pending; });
@@ -183,7 +431,7 @@ test('background link saves keep controls active and persist the latest selectio
     assert.equal(checkbox.disabled, false);
     assert.equal(buttonIn(view.container, '关闭').disabled, false);
     assert.equal(checkbox.checked, false);
-    assert.equal(view.container.querySelectorAll('.project-dialog-links input')[1].checked, true);
+    assert.equal(pickerCheckboxes(view)[1].checked, true);
   } finally { resolve(); await view.close(); }
 });
 
@@ -191,8 +439,10 @@ test('closing the dialog keeps queued saves running without reopening it', async
   let resolve;
   const pending = new Promise(done => { resolve = done; });
   const view = await mount(3, { pending, workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }] });
-  await click(view.container.querySelector('.project-dialog-links input'));
-  await click(view.container.querySelector('.project-dialog-links input'));
+  await openProjectPicker(view);
+  await click(pickerCheckboxes(view)[0]);
+  await click(pickerCheckboxes(view)[0]);
+  await click(buttonIn(view.container, '完成'));
   await click(buttonIn(view.container, '关闭'));
   await view.close();
   await act(async () => { resolve(); await pending; });
@@ -207,10 +457,11 @@ test('a failed older save cannot roll back a more recent selection', async () =>
   const first = new Promise((_resolve, fail) => { reject = fail; });
   const view = await mount(3, { workspaces: [{ hash: 'bbb', name: '副项目', path: 'C:\\linked' }, { hash: 'ccc', name: '另一个项目', path: 'C:\\other' }], respond(_path, _method, body) {
     if (++requests === 1) return first;
-    return { ...workspace, linkedProjectHashes: body.linkedProjectHashes };
+    return { ...workspace, ...body };
   } });
   try {
-    const checkboxes = view.container.querySelectorAll('.project-dialog-links input');
+    await openProjectPicker(view);
+    const checkboxes = pickerCheckboxes(view);
     await click(checkboxes[0]); await click(checkboxes[1]);
     await act(async () => { reject(new Error('旧请求失败')); await first.catch(() => {}); });
     assert.deepEqual(view.calls().map(call => call.body.linkedProjectHashes), [['bbb'], ['bbb', 'ccc']]);

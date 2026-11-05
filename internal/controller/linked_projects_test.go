@@ -10,9 +10,88 @@ import (
 	"testing"
 
 	"github.com/ezdemo/looprax/internal/repository"
+	"github.com/ezdemo/looprax/internal/service"
 	"github.com/ezdemo/looprax/internal/service/projectlinks"
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
+
+func TestLinkedDirectoryDoesNotRegisterProjectAndAppliesToTurns(t *testing.T) {
+	ts, key, s, home := parityServer(t, "")
+	main, root, configured := s.agent.App(), s.workspaceRoot(), s.configSnapshot().WorkspaceDir
+	path := filepath.Join(home, "新副项目")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initialProjects := len(s.projectList())
+	code, env := call(t, ts, http.MethodPut, "/api/workspaces/"+main+"/links", key, map[string]any{
+		"linkedProjectPaths": []string{path, path + string(filepath.Separator) + "."},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("link directory = %d %v", code, env)
+	}
+	if len(s.projectList()) != initialProjects {
+		t.Fatal("linking a directory created a project in the list")
+	}
+	if _, err := os.Stat(filepath.Join(home, "workspace", service.WorkspaceHash(path))); !os.IsNotExist(err) {
+		t.Fatalf("directory link created project data: %v", err)
+	}
+	if s.agent.App() != main || s.workspaceRoot() != root || s.configSnapshot().WorkspaceDir != configured {
+		t.Fatal("linking a directory switched the workspace")
+	}
+	meta := repository.ReadObject(filepath.Join(home, "workspace", main, "workspace.json"))
+	if !reflect.DeepEqual(projectlinks.Paths(meta), []string{path}) || len(projectlinks.Hashes(meta)) != 0 {
+		t.Fatalf("saved directory links = %v", meta)
+	}
+	// 旧客户端只更新项目标识时，保留新版本保存的目录关联。
+	code, env = call(t, ts, http.MethodPut, "/api/workspaces/"+main+"/links", key, map[string]any{"linkedProjectHashes": []string{}})
+	if code != http.StatusOK {
+		t.Fatalf("legacy save = %d %v", code, env)
+	}
+	if err := s.saveConfig(map[string]any{"toolsRestrictWorkspace": true, "hitl": "approval"}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.projectRuntime(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := view.prepareTurn(&chatRequest{SessionName: "directory"})
+	if err != nil || !reflect.DeepEqual(turn.linkedProjectRoots, []string{path}) {
+		t.Fatalf("directory turn = %v %v", turn, err)
+	}
+	if !strings.Contains(turn.agent.Instruction(), path) || !strings.Contains(turn.subRunner.Environment, path) {
+		t.Fatal("directory omitted from agent environment")
+	}
+	acpRoots, err := view.resolveLinkedProjects(&chatRequest{})
+	if err != nil || !reflect.DeepEqual(acpRoots, []string{path}) {
+		t.Fatalf("ACP directory roots = %v %v", acpRoots, err)
+	}
+	turn, err = view.prepareTurn(&chatRequest{SessionName: "directory-write"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(path, "allowed.txt")
+	if _, err := turn.callExportTool(tools.WithLinkedProjects(context.Background(), turn.linkedProjectRoots), "write", map[string]any{"path": target, "content": "directory content"}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "directory content" {
+		t.Fatalf("linked directory write = %q %v", data, err)
+	}
+	code, env = call(t, ts, http.MethodPut, "/api/workspaces/"+main+"/links", key, map[string]any{"linkedProjectPaths": []string{}})
+	if code != http.StatusOK {
+		t.Fatalf("unlink directory = %d %v", code, env)
+	}
+	next, err := view.prepareTurn(&chatRequest{SessionName: "directory-write"})
+	if err != nil || len(next.linkedProjectRoots) != 0 {
+		t.Fatalf("directory permission not revoked: %v %v", next, err)
+	}
+	next.callExportTool(tools.WithLinkedProjects(context.Background(), next.linkedProjectRoots), "write", map[string]any{"path": target, "content": "denied"})
+	if data, _ := os.ReadFile(target); string(data) != "directory content" {
+		t.Fatal("unlinked directory was modified")
+	}
+	if !reflect.DeepEqual(turn.linkedProjectRoots, []string{path}) {
+		t.Fatal("unlinking changed the earlier turn's directory snapshot")
+	}
+}
 
 func TestProjectLinksPersistAndUpdateCachedRuntime(t *testing.T) {
 	ts, key, s, home := parityServer(t, "")

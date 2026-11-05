@@ -50,12 +50,13 @@ func (s *Controller) workspaceLinksController(w http.ResponseWriter, r *http.Req
 	hash := r.PathValue("hash")
 	var body struct {
 		Hashes []string `json:"linkedProjectHashes"`
+		Paths  []string `json:"linkedProjectPaths"`
 	}
-	if json.NewDecoder(r.Body).Decode(&body) != nil || body.Hashes == nil {
-		writeFail(w, http.StatusBadRequest, "缺少 linkedProjectHashes 列表")
+	if json.NewDecoder(r.Body).Decode(&body) != nil || (body.Hashes == nil && body.Paths == nil) {
+		writeFail(w, http.StatusBadRequest, "缺少 linkedProjectHashes 或 linkedProjectPaths 列表")
 		return
 	}
-	if err := projectlinks.New(s.home, &s.state.files).Save(hash, body.Hashes); err != nil {
+	if err := projectlinks.New(s.home, &s.state.files).Save(hash, body.Hashes, body.Paths); err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, projectlinks.ErrStorage) {
 			status = http.StatusInternalServerError

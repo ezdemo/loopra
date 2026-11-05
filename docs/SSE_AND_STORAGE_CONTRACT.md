@@ -102,7 +102,7 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 - `{name}.usage`：`{prompt,completion,cacheHit,cacheMiss,lastPromptTokens}`（long；全 0 删除）。
 - `{name}.model_usage`：`{"<model>": [prompt,completion,cacheHit,cacheMiss]}`（空删除）。
 - `{name}.sub/{subSessionId}.jsonl`：子代理会话（每行 `{type:"sub_*",...payload}`；subSessionId 白名单校验防穿越；缺 `sub_end` 视为运行中）。
-- 项目级：`workspace/{hash}/workspace.json`（`{path,displayName:null,createdAt,lastAccessedAt,linkedProjectHashes?:string[]}`）、`workspace/{hash}/goals/`、`workspace/{hash}/schedules/schedules.json`。`linkedProjectHashes` 缺省为空，存储主项目显式关联的副项目标识，最多 8 个；保存使用项目元数据锁及原子替换，并保留其他字段。关联仅展开一层，每轮与临时关联合并用于系统提示词、write/edit 写入边界和审批策略；修改从下一轮生效。
+- 项目级：`workspace/{hash}/workspace.json`（`{path,displayName:null,createdAt,lastAccessedAt,linkedProjectHashes?:string[],linkedProjectPaths?:string[]}`）、`workspace/{hash}/goals/`、`workspace/{hash}/schedules/schedules.json`。两类关联缺省为空，分别保存已有副项目标识和独立目录的规范绝对路径（解析符号链接及 Windows 目录联接）；后者不创建项目记录或会话目录。按实际目录去重后合计最多 8 个；保存使用项目元数据锁及原子替换，并保留其他字段；只更新其中一类时保留另一类。关联仅展开一层，每轮与临时关联合并用于系统提示词、write/edit 写入边界和审批策略；不可用的长期目录不授予权限，元数据仍保留；修改从下一轮生效。
 - 64 路分片锁：按文件绝对路径 hashCode 取模互斥（Go 建议 per-abs-path mutex 分片）。
 - 全局：`~/.loopra/usage_daily.jsonl` 每行 `{ts(ms),model,prompt,completion,cacheHit,cacheMiss}`（全 0 不写）。
 

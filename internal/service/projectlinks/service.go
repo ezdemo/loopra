@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ezdemo/looprax/internal/infrastructure/fsutil"
 	"github.com/ezdemo/looprax/internal/repository"
 )
 
@@ -35,8 +36,16 @@ func New(home string, files *sync.Mutex) *Service {
 }
 
 func Hashes(meta map[string]any) []string {
+	return stringList(meta, "linkedProjectHashes")
+}
+
+func Paths(meta map[string]any) []string {
+	return stringList(meta, "linkedProjectPaths")
+}
+
+func stringList(meta map[string]any, key string) []string {
 	var hashes []string
-	switch values := meta["linkedProjectHashes"].(type) {
+	switch values := meta[key].(type) {
 	case []string:
 		hashes = append(hashes, values...)
 	case []any:
@@ -47,6 +56,36 @@ func Hashes(meta map[string]any) []string {
 		}
 	}
 	return hashes
+}
+
+func directory(path string) (Project, error) {
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) {
+		return Project{}, fmt.Errorf("关联目录必须是绝对路径: %s", path)
+	}
+	root, err := fsutil.Resolve(path)
+	if err != nil {
+		return Project{}, fmt.Errorf("关联目录不可用: %s: %w", path, err)
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return Project{}, fmt.Errorf("关联目录不可用: %s", path)
+	}
+	return Project{Name: filepath.Base(root), Path: root}, nil
+}
+
+func sameDirectory(left, right string) bool {
+	relative, err := filepath.Rel(left, right)
+	return err == nil && relative == "."
+}
+
+func containsDirectory(roots []string, path string) bool {
+	for _, root := range roots {
+		if sameDirectory(root, path) {
+			return true
+		}
+	}
+	return false
 }
 
 func validHash(hash string) bool {
@@ -74,15 +113,16 @@ func (s *Service) registered(hash string) (Project, error) {
 		return Project{}, fmt.Errorf("读取关联项目 %s 失败: %w", hash, err)
 	}
 	path, _ := meta["path"].(string)
-	info, err := os.Stat(path)
-	if !filepath.IsAbs(path) || err != nil || !info.IsDir() {
+	project, err := directory(path)
+	if err != nil {
 		return Project{}, fmt.Errorf("关联项目不存在或目录不可用: %s", hash)
 	}
 	name, _ := meta["displayName"].(string)
 	if name == "" {
 		name = filepath.Base(path)
 	}
-	return Project{Hash: hash, Name: name, Path: path}, nil
+	project.Hash, project.Name = hash, name
+	return project, nil
 }
 
 // Resolve 只展开一层，不继承副项目自己的关联。已移除或离线的默认
@@ -100,6 +140,23 @@ func (s *Service) Resolve(hash string, requested []string) ([]Project, error) {
 	}
 	projects := []Project{}
 	seen := map[string]bool{hash: true}
+	roots := []string{}
+	if path, _ := meta["path"].(string); path != "" {
+		if primary, err := directory(path); err == nil {
+			roots = append(roots, primary.Path)
+		}
+	}
+	appendResolved := func(project Project) error {
+		if containsDirectory(roots, project.Path) {
+			return nil
+		}
+		roots = append(roots, project.Path)
+		projects = append(projects, project)
+		if len(projects) > MaxProjects {
+			return fmt.Errorf("默认与临时关联合计最多 %d 个副项目", MaxProjects)
+		}
+		return nil
+	}
 	appendProject := func(value string, required bool) error {
 		value = strings.TrimSpace(value)
 		if value == "" || seen[value] {
@@ -113,14 +170,19 @@ func (s *Service) Resolve(hash string, requested []string) ([]Project, error) {
 			return nil
 		}
 		seen[value] = true
-		projects = append(projects, project)
-		if len(projects) > MaxProjects {
-			return fmt.Errorf("默认与临时关联合计最多 %d 个副项目", MaxProjects)
-		}
-		return nil
+		return appendResolved(project)
 	}
 	for _, value := range Hashes(meta) {
 		if err := appendProject(value, false); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range Paths(meta) {
+		project, err := directory(path)
+		if err != nil {
+			continue // 离线的长期关联不授予本轮权限，保留元数据供用户解除。
+		}
+		if err := appendResolved(project); err != nil {
 			return nil, err
 		}
 	}
@@ -132,7 +194,8 @@ func (s *Service) Resolve(hash string, requested []string) ([]Project, error) {
 	return projects, nil
 }
 
-func (s *Service) Save(hash string, requested []string) error {
+// 未提供的列表保留原值，兼容只更新项目标识的旧客户端。
+func (s *Service) Save(hash string, requestedHashes, requestedPaths []string) error {
 	if !validHash(hash) {
 		return fmt.Errorf("项目不存在")
 	}
@@ -147,23 +210,55 @@ func (s *Service) Save(hash string, requested []string) error {
 	if path == "" {
 		return fmt.Errorf("项目不存在")
 	}
+	primary, err := directory(path)
+	if err != nil {
+		return err
+	}
+	if requestedHashes == nil {
+		requestedHashes = Hashes(meta)
+	}
+	if requestedPaths == nil {
+		requestedPaths = Paths(meta)
+	}
 	hashes := []string{}
+	paths := []string{}
+	roots := []string{primary.Path}
 	seen := map[string]bool{hash: true}
-	for _, value := range requested {
+	for _, value := range requestedHashes {
 		value = strings.TrimSpace(value)
 		if value == "" || seen[value] {
 			continue
 		}
-		if _, err := s.registered(value); err != nil {
+		project, err := s.registered(value)
+		if err != nil {
 			return err
 		}
 		seen[value] = true
+		if containsDirectory(roots, project.Path) {
+			continue
+		}
+		roots = append(roots, project.Path)
 		hashes = append(hashes, value)
 	}
-	if len(hashes) > MaxProjects {
+	for _, path := range requestedPaths {
+		project, err := directory(path)
+		if err != nil {
+			return err
+		}
+		if sameDirectory(primary.Path, project.Path) {
+			return fmt.Errorf("不能将当前项目关联为副项目")
+		}
+		if containsDirectory(roots, project.Path) {
+			continue
+		}
+		roots = append(roots, project.Path)
+		paths = append(paths, project.Path)
+	}
+	if len(hashes)+len(paths) > MaxProjects {
 		return fmt.Errorf("最多关联 %d 个副项目", MaxProjects)
 	}
 	meta["linkedProjectHashes"] = hashes
+	meta["linkedProjectPaths"] = paths
 	if err := repository.WriteJSON(file, meta); err != nil {
 		return fmt.Errorf("%w: %w", ErrStorage, err)
 	}
