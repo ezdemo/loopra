@@ -15,9 +15,10 @@ const { createRoot } = await import('react-dom/client');
 const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toString('base64');
 const transpile = text => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
 const helperUrl = dataUrl(transpile(await readFile(new URL('../src/elicitation.ts', import.meta.url), 'utf8')));
+const draftUrl = dataUrl(transpile(await readFile(new URL('../src/useInteractionDraft.ts', import.meta.url), 'utf8')).replaceAll("'react'", JSON.stringify(import.meta.resolve('react'))));
 let source = transpile(await readFile(new URL('../src/components/ElicitationForm.tsx', import.meta.url), 'utf8'));
 source = source.replaceAll("'react'", JSON.stringify(import.meta.resolve('react'))).replaceAll('"react/jsx-runtime"', JSON.stringify(import.meta.resolve('react/jsx-runtime')))
-  .replaceAll("'../elicitation'", JSON.stringify(helperUrl)).replace("import '../elicitation.css';", '');
+  .replaceAll("'../elicitation'", JSON.stringify(helperUrl)).replaceAll("'../useInteractionDraft'", JSON.stringify(draftUrl)).replace("import '../elicitation.css';", '');
 const { default: ElicitationForm } = await import(dataUrl(source));
 const { elicitationContent, elicitationError, elicitationPages } = await import(helperUrl);
 
@@ -26,10 +27,10 @@ const request = { elicitationRequestId: 'question-1', message: '午餐吃什么�
   food_note: { type: 'string', title: '补充说明' },
 } } };
 
-function render(input = request, onAnswer = async () => {}) {
+function render(input = request, onAnswer = async () => {}, draftProps = {}) {
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
-  act(() => root.render(createElement(ElicitationForm, { request: input, onAnswer })));
+  act(() => root.render(createElement(ElicitationForm, { request: input, onAnswer, ...draftProps })));
   return { container, close() { act(() => root.unmount()); container.remove(); } };
 }
 const click = async node => act(async () => node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
@@ -96,6 +97,41 @@ test('a rejected submission keeps the question open and allows retry', async () 
     assert.equal(view.container.querySelector('.elicitation-submit').disabled, false);
     await submit(view);
     assert.equal(calls, 2);
+  } finally { view.close(); }
+});
+
+test('session switching preserves answers, notes and the current page until successful submission', async () => {
+  const drafts = new Map();
+  const questions = { ...request, schema: { required: ['food', 'time'], properties: {
+    ...request.schema.properties, time: { type: 'string', title: '用餐时间' },
+  } } };
+  const props = { drafts, draftKey: 'server/session-one/question-1' };
+  let view = render(questions, undefined, props);
+  await click(view.container.querySelector('[role="radio"]'));
+  await input(view.container.querySelector('textarea[aria-label="补充说明"]'), '少辣');
+  await click(view.container.querySelector('.elicitation-next'));
+  await input(view.container.querySelector('textarea'), '中午');
+  view.close();
+  view = render(questions, undefined, { drafts, draftKey: 'server/session-two/question-1' });
+  assert.match(view.container.textContent, /问题 1 \/ 2/);
+  assert.equal(view.container.querySelector('[aria-checked="true"]'), null);
+  view.close();
+  view = render(questions, async () => { throw new Error('提交失败'); }, props);
+  assert.match(view.container.textContent, /问题 2 \/ 2/);
+  assert.equal(view.container.querySelector('textarea').value, '中午');
+  await submit(view);
+  assert.equal(drafts.has(props.draftKey), true, 'failed submissions retain the draft');
+  view.close();
+  const replies = [];
+  view = render(questions, async (...answer) => replies.push(answer), props);
+  try {
+    await click(view.container.querySelector('.elicitation-prev'));
+    assert.equal(view.container.querySelector('[role="radio"]').getAttribute('aria-checked'), 'true');
+    assert.equal(view.container.querySelector('textarea').value, '少辣');
+    await click(view.container.querySelector('.elicitation-next'));
+    await submit(view);
+    assert.deepEqual(replies, [['accept', { food: 'chicken', food_note: '少辣', time: '中午' }]]);
+    assert.equal(drafts.has(props.draftKey), false);
   } finally { view.close(); }
 });
 

@@ -50,6 +50,7 @@
 - `permission_resolved`：`{permissionRequestId, optionId}`（取消时 `"cancelled"`）。
 - `elicitation`：`{elicitationRequestId: UUID, sessionId, message, schema: object(JSON Schema)}`；`elicitation_resolved`：`{elicitationRequestId, action: "cancel"/"accept"}`。
 - 应答接口：POST `/api/chat/permission`、`/api/chat/elicitation`、`/api/chat/sub-hitl/{subId}`。
+- 会话切换：历史刷新保留该会话内尚未回答的普通 `choice`；审批和表单待处理请求由运行中的 `/chat/permissions`、`/chat/elicitations` 恢复。弹框未提交的答案、补充输入与当前题目按服务、会话和请求隔离，保存在当前工作台内存中，切换后恢复；成功提交后清除，不写入会话日志或浏览器持久存储，刷新页面后草稿不保留。
 
 ### 1.5 模式/计划/配置
 | type | data |

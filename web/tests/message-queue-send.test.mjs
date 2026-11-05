@@ -25,6 +25,9 @@ const backendSource = await readFile(new URL('../src/backend.ts', import.meta.ur
 const backendJs = ts.transpileModule(backendSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
 const { applyEvent: realApplyEvent } = await import('data:text/javascript;base64,' + Buffer.from(backendJs).toString('base64'));
+const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
+const chatJs = ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const { attachPendingChoices, collectPendingChoices } = await import('data:text/javascript;base64,' + Buffer.from(chatJs).toString('base64'));
 
 function deferred() {
   let resolve, reject;
@@ -424,6 +427,34 @@ test('an older history response cannot restore messages or inputs after the run 
   await oldPoll;
   assert.equal(h.state.remoteRun, null);
   assert.deepEqual(h.shared.sessionsRef.current[0].messages, []);
+});
+
+test('remote history polling preserves ordinary choices while refreshing approvals and forms from the server', async () => {
+  const h = harness();
+  const choice = { id: 'pending-choice', type: 'choice', question: '继续吗？', options: [{ title: '继续', value: 'yes' }] };
+  const oldPermission = { ...choice, id: 'stale-permission', permissionRequestId: 'expired' };
+  const permission = { type: 'choice', permissionRequestId: 'current', title: '允许执行？', options: [{ title: '允许', value: 'allow' }] };
+  const input = { elicitationRequestId: 'form-one', message: '请回答', schema: { properties: {} } };
+  h.shared.sessionsRef.current = [{ ...original, messages: [{ id: 'answer', role: 'assistant', text: '', blocks: [choice, oldPermission] }] }];
+  Object.assign(h.shared, {
+    attachPendingChoices, collectPendingChoices, applyEvent: realApplyEvent,
+    historyMessages: () => [{ id: 'history', role: 'assistant', text: 'stored response', blocks: [] }],
+  });
+  let running = true;
+  h.shared.api.request = async path => {
+    if (path.startsWith('/agent/session-status')) return { running };
+    if (path.startsWith('/agent/history')) return [{ content: 'stored response' }];
+    if (path.startsWith('/chat/permissions')) return [permission];
+    if (path.startsWith('/chat/elicitations')) return [input];
+  };
+  const selected = h.render(original), controller = new AbortController(), observe = { running: false };
+  await selected.syncSessionRun(original, controller, observe);
+  assert.deepEqual(collectPendingChoices(h.shared.sessionsRef.current[0].messages).map(card => card.permissionRequestId || card.id), ['current', 'pending-choice']);
+  assert.deepEqual(h.state.inputs[original.id], [input]);
+  running = false;
+  await selected.syncSessionRun(original, controller, observe);
+  assert.deepEqual(collectPendingChoices(h.shared.sessionsRef.current[0].messages), [choice]);
+  assert.deepEqual(h.state.inputs[original.id], []);
 });
 
 test('interrupting the first reply waits for abort and backend idle, then keeps its session', async () => {

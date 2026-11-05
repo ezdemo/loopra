@@ -1,22 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { elicitationContent, elicitationError, elicitationOptions, elicitationPages, elicitationPageError, type ElicitationRequest } from '../elicitation';
+import { useInteractionDraft, type InteractionDraftCache } from '../useInteractionDraft';
 import '../elicitation.css';
 
-export default function ElicitationForm({ request, onAnswer }: {
+export default function ElicitationForm({ request, onAnswer, draftKey = '', drafts }: {
   request: ElicitationRequest;
   onAnswer: (action: 'accept' | 'decline', content: Record<string, unknown>) => Promise<void>;
+  draftKey?: string;
+  drafts?: InteractionDraftCache<unknown>;
 }) {
-  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [{ index, answers }, setDraft, clearDraft] = useInteractionDraft(draftKey, drafts);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [index, setIndex] = useState(0);
+  const setIndex = (next: number) => setDraft({ index: next, answers });
   const body = useRef<HTMLDivElement>(null);
   const pages = elicitationPages(request);
   const current = Math.min(index, Math.max(0, pages.length - 1));
   const last = current >= pages.length - 1;
   useEffect(() => { if (body.current) body.current.scrollTop = 0; }, [current]);
   const navigate = (next: number) => { setIndex(next); setError(''); };
-  const change = (name: string, value: unknown) => { setAnswers(current => ({ ...current, [name]: value })); setError(''); };
+  const change = (name: string, value: unknown) => { setDraft({ index, answers: { ...answers, [name]: value } }); setError(''); };
   async function submit(action: 'accept' | 'decline') {
     const invalid = action === 'accept' ? elicitationError(request, answers) : '';
     if (invalid) {
@@ -25,7 +28,7 @@ export default function ElicitationForm({ request, onAnswer }: {
       setError(invalid); return;
     }
     setBusy(true); setError('');
-    try { await onAnswer(action, action === 'accept' ? elicitationContent(request, answers) : {}); }
+    try { await onAnswer(action, action === 'accept' ? elicitationContent(request, answers) : {}); clearDraft(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setBusy(false); }
   }
   return <form className="choice-popup elicitation-form" role="dialog" aria-label="Agent 提问" onSubmit={event => { event.preventDefault(); if (last) void submit('accept'); else navigate(current + 1); }}>

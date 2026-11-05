@@ -58,6 +58,7 @@ import PlanReview from './components/PlanReview';
 import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
 import ElicitationForm from './components/ElicitationForm';
 import type { ElicitationRequest } from './elicitation';
+import type { InteractionDraftCache } from './useInteractionDraft';
 import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
@@ -175,6 +176,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [acpPlans, setAcpPlans] = useState<Record<string, AcpPlanEntry[]>>({});
   const [acpCommands, setAcpCommands] = useState<Record<string, AcpCommand[]>>({});
   const [pendingInputs, setPendingInputs] = useState<Record<string, ElicitationRequest[]>>({});
+  const choiceDrafts = useRef<InteractionDraftCache<ChoiceAnswer>>(new Map());
+  const elicitationDrafts = useRef<InteractionDraftCache<unknown>>(new Map());
   // The backend re-detects installed Agent runtimes on every request; bump this to refresh
   // after the user installs a missing runtime outside the app.
   const [enginesRevision, setEnginesRevision] = useState(0);
@@ -745,7 +748,9 @@ export default function App({ startupPending = false, initialServer }: { startup
           if (controller.signal.aborted || !history) return;
           if (runs.get(sessionRunKey(server, id))) { setHistoryState(undefined); return; }
           const messages = historyMessages(history);
-          setSessions(current => current.map(item => item.id === id ? { ...item, messages, messageCount: history.length } : item));
+          setSessions(current => current.map(item => item.id === id ? {
+            ...item, messages: attachPendingChoices(messages, collectPendingChoices(item.messages).filter(choice => !choice.permissionRequestId)), messageCount: history.length,
+          } : item));
           setHistoryState(undefined);
         }).catch(error => {
           if (controller.signal.aborted) return;
@@ -957,7 +962,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           if (!last || last.role !== 'assistant') messages.push({ id: `permission-${permission.permissionRequestId}`, role: 'assistant', text: '', blocks: [] });
           messages[messages.length - 1] = applyEvent(messages[messages.length - 1], { ...permission, type: 'choice' });
         }
-        return { ...item, messages };
+        return { ...item, messages: attachPendingChoices(messages, collectPendingChoices(item.messages).filter(choice => !choice.permissionRequestId)) };
       }));
     }
     if (observe.running && !running) {
@@ -1429,6 +1434,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   useEffect(() => () => { runs.detach(); historyRequest.current?.abort(); clearTimeout(toastTimer.current); }, [runs]);
 
   const activeInput = session ? pendingInputs[session.id]?.[0] : undefined;
+  const choiceDraftKey = JSON.stringify([server, session?.id, pendingChoices.map(choice => choice.permissionRequestId || choice.id)]);
+  const elicitationDraftKey = JSON.stringify([server, session?.id, activeInput?.elicitationRequestId]);
   const nativePet = useNativePet({
     api,
     connected: backend.status === 'connected',
@@ -1512,7 +1519,7 @@ export default function App({ startupPending = false, initialServer }: { startup
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
-            <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={pendingChoices.map(choice => choice.id).join('|')} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={activeInput.elicitationRequestId} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
+            <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={elicitationDraftKey} draftKey={elicitationDraftKey} drafts={elicitationDrafts.current} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
         <ShellDock api={api} workspaceHash={workspace} open={shellOpen && !!workspace} onClose={() => setShellOpen(false)} />

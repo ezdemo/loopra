@@ -31,7 +31,8 @@ export const Button = ({ children, onPress, isDisabled, startContent, ...rest })
 `);
 const iconsStub = dataUrl('export const Check=()=>null;export const ChevronLeft=()=>null;export const CircleHelp=()=>null;');
 
-const { default: ChoicePopup } = await import(await sourceUrl('components/ChoicePopup.tsx', { '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub }));
+const draftUrl = await sourceUrl('useInteractionDraft.ts');
+const { default: ChoicePopup } = await import(await sourceUrl('components/ChoicePopup.tsx', { '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub, '../useInteractionDraft': draftUrl }));
 
 const approval = { id: 'c1', type: 'choice', question: 'bash 需要审批', options: [{ title: '同意执行', value: '/agree' }, { title: '拒绝执行', value: '/deny' }] };
 const second = { id: 'c2', type: 'choice', question: '接下来？', options: [{ title: '继续', value: '继续' }, { title: '停止', value: '停止' }] };
@@ -92,5 +93,45 @@ test('ACP choice submission carries permission request ID and opaque option valu
     click(view.container.querySelector('.choice-submit'));
     assert.equal(answers[0][0].permissionRequestId, 'p1');
     assert.equal(answers[0][0].value, 'opaque-option');
+  } finally { view.unmount(); }
+});
+
+test('switching sessions preserves pending selections and the current question without mixing drafts', () => {
+  const drafts = new Map();
+  const answers = [];
+  let view = render({ choices: [approval, second], drafts, draftKey: 'server/session-one', onSubmit: value => answers.push(value) });
+  click(view.container.querySelectorAll('.choice-popup-option')[1]);
+  click(view.container.querySelector('.choice-next'));
+  view.unmount();
+  view = render({ choices: [approval, second], drafts, draftKey: 'server/session-two', onSubmit() {} });
+  assert.match(view.container.textContent, /问题 1 \/ 2/);
+  assert.equal(view.container.querySelector('[aria-checked="true"]'), null);
+  view.unmount();
+  view = render({ choices: [approval, second], drafts, draftKey: 'server/session-one', onSubmit: value => answers.push(value) });
+  try {
+    assert.match(view.container.textContent, /问题 2 \/ 2/);
+    click(view.container.querySelector('.choice-prev'));
+    assert.equal(view.container.querySelectorAll('.choice-popup-option')[1].getAttribute('aria-checked'), 'true');
+    click(view.container.querySelector('.choice-next'));
+    click(view.container.querySelector('.choice-popup-option'));
+    click(view.container.querySelector('.choice-submit'));
+    assert.deepEqual(answers[0].map(answer => answer.value), ['/deny', '继续']);
+    assert.equal(drafts.has('server/session-one'), false);
+  } finally { view.unmount(); }
+});
+
+test('restored approvals keep their selection when history gives the block a new ID', () => {
+  const drafts = new Map();
+  const choices = [{ ...approval, permissionRequestId: 'permission-one' }];
+  let view = render({ choices, drafts, draftKey: 'server/session/permission-one', onSubmit() {} });
+  click(view.container.querySelector('.choice-popup-option'));
+  view.unmount();
+  const answers = [];
+  view = render({ choices: [{ ...choices[0], id: 'restored-card' }], drafts, draftKey: 'server/session/permission-one', onSubmit: value => answers.push(value) });
+  try {
+    assert.equal(view.container.querySelector('.choice-popup-option').getAttribute('aria-checked'), 'true');
+    click(view.container.querySelector('.choice-submit'));
+    assert.equal(answers[0][0].id, 'restored-card');
+    assert.equal(answers[0][0].permissionRequestId, 'permission-one');
   } finally { view.unmount(); }
 });

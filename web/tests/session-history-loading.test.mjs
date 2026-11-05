@@ -9,6 +9,9 @@ const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true,
 const app = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
 const fn = app.body.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'selectSession');
 const code = ts.transpileModule(fn.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
+const chatCode = ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const { attachPendingChoices, collectPendingChoices, resolveChoiceBlock } = await import('data:text/javascript;base64,' + Buffer.from(chatCode).toString('base64'));
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
@@ -17,6 +20,7 @@ function environment() {
   const state = { sessions: ['one', 'two'].map(id => ({ id, name: id, workspaceHash: 'project', messages: [] })), notices: [], options: {} };
   const env = {
     sessions: state.sessions, narrow: false, generatingId: null, server: 'http://loopra.test', runs: new SessionRuns(), sessionRunKey,
+    attachPendingChoices, collectPendingChoices,
     historyRequest: { current: undefined }, userScrolledAway: { current: true }, lastScrollTop: { current: 50 }, emptyContext: {},
     selectMainTab() {}, setWorkspace() {}, setMenu() {}, setDraft() {}, setComposerContext() {}, setShowScrollBtn() {}, setLiveSpeed() {}, setSkillsOpen() {}, setSchedulesOpen() {}, setPluginPage() {},
     setActiveId: value => { state.active = value; },
@@ -95,4 +99,33 @@ test('a delayed opening history cannot replace output from a stream started mean
   await pending;
   assert.equal(state.sessions[0].messages[0].text, 'live reply');
   assert.equal(state.history, undefined);
+});
+
+test('switching away and back keeps unanswered choices while refreshing history', async () => {
+  const { select, state, requests } = environment();
+  const pendingChoice = { id: 'choice-one', type: 'choice', question: '继续吗？', options: [{ title: '继续', value: 'continue' }] };
+  const resolved = { ...pendingChoice, id: 'answered', selected: '继续' };
+  const permission = { ...pendingChoice, id: 'expired-approval', permissionRequestId: 'old-request' };
+  state.sessions[0].messages = [{ id: 'answer', role: 'assistant', text: '', blocks: [pendingChoice, resolved, permission] }];
+  const away = select('two');
+  requests[0].resolve([{ content: 'other session' }]);
+  requests[1].resolve({});
+  requests[2].resolve({ mode: 'execute' });
+  await away;
+  const back = select('one');
+  requests[3].resolve([{ content: 'stored answer' }]);
+  requests[4].resolve({});
+  requests[5].resolve({ mode: 'execute' });
+  await back;
+  assert.equal(state.sessions[0].messages[0].text, 'stored answer');
+  assert.deepEqual(collectPendingChoices(state.sessions[0].messages), [pendingChoice]);
+
+  const refresh = select('one');
+  // An answer made while history is loading must not reappear from an old snapshot.
+  state.sessions[0].messages = state.sessions[0].messages.map(message => ({ ...message, blocks: resolveChoiceBlock(message.blocks || [], pendingChoice.id, '继续') }));
+  requests[6].resolve([{ content: 'after answer' }]);
+  requests[7].resolve({});
+  requests[8].resolve({ mode: 'execute' });
+  await refresh;
+  assert.deepEqual(collectPendingChoices(state.sessions[0].messages), []);
 });
