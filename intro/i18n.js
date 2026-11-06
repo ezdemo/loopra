@@ -108,7 +108,7 @@ window.LOOPRA_I18N_EN = {
   'tools.r2': 'Commands & web',
   'tools.r2d': "The system shell and its <code>_start</code> / <code>_wait</code> / <code>_stdin</code> / <code>_stop</code> calls; <code>web</code> actions <code>search</code>, <code>code</code> and <code>fetch</code>",
   'tools.r3': 'Collaboration',
-  'tools.r3d': "<code>sub_agent</code>, <code>submit_plan</code>, <code>ask_choice</code>; requirement sessions also get <code>finish_requirement</code>, <code>reply_requirement_comment</code> and <code>show_requirements</code>",
+  'tools.r3d': "<code>sub_agent</code>, <code>submit_plan</code>, <code>ask_choice</code>; requirement sessions also get <code>finish_requirement</code> and <code>reply_requirement_comment</code>",
   'tools.r4': 'Skills',
   'tools.r4d': '<code>skillread</code>, <code>skilllist</code>, <code>skillsearch</code>, <code>skillrefresh</code>',
   'tools.r5': 'External tools',

@@ -309,7 +309,7 @@ AI 可以在回复正文中直接展示图片，例如 `![二维码](<C:/project
 |---|---|
 | 文件与代码检索 | `read`、`write`、`edit`、`rg` |
 | 命令与网络 | 当前系统 shell（Windows 为 `powershell` 或 `CMD`，其他系统为 `bash` 或 `sh`）及其 `_start` / `_wait` / `_stdin` / `_stop`；`web` 的 `search`、`code`、`fetch` |
-| 任务协作 | `sub_agent`、`submit_plan`、`ask_choice`；需求会话另有 `finish_requirement`、`reply_requirement_comment`、`show_requirements` |
+| 任务协作 | `sub_agent`、`submit_plan`、`ask_choice`；需求会话另有 `finish_requirement`、`reply_requirement_comment` |
 | 技能 | `skillread`、`skilllist`、`skillsearch`、`skillrefresh` |
 | 外部工具 | `tool_search`、`call_tool` 发现并调用 MCP 工具 |
 

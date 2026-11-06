@@ -154,21 +154,4 @@ func (s *Controller) installRequirementTools() {
 		return map[string]any{"result": "REPLY_SENT: 回复已写入评论区"}, nil
 	})
 	s.registry.Add(tools.Tool{Tool: reply, Meta: tools.Metadata{Name: reply.Name(), Description: reply.Description(), ReadOnly: true, AutoApprove: true}})
-	show, _ := functiontool.New[struct{}, map[string]any](functiontool.Config{Name: "show_requirements", Description: "查看当前需求及最近用户评论，仅需求会话可用。"}, func(ctx agentctx.Context, _ struct{}) (map[string]any, error) {
-		item, err := s.requirementForTool(ctx)
-		if err != nil {
-			return nil, err
-		}
-		comments := []map[string]any{}
-		for _, row := range s.sessionMessages(ctx, item.SessionName) {
-			if row["role"] == "user" {
-				comments = append(comments, row)
-			}
-		}
-		if len(comments) > 20 {
-			comments = comments[len(comments)-20:]
-		}
-		return map[string]any{"requirement": item, "comments": comments}, nil
-	})
-	s.registry.Add(tools.Tool{Tool: show, Meta: tools.Metadata{Name: show.Name(), Description: show.Description(), ReadOnly: true, AutoApprove: true}})
 }
