@@ -194,6 +194,55 @@ func (s *Service) Resolve(hash string, requested []string) ([]Project, error) {
 	return projects, nil
 }
 
+// ConvertToDirectoryLinks 把其他项目对 hash 的长期关联改写为目录关联。
+// 项目标识在删除后不再能解析，而目录关联与「选择文件夹」一致，仍可继续生效。
+// 目录已经不可用时只清掉标识引用：两种形式都不再授予权限，不必因此阻止删除。
+func (s *Service) ConvertToDirectoryLinks(hash string) error {
+	if !validHash(hash) {
+		return fmt.Errorf("项目不存在")
+	}
+	s.files.Lock()
+	defer s.files.Unlock()
+	path, _ := repository.ReadObject(filepath.Join(s.home, "workspace", hash, "workspace.json"))["path"].(string)
+	project, dirErr := directory(path)
+	dirs, err := os.ReadDir(filepath.Join(s.home, "workspace"))
+	if err != nil {
+		return fmt.Errorf("读取项目列表失败: %w", err)
+	}
+	for _, dir := range dirs {
+		name := dir.Name()
+		if !dir.IsDir() || name == hash || name == chatWorkspace {
+			continue
+		}
+		meta, err := s.metadata(name)
+		if err != nil {
+			continue // 损坏或缺失的其他项目记录不阻塞删除，也不改写其内容。
+		}
+		hashes := Hashes(meta)
+		kept := make([]string, 0, len(hashes))
+		linked := false
+		for _, value := range hashes {
+			if value == hash {
+				linked = true
+				continue
+			}
+			kept = append(kept, value)
+		}
+		if !linked {
+			continue
+		}
+		paths := Paths(meta)
+		if dirErr == nil && !containsDirectory(paths, project.Path) {
+			paths = append(paths, project.Path)
+		}
+		meta["linkedProjectHashes"], meta["linkedProjectPaths"] = kept, paths
+		if err := repository.WriteJSON(filepath.Join(s.home, "workspace", name, "workspace.json"), meta); err != nil {
+			return fmt.Errorf("%w: %w", ErrStorage, err)
+		}
+	}
+	return nil
+}
+
 // 未提供的列表保留原值，兼容只更新项目标识的旧客户端。
 func (s *Service) Save(hash string, requestedHashes, requestedPaths []string) error {
 	if !validHash(hash) {

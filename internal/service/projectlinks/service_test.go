@@ -154,6 +154,50 @@ func TestConcurrentPartialSavesKeepProjectAndDirectoryLinks(t *testing.T) {
 	}
 }
 
+// 删除项目前把标识关联改写为目录关联，保证关联不再依赖被删除的项目记录。
+func TestDeletingProjectConvertsHashLinksToDirectories(t *testing.T) {
+	s, _, registered, directory := linksFixture(t)
+	if err := s.Save("main", []string{"registered"}, []string{directory}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ConvertToDirectoryLinks("registered"); err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := s.metadata("main")
+	if len(Hashes(meta)) != 0 || !reflect.DeepEqual(Paths(meta), []string{directory, registered}) {
+		t.Fatalf("converted links = %v", meta)
+	}
+	if meta["createdAt"] != float64(123) || !reflect.DeepEqual(meta["futureField"], map[string]any{"keep": true}) {
+		t.Fatalf("unrelated metadata changed: %v", meta)
+	}
+	// 项目记录被删后，目录关联仍生效，与「选择文件夹」一致。
+	if err := os.RemoveAll(filepath.Join(s.home, "workspace", "registered")); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := s.Resolve("main", nil)
+	if err != nil || len(projects) != 2 || projects[0].Path != directory || projects[1].Path != registered {
+		t.Fatalf("roots after deleting the project record = %v, %v", projects, err)
+	}
+}
+
+// 目录已经离线时只清掉标识引用，不因此阻止删除，也不新增无效目录。
+func TestDeletingProjectWithOfflineDirectoryClearsHashLink(t *testing.T) {
+	s, _, registered, _ := linksFixture(t)
+	if err := s.Save("main", []string{"registered"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(registered); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ConvertToDirectoryLinks("registered"); err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := s.metadata("main")
+	if len(Hashes(meta)) != 0 || len(Paths(meta)) != 0 {
+		t.Fatalf("offline conversion = %v", meta)
+	}
+}
+
 func TestCorruptMetadataIsNotOverwrittenByDirectoryLinks(t *testing.T) {
 	s, _, _, directory := linksFixture(t)
 	file := filepath.Join(s.home, "workspace", "main", "workspace.json")

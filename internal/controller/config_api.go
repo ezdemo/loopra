@@ -15,6 +15,7 @@ import (
 	"github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service"
+	"github.com/ezdemo/looprax/internal/service/projectlinks"
 )
 
 func (s *Controller) restoreMaskedKeys(patch map[string]any) {
@@ -327,6 +328,12 @@ func (s *Controller) workspaceController(w http.ResponseWriter, r *http.Request)
 		}
 		if s.hasRunningProject(hash) {
 			writeFail(w, http.StatusConflict, "项目有正在运行的会话")
+			return
+		}
+		// 先改写其他项目的长期关联再删目录：标识失效后无法再还原目录。
+		// 改写函数自己持有元数据锁，这里不能嵌套加锁。
+		if err := projectlinks.New(s.home, &s.state.files).ConvertToDirectoryLinks(hash); err != nil {
+			writeFail(w, http.StatusInternalServerError, "删除项目失败："+err.Error())
 			return
 		}
 		s.state.files.Lock()

@@ -151,9 +151,10 @@ test('the input opens an independent project picker and completion returns to th
     assert.equal(view.container.querySelector('.project-picker-dialog'), null);
     assert.equal(view.container.querySelectorAll('[role="dialog"]').length, 1);
     assert.equal(linkedRows(view).length, 1);
-    assert.match(linkedRows(view)[0].textContent, /副项目/);
+    // 已有项目现在按目录关联，行内展示目录名与路径。
+    assert.match(linkedRows(view)[0].textContent, /linked/);
     assert.equal(view.container.querySelectorAll('input[type="checkbox"]').length, 0);
-    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody(['bbb']) }]);
+    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody([], [linked.path]) }]);
     assert.ok(!view.events.includes('close'));
   } finally { await view.close(); }
 });
@@ -304,9 +305,9 @@ test('queued project selection and directory removal preserve both lists in thei
     await click(view.container.querySelector('button[aria-label="解除关联 directory-only"]'));
     assert.equal(view.calls().length, 1);
     await act(async () => { resolve(); await pending; });
-    assert.deepEqual(view.calls().map(call => call.body), [linksBody([linked.hash], [directory]), linksBody([linked.hash])]);
+    assert.deepEqual(view.calls().map(call => call.body), [linksBody([], [directory, linked.path]), linksBody([], [linked.path])]);
     assert.equal(linkedRows(view).length, 1);
-    assert.match(linkedRows(view)[0].textContent, /副项目/);
+    assert.match(linkedRows(view)[0].textContent, /linked/);
   } finally { resolve(); await view.close(); }
 });
 
@@ -333,15 +334,15 @@ test('eight saved links disable both path entry and folder selection', async () 
   } finally { await view.close(); }
 });
 
-test('persistent links distinguish same-name projects by hash and save without closing', async () => {
+test('persistent links distinguish same-name projects by directory and save without closing', async () => {
   const view = await mount(3, { workspaces: [workspace, { hash: 'bbb', name: 'same', path: 'C:\\one' }, { hash: 'ccc', name: 'same', path: 'D:\\two' }, { hash: 'chat', name: '纯聊天', kind: 'chat' }] });
   try {
     await openProjectPicker(view);
     const checkboxes = pickerCheckboxes(view);
     assert.equal(checkboxes.length, 2);
     await click(checkboxes[1]);
-    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody(['ccc']) }]);
-    assert.deepEqual(view.events, ['updated:ccc', 'notify:关联副项目已保存，将在下一轮生效', 'refresh']);
+    assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody([], ['D:\\two']) }]);
+    assert.deepEqual(view.events, ['updated::D:\\two', 'notify:关联副项目已保存，将在下一轮生效', 'refresh']);
     assert.equal(buttonIn(view.container, '保存关联'), undefined);
   } finally { await view.close(); }
 });
@@ -427,7 +428,7 @@ test('background link saves keep controls active and persist the latest selectio
     assert.equal(view.calls().length, 1);
     assert.equal(checkbox.checked, false);
     await act(async () => { resolve(); await pending; });
-    assert.deepEqual(view.calls().map(call => call.body.linkedProjectHashes), [['bbb'], ['ccc']]);
+    assert.deepEqual(view.calls().map(call => call.body.linkedProjectPaths), [['C:\\linked'], ['C:\\other']]);
     assert.equal(checkbox.disabled, false);
     assert.equal(buttonIn(view.container, '关闭').disabled, false);
     assert.equal(checkbox.checked, false);
@@ -446,7 +447,7 @@ test('closing the dialog keeps queued saves running without reopening it', async
   await click(buttonIn(view.container, '关闭'));
   await view.close();
   await act(async () => { resolve(); await pending; });
-  assert.deepEqual(view.calls().map(call => call.body.linkedProjectHashes), [['bbb'], []]);
+  assert.deepEqual(view.calls().map(call => call.body.linkedProjectPaths), [['C:\\linked'], []]);
   assert.ok(!view.events.some(event => event.startsWith('updated:')));
   assert.ok(view.events.includes('refresh'));
 });
@@ -464,7 +465,7 @@ test('a failed older save cannot roll back a more recent selection', async () =>
     const checkboxes = pickerCheckboxes(view);
     await click(checkboxes[0]); await click(checkboxes[1]);
     await act(async () => { reject(new Error('旧请求失败')); await first.catch(() => {}); });
-    assert.deepEqual(view.calls().map(call => call.body.linkedProjectHashes), [['bbb'], ['bbb', 'ccc']]);
+    assert.deepEqual(view.calls().map(call => call.body.linkedProjectPaths), [['C:\\linked'], ['C:\\linked', 'C:\\other']]);
     assert.equal(checkboxes[0].checked, true); assert.equal(checkboxes[1].checked, true);
     assert.equal(view.container.querySelector('[role="alert"]'), null);
   } finally { await view.close(); }

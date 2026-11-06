@@ -122,11 +122,11 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 | GET `/workspaces` | — | `[{hash,name,path,createdAt,lastAccessedAt,sessionCount,displayName?,linkedProjectHashes?,linkedProjectPaths?}]` |
 | PUT `/workspaces/{hash}/name` | body `{displayName}` | ProjectInfoDTO |
 | PUT `/workspaces/{hash}/links` | body `{linkedProjectHashes?:[hash...],linkedProjectPaths?:[绝对路径...]}`，至少提供一个列表；省略的列表保留，空数组清空对应列表 | 更新后的 ProjectInfoDTO；已有项目与独立目录按实际目录去重、合计最多 8 个；独立目录无需登记项目，也不出现在项目列表；无效项目、不可用目录、自身目录或纯聊天返回 400 |
-| DELETE `/workspaces/{hash}` | — | s `"项目已删除"` |
+| DELETE `/workspaces/{hash}` | — | s `"项目已删除"`；删除前先把其他项目对该标识的长期关联改写为目录关联，改写失败则不删除 |
 | PUT `/workspaces/order` | body `[hash...]` | s `"排序已保存"` |
 | GET `/workspaces/order` | — | `[s]` |
 
-项目长期关联保存在主项目元数据中，旧记录缺省为空。`linkedProjectHashes` 关联已有项目，`linkedProjectPaths` 仅保存独立目录的规范绝对路径（解析符号链接和 Windows 目录联接），不创建项目记录，也不切换当前工作区。省略列表时保留其原值，兼容只提交项目标识的旧客户端。原生 Agent 的系统提示词列出主项目、副项目及绝对路径；不拼接到用户消息。每轮执行合并两类长期关联与 `ChatRequest.linkedProjectHashes` 临时关联，按目录去重后最多 8 个，且不递归继承副项目的关联。已移除或目录不可用的长期关联不授予权限；显式临时关联无效时返回错误。修改从下一轮生效，已开始的轮次沿用其目录快照。外部 ACP 引擎（包括 Codex）通过 `additionalDirectories` 接收相同的目录列表；会话预热、读取或修改配置与发送均解析默认关联项目和隔离分支目录，避免首次发送无故重建连接。临时关联仍在发送时合并，列表变化后重新建立或恢复会话。
+项目长期关联保存在主项目元数据中，旧记录缺省为空。`linkedProjectPaths` 是关联的规范形式，保存独立目录的绝对路径（解析符号链接和 Windows 目录联接），不创建项目记录，也不切换当前工作区；工作台里「选择已有项目」「选择文件夹」和输入路径都只写入该列表。`linkedProjectHashes` 保留为旧客户端与既有数据的兼容入口，解析时仍按目录生效；删除某个项目时，服务端先把其它项目对它的标识关联改写为目录关联（按目录去重并保留未知字段），因此项目列表删除不会使关联失效。省略列表时保留其原值，兼容只提交项目标识的旧客户端。原生 Agent 的系统提示词列出主项目、副项目及绝对路径；不拼接到用户消息。每轮执行合并两类长期关联与 `ChatRequest.linkedProjectHashes` 临时关联，按目录去重后最多 8 个，且不递归继承副项目的关联。不可用的长期关联不授予权限（目录关联的元数据保留供用户解除）；显式临时关联无效时返回错误。修改从下一轮生效，已开始的轮次沿用其目录快照。外部 ACP 引擎（包括 Codex）通过 `additionalDirectories` 接收相同的目录列表；会话预热、读取或修改配置与发送均解析默认关联项目和隔离分支目录，避免首次发送无故重建连接。临时关联仍在发送时合并，列表变化后重新建立或恢复会话。
 
 开启 `toolsRestrictWorkspace` 时，`write` / `edit` 接受主项目内相对路径，以及主项目或有效副项目内的绝对路径，仍检查符号链接越界。审批策略将这些目录视为工作区，`blockedPaths` 在各工作区继续生效。只读工具和 shell `cwd` 保持原有范围；关联不额外授予副项目的记忆、技能或插件配置。
 | GET `/loopra-md` | — | s |

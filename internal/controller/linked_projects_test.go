@@ -237,10 +237,47 @@ func TestLinkedWorkspaceWritePermissionAndRevocation(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(roots, []string{linkedPath}) {
 		t.Fatalf("transitive roots = %v %v", roots, err)
 	}
-	// 移除副项目记录后，缓存的主项目也不得继续获得该目录权限。
+	// 删除副项目的项目记录不改写权限：标识关联会改写为目录关联，
+	// 与「选择文件夹」一致，避免关联在项目列表删除后失效。
 	call(t, ts, http.MethodDelete, "/api/workspaces/"+linked, key, nil)
 	roots, err = view.resolveLinkedProjects(&chatRequest{})
-	if err != nil || len(roots) != 0 {
-		t.Fatalf("deleted roots = %v %v", roots, err)
+	if err != nil || !reflect.DeepEqual(roots, []string{linkedPath}) {
+		t.Fatalf("deleted project lost its directory link = %v %v", roots, err)
+	}
+	meta := repository.ReadObject(filepath.Join(home, "workspace", main, "workspace.json"))
+	if len(projectlinks.Hashes(meta)) != 0 || !reflect.DeepEqual(projectlinks.Paths(meta), []string{linkedPath}) {
+		t.Fatalf("hash link was not converted to a directory link: %v", meta)
+	}
+}
+
+// 删除项目时多个项目同时关联同一目录，转换后不得重复登记。
+func TestDeletingProjectConvertsLinksFromMultipleOwners(t *testing.T) {
+	ts, key, s, home := parityServer(t, "")
+	main := s.agent.App()
+	linkedPath := filepath.Join(home, "linked")
+	linked := addProject(t, ts, key, linkedPath)
+	other := addProject(t, ts, key, filepath.Join(home, "other"))
+	for _, owner := range []string{main, other} {
+		if code, env := call(t, ts, http.MethodPut, "/api/workspaces/"+owner+"/links", key,
+			map[string]any{"linkedProjectHashes": []string{linked}, "linkedProjectPaths": []string{}}); code != http.StatusOK {
+			t.Fatalf("save links for %s = %d %v", owner, code, env)
+		}
+	}
+	if code, env := call(t, ts, http.MethodDelete, "/api/workspaces/"+linked, key, nil); code != http.StatusOK {
+		t.Fatalf("delete = %d %v", code, env)
+	}
+	for _, owner := range []string{main, other} {
+		meta := repository.ReadObject(filepath.Join(home, "workspace", owner, "workspace.json"))
+		if len(projectlinks.Hashes(meta)) != 0 || !reflect.DeepEqual(projectlinks.Paths(meta), []string{linkedPath}) {
+			t.Fatalf("owner %s links = %v", owner, meta)
+		}
+		roots, err := s.projectRuntime(owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := roots.resolveLinkedProjects(&chatRequest{})
+		if err != nil || !reflect.DeepEqual(resolved, []string{linkedPath}) {
+			t.Fatalf("owner %s roots = %v %v", owner, resolved, err)
+		}
 	}
 }
