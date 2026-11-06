@@ -101,6 +101,7 @@ func (s *Controller) RegisterRoutes(server *ghttp.Server) {
 	s.registerFilesRoutes(api)
 	s.registerExtensionsRoutes(api)
 	s.registerTasksRoutes(api)
+	s.registerBotRoutes(api)
 
 	health := func(r *ghttp.Request) {
 		withResponseWriter(r, func(w http.ResponseWriter) {

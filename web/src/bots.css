@@ -1,0 +1,39 @@
+.bots-inner { max-width: 64rem; }
+.bots-list { display: flex; flex-direction: column; }
+.bot-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 1rem; padding: 1.125rem .25rem; border-bottom: 1px solid var(--line); }
+.bot-identity { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+.bot-identity > div { min-width: 0; }
+.bot-icon { display: grid; place-items: center; flex: 0 0 2.5rem; height: 2.5rem; border: 1px solid var(--line); border-radius: var(--radius-lg); color: var(--secondary); }
+.bot-identity h3 { overflow: hidden; margin: 0 0 .25rem; color: var(--text); font-size: .875rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.bot-identity span, .bot-project { color: var(--secondary); font-size: .75rem; }
+.bot-identity .bot-status-connected { color: var(--success); }
+.bot-identity .bot-status-error { color: var(--danger); }
+.bot-project { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.bot-project svg { flex: none; }
+.bot-project > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bot-actions { display: flex; align-items: center; gap: .375rem; }
+.bot-error { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: .75rem; }
+.bots-empty { display: flex; flex-direction: column; align-items: center; padding: 5rem 1rem; color: var(--secondary); text-align: center; }
+.bots-empty h3 { margin: 1rem 0 .5rem; color: var(--text); font-size: 1rem; font-weight: 500; }
+.bots-empty p { margin: 0; font-size: .8125rem; }
+.bot-registration-body { align-items: center; min-height: 18rem; justify-content: center; text-align: center; gap: 1rem; }
+.bot-registration-body p { margin: 0; }
+.bot-qr { display: block; max-width: 100%; height: auto; width: 18rem; background: white; border-radius: .5rem; }
+.bot-qr-expiry { color: var(--secondary); font-size: .75rem; }
+.bot-manage-dialog { max-width: 34rem; }
+.bot-manage-body { gap: 1.25rem; }
+.bot-setting-line, .bot-project-setting { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-size: .8125rem; }
+.bot-project-setting > div { display: flex; flex-direction: column; min-width: 0; gap: .375rem; }
+.bot-project-setting span, .bot-access-hint, .bot-chat-list > p { color: var(--secondary); font-size: .75rem; }
+.bot-project-setting strong { overflow-wrap: anywhere; font-weight: 500; }
+.bot-manage-body .settings-accordion-content { display: flex; flex-direction: column; gap: 1rem; }
+.bot-access-hint { margin: 0; line-height: 1.6; }
+.bot-chat-list { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; }
+.bot-chat-list h3 { margin: 0; font-size: .8125rem; font-weight: 500; }
+.bot-chat-list button { display: flex; justify-content: space-between; min-width: 0; width: 100%; }
+.bot-chat-id { flex: 1; overflow: hidden; color: var(--secondary); text-overflow: ellipsis; }
+@media (max-width: 640px) {
+  .bot-row { grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; }
+  .bot-project { grid-row: 2; grid-column: 1 / -1; padding-left: 3.25rem; }
+  .bot-actions { grid-column: 2; grid-row: 1; }
+}

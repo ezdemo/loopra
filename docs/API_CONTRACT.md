@@ -229,6 +229,27 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
   - `/api/files/image`：`path` 必填，`workspaceHash` 与可选 `sessionName` 确定文件所属环境。相对路径基于会话实际工作目录（含隔离工作树），缺失工作树不回退主项目；省略会话时保持项目根目录行为。绝对路径沿用只读图片访问语义，可读取临时目录图片。只接受普通文件、最多 5 MiB，以及 PNG/JPEG/GIF/WebP/BMP/AVIF 内容类型；拒绝 SVG。响应为图片二进制，保留鉴权、GET/HEAD、`nosniff` 与 `no-store`。
 - PromptPresets：GET/PUT `/api/prompt-presets`（`[{id,label≤24,text≤500}]`，id 空自动 UUID）。
 
+### 3.18 Bot（/api/bots）
+
+全局资源，沿用访问密钥鉴权与响应包装，不受当前工作区选择影响：
+
+| 方法与路径 | 请求 / 响应 |
+| --- | --- |
+| GET / HEAD `/bots` | `[{id,name,platform:"feishu",appId,ownerId,workspaceHash,enabled,allowedUserIds:[],allowedChatIds:[],chats:[],state,error?,createdAt}]`，不返回 App Secret |
+| PUT `/bots/{id}` | 全量可编辑配置 `{name,enabled,allowedUserIds:[],allowedChatIds:[]}`，返回更新后的 Bot |
+| DELETE `/bots/{id}` | 停止连接、取消所属执行与未完成授权，保留项目和历史 |
+| POST `/bots/registrations` | `{name?,botId?}`；`botId` 表示重新授权已有应用，省略时创建；返回授权状态 |
+| GET / HEAD `/bots/registrations/{id}` | `{id,name,state,url?,qrCode?,expiresAt?,botId?,error?}`；二维码为本地生成的 PNG data URL，响应 `Cache-Control:no-store` |
+| DELETE `/bots/registrations/{id}` | 取消授权轮询，不创建 Bot |
+
+授权状态为 `starting / waiting / completed / failed / cancelled`；连接状态为 `connecting / connected / reconnecting / offline / error / disabled`。二维码过期、拒绝或网络错误可以重新获取；重新授权须返回同一 App ID，保留项目及聊天绑定。新授权成功后才创建默认项目，不切换当前项目。
+
+资源不存在返回 404 / `bot_not_found`，服务关闭返回 503 / `bot_unavailable`，配置保存失败返回 500 / `bot_storage_failed`；保存失败保留旧配置和连接。
+
+`chats` 项为 `{chatId,sessionName,chatType,updatedAt}`。Bot 只有一个默认项目，多代码库访问复用该项目的 `linkedProjectHashes / linkedProjectPaths`，不按飞书聊天切换项目。单聊、群聊分别映射会话，工作台与飞书共用历史、执行互斥、取消及工具审批。首版使用 Native，回复通过 `post` 富文本的 `md` 节点由飞书原生渲染 Markdown，长回复分段时保留代码围栏及语言标记；附件不会交给模型假定已读取。默认仅 owner 可用，其他用户需授权；群聊还须允许该群并明确 @Bot，忽略 @all。
+
+消息先持久化绑定及最近 512 条消息 ID，再异步执行，避免模型耗时阻塞事件确认。同一聊天执行中不接受第二轮，返回忙碌提示；保存失败不执行，重启后保留去重信息。已接收的失败任务不会因同一消息重复投递自动重跑，需用户再次发送。单轮最长 30 分钟，工作台审批计入该时长。
+
 ## 4. 静态资源与 /config.json
 
 - 前端产物在 classpath `/static/`（GET/HEAD 免鉴权由 §2 规则判定）。

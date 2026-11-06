@@ -22,7 +22,7 @@ function environment() {
     sessions: state.sessions, narrow: false, generatingId: null, server: 'http://loopra.test', runs: new SessionRuns(), sessionRunKey,
     attachPendingChoices, collectPendingChoices,
     historyRequest: { current: undefined }, userScrolledAway: { current: true }, lastScrollTop: { current: 50 }, emptyContext: {},
-    selectMainTab() {}, setWorkspace() {}, setMenu() {}, setDraft() {}, setComposerContext() {}, setShowScrollBtn() {}, setLiveSpeed() {}, setSkillsOpen() {}, setSchedulesOpen() {}, setPluginPage() {},
+    selectMainTab() {}, setWorkspace() {}, setMenu() {}, setDraft() {}, setComposerContext() {}, setShowScrollBtn() {}, setLiveSpeed() {}, setSkillsOpen() {}, setSchedulesOpen() {}, setBotsOpen() {}, setPluginPage() {},
     setActiveId: value => { state.active = value; },
     setHistoryState: value => { state.history = value; },
     setSessions: update => { state.sessions = update(state.sessions); },

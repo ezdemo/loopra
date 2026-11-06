@@ -11,6 +11,7 @@ import (
 
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
 	"github.com/ezdemo/looprax/internal/service/hitl"
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 // appendUserMessage 向会话写入一个用户轮次，且不运行
@@ -56,6 +57,8 @@ func (s *Controller) runTurnQuiet(ctx context.Context, sessionName, message stri
 	s.state.mu.Unlock()
 	defer s.closeTurnTools()
 	ctx = context.WithValue(ctx, sessionKey{}, sessionName)
+	ctx = tools.WithSessionOwner(ctx, tools.SessionOwner{Workspace: s.agent.App(), Session: sessionName})
+	ctx = tools.WithLinkedProjects(ctx, s.linkedProjectRoots)
 	if gitops.IsRepo(s.workspaceRoot()) {
 		msgID := newMsgID()
 		if snap, err := gitops.Checkpoint(s.workspaceRoot(), msgID); err == nil {
@@ -68,6 +71,7 @@ func (s *Controller) runTurnQuiet(ctx context.Context, sessionName, message stri
 	if err != nil {
 		return "", err
 	}
+	s.ensureSessionTitle(ctx, sessionName, message)
 	content := &genai.Content{
 		Role: "user", Parts: []*genai.Part{{Text: message}},
 	}

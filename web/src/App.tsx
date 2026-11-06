@@ -22,6 +22,7 @@ import Settings, { defaultPreferences } from './components/Settings';
 import SkillsAndPluginsPage from './components/SkillsAndPluginsPage';
 import { capabilitiesTabForSection, type CapabilitiesTab } from './capabilities-navigation';
 import SchedulesPage from './components/SchedulesPage';
+import BotsPage from './components/BotsPage';
 import { PluginFrame } from './components/PluginFrame';
 import type { PluginIconRef } from './components/plugin-icons';
 import { CoreServiceUpdateDialog, useCoreServiceUpdate } from './components/CoreServiceUpdate';
@@ -137,6 +138,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [capabilitiesTab, setCapabilitiesTab] = useState<CapabilitiesTab>('plugins');
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const [botsOpen, setBotsOpen] = useState(false);
   const [pluginPage, setPluginPage] = useState('');
   const [pluginNav, setPluginNav] = useState<{ id: string; title: string; icon?: PluginIconRef }[]>([]);
   const [pluginPanels, setPluginPanels] = useState<{ id: string; title: string; icon?: PluginIconRef }[]>([]);
@@ -252,7 +254,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const isHome = !session;
   const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
   const [panelOpen, setChanges, changesTab, setChangesTab] = useSessionPanel(server, session?.id, workspace);
-  const surfaceOpen = skillsOpen || schedulesOpen || !!pluginPage;
+  const surfaceOpen = skillsOpen || schedulesOpen || botsOpen || !!pluginPage;
   const changes = panelOpen && !surfaceOpen;
   const changesMounted = usePresence(changes);
   const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
@@ -654,6 +656,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     finally { setAgentSelectionBusy(false); }
   }
   function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') {
+    setBotsOpen(false);
     setSkillsOpen(false);
     setSchedulesOpen(false);
     setPluginPage('');
@@ -727,6 +730,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
   function clearChat() { if (generatingId) { notify('生成中无法清空，请先停止生成'); return; } newSession(workspace || workspaces[0]?.hash || ''); notify('已新建空白会话'); }
   async function selectSession(id: string, provided?: Session) {
+    setBotsOpen(false);
     setSkillsOpen(false);
     setSchedulesOpen(false);
     setPluginPage('');
@@ -782,7 +786,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   function openSettings(tab = '通用') {
     const capabilities = capabilitiesTabForSection(tab);
     if (capabilities) {
-      setCapabilitiesTab(capabilities); setSkillsOpen(true); setSchedulesOpen(false); setPluginPage(''); setSettingsOpen(false); setMenu(null);
+      setCapabilitiesTab(capabilities); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setSettingsOpen(false); setMenu(null);
       if (narrow) setSidebar(false);
       return;
     }
@@ -1477,7 +1481,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !skillsOpen && !schedulesOpen && !pluginPage && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} desktopPet={nativePet.native} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !surfaceOpen && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} desktopPet={nativePet.native} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={composerHistory}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
@@ -1504,9 +1508,10 @@ export default function App({ startupPending = false, initialServer }: { startup
       {sidebarMounted && <Sidebar api={api} open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={sessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
         profile={profile}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
-        skillsOpen={skillsOpen} onSkills={() => { setCapabilitiesTab('plugins'); setSkillsOpen(true); setSchedulesOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
-        schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
-        plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
+        skillsOpen={skillsOpen} onSkills={() => { setCapabilitiesTab('plugins'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
+        schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
+        botsOpen={botsOpen} onBots={() => { setBotsOpen(true); setSkillsOpen(false); setSchedulesOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
+        plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onManageProjects={() => { setMenu(null); setProjectsOpen(true); if (narrow) setSidebar(false); }}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
@@ -1527,6 +1532,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
         {skillsOpen && <SkillsAndPluginsPage api={api} notify={notify} tab={capabilitiesTab} onTabChange={setCapabilitiesTab} context={pluginContext} onRefresh={backend.refreshCapabilities} onPluginsChanged={() => { setPluginNavRevision(value => value + 1); void backend.refreshCapabilities().catch(cause => notify(`刷新能力失败：${cause instanceof Error ? cause.message : String(cause)}`)); }} onBack={() => setSkillsOpen(false)} />}
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
+        {botsOpen && <BotsPage key={server} api={api} workspaces={projectWorkspaces} english={preferences.language === 'English'} onChanged={backend.refreshWorkspaces} onManageProject={setProjectDialog} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
         {pluginPage && <section className="plugin-app-page" aria-label={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage}><PluginFrame api={api} id={pluginPage} name={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage} slot="sidebar" className="plugin-app-frame" context={pluginContext} /></section>}
         <div className="app-chat-workspace" hidden={surfaceOpen}>
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}

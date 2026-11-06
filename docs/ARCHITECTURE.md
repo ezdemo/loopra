@@ -41,6 +41,7 @@ internal/
     subagent/                   子智能体执行
     requirement/                需求存储、校验与执行调度
     schedule/                   定时任务存储、并发槽，以及 Cron 解析
+    bot/                        机器人授权、连接生命周期、访问控制与聊天会话绑定
     git/                        提交、暂存、差异与作者配置
     session/                    会话日志、审计镜像与 .meta 文件
     acp/                        外部 Agent 协议客户端，以及按会话复用的进程与轮次
@@ -48,6 +49,7 @@ internal/
   repository/
     config.go                   config.json 读写
     jsonfile.go                 JSON 读取和原子文件替换
+    bots.go                     本地 Bot 凭证与会话绑定持久化
   model/
     config/                     持久化配置模型、默认值、兼容序列化
     file.go                     文件条目
@@ -57,6 +59,7 @@ internal/
     logging/                    glog 之上的带标签日志
     fsutil/                     路径解析、目录边界和符号链接检查
     gitops/                     Git 命令、工作树、快照
+    feishu/                     官方 Go SDK 扫码授权、WebSocket 消息与回复适配
 adk/
   model/                        模型协议适配与测试模型
   session/jsonl/                ADK 会话持久化适配器
@@ -70,6 +73,8 @@ Controller 按业务文件组织，共享进程级的会话和任务上下文。
 `ProjectRuntime` 里只保留自己的智能体、工具和权限；请求进来时按工作区取出，
 再套到这一次处理上。聊天、需求执行、MCP 等模块的 API 编排仍与该上下文协作；
 可独立复用的操作、规则和持久化能力放在 Service、Repository 和基础设施中。
+
+Bot Service 在组合根显式装配，通过生命周期入口获得 Controller 提供的项目准备与轮次执行端口。每个 Bot 独立持有连接和取消上下文；飞书消息在持久化去重和绑定后异步执行，不占用事件确认窗口。Bot 不拥有独立的 Agent 执行栈，Native 轮次复用工作区运行时、关联项目、执行互斥、审批与 JSONL 历史。关闭服务会取消授权、长连接和执行并等待退出；旧连接回调不能覆盖新连接状态。
 
 ## 与 Java 开发方式的对应
 

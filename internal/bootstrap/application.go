@@ -18,11 +18,13 @@ import (
 	"github.com/ezdemo/looprax/internal/config"
 	"github.com/ezdemo/looprax/internal/controller"
 	"github.com/ezdemo/looprax/internal/frontend"
+	"github.com/ezdemo/looprax/internal/infrastructure/feishu"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/petdesk"
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service"
 	"github.com/ezdemo/looprax/internal/service/agent"
+	"github.com/ezdemo/looprax/internal/service/bot"
 	"github.com/ezdemo/looprax/internal/service/memory"
 	"github.com/ezdemo/looprax/internal/service/tools"
 	"github.com/ezdemo/looprax/internal/spring"
@@ -44,6 +46,7 @@ func Run(ctx context.Context, options config.Options) error {
 			service.NewFileService,
 			newToolRegistry,
 			newAgent,
+			newBots,
 			newBackend,    // @RestController 的运行时宿主
 			newRouter,     // Spring MVC 的 DispatcherServlet 装配
 			newHTTPServer, // ApplicationRunner：阻塞到进程退出
@@ -98,7 +101,11 @@ type backend struct {
 	closeErr  error
 }
 
-func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registry, configuration *service.ConfigService, files *service.FileService, memories *memory.Service) (*backend, error) {
+func newBots(settings *config.Server) (*bot.Service, error) {
+	return bot.New(repository.NewBotRepository(settings.Home), feishu.Provider{})
+}
+
+func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registry, configuration *service.ConfigService, files *service.FileService, memories *memory.Service, bots *bot.Service) (*backend, error) {
 	dir, bundle, label := frontend.Resolve(settings.StaticDir, settings.Home, frontend.DistCandidates(), web.Bundle())
 	settings.StaticDir = dir
 	settings.StaticLabel = label
@@ -113,6 +120,7 @@ func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registr
 		Home: settings.Home, AccessKey: settings.AccessKey,
 		StaticDir: dir, StaticFS: bundle, PetsDir: settings.PetsDir,
 		Registry: registry, Configuration: configuration, Files: files, Memories: memories,
+		Bots:      bots,
 		OnUITheme: settings.OnUITheme, PetDesktop: desk, OnDesktopQuit: settings.OnDesktopQuit,
 	})
 	if err != nil {

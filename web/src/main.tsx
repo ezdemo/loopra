@@ -30,6 +30,7 @@ import './session-records.css';
 import './project-manager.css';
 import './focus.css';
 import './loading.css';
+import './bots.css';
 
 applyDocumentTheme(bootTheme());
 const removeFocusAppearance = installFocusAppearance();

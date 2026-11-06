@@ -163,6 +163,12 @@ func (s *Controller) tunnelController(w http.ResponseWriter, r *http.Request, ac
 }
 
 func (s *Controller) Close() error {
+	var errs []error
+	if s.bots != nil {
+		if err := s.bots.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	s.closeShellTerminals()
 	if s.desktopUpdater != nil {
 		s.desktopUpdater.cancel()
@@ -173,7 +179,6 @@ func (s *Controller) Close() error {
 	t := s.state.tunnel
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	var errs []error
 	if t.cmd != nil {
 		// 进程可能已自行退出；os.ErrProcessDone 不是停机失败。
 		if err := t.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {

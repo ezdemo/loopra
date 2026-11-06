@@ -22,7 +22,7 @@ test('skills and plugins open in the main area from one sidebar entry', async ()
   assert.match(sidebar, /onClick=\{props.onSkills\}/);
   assert.ok(sidebar.indexOf('onClick={props.onSearch}') < sidebar.indexOf('onClick={props.onSkills}'));
   assert.match(app, /skillsOpen && <SkillsAndPluginsPage/);
-  assert.match(app, /const surfaceOpen = skillsOpen \|\| schedulesOpen \|\| !!pluginPage/);
+  assert.match(app, /const surfaceOpen = skillsOpen \|\| schedulesOpen \|\| botsOpen \|\| !!pluginPage/);
   assert.match(app, /className="app-chat-workspace" hidden=\{surfaceOpen\}/);
 });
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
+import { Bot, CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
@@ -49,6 +49,8 @@ export type SidebarProps = {
   skillsOpen?: boolean;
   onSchedules: () => void;
   schedulesOpen?: boolean;
+  onBots?: () => void;
+  botsOpen?: boolean;
   api: LoopraClient;
   plugins?: { id: string; title: string; icon?: PluginIconRef }[];
   pluginPage?: string;
@@ -166,6 +168,7 @@ export default function Sidebar(props: SidebarProps) {
       <button onClick={props.onSearch}><SearchIcon />{english ? 'Search' : '搜索'}</button>
       <button className={props.skillsOpen ? 'selected' : undefined} aria-current={props.skillsOpen ? 'page' : undefined} onClick={props.onSkills}><Sparkles />{english ? 'Skills & Plugins' : '技能与插件'}</button>
       <button className={props.schedulesOpen ? 'selected' : undefined} aria-current={props.schedulesOpen ? 'page' : undefined} onClick={props.onSchedules}><CalendarClock />{english ? 'Scheduled tasks' : '定时任务'}</button>
+      <button className={props.botsOpen ? 'selected' : undefined} aria-current={props.botsOpen ? 'page' : undefined} onClick={props.onBots}><Bot />Bot</button>
       {props.plugins?.map(item => {
         const selected = props.pluginPage === item.id;
         const glyph = <PluginGlyph api={props.api} pluginId={item.id} icon={item.icon} className="sidebar-plugin-icon" size="1rem" />;
