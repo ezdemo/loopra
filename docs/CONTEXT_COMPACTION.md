@@ -27,6 +27,12 @@ The trigger is `thresholdRatio` times the selected model's `contextTokens`, capp
 
 Set `toolResultPrune.thresholdChars` to a negative number to disable automatic tool-result projection. The older `retainRatio`, `compactionRetries`, and `keepTailChars` settings remain readable for compatibility; they do not configure ADK's retained event count or add automatic summary retries.
 
+## Manual Compaction
+
+Send `/compact` as a standalone message to the Native Agent to compact history immediately, without waiting for the token threshold. It uses the same summarizer, `compact` plugin hook, retained event count, tool-call boundaries, and append-only checkpoints as automatic compaction. The command and its confirmation are persisted through the normal session pipeline; `/compact` does not start a conversational model call or run tools.
+
+If there is no safe history window beyond the retained tail, the command reports that there is nothing to compact. When context management is disabled, it reports that compaction is disabled. Summary or persistence failures are returned as errors instead of falling through to an ordinary model response. External ACP agents continue to receive their own slash commands unchanged.
+
 ## Tool Results
 
 Oversized top-level `result`, `text`, `stdout`, `stderr`, `output`, and string `content` fields are shortened by Unicode character count. Other fields, including errors, exit codes, and artifact references, remain intact. The original response and its chosen projection are persisted together in the tool event's state delta.

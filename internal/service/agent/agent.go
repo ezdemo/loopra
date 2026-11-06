@@ -41,6 +41,7 @@ type Agent struct {
 	user        string
 	options     Options
 	instruction string
+	context     *ContextRuntime
 }
 
 // Config 返回该智能体组装时使用的配置。
@@ -189,7 +190,7 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{Root: rootAgent, Runner: run, Model: opts.Model, Sessions: sessions, cfg: cfg, app: app, user: user, options: original, instruction: instruction}, nil
+	return &Agent{Root: rootAgent, Runner: run, Model: opts.Model, Sessions: sessions, cfg: cfg, app: app, user: user, options: original, instruction: instruction, context: contextRuntime}, nil
 }
 
 func (a *Agent) Instruction() string { return a.instruction }
@@ -246,6 +247,9 @@ func (a *Agent) Session(ctx context.Context, name string) (session.Session, erro
 
 // Run 驱动一个用户轮次，并流式输出 ADK 事件。
 func (a *Agent) Run(ctx context.Context, sess session.Session, msg *genai.Content) iter.Seq2[*session.Event, error] {
+	if isCompactCommand(msg) {
+		return a.runCompact(WithContextTurn(ctx), sess, msg)
+	}
 	ctx = tools.WithFileChanges(ctx, nil)
 	imageConfig := a.cfg.Clone()
 	imageConfig.Model = a.Model.Name()
