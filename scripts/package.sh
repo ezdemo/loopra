@@ -3,7 +3,7 @@
 # Target list: scripts/package-matrix.txt (shared with package.ps1).
 #
 # Desktop builds are windows, linux, and darwin on amd64 and arm64.
-# Web also builds windows/386, linux/armv7 (GOARM=7), and linux/s390x.
+# Web also builds linux/s390x; 32-bit targets are temporarily paused.
 # windows/amd64 also gets the short names loopra.exe and loopra-desktop.exe.
 # darwin desktop builds are Loopra .app bundles, plus a .zip that keeps
 # the executable bit when the archive is copied from Windows.

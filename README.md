@@ -617,6 +617,8 @@ go build -tags webdist -o loopra-desktop ./cmd/looprax-desktop
 
 多平台打包脚本会先构建前端，再按 `scripts/package-matrix.txt` 写出 `bin/`。桌面端覆盖 Windows、Linux、macOS 的 amd64 与 arm64；macOS 应用分别放在 `bin/darwin-amd64/Loopra.app` 和 `bin/darwin-arm64/Loopra.app`，发布 zip 解压后也统一为 `Loopra.app`。
 
+Web 服务端覆盖上述六个目标及 Linux s390x。受飞书 SDK 的 [32 位编译问题](https://github.com/larksuite/oapi-sdk-go/issues/254)影响，暂时停用 Windows 386 和 Linux ARMv7 打包，待上游修复后恢复。
+
 品牌图标以 `web/public/loopra-logo.svg` 为动态版，`web/public/favicon.svg` 为静态版；会话与 Loopra Native 选择器复用静态版。更新 Logo 时同步导出 `web/public/icon-512.png`、`web/public/favicon.png` 和 `internal/appicon/icon-512.png`，并更新 `intro/` 的 Logo。Windows 程序、安装和卸载图标，以及 macOS 应用图标由打包脚本使用 `web/public/icon-512.png` 生成；桌面窗口和 Linux 应用菜单使用嵌入的同一份 PNG。系统程序图标的变更需要重新打包后生效。
 
 Windows 默认使用 `loopra-desktop-windows-<arch>-setup.exe` 安装包，按当前用户安装到 `%LOCALAPPDATA%\Programs\Loopra`，提供开始菜单入口、可选桌面快捷方式和系统卸载项。原有不带 `-setup` 的 EXE 是便携版。安装版自动更新会下载并运行新版安装包；便携版更新继续替换程序文件。卸载保留配置、会话和工作区数据。

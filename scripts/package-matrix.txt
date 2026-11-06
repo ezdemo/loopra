@@ -3,17 +3,18 @@
 #
 # desktop: mygo only has a window backend for amd64 and arm64.
 # darwin desktop outputs are .app bundles, plus a .zip with the executable bit.
-# web: those six, plus the extra targets that ship a bundled ripgrep.
+# web: those six, plus linux/s390x, all with a bundled ripgrep.
+# 32-bit targets are paused due to larksuite/oapi-sdk-go#254.
 # linux/arm is GOARM=7 and is written as loopra-linux-armv7.
 
 web windows amd64
 web windows arm64
-web windows 386
+# web windows 386
 web darwin amd64
 web darwin arm64
 web linux amd64
 web linux arm64
-web linux arm 7
+# web linux arm 7
 web linux s390x
 desktop windows amd64
 desktop windows arm64

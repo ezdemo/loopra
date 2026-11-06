@@ -7,7 +7,7 @@
   目标清单是同目录的 package-matrix.txt。
 
   桌面端只有 windows、linux、darwin 的 amd64 和 arm64。
-  Web 另外包含 windows/386、linux/armv7（GOARM=7）和 linux/s390x。
+  Web 另外包含 linux/s390x；32 位目标暂时停用。
 
   windows/amd64 会额外做硬链接，沿用 bin 里原来的文件名：
     loopra.exe
