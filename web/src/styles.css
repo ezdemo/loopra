@@ -53,7 +53,11 @@ button:disabled { cursor: default; }
 
 svg { flex-shrink: 0; }
 
-::selection { background: #2083ff30; }
+::selection {
+  background: var(--selection-background);
+  color: var(--selection-foreground);
+  text-shadow: none;
+}
 
 ::-webkit-scrollbar { width: 0.375rem; height: 0.375rem; }
 
