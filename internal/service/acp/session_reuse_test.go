@@ -3,7 +3,9 @@ package acp
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/ezdemo/looprax/internal/service/hitl"
 )
@@ -45,13 +47,13 @@ func (h *reuseHost) Permissions() *hitl.Registry                     { return ni
 func (h *reuseHost) Elicitations() *hitl.ElicitationRegistry         { return nil }
 func (h *reuseHost) EnsureTitle(context.Context, string, string)     {}
 
-func stubCodex(t *testing.T) {
+func stubReuseProvider(t *testing.T, agentID string) {
 	t.Helper()
 	previous := Providers
 	t.Cleanup(func() { Providers = previous })
 	Providers = []Provider{{
-		ID:   "codex",
-		Name: "Codex",
+		ID:   agentID,
+		Name: agentID,
 		Prepare: func(string) (Launch, error) {
 			return Launch{}, errors.New("unexpected process start")
 		},
@@ -59,7 +61,7 @@ func stubCodex(t *testing.T) {
 }
 
 func TestAcquireInvalidatesSessionWhenLinkedDirsChange(t *testing.T) {
-	stubCodex(t)
+	stubReuseProvider(t, "codex")
 	for _, linked := range [][]string{{`C:\linked`}, nil} {
 		host := &reuseHost{app: "app", workspace: `C:\work`, linked: linked}
 		manager := NewManager()
@@ -104,19 +106,19 @@ func TestOpenSessionUsesConnLocalOptions(t *testing.T) {
 }
 
 func TestAcquireReusesIdleProcessUntilLastSessionDrops(t *testing.T) {
-	stubCodex(t)
+	stubReuseProvider(t, "claude-code")
 	host := &reuseHost{app: "app", workspace: `C:\work`}
 	manager := NewManager()
 	proc := &agentProcess{}
 	client := &Client{proc: proc, children: map[string]bool{}}
-	rtKey := runtimeKey(host, "codex")
+	rtKey := runtimeKey(host, "claude-code")
 	manager.runtimes[rtKey] = &acpRuntime{client: client, refs: 1}
 	manager.conns[manager.key(host, "one")] = &Conn{
-		name: "one", agentID: "codex", cwd: host.Workspace(),
+		name: "one", agentID: "claude-code", cwd: host.Workspace(),
 		client: client, runtimeKey: rtKey, acpSession: "ses-1", live: true,
 	}
 
-	conn, err := manager.Acquire(context.Background(), host, "two", "codex", "test")
+	conn, err := manager.Acquire(context.Background(), host, "two", "claude-code", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,19 +145,19 @@ func TestAcquireReusesIdleProcessUntilLastSessionDrops(t *testing.T) {
 }
 
 func TestAcquireDoesNotShareABusyProcess(t *testing.T) {
-	stubCodex(t)
+	stubReuseProvider(t, "claude-code")
 	host := &reuseHost{app: "app", workspace: `C:\work`}
 	manager := NewManager()
 	proc := &agentProcess{}
 	client := &Client{proc: proc, children: map[string]bool{}}
-	rtKey := runtimeKey(host, "codex")
+	rtKey := runtimeKey(host, "claude-code")
 	manager.runtimes[rtKey] = &acpRuntime{client: client, refs: 1}
 	manager.conns[manager.key(host, "one")] = &Conn{
-		name: "one", agentID: "codex", cwd: host.Workspace(),
+		name: "one", agentID: "claude-code", cwd: host.Workspace(),
 		client: client, runtimeKey: rtKey, acpSession: "ses-1", live: true, running: true,
 	}
 
-	_, err := manager.Acquire(context.Background(), host, "two", "codex", "test")
+	_, err := manager.Acquire(context.Background(), host, "two", "claude-code", "test")
 	if err == nil || err.Error() != "unexpected process start" {
 		t.Fatalf("err = %v", err)
 	}
@@ -168,23 +170,23 @@ func TestAcquireDoesNotShareABusyProcess(t *testing.T) {
 }
 
 func TestAcquireDetachesSessionBlockedByAnotherTurn(t *testing.T) {
-	stubCodex(t)
+	stubReuseProvider(t, "claude-code")
 	host := &reuseHost{app: "app", workspace: `C:\work`}
 	manager := NewManager()
 	proc := &agentProcess{}
 	client := &Client{proc: proc, children: map[string]bool{}}
-	rtKey := runtimeKey(host, "codex")
+	rtKey := runtimeKey(host, "claude-code")
 	manager.runtimes[rtKey] = &acpRuntime{client: client, refs: 2}
 	manager.conns[manager.key(host, "one")] = &Conn{
-		name: "one", agentID: "codex", cwd: host.Workspace(),
+		name: "one", agentID: "claude-code", cwd: host.Workspace(),
 		client: client, runtimeKey: rtKey, acpSession: "ses-1", live: true, running: true,
 	}
 	manager.conns[manager.key(host, "two")] = &Conn{
-		name: "two", agentID: "codex", cwd: host.Workspace(),
+		name: "two", agentID: "claude-code", cwd: host.Workspace(),
 		client: client, runtimeKey: rtKey, acpSession: "ses-2", live: true,
 	}
 
-	_, err := manager.Acquire(context.Background(), host, "two", "codex", "test")
+	_, err := manager.Acquire(context.Background(), host, "two", "claude-code", "test")
 	if err == nil || err.Error() != "unexpected process start" {
 		t.Fatalf("err = %v", err)
 	}
@@ -197,6 +199,58 @@ func TestAcquireDetachesSessionBlockedByAnotherTurn(t *testing.T) {
 	detached := manager.get(manager.key(host, "two"))
 	if detached == nil || detached.client != nil || detached.live {
 		t.Fatal("blocked session was not detached from the busy process")
+	}
+}
+
+func TestAcquireKeepsCodexProcessesSessionLocal(t *testing.T) {
+	previous := Providers
+	launches := 0
+	Providers = []Provider{{
+		ID: "codex", Name: "Codex",
+		Prepare: func(string) (Launch, error) {
+			launches++
+			return Launch{
+				Command: []string{os.Args[0], "-test.run=TestMain"},
+				Env:     map[string]string{"LOOPRA_ACP_FAKE": "1"},
+			}, nil
+		},
+	}}
+	t.Cleanup(func() { Providers = previous })
+	host := &reuseHost{app: "app", workspace: t.TempDir()}
+	manager := NewManager()
+	t.Cleanup(manager.CloseAll)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	source, err := manager.Acquire(ctx, host, "source", "codex", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := manager.Acquire(ctx, host, "branch", "codex", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceClient, branchClient := source.Client(), branch.Client()
+	if launches != 2 || sourceClient == branchClient {
+		t.Fatalf("Codex sessions shared a process: launches=%d", launches)
+	}
+	branch.setBusy(true)
+	reopened, err := manager.Acquire(ctx, host, "source", "codex", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened != source || reopened.Client() != sourceClient || launches != 2 {
+		t.Fatal("selecting the source migrated it while the branch was busy")
+	}
+	if !sourceClient.Alive() || !branchClient.Alive() {
+		t.Fatal("selecting the source closed an active process")
+	}
+	manager.Drop(manager.key(host, "source"))
+	if sourceClient.Alive() || !branchClient.Alive() {
+		t.Fatal("dropping the source did not close only its own process")
+	}
+	manager.Drop(manager.key(host, "branch"))
+	if branchClient.Alive() || len(manager.runtimes) != 0 {
+		t.Fatal("Codex process leaked after its session was dropped")
 	}
 }
 

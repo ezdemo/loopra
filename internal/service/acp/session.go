@@ -50,9 +50,9 @@ type TurnInput struct {
 	Images  []string
 }
 
-// Manager 持有外部 ACP 进程。同一应用、同一 Agent、同一工作目录
-// 共用一个空闲进程；每个 Loopra 会话仍有自己的 ACP session。
-// 进程正在回复时，新的会话另起进程，避免两路对话交错。
+// Manager 持有外部 ACP 进程。Codex 按会话独占进程，避免跨进程恢复
+// 时与旧进程仍持有的线程写入锁冲突。其他 Agent 在同一应用、同一
+// 工作目录共用空闲进程，正在回复时新的会话另起进程。
 type Manager struct {
 	mu       sync.Mutex
 	conns    map[string]*Conn
@@ -407,8 +407,8 @@ func (m *Manager) Cancel(host SessionHost, name string) {
 	}
 }
 
-// Acquire 返回可用于该会话的连接。空闲时复用同一工作区已有的进程，
-// 进程正忙时才另起一个。
+// Acquire 返回可用于该会话的连接。Codex 只复用本会话的进程；
+// 其他 Agent 空闲时复用同一工作区已有的进程，正忙时另起一个。
 func (m *Manager) Acquire(ctx context.Context, host SessionHost, name, agentID, version string) (*Conn, error) {
 	if !IsExternal(agentID) {
 		return nil, fmt.Errorf("Agent 引擎不可用: %s", agentID)
@@ -471,6 +471,12 @@ func (m *Manager) IdleSessions(host SessionHost, agentID, cwd string) []string {
 }
 
 func (m *Manager) startShared(ctx context.Context, host SessionHost, key, name, agentID, version string) (*Conn, error) {
+	// Codex 的线程在回复结束后仍由原进程持有写入锁。共用进程时，
+	// 一个会话忙碌会让另一个会话迁移，但旧进程仍为前者存活，
+	// 新进程恢复后者就会触发 thread_active_writer。
+	if agentID == "codex" {
+		return m.startPrivate(ctx, host, key, name, agentID, version)
+	}
 	rtKey := runtimeKey(host, agentID)
 	if client := m.takeIdle(rtKey); client != nil {
 		logging.Debugf("acp", "reuse process agent=%s session=%s", agentID, name)
