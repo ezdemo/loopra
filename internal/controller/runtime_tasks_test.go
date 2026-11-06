@@ -201,7 +201,7 @@ func TestNativeEngineSelectorsPersistAndRestore(t *testing.T) {
 	defer upstream.Close()
 	ts, key, s, _ := parityServer(t, upstream.URL+"/v1")
 	call(t, ts, "POST", "/api/agent-engines/prepare", key, map[string]any{"sessionName": "selectors"})
-	selections := map[string]string{"model": s.cfg.ModelChannelID + ":" + s.cfg.Model, "mode": "auto", "effort": "low", "fast": "on", "plan": "on"}
+	selections := map[string]string{"model": s.cfg.ModelChannelID + ":" + s.cfg.Model, "mode": "auto", "effort": "low", "fast": "on"}
 	for id, value := range selections {
 		_, env := call(t, ts, "PUT", "/api/agent-engines/config", key, map[string]any{"sessionName": "selectors", "configId": id, "value": value})
 		if env["success"] != true {
@@ -210,15 +210,12 @@ func TestNativeEngineSelectorsPersistAndRestore(t *testing.T) {
 	}
 	_, env := call(t, ts, "POST", "/api/agent-engines/prepare", key, map[string]any{"sessionName": "fresh"})
 	options := env["data"].(map[string]any)["configOptions"].([]any)
-	if len(options) != 5 {
+	if len(options) != 4 {
 		t.Fatalf("selectors = %v", options)
 	}
 	for _, item := range options {
 		option := item.(map[string]any)
 		want := selections[option["id"].(string)]
-		if option["id"] == "plan" {
-			want = "off"
-		}
 		if option["currentValue"] != want {
 			t.Fatalf("restored selector = %v, want %s", option, want)
 		}

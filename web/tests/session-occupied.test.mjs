@@ -198,7 +198,7 @@ function forkEnvironment() {
     setForkBusy: value => { state.forkBusy = value; },
     setSessions: update => { state.sessions = update(state.sessions); },
     setActiveId: value => { state.activeId = value; }, setWorkspace() {}, selectMainTab() {}, pinNewSession() {},
-    setPendingPlan() {}, setLiveSpeed() {}, setMenu() {}, setShowScrollBtn() {},
+    setLiveSpeed() {}, setMenu() {}, setShowScrollBtn() {},
     notify: value => { state.notice = value; },
   });
   env.api.request = async (route, method) => {

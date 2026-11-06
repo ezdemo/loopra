@@ -42,7 +42,7 @@ function environment() {
     setAgentConfigBusy: update => { state.busy = typeof update === 'function' ? update(state.busy) : update; }, setAgentConfigs: update => { state.configs = update(state.configs || {}); },
     cacheAgentConfig: (agent, values) => state.cached.push({ agent, values }),
     notify: message => { state.notice = message; },
-    setComposerOptions: update => { state.composer = typeof update === 'function' ? update(state.composer) : update; }, setPendingPlan: value => { state.plan = value; },
+    setComposerOptions: update => { state.composer = typeof update === 'function' ? update(state.composer) : update; },
   };
   return { env, calls, state };
 }
@@ -181,12 +181,11 @@ test('a slow Native configuration save cannot overwrite another conversation or 
   env.api.request = () => new Promise(resolve => { finish = resolve; });
   const saving = callback('changeAgentConfig', env)('effort', 'max');
   env.composerViewRef.current.activeId = 'project/B';
-  state.composer = { modelId: 'B-model', plan: true }; state.plan = 'B-plan'; state.busy = 'B-config';
-  finish({ configOptions: [...options, { id: 'plan', currentValue: 'off' }] });
+  state.composer = { modelId: 'B-model', fast: true }; state.busy = 'B-config';
+  finish({ configOptions: [...options, { id: 'fast', currentValue: 'off' }] });
   await saving;
   assert.equal(state.configs['project/A'][0].currentValue, 'deepseek');
-  assert.deepEqual(state.composer, { modelId: 'B-model', plan: true });
-  assert.equal(state.plan, 'B-plan');
+  assert.deepEqual(state.composer, { modelId: 'B-model', fast: true });
   assert.equal(state.busy, 'B-config');
 });
 
@@ -216,7 +215,7 @@ test('new conversation discards an earlier prepared draft after session settings
     lastScrollTop: { current: 10 }, setTimeout: () => {}, setAgentDraftRevision: () => {},
   });
   for (const name of ['selectMainTab', 'setActiveId', 'setWorkspace', 'setChanges', 'setDraft',
-    'setComposerContext', 'setLiveSpeed', 'setMenu', 'setShowScrollBtn', 'setSkillsOpen', 'setSchedulesOpen', 'setBotsOpen', 'setPluginPage', 'setPendingPlan']) env[name] = () => {};
+    'setComposerContext', 'setLiveSpeed', 'setMenu', 'setShowScrollBtn', 'setSkillsOpen', 'setSchedulesOpen', 'setBotsOpen', 'setPluginPage']) env[name] = () => {};
   callback('newSession', env)();
   assert.equal(env.preparedNewSession.current, null);
   assert.equal(env.newAgentConfigRef.current, null);

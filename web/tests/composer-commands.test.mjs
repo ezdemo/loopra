@@ -112,7 +112,7 @@ async function mount(overrides = {}, requestCommands = () => Promise.resolve(adv
   let props = {
     agentId: 'codex', connected: true, home: false, language: '中文', draft: '/', api, workspaceHash: 'workspace',
     sessionName: 'first', engines: [{ id: 'codex', name: 'Codex' }, { id: 'claude', name: 'Claude Code' }],
-    options: { modelId: '', mode: '完全自动', effort: 'high', plan: false, fast: false },
+    options: { modelId: '', mode: '完全自动', effort: 'high', fast: false },
     context: { projects: [], skills: [], files: [] }, providers: [], workspaces: [], history: [],
     onOptions: idle, onContext: idle, notify: idle, pets: {}, petEnabled: false, skillOptions: [],
     systemPrompt: '', defaultModel: '', onDefaultModel: idle, queue: [], onOpen: idle,
@@ -178,7 +178,7 @@ test('configured display names render in the composer and choosing them retains 
   const name = 'remote-magpie/opendesign-plugin/deepseek-v4.1-flash';
   const modelId = `custom:${name}`;
   const changes = [];
-  const view = await mount({ agentId: 'native', draft: '', providers: [{ id: 'custom', name: 'Custom', models: [{ name, displayName: 'DeepSeek Flash' }] }], options: { modelId, mode: '完全自动', effort: 'high', plan: false, fast: false }, onOptions: value => changes.push(value.modelId) });
+  const view = await mount({ agentId: 'native', draft: '', providers: [{ id: 'custom', name: 'Custom', models: [{ name, displayName: 'DeepSeek Flash' }] }], options: { modelId, mode: '完全自动', effort: 'high', fast: false }, onOptions: value => changes.push(value.modelId) });
   try {
     assert.equal(view.host.querySelector('.composer-model > span').textContent, 'DeepSeek Flash');
     await act(async () => view.host.querySelector('.composer-model').click());
@@ -363,7 +363,7 @@ test('pure chat terminal shortcut opens the terminal and skills can be selected'
 
 
 test('combined model and reasoning menu supports overview, back, Escape and outside dismissal', async () => {
-  const options = { modelId: 'custom:flash', mode: '完全自动', effort: 'max', plan: false, fast: false };
+  const options = { modelId: 'custom:flash', mode: '完全自动', effort: 'max', fast: false };
   const view = await mount({ agentId: 'native', draft: '', options, providers: [{ id: 'custom', name: 'Custom', models: [{ name: 'flash', displayName: 'DeepSeek V4.1 Flash' }] }] });
   const click = selector => act(async () => view.host.querySelector(selector).click());
   try {
@@ -489,7 +489,7 @@ test('additional Agent configuration dismisses when returning to the message inp
 
 test('combined selector saves Native reasoning and fast mode while preserving model options', async () => {
   const changes = [];
-  const options = { modelId: 'custom:flash', mode: '完全自动', effort: 'max', plan: true, fast: false };
+  const options = { modelId: 'custom:flash', mode: '完全自动', effort: 'max', fast: false };
   const view = await mount({ agentId: 'native', draft: '', options, onOptions: value => changes.push(value) });
   try {
     await act(async () => view.host.querySelector('.composer-model').click());
@@ -660,4 +660,32 @@ test('the resize handle is keyboard operable inside the same range', async () =>
     await act(async () => Simulate.doubleClick(handle));
     assert.equal(composer.style.getPropertyValue('--composer-height'), '');
   } finally { await view.close(); }
+});
+
+test('Native composer ignores saved plan state and offers no plan control', async () => {
+  const view = await mount({ agentId: 'native', draft: '', options: { modelId: '', mode: '完全自动', effort: 'high', fast: false, plan: true } });
+  try {
+    assert.equal(view.host.textContent.includes('计划模式'), false);
+    await act(async () => view.host.querySelector('[aria-label="添加附件或工具"]').click());
+    assert.ok(view.host.querySelector('.composer-tool-list'));
+    assert.equal(view.host.querySelector('[aria-label="计划模式"]'), null);
+    assert.equal(view.host.textContent.includes('计划模式'), false);
+  } finally { await view.close(); }
+});
+
+test('external ACP plan settings retain their own configuration IDs and values', async () => {
+  for (const [id, currentValue, nextValue] of [['plan', 'on', 'off'], ['collaboration_mode', 'plan', 'default']]) {
+    const changes = [];
+    const view = await mount({ draft: '', agentConfig: { busy: false, onChange: (...args) => changes.push(args), options: [
+      { id, name: '计划模式', type: 'select', currentValue, options: [{ value: currentValue, name: '计划' }, { value: nextValue, name: '执行' }] },
+    ] } });
+    try {
+      assert.match(view.host.textContent, /计划模式/);
+      await act(async () => view.host.querySelector('[aria-label="添加附件或工具"]').click());
+      const toggle = view.host.querySelector('[aria-label="计划模式"]');
+      assert.equal(toggle.checked, true);
+      await act(async () => Simulate.change(toggle, { target: { checked: false } }));
+      assert.deepEqual(changes, [[id, nextValue]]);
+    } finally { await view.close(); }
+  }
 });

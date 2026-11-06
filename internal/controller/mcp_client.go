@@ -78,7 +78,7 @@ func (s *Controller) turnMcpSets(session string) ([]tool.Toolset, []io.Closer) {
 		}
 		cfg := mcpClientConfig(server)
 		filter := func(ctx agentctx.ReadonlyContext, t tool.Tool) bool {
-			return s.sessionMetaRead(session)["planMode"] != true && !containsString(server.DisallowedTools, t.Name())
+			return !containsString(server.DisallowedTools, t.Name())
 		}
 		cfg.RequireConfirmationProvider = func(name string, args any) bool {
 			input, _ := args.(map[string]any)

@@ -26,7 +26,7 @@ function environment() {
     setActiveId: value => { state.active = value; },
     setHistoryState: value => { state.history = value; },
     setSessions: update => { state.sessions = update(state.sessions); },
-    setComposerOptions: update => { state.options = update(state.options); }, setPendingPlan: value => { state.plan = value; },
+    setComposerOptions: update => { state.options = update(state.options); },
     notify: value => state.notices.push(value), historyMessages: history => history.map(message => ({ text: message.content })),
     sessionQuery: session => `sessionName=${session.name}`, sessionRoute: session => `/sessions/${session.name}/settings`,
     api: { request(path, _method, _body, signal) { const result = deferred(); requests.push({ path, signal, ...result }); return result.promise; } },
@@ -34,7 +34,7 @@ function environment() {
   return { state, requests, env, select: new Function('env', `with (env) { ${code}; return selectSession; }`)(env) };
 }
 
-test('history renders as soon as it arrives even while settings and plan initialization are pending', async () => {
+test('history renders as soon as it arrives even while settings initialization is pending', async () => {
   const { select, state, requests } = environment();
   const pending = select('one');
   assert.deepEqual(state.history, { id: 'one' });
@@ -43,10 +43,9 @@ test('history renders as soon as it arrives even while settings and plan initial
   assert.equal(state.sessions[0].messages[0].text, 'stored conversation');
   assert.equal(state.history, undefined);
   requests[1].reject(new Error('settings failed'));
-  requests[2].resolve({ mode: 'plan', pendingPlan: 'plan' });
   await pending;
   assert.equal(state.sessions[0].messages[0].text, 'stored conversation');
-  assert.equal(state.options.plan, true);
+  assert.deepEqual(requests.map(request => request.path), ['/agent/history?sessionName=one', '/sessions/one/settings']);
   assert.match(state.notices[0], /模型设置/);
 });
 
@@ -56,14 +55,12 @@ test('history failures are visible, preserve cached messages, and a retry can re
   const pending = select('one');
   requests[0].reject(new Error('disk unavailable'));
   requests[1].resolve({ model: 'model', modelChannelId: 'channel' });
-  requests[2].resolve({ mode: 'execute' });
   await pending;
   assert.equal(state.history.error, 'disk unavailable');
   assert.equal(state.sessions[0].messages[0].text, 'cached message');
   const retry = select('one');
-  requests[3].resolve([{ content: 'restored' }]);
-  requests[4].resolve({ model: 'model', modelChannelId: 'channel' });
-  requests[5].resolve({ mode: 'execute' });
+  requests[2].resolve([{ content: 'restored' }]);
+  requests[3].resolve({ model: 'model', modelChannelId: 'channel' });
   await retry;
   assert.equal(state.history, undefined);
   assert.equal(state.sessions[0].messages[0].text, 'restored');
@@ -76,13 +73,11 @@ test('late history and metadata from an aborted session cannot overwrite the nex
   assert.equal(requests[0].signal.aborted, true);
   requests[0].resolve([{ content: 'old' }]);
   requests[1].resolve({ model: 'old', modelChannelId: 'old' });
-  requests[2].resolve({ mode: 'plan', pendingPlan: 'old' });
   await old;
   assert.deepEqual(state.history, { id: 'two' });
   assert.equal(state.sessions[0].messages.length, 0);
-  requests[3].resolve([{ content: 'new' }]);
-  requests[4].resolve({ model: 'new', modelChannelId: 'new' });
-  requests[5].resolve({ mode: 'execute' });
+  requests[2].resolve([{ content: 'new' }]);
+  requests[3].resolve({ model: 'new', modelChannelId: 'new' });
   await next;
   assert.equal(state.options.modelId, 'new:new');
   assert.equal(state.sessions[1].messages[0].text, 'new');
@@ -95,7 +90,6 @@ test('a delayed opening history cannot replace output from a stream started mean
   state.sessions[0].messages = [{ text: 'live reply' }];
   requests[0].resolve([{ content: 'stale disk history' }]);
   requests[1].resolve({ model: 'model', modelChannelId: 'channel' });
-  requests[2].resolve({ mode: 'execute' });
   await pending;
   assert.equal(state.sessions[0].messages[0].text, 'live reply');
   assert.equal(state.history, undefined);
@@ -110,12 +104,10 @@ test('switching away and back keeps unanswered choices while refreshing history'
   const away = select('two');
   requests[0].resolve([{ content: 'other session' }]);
   requests[1].resolve({});
-  requests[2].resolve({ mode: 'execute' });
   await away;
   const back = select('one');
-  requests[3].resolve([{ content: 'stored answer' }]);
-  requests[4].resolve({});
-  requests[5].resolve({ mode: 'execute' });
+  requests[2].resolve([{ content: 'stored answer' }]);
+  requests[3].resolve({});
   await back;
   assert.equal(state.sessions[0].messages[0].text, 'stored answer');
   assert.deepEqual(collectPendingChoices(state.sessions[0].messages), [pendingChoice]);
@@ -123,9 +115,8 @@ test('switching away and back keeps unanswered choices while refreshing history'
   const refresh = select('one');
   // An answer made while history is loading must not reappear from an old snapshot.
   state.sessions[0].messages = state.sessions[0].messages.map(message => ({ ...message, blocks: resolveChoiceBlock(message.blocks || [], pendingChoice.id, '继续') }));
-  requests[6].resolve([{ content: 'after answer' }]);
-  requests[7].resolve({});
-  requests[8].resolve({ mode: 'execute' });
+  requests[4].resolve([{ content: 'after answer' }]);
+  requests[5].resolve({});
   await refresh;
   assert.deepEqual(collectPendingChoices(state.sessions[0].messages), []);
 });

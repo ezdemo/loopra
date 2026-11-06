@@ -129,14 +129,15 @@ func TestToolWorkspaceScopeDefaultsOffAndPersists(t *testing.T) {
 	}
 }
 
-func TestPlanSubmissionAndExecution(t *testing.T) {
+func TestRetiredPlanMetadataDoesNotRestrictNativeExecution(t *testing.T) {
 	home := t.TempDir()
 	workspace := filepath.Join(home, "project")
 	os.MkdirAll(workspace, 0o755)
 	cfg := config.Default()
 	cfg.WorkspaceDir = workspace
+	cfg.Hitl = "free"
 	reg := tools.NewRegistry(tools.FileTools(workspace)...)
-	script := echo.New("plan-script", echo.Script{ToolCalls: []*genai.FunctionCall{{Name: "submit_plan", Args: map[string]any{"steps": "[\"Inspect code\",\"Apply fix\"]", "summary": "Repair"}}}}, echo.Script{Text: "Plan ready"}, echo.Script{Text: "Executed"})
+	script := echo.New("write-script", echo.Script{ToolCalls: []*genai.FunctionCall{{Name: "write", Args: map[string]any{"path": "result.txt", "content": "written"}}}}, echo.Script{Text: "Done"})
 	a, err := agentpkg.New(home, service.WorkspaceHash(workspace), &cfg, agentpkg.Options{Model: script, Toolsets: []tool.Toolset{reg}})
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +148,40 @@ func TestPlanSubmissionAndExecution(t *testing.T) {
 	}
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { s.Close(); ts.Close() })
-	call(t, ts, "POST", "/api/agent/mode", key, map[string]any{"sessionName": "plan", "enabled": true})
+	s.sessionMetaSet("legacy", map[string]any{"planMode": true, "pendingPlan": "Retired plan", "custom": "preserved"})
+	for _, entry := range s.registry.Entries() {
+		if entry.Meta.Name == "submit_plan" {
+			t.Fatal("retired plan tool is still registered")
+		}
+	}
+	for _, option := range s.nativeConfigOptions("legacy") {
+		if option["id"] == "plan" {
+			t.Fatal("retired plan configuration is still exposed")
+		}
+	}
+	if err := s.setNativeConfigOption("legacy", "plan", "on"); err == nil {
+		t.Fatal("retired plan configuration was accepted")
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		req, err := http.NewRequest(method, ts.URL+"/api/agent/mode?sessionName=legacy", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Loopra-Key", key)
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("retired mode endpoint: %s = %d", method, resp.StatusCode)
+		}
+	}
+	for _, command := range nativeCommandMetadata() {
+		if command["cmd"] == "/plan" || command["cmd"] == "/execute" {
+			t.Fatalf("retired command is still advertised: %v", command)
+		}
+	}
 	chat := func(body string) []byte {
 		req, _ := http.NewRequest("POST", ts.URL+"/api/chat/stream", strings.NewReader(body))
 		req.Header.Set("X-Loopra-Key", key)
@@ -159,21 +193,20 @@ func TestPlanSubmissionAndExecution(t *testing.T) {
 		raw, _ := io.ReadAll(resp.Body)
 		return raw
 	}
-	raw := chat(`{"message":"Plan the change","sessionName":"plan"}`)
-	if !bytes.Contains(raw, []byte("plan_submitted")) {
-		t.Fatalf("plan stream = %s", raw)
+	raw := chat(`{"message":"Write the file","sessionName":"legacy"}`)
+	if bytes.Contains(raw, []byte("event: error")) || !bytes.Contains(raw, []byte("Done")) {
+		t.Fatalf("chat stream = %s", raw)
 	}
-	_, env := call(t, ts, "GET", "/api/agent/mode?sessionName=plan", key, nil)
-	if !strings.Contains(env["data"].(map[string]any)["pendingPlan"].(string), "Apply fix") {
-		t.Fatal("plan was not persisted")
+	if content, err := os.ReadFile(filepath.Join(workspace, "result.txt")); err != nil || string(content) != "written" {
+		t.Fatalf("legacy metadata restricted write: %q, %v", content, err)
 	}
-	raw = chat(`{"action":"execute_plan","sessionName":"plan"}`)
-	if !bytes.Contains(raw, []byte("Executed")) {
-		t.Fatalf("execute stream = %s", raw)
+	meta := s.sessionMetaRead("legacy")
+	if meta["planMode"] != true || meta["pendingPlan"] != "Retired plan" || meta["custom"] != "preserved" {
+		t.Fatalf("legacy metadata was overwritten: %v", meta)
 	}
-	_, env = call(t, ts, "GET", "/api/agent/mode?sessionName=plan", key, nil)
-	if env["data"].(map[string]any)["mode"] != "execute" {
-		t.Fatal("execution did not leave plan mode")
+	status, _ := call(t, ts, http.MethodPost, "/api/chat/stream", key, map[string]any{"message": "Continue", "sessionName": "legacy", "action": "execute_plan"})
+	if status != http.StatusBadRequest {
+		t.Fatalf("retired plan execution status = %d", status)
 	}
 }
 
@@ -411,7 +444,8 @@ func TestLoopraContractRoutesReachHandlers(t *testing.T) {
 			if path == "/api/system/pick-directory" {
 				t.Skip("requires an interactive desktop")
 			}
-			if strings.HasSuffix(path, "/spritesheet") {
+			// 审计 CSV 保留历史入口；已移除的原生模式路由应返回 404。
+			if strings.HasSuffix(path, "/spritesheet") || path == "/api/agent/mode" {
 				req, _ := http.NewRequest(method, ts.URL+path, nil)
 				req.Header.Set("X-Loopra-Key", key)
 				resp, err := ts.Client().Do(req)
@@ -420,7 +454,7 @@ func TestLoopraContractRoutesReachHandlers(t *testing.T) {
 				}
 				resp.Body.Close()
 				if resp.StatusCode != 404 {
-					t.Fatalf("missing pet image = %d", resp.StatusCode)
+					t.Fatalf("unavailable resource %s = %d", path, resp.StatusCode)
 				}
 				return
 			}

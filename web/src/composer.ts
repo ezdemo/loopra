@@ -4,7 +4,7 @@ export type ModelOption = { id: string; name: string; displayName?: string; prov
 export function modelLabel(model: { name: string; displayName?: string }): string {
   return model.displayName?.trim() || model.name;
 }
-export type ComposerOptions = { modelId: string; effort: string; mode: string; plan: boolean; fast: boolean };
+export type ComposerOptions = { modelId: string; effort: string; mode: string; fast: boolean };
 export type ComposerAttachment = { name: string; text?: string; image?: string; size?: number };
 export type ComposerContext = { files: string[]; projects: string[]; skills: string[]; attachments?: ComposerAttachment[] };
 export type QueuedMessage = { id: string; text: string; context: ComposerContext };
@@ -15,7 +15,7 @@ export function withoutWorkspaceContext(context: ComposerContext): ComposerConte
   const attachments = context.attachments || [];
   return { files: [...new Set(attachments.map(file => file.name))], projects: [], skills: [], attachments: [...attachments] };
 }
-export const defaultOptions: ComposerOptions = { modelId: 'deepseek:DeepSeek V4.1 Flash', effort: 'max', mode: '完全自动', plan: false, fast: false };
+export const defaultOptions: ComposerOptions = { modelId: 'deepseek:DeepSeek V4.1 Flash', effort: 'max', mode: '完全自动', fast: false };
 
 export type SlashCommand = { id: string; title: string; description: string; insert?: string; action?: () => void };
 export type ServerCommand = { cmd: string; desc?: string | null; args?: string | null };
@@ -77,8 +77,7 @@ export const initialPresets: PromptPreset[] = [
 export function appendPreset(draft: string, text: string) { return draft.trimEnd() ? `${draft.trimEnd()}\n\n${text}` : text; }
 
 /**
- * Server-provided slash commands and skills, minus the plan-mode toggles the UI
- * owns. Selecting one inserts the command text so the backend handles it.
+ * Selecting a server-provided command inserts its text so the Agent handles it.
  */
 export function acpSlashCommands(commands: import('./backend').AcpCommand[] = []): SlashCommand[] {
   const seen = new Set<string>();
@@ -94,10 +93,9 @@ export function acpSlashCommands(commands: import('./backend').AcpCommand[] = []
 export function serverSlashCommands(commands: ServerCommand[] = [], skills: ServerSkill[] = []): SlashCommand[] {
   const list: SlashCommand[] = [];
   const seen = new Set<string>();
-  const skip = new Set(['/plan', '/execute']);
   for (const command of commands || []) {
     const cmd = command?.cmd?.trim();
-    if (!cmd || seen.has(cmd) || skip.has(cmd)) continue;
+    if (!cmd || seen.has(cmd)) continue;
     seen.add(cmd);
     list.push({ id: cmd, title: cmd, description: command.desc || '', insert: `${cmd} ` });
   }
@@ -158,7 +156,7 @@ export function composeMessage(prompt: string, options: ComposerOptions, context
     '本地演示配置（未连接模型或工具）',
     `模型：${model ? `${model.provider} / ${model.name}` : '未选择'}`,
     `推理强度：${options.effort} · 权限：${options.mode}`,
-    `计划模式：${options.plan ? '开启' : '关闭'} · 快速模式：${options.fast ? '开启' : '关闭'}`,
+    `快速模式：${options.fast ? '开启' : '关闭'}`,
     ...(context.projects.length ? [`关联项目：${context.projects.join('、')}`] : []),
     ...(context.skills.length ? [`技能：${context.skills.join('、')}`] : []),
     ...(context.files.length ? [`附件（仅文件名，未读取内容）：${context.files.join('、')}`] : []),

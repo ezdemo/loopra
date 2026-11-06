@@ -17,41 +17,6 @@ import (
 )
 
 func (s *liveSession) installSessionTools(r *Runtime) {
-	s.registry.SetFilter(func(_ agentctx.ReadonlyContext, meta tools.Metadata) bool {
-		s.mu.Lock()
-		plan := s.plan
-		s.mu.Unlock()
-		if !plan {
-			return true
-		}
-		return meta.ReadOnly || meta.Name == "ask_choice" || meta.Name == "submit_plan"
-	})
-	plan, _ := functiontool.New[struct {
-		Steps   string `json:"steps"`
-		Summary string `json:"summary,omitempty"`
-		Risks   string `json:"risks,omitempty"`
-	}, map[string]any](functiontool.Config{
-		Name:        "submit_plan",
-		Description: "计划模式下提交有序执行步骤供用户审查。steps 可以是 JSON 字符串数组或每行一步的文本。",
-	}, func(ctx agentctx.Context, in struct {
-		Steps   string `json:"steps"`
-		Summary string `json:"summary,omitempty"`
-		Risks   string `json:"risks,omitempty"`
-	}) (map[string]any, error) {
-		s.mu.Lock()
-		planning := s.plan
-		s.mu.Unlock()
-		if !planning {
-			return nil, fmt.Errorf("当前不在计划模式")
-		}
-		text, entries := formatPlan(in.Steps, in.Summary, in.Risks)
-		if len(entries) == 0 {
-			return nil, fmt.Errorf("执行步骤不能为空")
-		}
-		s.emit(ctx, r, acpsdk.UpdatePlan(entries...))
-		s.emit(ctx, r, acpsdk.UpdateAgentMessageText(text))
-		return map[string]any{"status": "submitted", "message": "计划已提交，等待用户确认。请结束本轮，不要执行修改操作。"}, nil
-	})
 	choice, _ := functiontool.New[struct {
 		Question string   `json:"question"`
 		Options  []string `json:"options"`
@@ -82,7 +47,6 @@ func (s *liveSession) installSessionTools(r *Runtime) {
 		return skillMetadata(r.home, s.cwd), nil
 	})
 	for _, entry := range []tools.Tool{
-		{Tool: plan, Meta: tools.Metadata{Name: "submit_plan", Description: plan.Description(), ReadOnly: true, AutoApprove: true}},
 		{Tool: choice, Meta: tools.Metadata{Name: "ask_choice", Description: choice.Description(), ReadOnly: true, AutoApprove: true}},
 		{Tool: read, Meta: tools.Metadata{Name: "skillread", Description: read.Description(), ReadOnly: true, AutoApprove: true}},
 		{Tool: list, Meta: tools.Metadata{Name: "skilllist", Description: list.Description(), ReadOnly: true, AutoApprove: true}},
@@ -118,37 +82,6 @@ func (s *liveSession) askChoice(ctx agentctx.Context, r *Runtime, question strin
 		return "", fmt.Errorf("用户没有给出选择")
 	}
 	return choice, nil
-}
-
-func formatPlan(stepsText, summary, risks string) (string, []acpsdk.PlanEntry) {
-	var steps []string
-	if err := jsonUnmarshalStrings(stepsText, &steps); err != nil {
-		steps = strings.Split(stepsText, "\n")
-	}
-	var text strings.Builder
-	if strings.TrimSpace(summary) != "" {
-		fmt.Fprintf(&text, "**概述**：%s\n\n", strings.TrimSpace(summary))
-	}
-	text.WriteString("**执行步骤**：\n")
-	entries := []acpsdk.PlanEntry{}
-	for _, step := range steps {
-		step = strings.TrimSpace(step)
-		if step == "" {
-			continue
-		}
-		fmt.Fprintf(&text, "%d. %s\n", len(entries)+1, step)
-		entries = append(entries, acpsdk.PlanEntry{
-			Content: step, Priority: acpsdk.PlanEntryPriorityMedium, Status: acpsdk.PlanEntryStatusPending,
-		})
-	}
-	if strings.TrimSpace(risks) != "" {
-		fmt.Fprintf(&text, "\n**风险与注意事项**：%s\n", strings.TrimSpace(risks))
-	}
-	return text.String(), entries
-}
-
-func jsonUnmarshalStrings(raw string, out *[]string) error {
-	return yaml.Unmarshal([]byte(raw), out)
 }
 
 type skillReadInput struct {

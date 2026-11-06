@@ -59,7 +59,7 @@
 
 list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；省略 action 且传非空 query 时兼容旧的 search 调用。目录由现有记录生成，更新和删除后不维护另一份索引。HTTP GET `/api/memories` 仍返回完整条目供管理页使用。
 
-`memory({action:"save"|"delete",scope,id?,revision?,title?,content?,kind?})` 写入时 `source` 固定为 `agent`；更新、删除必须提供 ID 与最新 revision。纯聊天不可使用项目作用域。以上三种只读操作及写入操作沿用禁用名单、计划模式过滤与现有审批策略。系统提示词引导新会话先查看目录，再由 Agent 根据对话按需读取正文；不自动加载目录或正文。环境信息使用前核实。
+`memory({action:"save"|"delete",scope,id?,revision?,title?,content?,kind?})` 写入时 `source` 固定为 `agent`；更新、删除必须提供 ID 与最新 revision。纯聊天不可使用项目作用域。以上三种只读操作及写入操作沿用禁用名单与现有审批策略。系统提示词引导新会话先查看目录，再由 Agent 根据对话按需读取正文；不自动加载目录或正文。环境信息使用前核实。
 
 `→` 后为 `data` 字段结构。多数端点先检查 `agentService.isReady()`，未就绪 400 `"Agent 未初始化"`。
 
@@ -84,8 +84,6 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 | GET `/bash-sessions/log` | q: workspaceHash?, sessionId*, sessionName? | `BashSessionLogDTO{...,output:s}` |
 | GET `/history` | q: workspaceHash*, sessionName* | `[]`（编译后历史视图） |
 | GET `/history/events` | q: workspaceHash*, sessionName* | `[]`（ChatMessage 行，见 SSE 契约 §3） |
-| GET `/mode` | q: workspaceHash*, sessionName* | `{}` 计划模式状态 |
-| POST `/mode` | body `{workspaceHash, sessionName*, enabled:b}` | `{}` |
 | GET `/commands` | — | `[{cmd:s, desc:s, args:s}]` |
 | GET `/acp-state` | q: workspaceHash*, sessionName* | `{plan:[{content,status,priority}], commands:[{name,description,inputHint}]}` |
 | GET `/prompt` | q: workspaceHash?, sessionName? | `{content:s, length:i}` |
@@ -159,7 +157,7 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 ### 3.7 Sessions（/api/sessions）
 | 方法+路径 | 参数 | data |
 |---|---|---|
-| GET `` | q: workspaceHash? | `[{name,title,messageCount:l,current:b,mtime:l,worktreeMode:b,agentId:s(默认"native")}]`（仅含写入过消息的会话：`.jsonl` 或审计 `.events` 有内容；只有 `.meta` 的计划模式会话例外） |
+| GET `` | q: workspaceHash? | `[{name,title,messageCount:l,current:b,mtime:l,worktreeMode:b,agentId:s(默认"native")}]`（仅含写入过消息的会话：`.jsonl` 或审计 `.events` 有内容） |
 | PUT `/order` | q: workspaceHash*; body `[sessionName...]` | s `"排序已保存"` |
 | GET `/current` | q: workspaceHash? | `{workspaceHash, sessionName}` |
 | POST `/new` | q: workspaceHash*, sessionName?, worktreeMode?:b | `{message:"已创建新会话", workspaceHash, sessionName}`（惰性：不创建会话日志，首条消息写入时才落盘） |

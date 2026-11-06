@@ -53,10 +53,10 @@ func (r *Runtime) UnstableForkSession(ctx context.Context, params acpsdk.Unstabl
 
 func (s *liveSession) copySettings(source *liveSession) {
 	source.mu.Lock()
-	mode, model, channel, effort, fast, plan := source.mode, source.model, source.channel, source.effort, source.fast, source.plan
+	mode, model, channel, effort, fast := source.mode, source.model, source.channel, source.effort, source.fast
 	source.mu.Unlock()
 	s.mu.Lock()
-	s.mode, s.model, s.channel, s.effort, s.fast, s.plan = mode, model, channel, effort, fast, plan
+	s.mode, s.model, s.channel, s.effort, s.fast = mode, model, channel, effort, fast
 	s.stale = true
 	s.mu.Unlock()
 }

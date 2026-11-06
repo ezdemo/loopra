@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -412,9 +413,8 @@ func TestEnginePrepareDoesNotMaterializeSession(t *testing.T) {
 	}
 }
 
-// 旧版本留下的 0 字节会话日志不再出现在列表中；
-// 只有 .meta 的计划模式会话仍然可见（Java list() 的例外规则）。
-func TestEmptyLogsHiddenButMetadataOnlyPlanSessionsVisible(t *testing.T) {
+// 旧版本的空白日志和仅含计划元数据的会话都不进入列表。
+func TestEmptyLogsAndRetiredPlanMetadataOnlySessionsHidden(t *testing.T) {
 	ts, key, a := sessServer(t)
 	dir := filepath.Join(a.Sessions.Root(), "workspace", a.App(), "sessions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -427,22 +427,17 @@ func TestEmptyLogsHiddenButMetadataOnlyPlanSessionsVisible(t *testing.T) {
 	if rows := env["data"].([]any); len(rows) != 0 {
 		t.Fatalf("empty session log was listed: %v", rows)
 	}
-	// 计划模式可能在首条消息前开启，此时只有 .meta。
-	call(t, ts, http.MethodPost, "/api/agent/mode", key, map[string]any{"sessionName": "planning", "enabled": true})
-	_, env = call(t, ts, http.MethodGet, "/api/sessions", key, nil)
-	rows := env["data"].([]any)
-	if len(rows) != 1 {
-		t.Fatalf("plan-only session missing from list: %v", rows)
+	for name, meta := range map[string]string{
+		"planning": `{"planMode":true}`,
+		"pending":  `{"pendingPlan":"Old plan"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name+".meta"), []byte(meta), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	row := rows[0].(map[string]any)
-	if row["name"] != "planning" || row["messageCount"].(float64) != 0 {
-		t.Fatalf("plan-only row = %v", row)
-	}
-	// 关闭计划模式后重新隐藏。
-	call(t, ts, http.MethodPost, "/api/agent/mode", key, map[string]any{"sessionName": "planning", "enabled": false})
 	_, env = call(t, ts, http.MethodGet, "/api/sessions", key, nil)
 	if rows := env["data"].([]any); len(rows) != 0 {
-		t.Fatalf("plan session still listed after disabling plan mode: %v", rows)
+		t.Fatalf("metadata-only sessions were listed: %v", rows)
 	}
 }
 
@@ -474,34 +469,36 @@ func TestRolledBackSessionRemainsListed(t *testing.T) {
 	}
 }
 
-// 清理过期会话时也要清掉“只有 .meta 的计划会话”和旧版 0 字节空白日志：
-// 前者在列表中可见，但存储层 List 不返回它。
-func TestCleanupRemovesMetadataOnlyPlanSessions(t *testing.T) {
+// 清理旧版空白日志时保留尚未发送消息的会话设置，包括遗留计划字段。
+func TestCleanupPreservesMetadataOnlySessions(t *testing.T) {
 	ts, key, a := sessServer(t)
 	dir := filepath.Join(a.Sessions.Root(), "workspace", a.App(), "sessions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// 只有 .meta、未发消息的计划模式会话（列表里可见）。
 	call(t, ts, http.MethodPost, "/api/sessions/new?sessionName=planning", key, nil)
-	call(t, ts, http.MethodPost, "/api/agent/mode", key, map[string]any{"sessionName": "planning", "enabled": true})
+	metadata := []byte(`{"planMode":true,"pendingPlan":"Old plan","custom":"preserved"}`)
+	metaPath := filepath.Join(dir, "planning.meta")
+	if err := os.WriteFile(metaPath, metadata, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	// 旧版本遗留的 0 字节空白日志（列表里不可见，但仍在磁盘上）。
 	legacy := filepath.Join(dir, "legacy.jsonl")
 	if err := os.WriteFile(legacy, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, env := call(t, ts, http.MethodGet, "/api/sessions", key, nil)
-	if rows := env["data"].([]any); len(rows) != 1 {
+	if rows := env["data"].([]any); len(rows) != 0 {
 		t.Fatalf("precondition list = %v", rows)
 	}
 	before := time.Now().Add(time.Second).UnixMilli()
 	_, env = call(t, ts, http.MethodDelete, "/api/sessions/cleanup?before="+itoa(before), key, nil)
 	names := env["data"].(map[string]any)["sessionNames"].([]any)
-	if len(names) != 2 {
+	if len(names) != 1 || names[0] != "legacy" {
 		t.Fatalf("cleanup removed = %v", names)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "planning.meta")); !os.IsNotExist(err) {
-		t.Fatalf("plan-only metadata survived cleanup: %v", err)
+	if content, err := os.ReadFile(metaPath); err != nil || !bytes.Equal(content, metadata) {
+		t.Fatalf("metadata-only session was modified: %q, %v", content, err)
 	}
 	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
 		t.Fatalf("legacy empty log survived cleanup: %v", err)

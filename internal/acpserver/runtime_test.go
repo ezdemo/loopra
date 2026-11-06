@@ -92,10 +92,18 @@ func TestRuntimeSpeaksACP(t *testing.T) {
 			ids[string(option.Select.Id)] = true
 		}
 	}
-	for _, id := range []string{"model", "mode", "effort", "fast", "plan"} {
+	for _, id := range []string{"model", "mode", "effort", "fast"} {
 		if !ids[id] {
 			t.Fatalf("config option %s missing from %#v", id, created.ConfigOptions)
 		}
+	}
+	if ids["plan"] {
+		t.Fatal("Loopra ACP server still exposes the retired native plan mode")
+	}
+	if _, err := conn.SetSessionConfigOption(callCtx, acpsdk.SetSessionConfigOptionRequest{
+		ValueId: &acpsdk.SetSessionConfigOptionValueId{SessionId: created.SessionId, ConfigId: "plan", Value: "on"},
+	}); err == nil {
+		t.Fatal("Loopra ACP server accepted the retired native plan mode")
 	}
 	result, err := conn.Prompt(callCtx, acpsdk.PromptRequest{
 		SessionId: created.SessionId,

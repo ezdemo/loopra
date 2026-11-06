@@ -16,7 +16,6 @@ export function AgentDefaults({ options, onOptions }: SettingsPageProps) {
     <div className="settings-card">
       <SettingRow title="默认权限模式" description="与输入栏的权限选择保持同步"><SelectField compact label="默认权限模式" value={options.mode} onChange={mode => onOptions({ ...options, mode })} options={['完全自动', '按需审批', '自动审批']} /></SettingRow>
       <SettingRow title="推理强度" description="与输入栏推理设置保持同步"><SelectField compact label="默认推理强度" value={options.effort} onChange={effort => onOptions({ ...options, effort })} options={[...(!effortLevels.some(level => level.value === options.effort) ? [options.effort] : []), ...effortLevels.map(level => ({ value: level.value, label: `${level.label} · ${level.description}` }))]} /></SettingRow>
-      <SettingRow title="计划模式" description="启用 Loopra 会话计划模式"><SettingSwitch label="默认计划模式" value={options.plan} onChange={plan => onOptions({ ...options, plan })} /></SettingRow>
       <SettingRow title="快速模式" description="发送快速模式参数，需模型支持"><SettingSwitch label="默认快速模式" value={options.fast} onChange={fast => onOptions({ ...options, fast })} /></SettingRow>
     </div>
   </>;

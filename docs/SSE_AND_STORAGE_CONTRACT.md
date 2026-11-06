@@ -7,7 +7,7 @@
 
 - AI 回复图片使用普通 Markdown `![说明](<图片路径>)`，随现有正文事件与 JSONL 文本保存，不新增图片事件或附件字段。本地路径通过 `/api/files/image` 按消息所属工作区和会话读取；HTTP/HTTPS 图片由浏览器直接加载。主会话、历史恢复和子代理回放共用图片加载与放大预览。历史引用原文件当前内容，不保存图片快照，原文件删除后显示不可读取。原生、纯聊天及子代理提示词共用展示约定；外部 ACP 通过独立的 prompt 文本块接收该约定，该块不改写 Loopra 保存的用户转录。
 - 文档附件随用户 `message` 文本持久化：末尾独立的 `loopra-attachments` 代码围栏包含单行 JSON 数组 `[{name,text,size?}]`，`text` 为提取后的全文，`size` 为原始字节数。围栏长度大于内容中的连续反引号长度；图片仍使用 `images` / `contentParts`。实时气泡与历史恢复均从同一文本解析附件，以图标和文件名标签显示，点击在模态浮层预览全文，正文不重复展示附件全文。格式无效时保留原文；旧消息保持可读，不推断普通文字中的附件边界。
-- SSE 端点：`POST /api/chat/stream`，请求体 `ChatRequest`：`{message, requestId(UUID), workspaceHash(12位md5), sessionName(默认"default"), agentId?, model?, modelChannelId?, reasoningEffort?, fastMode?, stream?(遗留不消费), images?:string[](dataURL), linkedProjectHashes?:string[], action?("execute_plan")}`。
+- SSE 端点：`POST /api/chat/stream`，请求体 `ChatRequest`：`{message, requestId(UUID), workspaceHash(12位md5), sessionName(默认"default"), agentId?, model?, modelChannelId?, reasoningEffort?, fastMode?, stream?(遗留不消费), images?:string[](dataURL), linkedProjectHashes?:string[]}`。非空 `action` 返回 400；原生计划执行入口已移除。
 - SSE 帧：`event: <type>\n` + `data: <json>\n\n`，UTF-8；响应头 `Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`Connection: keep-alive`、`X-Accel-Buffering: no`。
 - 前端解析：按 `\n` 切行去 `\r`；`event:` 行设 type；`data:` 行累积 join `\n`；空行=帧结束。data 先 JSON.parse：对象→`{...obj,type}`，字符串→`{type,content}`；`[DONE]`→`{type:'done'}`；无 `event:` 名默认 `'content'`。**没有名为 `message` 的 SSE 事件**。
 - 写失败：emitter 断开后置 completed 静默丢弃后续事件，**Agent 照常执行到自然结束**。
@@ -57,8 +57,7 @@
 ### 1.5 模式/计划/配置
 | type | data |
 |---|---|
-| `mode_changed` | `{"mode":"plan"\|"execute"}` |
-| `plan_submitted` | `{"plan": string(markdown, null→"")}`（同时持久化 .meta.pendingPlan） |
+| `mode_changed` | `{"mode": string}`（外部 ACP Agent 的模式 ID） |
 | `config_options` | `{configOptions: [AcpConfigOption{id,name,description,category,type:"select",currentValue,options:[{id,name,description}]}]}` |
 | `acp_plan` | `{entries: [{content, status:"pending"/"in_progress"/"completed", priority:"high"/"medium"/"low"(默认medium)}]}` |
 | `acp_commands` | `{commands: [{name, description, inputHint: string\|null}]}` |
@@ -97,9 +96,9 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 ## 4. 伴生文件与目录
 
 `hash` = 项目绝对路径 UTF-8 MD5 前 6 字节 hex（12 位）。会话簇（`{name}` 为 sanitize 基名）：
-- `{name}.jsonl`：主日志（见 §3）。**延迟创建**：新建会话只切换当前会话并写 `.meta` 设置快照，首条消息写入时才创建 `.jsonl`/`.events`；会话列表只包含已写入过消息的会话（`.jsonl` 或从不重写的 `.events` 有内容；回滚截断为空也仍算），唯一例外是仅剩 `.meta` 且 `planMode=true` 或 `pendingPlan` 非空的计划会话（刷新后需能被重新发现）。旧版本遗留的“只有 0 字节 `.jsonl`、无 `.events`”空白会话不进入列表。
+- `{name}.jsonl`：主日志（见 §3）。**延迟创建**：新建会话只切换当前会话并写 `.meta` 设置快照，首条消息写入时才创建 `.jsonl`/`.events`；会话列表只包含已写入过消息的会话（`.jsonl` 或从不重写的 `.events` 有内容；回滚截断为空也仍算）。只有 `.meta` 或旧版本遗留的“只有 0 字节 `.jsonl`、无 `.events`”空白会话不进入列表。
 - `{name}.events`：**append-only 审计镜像**（append 时与 .jsonl 同步双写，rewrite 不触碰）。
-- `{name}.meta`：JSON 读-改-写 + temp 原子替换，**必须保留未知键**。键：`title`、`planMode:b`、`pendingPlan`、`worktreeMode:b`、`mergeMode`(默认"manual")、`model`、`modelChannelId`、`reasoningEffort`、`agentId`(默认"native")、`acpSessionId`、`acpCwd`、`acpUsage:{used,size,cost?,currency?,model?}`、`acpPlan:[...]`、`acpCommands:[...]`、`agentConfig:{}`。`agentConfig` 记录用户在会话里选定的 Agent 配置（模型、权限模式、思考强度等）。恢复 ACP 会话时先读这份快照、把与 Agent 默认值不同的项重新下发，再回写；Agent 拒绝或未列出的键一律保留，不能因一次恢复失败丢失用户的选择。
+- `{name}.meta`：JSON 读-改-写 + temp 原子替换，**必须保留未知键**。键：`title`、`worktreeMode:b`、`mergeMode`(默认"manual")、`model`、`modelChannelId`、`reasoningEffort`、`agentId`(默认"native")、`acpSessionId`、`acpCwd`、`acpUsage:{used,size,cost?,currency?,model?}`、`acpPlan:[...]`、`acpCommands:[...]`、`agentConfig:{}`。旧 `planMode`、`pendingPlan` 字段保留但不再参与原生工具过滤、提示词或会话列表。`agentConfig` 记录用户在会话里选定的 Agent 配置（模型、权限模式、思考强度等），外部 ACP Agent 的计划配置继续透传。恢复 ACP 会话时先读这份快照、把与 Agent 默认值不同的项重新下发，再回写；Agent 拒绝或未列出的键一律保留，不能因一次恢复失败丢失用户的选择。
 - Codex 空白线程在首条消息前可能没有 rollout。恢复该线程明确返回 `no rollout found for thread id <当前 acpSessionId>` 时，只有 `.jsonl` 和 `.events` 均不存在或为 0 字节才允许重建远端线程，并恢复保存的 `agentConfig`；重建成功后更新绑定。已有审计记录（即使可见历史被回滚清空）、损坏但非空的日志、历史检查失败、取消及其他远端错误都不触发重建，失败保留旧绑定及原文件。
 - `{name}.usage`：`{prompt,completion,cacheHit,cacheMiss,lastPromptTokens}`（long；全 0 删除）。
 - `{name}.model_usage`：`{"<model>": [prompt,completion,cacheHit,cacheMiss]}`（空删除）。

@@ -12,9 +12,9 @@ const load = async name => {
 const { acpSlashCommands, mergeSlashCommands, serverSlashCommands, localSlashCommands, presetPayload, presetsFromServer, formatTokenSpeed } = await load('composer.ts');
 const { contextFromUsage, usagePath } = await load('usage.ts');
 
-test('server slash commands merge skills, drop plan toggles and keep local actions first', () => {
+test('server slash commands merge skills, deduplicate commands and keep local actions first', () => {
   const remote = serverSlashCommands(
-    [{ cmd: '/compact', desc: '折叠上下文' }, { cmd: '/plan' }, { cmd: '/new', desc: '新建' }, { cmd: '/init', desc: '初始化' }],
+    [{ cmd: '/compact', desc: '折叠上下文' }, { cmd: '/compact' }, { cmd: '/new', desc: '新建' }, { cmd: '/init', desc: '初始化' }],
     [{ name: 'code-review', description: '审查代码' }, { name: '' }],
   );
   assert.deepEqual(remote.map(item => item.id), ['/compact', '/new', '/init', '/skill:code-review']);

@@ -437,36 +437,6 @@ code { background: #f1f1f1; padding: 0 0.3125rem; border-radius: var(--radius-sm
 
 .chat-composer-area { position: relative; flex-shrink: 0; align-self: center; width: min(50rem, calc(100% - 2rem)); margin: 0 0 1rem; z-index: 10; }
 
-.plan-review-band { width: 100%; margin: 0 0 0.375rem; background: var(--soft); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
-
-.plan-review-head { display: flex; align-items: center; gap: 0.5rem; min-height: 2.375rem; padding: 0.375rem 0.5rem 0.375rem 0.75rem; }
-
-.plan-review-icon { flex-shrink: 0; color: var(--blue); }
-
-.plan-review-head strong { font-size: 0.8125rem; font-weight: 600; }
-
-.plan-review-status { font-size: 0.75rem; color: var(--muted); }
-
-.plan-review-chevron { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; border: none; background: transparent; border-radius: var(--radius-sm); color: var(--secondary); }
-
-.plan-review-chevron:hover { background: var(--hover); color: var(--text); }
-
-.plan-review-chevron .rotated { transform: rotate(180deg); }
-
-.plan-review-actions { display: flex; align-items: center; gap: 0.25rem; margin-left: auto; }
-
-.plan-approve-btn { min-height: 1.75rem; font-size: 0.75rem; }
-
-.plan-exit-btn { color: var(--secondary); }
-
-.plan-exit-btn:hover { color: var(--text); }
-
-.plan-review-body { border-top: 1px solid var(--line); }
-
-.plan-review-content { max-height: min(42vh, 22.5rem); overflow: auto; padding: 0.75rem 1rem; color: var(--text); font-size: 0.875rem; line-height: 1.7; }
-
-.plan-review-content .block-content { font-size: 0.875rem; }
-
 .latest-button { position: absolute; bottom: calc(100% + 3.875rem); left: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: 0.4375rem; border: 1px solid var(--line); border-radius: 1.5rem; padding: 0.4375rem 0.875rem; font-size: 0.875rem; color: var(--secondary); background: var(--soft); box-shadow: 0 1px 0.3125rem #0000000a; }
 
 .background-bash { position: absolute; bottom: calc(100% + 0.375rem); left: 1.25rem; display: flex; align-items: center; gap: 0.5rem; height: 2.25rem; background: var(--soft); border-radius: var(--radius-xl); padding: 0 0.75rem; font-size: 1.0625rem; }

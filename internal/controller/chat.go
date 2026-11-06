@@ -50,11 +50,11 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, "message 不能为空")
 		return
 	}
-	if strings.TrimSpace(req.Message) == "" && len(req.Images) == 0 && req.Action != "execute_plan" {
+	if strings.TrimSpace(req.Message) == "" && len(req.Images) == 0 {
 		writeFail(w, http.StatusBadRequest, "message 不能为空")
 		return
 	}
-	if req.Action != "" && req.Action != "execute_plan" {
+	if req.Action != "" {
 		writeFail(w, http.StatusBadRequest, "不支持的聊天操作")
 		return
 	}
@@ -91,10 +91,6 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AgentID != "native" && !acp.IsExternal(req.AgentID) {
 		writeFail(w, http.StatusBadRequest, "Agent 引擎不可用: "+req.AgentID)
-		return
-	}
-	if req.Action == "execute_plan" && req.AgentID != "native" {
-		writeFail(w, http.StatusConflict, "此操作仅支持 Loopra Native")
 		return
 	}
 	job, err := s.admitChat(&req)
@@ -142,9 +138,6 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(ctx)
-	if req.Action == "execute_plan" {
-		s.sessionMetaSet(req.SessionName, map[string]any{"planMode": false, "pendingPlan": ""})
-	}
 	// 子代理事件复用同一条流；sub_agent 工具通过请求上下文读取
 	// 事件接收端与父会话。
 	ctx = context.WithValue(r.Context(), sinkKey{}, sse)
@@ -161,9 +154,6 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sse.send("snapshot", map[string]any{"msgId": msgID, "hasCodeSnapshot": hasSnapshot})
-	if req.Action == "execute_plan" {
-		sse.send("mode_changed", map[string]any{"mode": "execute"})
-	}
 	s.setCurrentSession(req.SessionName)
 	ctx = withTurnSnapshot(r.Context(), msgID, hasSnapshot)
 	r = r.WithContext(ctx)

@@ -17,9 +17,9 @@ test('the post-stream reload reattaches a still-pending choice', async () => {
 // user bubble or clear whatever the user was typing.
 test('automatic choice answers send silently without a user bubble', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /const silent = !!action \|\| autoAnswer;/);
+  assert.match(app, /const silent = autoAnswer;/);
   assert.match(app, /if \(!autoAnswer && !queuedSession && visible\(\) && composerViewRef\.current\.draft === draft\) \{ setDraft\(''\); setComposerContext\(emptyContext\); setMenu\(null\); \}/);
-  assert.match(app, /for \(const value of outgoing\) await sendMessage\(value, undefined, undefined, false, true\)/);
+  assert.match(app, /for \(const value of outgoing\) await sendMessage\(value, undefined, false, true\)/);
 });
 
 // Legacy Chat.vue attached outgoing images to the local user bubble so they show

@@ -123,7 +123,7 @@ export default function Composer(props: Props) {
   const agentModel = findAgentOption(agentOptions, 'model', 'model');
   const agentEffort = findAgentOption(agentOptions, 'effort', 'thought_level');
   const agentFast = findAgentOption(agentOptions, 'fast', 'model_config');
-  const agentPlan = findAgentOption(agentOptions, 'plan') || findAgentOption(agentOptions, 'collaboration_mode', 'collaboration_mode');
+  const agentPlan = external ? findAgentOption(agentOptions, 'plan') || findAgentOption(agentOptions, 'collaboration_mode', 'collaboration_mode') : undefined;
   const planOn = agentPlan?.id === 'collaboration_mode' ? 'plan' : 'on';
   const planOff = agentPlan?.id === 'collaboration_mode' ? 'default' : 'off';
   const agentBusy = !!props.agentConfig?.busy;
@@ -134,7 +134,7 @@ export default function Composer(props: Props) {
   const handledOptions = new Set([agentMode, agentModel, agentEffort, agentFast, agentPlan].filter(Boolean).map(option => option!.id));
   const otherAgentOptions = (agentOptions || []).filter(option => !handledOptions.has(option.id));
   const agentModeValue = agentMode ? configValue(agentMode) : '';
-  const planActive = agentPlan ? configValue(agentPlan) === planOn : !external && options.plan;
+  const planActive = !!agentPlan && configValue(agentPlan) === planOn;
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
 
@@ -465,7 +465,7 @@ export default function Composer(props: Props) {
         endContent={<button className="context-chip-remove" aria-label={`移除附件：${file.name}`} onClick={() => removeAttachment(file.name)}><X size="0.75rem" /></button>}>
         {file.name}{file.chars != null ? <small className="context-chip-size">{file.chars.toLocaleString()} 字符</small> : file.size != null ? <small className="context-chip-size">{formatFileSize(file.size)}</small> : null}
       </Chip>)}
-      {planActive && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label="退出计划模式" disabled={agentBusy} onClick={() => { if (agentPlan) changeAgent(agentPlan.id, planOff); else update('plan', false); }}><X size="0.75rem" /></button>}>计划模式</Chip>}
+      {planActive && agentPlan && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label="退出计划模式" disabled={agentBusy} onClick={() => changeAgent(agentPlan.id, planOff)}><X size="0.75rem" /></button>}>计划模式</Chip>}
       {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>清除</button>}
     </div>
     {props.remoteRunning && <div className="composer-run-status" role="status"><i /><span>该会话正在后台执行，输入的内容会加入队列</span></div>}
@@ -485,7 +485,7 @@ export default function Composer(props: Props) {
     <div className={`composer-bottom${initialConfigLoading ? ' composer-toolbar-loading' : ''}`} aria-busy={initialConfigLoading || undefined}>
       {initialConfigLoading ? <ComposerToolbarSkeleton showMcp={!chatMode} /> : <>
       <div className="composer-left">
-        <Tooltip content="附件、项目、技能和计划模式" delay={600}><Button isIconOnly variant="light" aria-label="添加附件或工具" aria-expanded={menu === 'tools'} className={`composer-icon ${menu === 'tools' ? 'is-active' : ''}`} onPress={() => open('tools')}><Plus size="1.125rem" strokeWidth={1.75} /></Button></Tooltip>
+        <Tooltip content="附件、项目和工具" delay={600}><Button isIconOnly variant="light" aria-label="添加附件或工具" aria-expanded={menu === 'tools'} className={`composer-icon ${menu === 'tools' ? 'is-active' : ''}`} onPress={() => open('tools')}><Plus size="1.125rem" strokeWidth={1.75} /></Button></Tooltip>
         {agentMode ? <Tooltip content={agentOptionDescription(agentMode)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-permission ${isDangerousAgentMode(agentMode) ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
           {isDangerousAgentMode(agentMode) ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{agentOptionLabel(agentMode)}</span>
         </Button></Tooltip> : !props.agentConfig && <Button isDisabled={external} variant="light" className={`composer-permission ${!external && options.mode === '完全自动' ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
@@ -519,8 +519,7 @@ export default function Composer(props: Props) {
 
         {menu === 'tools' && <div className="composer-tool-list">
           <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>上传文件</strong><small>图片、文本、PDF、Word、Excel · 读取内容发送</small></span><Plus size="0.9375rem" /></button>
-          {!chatMode && (agentPlan ? <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>
-            : !external && !props.agentConfig && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={options.plan} onChange={value => update('plan', value)} /></div>)}
+          {!chatMode && agentPlan && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>}
           {!chatMode && <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>

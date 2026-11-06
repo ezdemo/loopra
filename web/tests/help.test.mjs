@@ -62,7 +62,7 @@ test('search reaches commands, tools, endpoints and config options', () => {
 
 test('the command table mirrors the commands the backend and web shell really handle', () => {
   const names = helpCommands.map(command => command.name);
-  for (const name of ['/new', '/clear', '/compact', '/export', '/continue', '/sessions', '/plan', '/execute', '/goal', '/hitl', '/agree', '/deny', '/init', '/plugin', '/help']) {
+  for (const name of ['/new', '/clear', '/compact', '/export', '/continue', '/sessions', '/goal', '/hitl', '/agree', '/deny', '/init', '/plugin', '/help']) {
     assert.ok(names.includes(name), `missing ${name}`);
   }
   for (const stale of ['/retry', '/rewind', '/load', '/exit']) assert.ok(!names.includes(stale), `${stale} is not handled anymore`);

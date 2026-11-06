@@ -220,12 +220,10 @@ func nativeCommandMetadata() []map[string]any {
 		{"/compact", "折叠历史消息（语义摘要）", ""},
 		{"/continue", "让 AI 继续生成/推理（HITL 模式下等同于 /agree）", ""},
 		{"/deny", "拒绝 HITL 待执行的工具调用", ""},
-		{"/execute", "退出计划模式（有待审查计划时批准并按计划执行）", ""},
 		{"/goal", "<create|status|pause|resume|done|block|complete|cancel>  管理当前会话 Goal", "create <目标> | status | done <步骤号> <证据>"},
 		{"/help", "显示此帮助信息", ""},
 		{"/hitl", "切换 HITL 模式（free/approval/auto）", ""},
 		{"/init", "自动分析项目生成 loopra.md", ""},
-		{"/plan", "[任务]   进入计划模式（只读探索，用 submit_plan 提交计划供审查）", "任务描述（可选）"},
 		{"/plugin", "打开技能与插件中的插件页。来源是 npm 包名或 GitHub 地址，由 moejs 执行。插件可以提供工具和对话钩子，也可以 fetch 或用 node:fs 读写本机文件", "left-pad | @scope/pkg | github:owner/repo"},
 		{"/sessions", "列出历史会话", ""},
 	} {

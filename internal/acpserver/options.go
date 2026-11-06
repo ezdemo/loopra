@@ -7,7 +7,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service/hitl"
 )
 
-func sessionOptions(cfg *modelconfig.Loopra, mode, modelValue, effort string, fast, plan bool) []acpsdk.SessionConfigOption {
+func sessionOptions(cfg *modelconfig.Loopra, mode, modelValue, effort string, fast bool) []acpsdk.SessionConfigOption {
 	if cfg == nil {
 		fallback := modelconfig.Default()
 		cfg = &fallback
@@ -55,13 +55,8 @@ func sessionOptions(cfg *modelconfig.Loopra, mode, modelValue, effort string, fa
 	if fast {
 		fastValue = "on"
 	}
-	planValue := "off"
-	if plan {
-		planValue = "on"
-	}
 	out = append(out,
 		selectOption("fast", "快速模式", "model_config", fastValue, toggles),
-		selectOption("plan", "计划模式", "_plan", planValue, toggles),
 	)
 	return out
 }
@@ -74,11 +69,4 @@ func selectOption(id, name, category, current string, options acpsdk.SessionConf
 		Category: &cat, CurrentValue: acpsdk.SessionConfigValueId(current),
 		Options: acpsdk.SessionConfigSelectOptions{Ungrouped: &choices},
 	}}
-}
-
-func sessionInstruction(base string, plan bool) string {
-	if !plan {
-		return base
-	}
-	return base + "\n当前为计划模式：只进行只读探索并制定计划，使用 submit_plan 提交，禁止修改文件和执行写入命令。"
 }

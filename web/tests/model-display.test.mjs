@@ -322,7 +322,7 @@ test('the model usage page preserves IDs and save boundaries for all five purpos
     { id: 'main', name: 'Main', models: [{ name: 'raw/model', displayName: 'Flash', imageInput: false }, { name: 'vision', imageInput: true }] },
     { id: 'off', name: 'Disabled', enabled: false, models: [{ name: 'hidden', imageInput: true }] },
   ];
-  const options = { modelId: 'main:raw/model', effort: 'max', fast: true, plan: false, mode: '按需审批' };
+  const options = { modelId: 'main:raw/model', effort: 'max', fast: true, mode: '按需审批' };
   const config = { toolModel: '', validatorModel: 'main:raw/model', imageModel: 'main:vision', systemPrompt: 'keep this prompt' };
   const defaults = [], chats = [], configs = []; let managed = false;
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);

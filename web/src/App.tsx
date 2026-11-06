@@ -55,7 +55,6 @@ import ProjectManager from './components/ProjectManager';
 import Help from './components/Help';
 import SessionsManager from './components/SessionsManager';
 import RequirementBoard from './components/RequirementBoard';
-import PlanReview from './components/PlanReview';
 import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
 import ElicitationForm from './components/ElicitationForm';
 import type { ElicitationRequest } from './elicitation';
@@ -118,9 +117,6 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [sessionDetailsTab, setSessionDetailsTab] = useState('events');
   const [deleteSession, setDeleteSession] = useState<Session>();
   const [rollbackMessage, setRollbackMessage] = useState<Message>();
-  const [pendingPlan, setPendingPlan] = useState<string>();
-  const [discardPlan, setDiscardPlan] = useState(false);
-  const [planBusyKeys, setPlanBusyKeys] = useState<Set<string>>(() => new Set());
   const [progressRevision, setProgressRevision] = useState(0);
   const [workspaceEditors, setWorkspaceEditors] = useState<Record<string, WorkspaceTabsState>>({});
   const editorKey = `${server}/${workspace}`;
@@ -272,8 +268,6 @@ export default function App({ startupPending = false, initialServer }: { startup
   const runningIds = runs.runningIds(server);
   const unreadIds = runs.unreadIds(server, sessions);
   useEffect(() => { if (session) runs.markRead(server, session.id); }, [runs, server, session?.id]);
-  const planBusy = planBusyKeys.has(currentRunKey);
-  function setPlanBusy(value: boolean) { setPlanBusyKeys(current => { const next = new Set(current); if (value) next.add(currentRunKey); else next.delete(currentRunKey); return next; }); }
   const agentPreferencesReady = agentPreferencesServer === server;
   const composerConfigBusy = !!agentConfigBusy || (!session && (!agentPreferencesReady || agentSelectionBusy || newAgentConfig?.key !== agentConfigKey));
   useEffect(() => {
@@ -480,8 +474,6 @@ export default function App({ startupPending = false, initialServer }: { startup
     : newAgentConfig?.key === agentConfigKey ? newAgentConfig.options : cachedAgentOptions(agentId);
   function saveOptions(next: ComposerOptions) {
     if (externalAgent) { setComposerOptions(next); return Promise.resolve(); }
-    // Leaving plan mode discards any submitted plan, so confirm first (legacy togglePlan).
-    if (!next.plan && composerOptions.plan && session) { setDiscardPlan(true); return Promise.resolve(); }
     return mutation(async () => {
       const prepared = preparedNewSession.current;
       const target = session || (prepared?.key === agentConfigKey ? prepared.target : undefined) || await prepareAgentConfig();
@@ -491,7 +483,6 @@ export default function App({ startupPending = false, initialServer }: { startup
       if (next.mode !== composerOptions.mode) changes.push(['mode', permissionValue(next.mode)]);
       if (next.effort !== composerOptions.effort) changes.push(['effort', next.effort]);
       if (next.fast !== composerOptions.fast) changes.push(['fast', next.fast ? 'on' : 'off']);
-      if (next.plan !== composerOptions.plan) changes.push(['plan', next.plan ? 'on' : 'off']);
       for (const [configId, value] of changes) {
         const result = await api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT',
           { workspaceHash: target.workspaceHash, sessionName: target.name, configId, value });
@@ -571,7 +562,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       }
       cacheAgentConfig(target.agentId || agentId, result.configOptions);
       if ((target.agentId === 'native' || !target.agentId) && composerViewRef.current.server === server && composerViewRef.current.activeId === (session?.id || null) && (session || composerViewRef.current.draftKey === homeRunKey)) {
-        // Native choices also feed the legacy settings page and plan review, so
+        // Native choices also feed the settings page, so
         // mirror the Agent's authoritative config back into composer options.
         setComposerOptions(current => {
           const next = { ...current };
@@ -579,16 +570,12 @@ export default function App({ startupPending = false, initialServer }: { startup
           const mode = result.configOptions.find(option => option.id === 'mode');
           const effort = result.configOptions.find(option => option.id === 'effort');
           const fast = result.configOptions.find(option => option.id === 'fast');
-          const plan = result.configOptions.find(option => option.id === 'plan');
           if (model && typeof model.currentValue === 'string') next.modelId = model.currentValue;
           if (mode && typeof mode.currentValue === 'string') next.mode = permissionLabel(mode.currentValue);
           if (effort && typeof effort.currentValue === 'string') next.effort = effort.currentValue;
           if (fast) next.fast = fast.currentValue === true || fast.currentValue === 'on';
-          if (plan) next.plan = plan.currentValue === 'on';
           return next;
         });
-        const plan = result.configOptions.find(option => option.id === 'plan');
-        if (plan && plan.currentValue !== 'on') setPendingPlan(undefined);
       }
     } catch (error) {
       if (isSessionOccupiedError(error)) recordSessionOccupancy(target.id, true);
@@ -670,7 +657,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (getModelCatalog(providers).some(model => model.id === defaultModel))
       setComposerOptions(value => ({ ...value, modelId: defaultModel }));
     setActiveId(null); setWorkspace(nextWorkspace); setDraft('');
-    setComposerContext(emptyContext); setPendingPlan(undefined); setMenu(null);
+    setComposerContext(emptyContext); setMenu(null);
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
   }
@@ -708,7 +695,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       historyRequest.current?.abort();
       selectMainTab(null, next.workspaceHash || '');
       setActiveId(next.id); setWorkspace(next.workspaceHash || '');
-      setPendingPlan(undefined); setMenu(null);
+      setMenu(null);
       userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
       notify(historyError ? `${label}已创建，历史刷新失败，可重新打开此会话加载`
         : messageCount === undefined ? '已保留历史并创建独立会话' : '已从所选回复创建独立分支会话');
@@ -764,12 +751,6 @@ export default function App({ startupPending = false, initialServer }: { startup
         .then(settings => {
           if (!controller.signal.aborted) setComposerOptions(current => ({ ...current, ...(selected.agentId && selected.agentId !== 'native' ? {} : { modelId: `${settings.modelChannelId}:${settings.model}` }), effort: settings.reasoningEffort || current.effort }));
         }).catch(error => { if (!controller.signal.aborted) notify(`加载会话模型设置失败：${error instanceof Error ? error.message : error}`); }),
-      api.request<{ mode: string; pendingPlan?: string | null }>(`/agent/mode?${sessionQuery(selected)}`, 'GET', undefined, controller.signal)
-        .then(mode => {
-          if (controller.signal.aborted) return;
-          setComposerOptions(current => ({ ...current, plan: mode.mode === 'plan' }));
-          setPendingPlan(mode.pendingPlan || undefined);
-        }).catch(error => { if (!controller.signal.aborted) notify(`加载会话计划状态失败：${error instanceof Error ? error.message : error}`); }),
     ]);
   }
   async function openScheduledSession(hash: string, name: string) {
@@ -859,24 +840,6 @@ export default function App({ startupPending = false, initialServer }: { startup
       setSessions(current => current.map(item => item.id === target.id ? { ...item, messages: historyMessages(history), messageCount: history.length } : item));
       notify(`${target.title} 已刷新`);
     } catch (error) { notify(`刷新失败：${error instanceof Error ? error.message : error}`); }
-  }
-  async function approvePlan() {
-    if (!session || planBusy || generatingId) return;
-    setPlanBusy(true);
-    try { await sendMessage(undefined, undefined, 'execute_plan'); } finally { setPlanBusy(false); }
-  }
-  async function exitPlanMode() {
-    if (!session || planBusy) return;
-    setPlanBusy(true);
-    try {
-      await api.request('/agent/mode', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, enabled: false });
-      if (composerViewRef.current.server === server && composerViewRef.current.activeId === session.id) {
-        setComposerOptions(current => ({ ...current, plan: false }));
-        setPendingPlan(undefined);
-      }
-      notify('已退出计划模式');
-    } catch (error) { notify(`退出计划模式失败：${error instanceof Error ? error.message : error}`); }
-    finally { setPlanBusy(false); }
   }
   async function removeSession(target: Session) {
     if (runs.get(sessionRunKey(server, target.id))) throw new Error('请先停止该会话，再删除');
@@ -1061,7 +1024,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       else if (answer.value) outgoing.push(answer.value);
     }
     if (!outgoing.length) return;
-    void (async () => { for (const value of outgoing) await sendMessage(value, undefined, undefined, false, true); })();
+    void (async () => { for (const value of outgoing) await sendMessage(value, undefined, false, true); })();
   }
   async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline', content: Record<string, unknown>) {
     if (!session) return;
@@ -1133,7 +1096,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       attempted = next;
       // Resolve the latest sender, and pass the queue's owner explicitly: the
       // old stream callback may have captured Home or another selected session.
-      sent = await sendMessageRef.current(next.text, next.context, undefined, false, false, target, next.id);
+      sent = await sendMessageRef.current(next.text, next.context, false, false, target, next.id);
     } catch (error) { notify(error instanceof Error ? error.message : '队列发送失败'); }
     finally {
       sendingQueued.current.delete(key);
@@ -1151,7 +1114,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     else void sendQueuedMessage(key);
   }
 
-  async function sendMessage(override?: string, overrideContext?: ComposerContext, action?: string, fresh = false, autoAnswer = false, queuedSession?: Session, queuedMessageId?: string): Promise<boolean> {
+  async function sendMessage(override?: string, overrideContext?: ComposerContext, fresh = false, autoAnswer = false, queuedSession?: Session, queuedMessageId?: string): Promise<boolean> {
     if (!queuedSession && composerConfigBusy) return false;
     const queuedItem = queuedSession && queuedMessageId ? nextQueued(queuedRef.current, queuedSession.id) : undefined;
     if (queuedSession && queuedMessageId && queuedItem?.id !== queuedMessageId) return false;
@@ -1160,17 +1123,17 @@ export default function App({ startupPending = false, initialServer }: { startup
     const sendWorkspace = queuedSession ? workspaces.find(item => item.hash === queuedSession.workspaceHash) : currentWorkspace;
     const sendAgentId = isChatWorkspace(sendWorkspace) ? 'native' : queuedSession ? queuedSession.agentId || 'native' : agentId;
     const requestKey = sendSession && !fresh ? sessionRunKey(server, sendSession.id) : homeRunKey;
-    if (runs.get(requestKey) || remoteRunRef.current === (sendSession?.id ?? '')) { if (override === undefined && !action) queueMessage(); return false; }
-    if (override === undefined && !action && !draft.trim() && !composerContext.files.length) return false;
+    if (runs.get(requestKey) || remoteRunRef.current === (sendSession?.id ?? '')) { if (override === undefined) queueMessage(); return false; }
+    if (override === undefined && !draft.trim() && !composerContext.files.length) return false;
     if (backend.status !== 'connected' || !backend.ready || !sendWorkspace) { notify('请先连接 Loopra 并选择工作区'); return false; }
     if (runs.count(server) >= runs.limit) { if (!queuedSession) notify(`已有 ${runs.limit} 个会话正在运行，请等待其中一个结束后再发送`); return false; }
-    let prompt = (override ?? draft.trim()) || (action ? '' : '请查看附件');
+    let prompt = (override ?? draft.trim()) || '请查看附件';
     const titleSource = prompt;
     // Oversized directly-typed bodies are saved into the project and replaced by
     // a reference block before sending, matching legacy ChatInput.vue. The paste
     // handler already externalizes clipboard text; this covers typed/edited text.
     let savedInput: string | undefined;
-    if (!action && sendWorkspace && !isChatWorkspace(sendWorkspace) && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
+    if (sendWorkspace && !isChatWorkspace(sendWorkspace) && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
       try {
         const saved = await api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: sendWorkspace.hash, content: prompt });
         if (!saved?.path) throw new Error('服务端未返回文件路径');
@@ -1189,7 +1152,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (preferences.sound) prepareCompletionSound();
     const sourceContext = overrideContext || composerContext;
     const context = isChatWorkspace(sendWorkspace) ? { ...withoutWorkspaceContext(sourceContext), skills: [...sourceContext.skills] } : { ...sourceContext };
-    const text = action ? composeOutgoing(prompt, { ...emptyContext, attachments: context.attachments }) : composeOutgoing(prompt, context, savedInput);
+    const text = composeOutgoing(prompt, context, savedInput);
     const controller = new AbortController(); const requestId = crypto.randomUUID();
     const request = runs.claim(requestKey, { controller, requestId, server, workspaceHash: sendWorkspace.hash, session: fresh ? undefined : sendSession });
     if (!request) { if (!queuedSession && !runs.get(requestKey)) notify(`已有 ${runs.limit} 个会话正在运行，请稍后发送`); return false; }
@@ -1209,9 +1172,8 @@ export default function App({ startupPending = false, initialServer }: { startup
     // Legacy Chat.vue attached the outgoing images to the local user bubble so
     // they render before any history reload (which may be skipped on a choice).
     const message = { id: crypto.randomUUID(), role: 'user' as const, text, time, images: (context.attachments || []).flatMap(file => file.image ? [file.image] : []) };
-    // Structured actions (execute_plan) and automatic choice answers run without a
-    // user bubble — an answer is a control reply, not something the user typed.
-    const silent = !!action || autoAnswer;
+    // Automatic choice answers are control replies and do not add a user bubble.
+    const silent = autoAnswer;
     let completed = false;
     let occupiedFailure = false;
     let agentStopReason: string | undefined;
@@ -1251,7 +1213,6 @@ export default function App({ startupPending = false, initialServer }: { startup
       }
       if (controller.signal.aborted || !runs.owns(request) || !sameServer()) throw new Error('会话请求已取消');
       const id = target.id;
-      // Approving a plan (execute_plan) must not re-enter plan mode; the agent clears it while executing.
       // A continued turn already owns its bubble: reopen it (so its timer ticks
       // again) instead of inserting a second one.
       if (resumed) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: undefined } : entry) } : item));
@@ -1265,7 +1226,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         setShowScrollBtn(false);
       }
       const attachments = context.attachments || [];
-      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: target.workspaceHash === CHAT_WORKSPACE.hash ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), ...(action ? { action } : {}) }, event => {
+      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: target.workspaceHash === CHAT_WORKSPACE.hash ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash) }, event => {
         if (!runs.owns(request) || controller.signal.aborted || !sameServer()) return;
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
@@ -1279,8 +1240,6 @@ export default function App({ startupPending = false, initialServer }: { startup
         }
         if (event.type === 'acp_plan') { setAcpPlans(current => ({ ...current, [id]: event.entries || [] })); return; }
         if (event.type === 'acp_commands') { setAcpCommands(current => ({ ...current, [id]: event.commands || [] })); return; }
-        if (event.type === 'plan_submitted') { if (visible()) { setPendingPlan(event.plan || undefined); setComposerOptions(current => ({ ...current, plan: true })); } return; }
-        if (event.type === 'mode_changed') { if (visible()) { setComposerOptions(current => ({ ...current, plan: event.mode === 'plan' })); if (event.mode !== 'plan') setPendingPlan(undefined); } return; }
         if (event.type === 'snapshot' && event.msgId) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, rollbackId: event.msgId, ...(event.hasCodeSnapshot ? { snapshotId: event.msgId } : {}) } : entry) } : item));
         if (event.type === 'token_speed') { runs.setSpeed(request, { tokensPerSecond: event.tokensPerSecond, avgTokensPerSecond: event.avgTokensPerSecond, done: !!event.done, completionTokens: event.completionTokens }); return; }
         // Legacy `log` events only surface as floating INFO/WARN/ERROR bars.
@@ -1346,7 +1305,6 @@ export default function App({ startupPending = false, initialServer }: { startup
             setSessions(current => current.map(item => item.id === id ? { ...item, messages } : item));
           }
         } catch { /* Keep the already received stream if history reload fails. */ }
-        if (action === 'execute_plan') { try { const mode = await api.request<{ mode: string; pendingPlan?: string | null }>(`/agent/mode?${sessionQuery(target)}`, 'GET'); if (visible()) { setComposerOptions(current => ({ ...current, plan: mode.mode === 'plan' })); setPendingPlan(mode.pendingPlan || undefined); } } catch { /* keep the stream-derived state */ } }
       }
       const released = runs.finish(request, !!target && !visible() && !occupiedFailure);
       if (released && sameServer()) {
@@ -1547,7 +1505,7 @@ export default function App({ startupPending = false, initialServer }: { startup
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
-            <div className="chat-composer-area">{!chatMode && !externalAgent && composerOptions.plan && <PlanReview pendingPlan={pendingPlan} busy={!!generatingId || planBusy} onApprove={() => void approvePlan()} onExit={() => setDiscardPlan(true)} notify={notify} />}{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={elicitationDraftKey} draftKey={elicitationDraftKey} drafts={elicitationDrafts.current} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
+            <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={elicitationDraftKey} draftKey={elicitationDraftKey} drafts={elicitationDrafts.current} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
           </>}
         </div></WorkspaceTabs>
         <ShellDock api={api} workspaceHash={workspace} open={shellOpen && !!workspace} onClose={() => setShellOpen(false)} />
@@ -1568,7 +1526,6 @@ export default function App({ startupPending = false, initialServer }: { startup
       if (!result.success) throw new Error(result.message);
       await refreshCurrentSession(result.rollbackUserText);
     }} />}
-    {discardPlan && <ConfirmAction title="退出计划模式" onClose={() => setDiscardPlan(false)} action={exitPlanMode}><p>{pendingPlan ? '待审查计划将被丢弃，且无法恢复。' : '将退出计划模式并恢复全部工具。'}</p></ConfirmAction>}
     <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={sessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
     <Settings
       pluginContext={pluginContext}

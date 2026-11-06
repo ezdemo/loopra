@@ -55,7 +55,6 @@ type liveSession struct {
 	channel     string
 	effort      string
 	fast        bool
-	plan        bool
 	instruction string
 	cfg         *modelconfig.Loopra
 	registry    *tools.Registry
@@ -342,7 +341,7 @@ func (s *liveSession) ensure(r *Runtime) error {
 		return nil
 	}
 	s.mu.Lock()
-	modelName, channelID, effort, fast, plan := s.model, s.channel, s.effort, s.fast, s.plan
+	modelName, channelID, effort, fast := s.model, s.channel, s.effort, s.fast
 	s.mu.Unlock()
 	cfg := r.cfg.Clone()
 	cfg.Model, cfg.ModelChannelID, cfg.ReasoningEffort, cfg.FastMode = modelName, channelID, effort, fast
@@ -353,7 +352,7 @@ func (s *liveSession) ensure(r *Runtime) error {
 	opts := agentpkg.Options{
 		Toolsets:    sets,
 		Config:      cfg,
-		Instruction: sessionInstruction(s.instruction, plan),
+		Instruction: s.instruction,
 		Sessions:    r.sessions,
 	}
 	r.mu.Lock()
@@ -370,10 +369,10 @@ func (s *liveSession) ensure(r *Runtime) error {
 
 func (s *liveSession) options() []acpsdk.SessionConfigOption {
 	s.mu.Lock()
-	mode, model, channel, effort, fast, plan := s.mode, s.model, s.channel, s.effort, s.fast, s.plan
+	mode, model, channel, effort, fast := s.mode, s.model, s.channel, s.effort, s.fast
 	cfg := s.cfg
 	s.mu.Unlock()
-	return sessionOptions(cfg, mode, channel+":"+model, effort, fast, plan)
+	return sessionOptions(cfg, mode, channel+":"+model, effort, fast)
 }
 
 func (s *liveSession) modes() *acpsdk.SessionModeState {
@@ -422,16 +421,12 @@ func (s *liveSession) applyOption(r *Runtime, id, value string) error {
 		s.mu.Lock()
 		s.effort, s.stale = value, true
 		s.mu.Unlock()
-	case "fast", "plan":
+	case "fast":
 		if value != "on" && value != "off" {
 			return fmt.Errorf("无效的开关值")
 		}
 		s.mu.Lock()
-		if id == "fast" {
-			s.fast, s.stale = value == "on", true
-		} else {
-			s.plan, s.stale = value == "on", true
-		}
+		s.fast, s.stale = value == "on", true
 		s.mu.Unlock()
 	default:
 		return fmt.Errorf("不支持的配置 %s", id)

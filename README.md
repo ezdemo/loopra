@@ -189,7 +189,7 @@ loopra acp        # 在标准输入输出上提供 ACP，不启动网页
 
 `models` 兼容旧版字符串数组。每个模型条目还可以配置 `displayName`、`contextTokens`、`maxTokens`、`imageInput` 和 `price`。`maxTokens` 是该模型单次请求的最大输出 token 数，包含推理 token；Chat Completions 映射为 `max_tokens`，Responses 映射为 `max_output_tokens`。未配置或小于等于 `0` 时使用 32768。`contextTokens` 为 `-1` 表示上下文窗口未知。
 
-全局默认模型之外，每个会话可以单独选择模型、渠道和推理强度。选择写在服务端会话元数据里，重开或切换会话时恢复。首页当前的 Agent，以及每个 Agent 最近一次明确选择的模型、权限和推理强度，记在 `~/.loopra/agent-preferences.json`。新会话继承该 Agent 的上次配置，已有会话保留自己的设置。计划模式不继承这组偏好。
+全局默认模型之外，每个会话可以单独选择模型、渠道和推理强度。选择写在服务端会话元数据里，重开或切换会话时恢复。首页当前的 Agent，以及每个 Agent 最近一次明确选择的模型、权限和推理强度，记在 `~/.loopra/agent-preferences.json`。新会话继承该 Agent 的上次配置，已有会话保留自己的设置。
 
 完整字段见 [配置](#配置)。
 
@@ -219,7 +219,7 @@ loopra acp        # 在标准输入输出上提供 ACP，不启动网页
   <tr>
     <td width="50%" valign="top">
       <strong>子代理与计划</strong><br/>
-      <code>explore</code>、<code>implement</code>、<code>test</code>、<code>review</code>、<code>plan</code> 五种角色，各自独立上下文。计划模式先做只读探索，批准后再执行。
+      <code>explore</code>、<code>implement</code>、<code>test</code>、<code>review</code>、<code>plan</code> 五种角色，各自独立上下文；探索、审查与规划角色使用只读工具。
     </td>
     <td width="50%" valign="top">
       <strong>审批边界</strong><br/>
@@ -309,7 +309,7 @@ AI 可以在回复正文中直接展示图片，例如 `![二维码](<C:/project
 |---|---|
 | 文件与代码检索 | `read`、`write`、`edit`、`rg` |
 | 命令与网络 | 当前系统 shell（Windows 为 `powershell` 或 `CMD`，其他系统为 `bash` 或 `sh`）及其 `_start` / `_wait` / `_stdin` / `_stop`；`web` 的 `search`、`code`、`fetch` |
-| 任务协作 | `sub_agent`、`submit_plan`、`ask_choice`；需求会话另有 `finish_requirement`、`reply_requirement_comment` |
+| 任务协作 | `sub_agent`、`ask_choice`；需求会话另有 `finish_requirement`、`reply_requirement_comment` |
 | 技能 | `skillread`、`skilllist`、`skillsearch`、`skillrefresh` |
 | 外部工具 | `tool_search`、`call_tool` 发现并调用 MCP 工具 |
 
@@ -430,11 +430,11 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 子代理通过 `sub_agent` 派生。默认配置中，`explore`、`review` 和 `plan` 只读；`implement` 与 `test` 可按配置执行写操作。角色定义在 `~/.loopra/sub-agents.json`，可在智能体设置中调整启用状态、说明、工具范围和渠道模型。内置角色的正文在启动时还原，启用状态会保留。
 
-每个子代理拥有独立推理上下文。事件写入父会话的 `.sub/<subSessionId>.jsonl`，并转发到父聊天流。子代理不能再派生子代理，也不能改写 Goal、Checklist 或计划。单次任务超时由 `subAgentTimeoutSec` 控制，默认 3600 秒。
+每个子代理拥有独立推理上下文。事件写入父会话的 `.sub/<subSessionId>.jsonl`，并转发到父聊天流。子代理不能再派生子代理，也不能改写 Goal 或 Checklist。单次任务超时由 `subAgentTimeoutSec` 控制，默认 3600 秒。
 
-### 计划与项目记忆
+### 任务进度与项目记忆
 
-输入框或 `/plan` 进入只读计划模式。探索完成后用 `submit_plan` 提交计划，`/execute` 批准待审查计划并按计划执行。
+Loopra Agent 直接按任务和工具审批策略执行，不提供独立计划模式。外部 ACP Agent 若提供计划模式，输入框继续适配其配置选项与指令，并展示其计划进度。
 
 会话 Goal 与 Checklist 保存在数据目录和项目的 `.loopra` 下，供界面展示长任务进度。项目说明可放在数据目录或项目根的 `loopra.md`，以及项目根的 `AGENTS.md`，启动会话时会并入系统提示。`/init` 会分析项目并生成 `loopra.md`。
 
@@ -476,7 +476,6 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 | `/new`、`/clear` | 回到当前工作区的新会话。 |
 | `/sessions` | 浏览、导出或清理历史会话。 |
 | `/export` | 下载当前会话的纯文本记录。 |
-| `/plan`、`/execute` | 进入只读计划模式；批准待审查计划并按计划执行。 |
 | `/compact` | 折叠历史上下文。 |
 | `/goal ...` | 查看或管理当前会话 Goal。 |
 | `/hitl`、`/agree`、`/deny` | 切换审批模式，或处理待审批工具调用。 |

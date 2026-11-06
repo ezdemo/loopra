@@ -47,11 +47,11 @@ type Profile struct {
 
 // DenyTools 是应用于每个子代理的硬性禁止列表（Java
 // SubAgent.SUB_AGENT_DENY）：子代理不能派生子代理，也不能
-// 操纵 goals/checklists/plans。
+// 操纵 goals/checklists。
 var DenyTools = []string{
 	"sub_agent", "checklist_start", "checklist_step", "checklist_status",
 	"goal_create", "goal_status", "goal_update_step", "goal_complete",
-	"goal_block", "goal_resume", "ask_choice", "submit_plan",
+	"goal_block", "goal_resume", "ask_choice",
 }
 
 // Result 承载一次已完成的子代理执行。

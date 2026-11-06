@@ -77,18 +77,12 @@ func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 		efforts = append(efforts, option(value, value, ""))
 	}
 	out = append(out, selectOption("effort", "思考强度", "thought_level", strOr(meta, "reasoningEffort", s.cfg.ReasoningEffort), efforts))
-	fast, plan := "off", "off"
+	fast := "off"
 	if s.cfg.FastMode {
 		fast = "on"
 	}
-	if meta["planMode"] == true {
-		plan = "on"
-	}
 	toggles := []map[string]any{option("off", "关闭", ""), option("on", "开启", "")}
 	out = append(out, selectOption("fast", "快速模式", "model_config", strOr(values, "fast", fast), toggles))
-	if s.agent.App() != chatWorkspace {
-		out = append(out, selectOption("plan", "计划模式", "_plan", plan, toggles))
-	}
 	return out
 }
 
@@ -119,11 +113,6 @@ func (s *Controller) setNativeConfigOption(name, id string, value any) error {
 		}
 	case "effort":
 		patch["reasoningEffort"] = text
-	case "plan":
-		patch["planMode"] = text == "on"
-		if text == "off" {
-			patch["pendingPlan"] = ""
-		}
 	default:
 		values, _ := s.sessionMetaRead(name)["agentConfig"].(map[string]any)
 		if values == nil {

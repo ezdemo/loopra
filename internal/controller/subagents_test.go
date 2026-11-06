@@ -69,7 +69,7 @@ func TestSubAgentsListAndMerge(t *testing.T) {
 	}
 	// denied-tools 返回常量列表
 	_, env = call(t, ts, http.MethodGet, "/api/sub-agents/denied-tools", key, nil)
-	if got := len(env["data"].([]any)); got != 12 {
+	if got := len(env["data"].([]any)); got != 11 {
 		t.Fatalf("denied count = %d", got)
 	}
 }

@@ -417,9 +417,8 @@ func branchPrefix(events iter.Seq[*session.Event], count int) ([]*session.Event,
 	return prefix, nil
 }
 
-// sessionsCleanup 删除 mtime 早于 ?before= 的会话：已落盘的会话、
-// 只有 .meta 的计划模式会话（列表可见但存储层 List 不返回），以及
-// 旧版本遗留的 0 字节空白日志。
+// sessionsCleanup 删除 mtime 早于 ?before= 的已落盘会话，
+// 以及旧版本遗留的 0 字节空白日志。
 func (s *Controller) sessionsCleanup(w http.ResponseWriter, r *http.Request) {
 	before, err := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	if err != nil {
@@ -432,10 +431,8 @@ func (s *Controller) sessionsCleanup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	removed := []string{}
-	seen := map[string]bool{}
 	for _, sess := range list.Sessions {
 		name := sess.ID()
-		seen[name] = true
 		if s.sessionRunning(name) != "" {
 			continue
 		}
@@ -453,31 +450,6 @@ func (s *Controller) sessionsCleanup(w http.ResponseWriter, r *http.Request) {
 		}
 		// 旧版本遗留的 0 字节空白日志：按文件修改时间清理。
 		if err := os.Remove(s.sessionLogPath(name)); err != nil && !os.IsNotExist(err) {
-			continue
-		}
-		s.removeSessionSidecars(name)
-		s.removeWorktree(name)
-		removed = append(removed, name)
-	}
-	// 只有 .meta、尚未写入消息的计划模式会话在列表中可见，但存储层
-	// List 不会返回它们，需要单独扫描（对应 Java list() 的 .meta 分支）。
-	entries, _ := os.ReadDir(s.sessionDir())
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".meta") {
-			continue
-		}
-		name := strings.TrimSuffix(entry.Name(), ".meta")
-		if seen[name] || s.sessionRunning(name) != "" {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || info.ModTime().UnixMilli() >= before {
-			continue
-		}
-		if !sessionMetaPending(s.sessionMetaRead(name)) {
-			continue
-		}
-		if s.agent.Sessions.Delete(r.Context(), delReq(s.agent, name)) != nil {
 			continue
 		}
 		s.removeSessionSidecars(name)

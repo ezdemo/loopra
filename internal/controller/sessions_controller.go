@@ -3,9 +3,7 @@ package controller
 import (
 	"context"
 	"net/http"
-	"os"
 	"sort"
-	"strings"
 )
 
 // sessionsController 基于 JSONL 存储实现会话相关接口。
@@ -13,8 +11,7 @@ import (
 // 会话采用懒物化：只有真正写入了消息的会话才会出现在列表中。
 // 新建但从未发送消息的会话只存在于内存（当前会话名）与 .meta
 // 设置快照里，既不落盘也不可见——与 Java 的 JsonlSessionStore
-// 延迟创建语义一致。唯一的例外是用户显式开启了计划模式（或已有
-// 待执行计划）：此时会话只有 .meta，刷新后仍需能被重新发现。
+// 延迟创建语义一致。
 func (s *Controller) sessionsController(w http.ResponseWriter, r *http.Request) {
 	list, err := s.agent.Sessions.List(r.Context(), listReq(s.agent))
 	if err != nil {
@@ -22,22 +19,18 @@ func (s *Controller) sessionsController(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	out := make([]map[string]any, 0, len(list.Sessions))
-	listed := make(map[string]bool, len(list.Sessions))
 	for _, sess := range list.Sessions {
 		name := sess.ID()
 		// 存储层为满足 ADK 的 List 契约也会返回仅在内存登记的会话；
 		// 它们还没有写入任何消息（或该轮次在产生事件前就失败了），
-		// 不应出现在用户可见的会话列表里。计划模式会话由下面的
-		// .meta 扫描补回。
+		// 不应出现在用户可见的会话列表里。
 		if !s.sessionPersisted(name) {
 			continue
 		}
 		messages := s.sessionMessages(r.Context(), name)
 		meta := s.sessionMetaRead(name)
 		out = append(out, s.sessionRow(name, meta, messages, sess.LastUpdateTime().UnixMilli()))
-		listed[name] = true
 	}
-	out = append(out, s.metaOnlySessionRows(listed)...)
 	order := s.sessionOrderNames()
 	sort.SliceStable(out, func(i, j int) bool {
 		// 拖拽保存的顺序继续生效。还没写进这份顺序的会话是新建的，
@@ -110,12 +103,6 @@ func (s *Controller) removeSession(ctx context.Context, name string) error {
 	return nil
 }
 
-// sessionMetaPending 判断 .meta 是否让只有元数据的会话仍然可见：
-// 计划模式可在首条消息前开启，待执行计划也可能尚未消费。
-func sessionMetaPending(meta map[string]any) bool {
-	return meta["planMode"] == true || strings.TrimSpace(strOr(meta, "pendingPlan", "")) != ""
-}
-
 // sessionRow 组装会话列表中的一行。
 func (s *Controller) sessionRow(name string, meta map[string]any, messages []map[string]any, mtime int64) map[string]any {
 	return map[string]any{
@@ -123,43 +110,4 @@ func (s *Controller) sessionRow(name string, meta map[string]any, messages []map
 		"current": s.currentSession() == name, "mtime": mtime,
 		"worktreeMode": meta["worktreeMode"] == true, "agentId": s.listedAgentID(name, meta),
 	}
-}
-
-// metaOnlySessionRows 补齐“只有 .meta、尚未写入消息”的计划模式会话，
-// 对应 Java list() 对 *.meta 的补充扫描。
-func (s *Controller) metaOnlySessionRows(listed map[string]bool) []map[string]any {
-	entries, err := os.ReadDir(s.sessionDir())
-	if err != nil {
-		return nil
-	}
-	type pendingRow struct {
-		name  string
-		meta  map[string]any
-		mtime int64
-	}
-	var rows []pendingRow
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".meta") {
-			continue
-		}
-		name := strings.TrimSuffix(entry.Name(), ".meta")
-		if listed[name] {
-			continue
-		}
-		meta := s.sessionMetaRead(name)
-		if !sessionMetaPending(meta) {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		rows = append(rows, pendingRow{name: name, meta: meta, mtime: info.ModTime().UnixMilli()})
-	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].mtime > rows[j].mtime })
-	out := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, s.sessionRow(row.name, row.meta, nil, row.mtime))
-	}
-	return out
 }

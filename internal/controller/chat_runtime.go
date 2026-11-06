@@ -155,19 +155,7 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	}
 	linkedRoots := projectRoots(projects)
 	instruction := s.withMemoryInstruction(s.systemInstructionFor(s.workspaceRoot(), s.agent.App(), projects))
-	if chat && req.Action == "execute_plan" {
-		return nil, fmt.Errorf("纯聊天不支持计划执行")
-	}
-	if req.Action == "execute_plan" {
-		plan := strOr(meta, "pendingPlan", "")
-		if plan == "" {
-			return nil, fmt.Errorf("当前会话没有待执行计划")
-		}
-		req.Message = "请执行以下已批准的计划：\n" + plan
-	} else if !chat && meta["planMode"] == true {
-		instruction += "\n当前为计划模式：只进行只读探索并制定计划，使用 submit_plan 提交，禁止修改文件和执行写入命令。"
-	}
-	changed := model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || (!chat && meta["planMode"] == true) || strings.TrimSpace(instruction) != s.agent.Instruction()
+	changed := model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
 	var mcpSets []tool.Toolset
 	var closers []io.Closer
 	if !chat {

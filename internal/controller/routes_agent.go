@@ -25,8 +25,6 @@ func (s *Controller) registerAgentRoutes(api *apiRouter) {
 	api.POST("/sub-sessions/*", s.action((*Controller).subSessionsController))
 	api.DELETE("/sub-sessions/", s.action((*Controller).subSessionsController))
 	api.DELETE("/sub-sessions/*", s.action((*Controller).subSessionsController))
-	readRoute(api, "/agent/mode", s.action((*Controller).agentDeepController))
-	api.POST("/agent/mode", s.action((*Controller).agentDeepController))
 	readRoute(api, "/agent/commands", s.action((*Controller).agentDeepController))
 	readRoute(api, "/agent/acp-state", s.action((*Controller).agentDeepController))
 	readRoute(api, "/agent/prompt", s.action((*Controller).agentDeepController))

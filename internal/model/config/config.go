@@ -239,7 +239,7 @@ var DefaultAutoWhitelist = []string{
 	"goal_block", "goal_resume", "checklist_start", "checklist_step",
 	"checklist_status", "workspace_read", "workspace_write", "workspace_list",
 	"memory", "web", "skillread",
-	"skilllist", "skillrefresh", "ask_choice", "submit_plan",
+	"skilllist", "skillrefresh", "ask_choice",
 }
 
 // Default 返回与 Java 兼容的默认配置。

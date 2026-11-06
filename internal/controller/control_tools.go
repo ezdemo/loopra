@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,11 +14,6 @@ import (
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
-type planInput struct {
-	Steps   string `json:"steps"`
-	Summary string `json:"summary,omitempty"`
-	Risks   string `json:"risks,omitempty"`
-}
 type choiceInput struct {
 	Question    string `json:"question"`
 	Options     []any  `json:"options"`
@@ -30,41 +24,6 @@ func (s *Controller) installControlTools() {
 	if s.registry == nil {
 		return
 	}
-	plan, _ := functiontool.New[planInput, map[string]any](functiontool.Config{Name: "submit_plan", Description: "计划模式下提交有序执行步骤供用户审查。steps 可以是 JSON 字符串数组或每行一步的文本。"}, func(ctx agentctx.Context, in planInput) (map[string]any, error) {
-		if s.sessionMetaRead(ctx.SessionID())["planMode"] != true {
-			return nil, fmt.Errorf("当前不在计划模式")
-		}
-		var steps []string
-		if json.Unmarshal([]byte(in.Steps), &steps) != nil {
-			steps = strings.Split(in.Steps, "\n")
-		}
-		var text strings.Builder
-		if strings.TrimSpace(in.Summary) != "" {
-			fmt.Fprintf(&text, "**概述**：%s\n\n", strings.TrimSpace(in.Summary))
-		}
-		text.WriteString("**执行步骤**：\n")
-		count := 0
-		for _, step := range steps {
-			step = strings.TrimSpace(step)
-			if step == "" {
-				continue
-			}
-			count++
-			fmt.Fprintf(&text, "%d. %s\n", count, step)
-		}
-		if count == 0 {
-			return nil, fmt.Errorf("执行步骤不能为空")
-		}
-		if strings.TrimSpace(in.Risks) != "" {
-			fmt.Fprintf(&text, "\n**风险与注意事项**：%s\n", strings.TrimSpace(in.Risks))
-		}
-		s.sessionMetaSet(ctx.SessionID(), map[string]any{"pendingPlan": text.String()})
-		if sink := sinkFromContext(ctx); sink != nil {
-			sink.SendSub("plan_submitted", map[string]any{"plan": text.String()})
-		}
-		return map[string]any{"status": "submitted", "message": "计划已提交，等待用户确认。请结束本轮，不要执行修改操作。"}, nil
-	})
-	s.registry.Add(tools.Tool{Tool: plan, Meta: tools.Metadata{Name: "submit_plan", Description: plan.Description(), ReadOnly: true, AutoApprove: true}})
 	choice, _ := functiontool.New[choiceInput, map[string]any](functiontool.Config{Name: "ask_choice", Description: "向用户展示选择菜单并结束本轮。"}, func(ctx agentctx.Context, in choiceInput) (map[string]any, error) {
 		options := []map[string]any{}
 		for _, item := range in.Options {
@@ -87,12 +46,6 @@ func (s *Controller) installControlTools() {
 	s.registry.Add(tools.Tool{Tool: choice, Meta: tools.Metadata{Name: "ask_choice", Description: choice.Description(), ReadOnly: true, AutoApprove: true}})
 	s.installRequirementTools()
 	s.installSkillTools()
-	s.registry.SetFilter(func(ctx agentctx.ReadonlyContext, meta tools.Metadata) bool {
-		if ctx == nil {
-			return true
-		}
-		return s.sessionMetaRead(ctx.SessionID())["planMode"] != true || meta.ReadOnly || meta.Name == "ask_choice" || meta.Name == "submit_plan"
-	})
 }
 
 type finishRequirementInput struct {

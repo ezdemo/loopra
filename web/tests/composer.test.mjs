@@ -54,14 +54,14 @@ test('same-name models keep distinct provider identities and search both fields'
 });
 
 test('sent context is a stable folded snapshot, including the selected channel', () => {
-  const options = { ...defaultOptions, plan: true, fast: true, effort: 'custom' };
+  const options = { ...defaultOptions, fast: true, effort: 'custom' };
   const context = { projects: ['runtime'], skills: ['代码审查'], files: ['notes.md'] };
   const text = composeMessage('审查代码', options, context, models.find(model => model.providerId === 'magpie'));
-  options.plan = false;
+  options.fast = false;
   context.files.push('later.md');
   assert.match(text, /^```折叠块\n/);
   assert.match(text, /magpie \/ DeepSeek V4.1 Flash/);
-  assert.match(text, /计划模式：开启/);
+  assert.match(text, /快速模式：开启/);
   assert.match(text, /推理强度：custom/);
   assert.match(text, /技能：代码审查/);
   assert.match(text, /仅文件名，未读取内容/);
@@ -101,7 +101,7 @@ test('outgoing context is folded into a leading block ahead of the prompt', asyn
   // Attachment chips are delivered as document text, not file references.
   assert.ok(!composeOutgoing('hi', { ...context, files: ['report.pdf'], attachments: [{ name: 'report.pdf', text: 'x' }] }).includes('引用文件：'));
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /const text = action \? composeOutgoing\(prompt, \{ \.\.\.emptyContext, attachments: context\.attachments \}\) : composeOutgoing\(prompt, context, savedInput\)/);
+  assert.match(app, /const text = composeOutgoing\(prompt, context, savedInput\)/);
   // Externalized typed input is folded with no visible prompt remainder.
   assert.equal(composeOutgoing('', { projects: [], skills: [], files: [], attachments: [] }, '大段输入内容（已保存）：\n- a.txt'), '```折叠块\n大段输入内容（已保存）：\n- a.txt\n```');
 });

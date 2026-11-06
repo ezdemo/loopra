@@ -67,37 +67,6 @@ func skillFrontmatter(data []byte, fallback string) (string, string) {
 func (s *Controller) agentDeepController(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("sessionName")
 	switch strings.TrimPrefix(r.URL.Path, "/api/agent/") {
-	case "mode":
-		if r.Method == http.MethodPost {
-			var body struct {
-				SessionName string `json:"sessionName"`
-				Enabled     bool   `json:"enabled"`
-			}
-			if json.NewDecoder(r.Body).Decode(&body) != nil || body.SessionName == "" {
-				writeFail(w, http.StatusBadRequest, "请先选择会话")
-				return
-			}
-			name = body.SessionName
-			patch := map[string]any{"planMode": body.Enabled}
-			if !body.Enabled {
-				patch["pendingPlan"] = ""
-			}
-			s.sessionMetaSet(name, patch)
-		}
-		if name == "" {
-			writeFail(w, http.StatusBadRequest, "sessionName 不能为空")
-			return
-		}
-		meta := s.sessionMetaRead(name)
-		mode := "execute"
-		if meta["planMode"] == true {
-			mode = "plan"
-		}
-		state := map[string]any{"mode": mode}
-		if plan := strOr(meta, "pendingPlan", ""); plan != "" {
-			state["pendingPlan"] = plan
-		}
-		writeOK(w, http.StatusOK, state)
 	case "acp-state":
 		if name == "" {
 			writeFail(w, http.StatusBadRequest, "sessionName 不能为空")

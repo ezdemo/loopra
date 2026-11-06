@@ -48,7 +48,7 @@ const context = { projects: [], skills: [], files: [], attachments: [] };
 function harness() {
   const streams = [], requests = [], notices = [], drafts = [], contexts = [];
   const running = new Set();
-  const state = { options: {}, plan: undefined, inputs: {}, configs: {}, editors: {}, logs: [], selections: [] };
+  const state = { inputs: {}, configs: {}, editors: {}, logs: [], selections: [] };
   let abortGate;
   const shared = {
     server: 'http://localhost:4567', occupiedSessionsRef: { current: new Set() },
@@ -70,8 +70,7 @@ function harness() {
     setQueuedMessages: () => {}, setActiveId: id => { state.selections.push(id); shared.composerViewRef.current.activeId = id; },
     setDraft: text => drafts.push(text), setComposerContext: value => contexts.push(value), setMenu: () => {}, setShowScrollBtn: () => {},
     setPendingInputs: update => { state.inputs = update(state.inputs); }, notifyWorkspaceChanged: () => {}, setPetReply: () => {},
-    setComposerOptions: update => { state.options = update(state.options); }, setPendingPlan: value => { state.plan = value; },
-    setAcpPlans: () => {}, setAcpCommands: () => {}, setRemoteRun: value => { state.remoteRun = value; },
+    setAcpPlans: update => { state.acpPlans = update(state.acpPlans || {}); }, setAcpCommands: () => {}, setRemoteRun: value => { state.remoteRun = value; },
     setWorkspaceEditors: update => { state.editors = update(state.editors); }, emptyWorkspaceTabs: { tabs: [] },
     ensureSubAgentTab: (tabs, entry) => ({ ...tabs, tabs: [...tabs.tabs, entry] }),
     chatLogs: { push: entry => state.logs.push(entry) },
@@ -126,9 +125,10 @@ test('two sessions stream concurrently and background events stay with their own
   h.streams[1].emit({ type: 'content', content: 'B-only' });
   h.streams[0].emit({ type: 'token_speed', tokensPerSecond: 11 });
   h.streams[1].emit({ type: 'token_speed', tokensPerSecond: 22 });
-  h.streams[0].emit({ type: 'plan_submitted', plan: 'A-plan' });
-  assert.equal(h.state.plan, undefined, 'background plans must not replace the selected composer');
-  h.streams[1].emit({ type: 'plan_submitted', plan: 'B-plan' });
+  const aPlan = [{ content: 'A-plan', status: 'pending', priority: 'medium' }];
+  const bPlan = [{ content: 'B-plan', status: 'completed', priority: 'high' }];
+  h.streams[0].emit({ type: 'acp_plan', entries: aPlan });
+  h.streams[1].emit({ type: 'acp_plan', entries: bPlan });
   h.streams[0].emit({ type: 'config_options', configOptions: [{ id: 'A-config' }] });
   h.streams[1].emit({ type: 'config_options', configOptions: [{ id: 'B-config' }] });
   h.streams[0].emit({ type: 'log', message: 'A-log' });
@@ -138,7 +138,7 @@ test('two sessions stream concurrently and background events stay with their own
   assert.equal(h.state.editors[`${h.shared.server}/b`], undefined);
   assert.equal(h.state.configs[original.id][0].id, 'A-config');
   assert.equal(h.state.configs[other.id][0].id, 'B-config');
-  assert.equal(h.state.plan, 'B-plan');
+  assert.deepEqual(h.state.acpPlans, { [original.id]: aPlan, [other.id]: bPlan });
   assert.deepEqual(h.state.logs.map(log => log.message), ['B-log']);
   assert.equal(h.shared.runs.speed(sessionRunKey(h.shared.server, original.id)).tokensPerSecond, 11);
   assert.equal(h.shared.runs.speed(sessionRunKey(h.shared.server, other.id)).tokensPerSecond, 22);
