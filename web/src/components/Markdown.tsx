@@ -12,7 +12,7 @@ import 'katex/dist/katex.min.css';
 import { normalizeMathMarkdown } from '../markdown-math';
 import { normalizeAlertMarkdown } from '../markdown-alert';
 import { LOCAL_FILE_SCHEME, fileLineFromHref, localFilePath, rehypeLocalFileLinks } from '../markdown-links';
-import { isDirectImage, LOCAL_IMAGE_SCHEME, rehypeLocalImages } from '../markdown-images';
+import { isDirectImage, LOCAL_IMAGE_SCHEME, rehypeLocalImages, remarkLocalImages } from '../markdown-images';
 import { markdownSchema } from '../markdown-schema';
 import { rehypeStreamReveal } from '../markdown-reveal';
 import { useColorizedFence } from '../highlight';
@@ -152,6 +152,6 @@ export default memo(function Markdown({ text, notify, onOpenFile, streaming = fa
   const rehypePlugins = useMemo<NonNullable<Options['rehypePlugins']>>(() => streaming
     ? [rehypeRaw, rehypeLocalFileLinks, rehypeLocalImages, [rehypeSanitize, markdownSchema], rehypeKatex, rehypeStreamReveal]
     : [rehypeRaw, rehypeLocalFileLinks, rehypeLocalImages, [rehypeSanitize, markdownSchema], rehypeKatex], [streaming]);
-  const remarkPlugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => [remarkGfm, remarkMath, remarkBreaks], []);
+  const remarkPlugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => [remarkGfm, remarkMath, remarkBreaks, remarkLocalImages], []);
   return <LinkPopoverProvider><NoticeContext.Provider value={notify}><OpenFileContext.Provider value={onOpenFile ?? null}><div className="block-content"><ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform} components={components}>{source}</ReactMarkdown></div></OpenFileContext.Provider></NoticeContext.Provider></LinkPopoverProvider>;
 });

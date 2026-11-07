@@ -221,6 +221,7 @@ test('reply image paths use the authenticated session endpoint, including bare a
     ['C:/repo/二维码 result.png', 'C:/repo/二维码 result.png'],
     ['/C:/repo/qr.png', 'C:/repo/qr.png'],
     ['C:\\repo\\image.png', 'C:/repo/image.png'],
+    [String.raw`C:\Users\15614\.loopra\chat-workspace\pixel-gungeon\screenshots\1-title.png`, 'C:/Users/15614/.loopra/chat-workspace/pixel-gungeon/screenshots/1-title.png'],
     ['/tmp/image.png', '/tmp/image.png'],
     ['images/100%25%20done%23%3F.png', 'images/100% done#?.png'],
     ['images/literal%2520.png', 'images/literal%20.png'],
@@ -246,9 +247,46 @@ test('reply image paths use the authenticated session endpoint, including bare a
   } finally { harness.restore(); }
 });
 
+test('Windows image destinations preserve separators before Markdown punctuation', async () => {
+  const harness = imageHarness();
+  const path = String.raw`C:\Users\15614\.loopra\chat-workspace\pixel-gungeon\screenshots\1-title.png`;
+  const expected = 'C:/Users/15614/.loopra/chat-workspace/pixel-gungeon/screenshots/1-title.png';
+  const fixtures = [
+    [`![标题](${path})`, expected],
+    [`![标题](<${path}> "截图")`, expected],
+    [String.raw`![截图](C:\repo\_shots\!done.png)`, 'C:/repo/_shots/!done.png'],
+    [String.raw`![截图](C:\.shots\image.png)`, 'C:/.shots/image.png'],
+    [String.raw`![截图](C:\\repo\\.shots\\image.png)`, 'C:/repo/.shots/image.png'],
+    [String.raw`![截图](C:/repo/foo\(1\).png)`, 'C:/repo/foo(1).png'],
+    [String.raw`![截图](<C:\repo\.shots\100%25%20done.png>)`, 'C:/repo/.shots/100% done.png'],
+    [`![标题][shot]\n\n[shot]: <${path}> "截图"`, expected],
+  ];
+  try {
+    for (const [text, destination] of fixtures) {
+      const view = await mount(text, {}, harness.wrap);
+      try {
+        assert.equal(new URL(harness.requests.at(-1).url).searchParams.get('path'), destination, text);
+        assert.ok(view.container.querySelector('img'), text);
+      } finally { await view.unmount(); }
+    }
+    const opened = [];
+    const shared = await mount(`![标题][shot]\n\n[文件][shot]\n\n[shot]: <${path}>`, { onOpenFile: value => opened.push(value) }, harness.wrap);
+    try {
+      await act(async () => shared.container.querySelector('.ai-file-link').click());
+      assert.deepEqual(opened, [expected]);
+    } finally { await shared.unmount(); }
+    const count = harness.requests.length;
+    const code = await render('```markdown\n' + `![标题](${path})` + '\n```\n\n`' + path + '`', {}, harness.wrap);
+    assert.ok(code.includes('15614\\.loopra'));
+    const escaped = await render(String.raw`\!\[标题\]` + `(${path})`, {}, harness.wrap);
+    assert.ok(!escaped.includes('<img'));
+    assert.equal(harness.requests.length, count);
+  } finally { harness.restore(); }
+});
+
 test('streaming and historical Markdown keep image references without fetching every delta', async () => {
   const harness = imageHarness();
-  const text = '![二维码](qr.png)';
+  const text = String.raw`![二维码](C:\Users\15614\.loopra\screenshots\qr.png)`;
   const view = await mount(text, { streaming: true }, harness.wrap);
   try {
     const first = view.container.querySelector('img').getAttribute('src');
