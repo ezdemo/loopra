@@ -89,6 +89,9 @@ func AttachFileChanges(ctx context.Context, event *session.Event) {
 		if part == nil || part.FunctionResponse == nil {
 			continue
 		}
+		if IsAsyncPlaceholder(part.FunctionResponse.ID, part.FunctionResponse.Response) {
+			continue
+		}
 		key := event.InvocationID + "/" + part.FunctionResponse.ID
 		changes = append(changes, r.pending[key]...)
 		delete(r.pending, key)

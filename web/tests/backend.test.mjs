@@ -30,6 +30,28 @@ test('tool output deltas append while snapshots and final results replace', () =
   assert.equal(message.blocks[0].status, '成功');
 });
 
+test('asynchronous tool history replaces running receipt without extra messages', () => {
+  const history = [
+    { role: 'user', content: 'run' },
+    { role: 'assistant', tool_calls: [{ id: 'slow', name: 'shell', arguments: {} }] },
+    { role: 'tool', tool_call_id: 'slow', content: '{"async":true,"status":"running","call_id":"slow"}', tool_status: 'running' },
+  ];
+  const running = historyMessages(history);
+  assert.equal(running[1].blocks[0].status, '执行中');
+  const completed = historyMessages([...history,
+    { role: 'assistant', content: 'Working on something independent.' },
+    { role: 'tool', tool_call_id: 'slow', content: 'final evidence', tool_status: 'completed', async_tool_result: true },
+    { role: 'assistant', content: 'done' },
+  ]);
+  assert.equal(completed.length, 2);
+  assert.equal(completed[1].blocks.filter(block => block.type === 'tool_call').length, 1);
+  assert.equal(completed[1].blocks[0].status, '成功');
+  assert.equal(completed[1].blocks[0].result, 'final evidence');
+  assert.equal(running[1].blocks[0].status, '执行中');
+  const failed = historyMessages([...history, { role: 'tool', tool_call_id: 'slow', content: 'context canceled', tool_status: 'failed' }]);
+  assert.equal(failed[1].blocks[0].status, '失败');
+});
+
 test('a view cancellation signal does not disable request deadlines', async () => {
   const originalFetch = globalThis.fetch;
   const originalTimeout = AbortSignal.timeout;

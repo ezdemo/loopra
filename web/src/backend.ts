@@ -270,7 +270,7 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
   }
   else if (event.type === 'tool_result') {
     const found = [...blocks].reverse().find(block => block.type === 'tool_call' && (event.toolCallId ? block.toolCallId === event.toolCallId : block.status === '执行中' && (!event.name || block.name === event.name)));
-    if (found?.type === 'tool_call') { const target = edit(found); target.result = stringify(event.result ?? content); target.status = event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception|\[failed\])/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
+    if (found?.type === 'tool_call') { const target = edit(found); target.result = stringify(event.result ?? content); target.status = event.status === 'running' ? '执行中' : event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception|\[failed\])/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
   } else if (event.type === 'file_changes' && event.changes?.length) {
     let summary = blocks.find(block => block.type === 'file_changes');
     if (!summary || summary.type !== 'file_changes') { summary = { id, type: 'file_changes', changes: [] }; blocks.push(summary); }
@@ -302,7 +302,7 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
 }
 
 type HistoryContentPart = { type: string; text?: string; image_url?: { url: string }; imageUrl?: { url: string } };
-export type HistoryMessage = { snapshot_id?: string; rollback_id?: string; role: string; content?: string | HistoryContentPart[] | null; contentParts?: HistoryContentPart[] | null; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; response_reasoning?: unknown; responseReasoning?: unknown; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number };
+export type HistoryMessage = { snapshot_id?: string; rollback_id?: string; role: string; content?: string | HistoryContentPart[] | null; contentParts?: HistoryContentPart[] | null; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; response_reasoning?: unknown; responseReasoning?: unknown; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number; tool_status?: 'running' | 'completed' | 'failed' };
 
 /** Legacy `chatHistory.hasEncryptedReasoning`: does a stored turn hide reasoning? */
 export function hasEncryptedReasoning(value: unknown) {
@@ -341,7 +341,7 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
         const name = call.function?.name || call.name || 'unknown';
         events.push({ type: 'tool_call', toolCallId: call.id, name, args: call.function?.arguments ?? call.arguments });
         const result = results.get(call.id);
-        if (result) events.push({ type: 'tool_result', toolCallId: call.id, name, result: result.content, duration: result.tool_duration_ms });
+        if (result) events.push({ type: 'tool_result', toolCallId: call.id, name, result: result.content, status: result.tool_status, duration: result.tool_duration_ms });
       }
       if (content.trim()) events.push({ type: 'content', content });
       if (entry.file_changes || entry.fileChanges) events.push({ type: 'file_changes', changes: entry.file_changes || entry.fileChanges });

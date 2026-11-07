@@ -201,7 +201,7 @@ func (s *Controller) materializePluginTools(specs []plugin.BoundTool) []tools.To
 			continue
 		}
 		out = append(out, tools.Tool{Tool: toolImpl, Meta: tools.Metadata{
-			Name: spec.Name, Description: spec.Description, ReadOnly: spec.ReadOnly, AutoApprove: spec.ReadOnly, Chat: spec.Chat,
+			Name: spec.Name, Description: spec.Description, ReadOnly: spec.ReadOnly, AutoApprove: spec.ReadOnly, Chat: spec.Chat, Async: spec.Async,
 		}})
 	}
 	return out

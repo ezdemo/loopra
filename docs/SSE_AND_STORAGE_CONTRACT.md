@@ -6,6 +6,7 @@
 ## 0. 传输与链路
 
 - AI 回复图片使用普通 Markdown `![说明](<图片路径>)`，随现有正文事件与 JSONL 文本保存，不新增图片事件或附件字段。本地路径通过 `/api/files/image` 按消息所属工作区和会话读取；HTTP/HTTPS 图片由浏览器直接加载。主会话、历史恢复和子代理回放共用图片加载与放大预览。历史引用原文件当前内容，不保存图片快照，原文件删除后显示不可读取。原生、纯聊天及子代理提示词共用展示约定；外部 ACP 通过独立的 prompt 文本块接收该约定，该块不改写 Loopra 保存的用户转录。
+- Windows 图片路径兼容反斜杠分隔符，包括 `C:\Users\name\.loopra\image.png`；渲染时保留标点目录前的分隔符，避免被 Markdown 转义吞掉。普通图片与引用式图片共用该行为，代码块和行内代码保持原文。
 - 文档附件随用户 `message` 文本持久化：末尾独立的 `loopra-attachments` 代码围栏包含单行 JSON 数组 `[{name,text,size?}]`，`text` 为提取后的全文，`size` 为原始字节数。围栏长度大于内容中的连续反引号长度；图片仍使用 `images` / `contentParts`。实时气泡与历史恢复均从同一文本解析附件，以图标和文件名标签显示，点击在模态浮层预览全文，正文不重复展示附件全文。格式无效时保留原文；旧消息保持可读，不推断普通文字中的附件边界。
 - SSE 端点：`POST /api/chat/stream`，请求体 `ChatRequest`：`{message, requestId(UUID), workspaceHash(12位md5), sessionName(默认"default"), agentId?, model?, modelChannelId?, reasoningEffort?, fastMode?, stream?(遗留不消费), images?:string[](dataURL), linkedProjectHashes?:string[]}`。非空 `action` 返回 400；原生计划执行入口已移除。
 - SSE 帧：`event: <type>\n` + `data: <json>\n\n`，UTF-8；响应头 `Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`、`Connection: keep-alive`、`X-Accel-Buffering: no`。
@@ -38,7 +39,10 @@
 | `tool_result` | `{toolCallId, name, result: string(null→""), status: "completed"\|"failed"}`（旧版 `{name, result}`；`duration`(number ms) 可选）。并行调用时每个工具**一完成就发送**对应结果，不等整批结束；同一 `toolCallId` 只发送一次 |
 | `file_changes` | `{changes: [{path, additions:int, deletions:int, created:boolean, diff:string}]}`（编辑工具后或回合结束汇总） |
 
+半异步工具沿用上述事件：`running` 回执不发终态 `tool_result`，真实完成时按原调用 ID 上报一次；`complete` / `done` 等待待处理结果送回 Loop。JSONL 为回执增加 `tool_status:"running"`，晚到结果追加 `async_tool_result:true` 的 tool 行与真实 ADK 通知事件，前端更新原条目而不新增用户气泡。查询、取消和恢复细节见[半异步工具契约](ASYNC_TOOLS.md)。
+
 ### 1.3 用量与速率
+
 | type | data JSON |
 |---|---|
 | `usage`(Native) | `{promptTokens:int, completionTokens:int, totalTokens:int, cacheHit:int, cacheMiss:int, lastPromptTokens:int}`（每次模型调用后累计值） |

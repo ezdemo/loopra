@@ -14,6 +14,7 @@ type BoundTool struct {
 	Description string
 	ReadOnly    bool
 	Chat        bool
+	Async       bool
 	Parameters  json.RawMessage
 	Call        func(ctx context.Context, args map[string]any) (map[string]any, error)
 }

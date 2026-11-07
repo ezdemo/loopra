@@ -35,11 +35,15 @@ func (r *sseToolResults) ToolFinished(callID, name string, response map[string]a
 	r.sent[callID] = true
 	r.mu.Unlock()
 	// sseWriter 自带互斥，多个工具并发完成时每帧仍然是完整的。
+	status := "completed"
+	if response["error"] != nil || response["status"] == "failed" {
+		status = "failed"
+	}
 	r.sse.send("tool_result", map[string]any{
 		"toolCallId": callID,
 		"name":       name,
 		"result":     responseText(response),
-		"status":     "completed",
+		"status":     status,
 	})
 }
 

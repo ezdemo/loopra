@@ -154,6 +154,8 @@ export function call(input) {
 
 函数可以是 `async`。宿主会等返回的 Promise 完成，再把结果交给对话。
 
+`tools()` 的条目设置 `async: true` 可启用宿主半异步执行（与 JavaScript 的 `async function` 语法独立）。宿主自动注入并消费 `yield_after_ms`：默认等待 5000 毫秒，到期返回调用 ID，未主动读取的最终结果自动回填 Loop。插件 `parameters` 不要声明此保留字段，`call(input).args` 也不会收到它。未声明时保持同步，审批、执行超时与取消语义不变。插件需遵守宿主取消；同一插件运行时的工具和钩子仍按原规则串行，因此长工具可能延迟该插件的其他调用。详见[半异步工具契约](ASYNC_TOOLS.md)。
+
 ## 钩子
 
 钩子和工具可以写在同一个模块里，也可以写在 `export default` 上。多个插件串行执行，前一个的返回值交给下一个。可在 `meta.hookPriority` 中分别指定各个钩子的整数优先级：数值小的先执行，默认 `0`，相同优先级保留安装顺序。某个插件抛错时跳过它，后面的继续。子代理用同一套钩子，并带上 `parentSessionId`。

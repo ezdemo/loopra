@@ -21,6 +21,7 @@ export function tools() {
     description,
     readOnly: true,
     chat: true,
+    async: true,
     parameters: {
       type: "object",
       properties: {

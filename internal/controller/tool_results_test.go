@@ -18,6 +18,7 @@ import (
 	"github.com/ezdemo/looprax/adk/model/echo"
 	"github.com/ezdemo/looprax/internal/model/config"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 // streamSSE 逐帧解析 SSE 流，事件一到达就交给调用方（不像 readAll
@@ -58,6 +59,91 @@ func streamSSE(resp *http.Response) <-chan map[string]any {
 		}
 	}()
 	return events
+}
+
+func TestAsyncToolKeepsStreamOpenAndCompletesOriginalRow(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	releaseSlow := func() { once.Do(func() { close(release) }) }
+	slow, err := functiontool.New[struct{}, map[string]any](functiontool.Config{Name: "slow"}, func(ctx agentctx.Context, _ struct{}) (map[string]any, error) {
+		select {
+		case <-release:
+			return map[string]any{"result": "async evidence"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	cfg := config.Default()
+	a, err := agentpkg.New(root, "project", &cfg, agentpkg.Options{Model: echo.New("async",
+		echo.Script{ToolCalls: []*genai.FunctionCall{{ID: "slow-call", Name: "slow", Args: map[string]any{"yield_after_ms": 1}}}},
+		echo.Script{Text: "waiting"}, echo.Script{Text: "done"}), Tools: []tool.Tool{tools.WithAsyncExecution(slow)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, key, err := New(a, Options{Home: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer releaseSlow()
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/chat/stream", strings.NewReader(`{"message":"run","sessionName":"async"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Loopra-Key", key)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	events := streamSSE(resp)
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	waiting, completed, results := false, 0, 0
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatal("stream closed without done")
+			}
+			switch event["type"] {
+			case "content":
+				// Text frames are JSON strings; streamSSE intentionally only
+				// retains their type. The first text is the provisional answer.
+				if !waiting {
+					waiting = true
+					releaseSlow()
+				}
+			case "tool_result":
+				if event["toolCallId"] == "slow-call" {
+					results++
+					if !waiting || event["result"] != "async evidence" || event["status"] != "completed" {
+						t.Fatalf("premature or wrong result: %v", event)
+					}
+				}
+			case "complete":
+				completed++
+				if event["content"] != "done" || results != 1 {
+					t.Fatalf("premature completion: %v, results=%d", event, results)
+				}
+			case "error":
+				t.Fatalf("stream error: %v", event)
+			case "done":
+				if results != 1 || completed != 1 {
+					t.Fatalf("results=%d complete=%d", results, completed)
+				}
+				return
+			}
+		case <-deadline.C:
+			t.Fatal("async stream did not finish")
+		}
+	}
 }
 
 // 并行工具调用时，先完成的工具应立即上报 tool_result，而不是等

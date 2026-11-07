@@ -89,6 +89,9 @@ func ToolResultPlugin() (*plugin.Plugin, error) {
 // notifyToolResult 是安装到 runner 的 AfterToolCallback：每个工具
 // 执行完就立刻通知接收端，而不是等整批并行调用合并完成。
 func notifyToolResult(ctx agent.Context, t tool.Tool, _ map[string]any, result map[string]any, err error) (map[string]any, error) {
+	if tools.IsAsyncPlaceholder(ctx.FunctionCallID(), result) {
+		return nil, nil
+	}
 	sink := ToolResultSinkFromContext(ctx)
 	if sink == nil {
 		return nil, nil
@@ -154,6 +157,12 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 		sessions = jsonl.NewService(root)
 	}
 	agentTools := append([]tool.Tool(nil), opts.Tools...)
+	resultTool, err := tools.AsyncResultTool()
+	if err != nil {
+		return nil, err
+	}
+	agentTools = append(agentTools, resultTool)
+	instruction += "\n\n" + asyncInstruction
 	if contextRuntime.Compaction() != nil {
 		reader, err := OriginalToolResultTool(sessions)
 		if err != nil {
@@ -182,6 +191,11 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("install runtime plugins: %w", err)
 	}
+	async, err := asyncPlugin(sessions)
+	if err != nil {
+		return nil, err
+	}
+	plugins = append([]*plugin.Plugin{async}, plugins...)
 	run, err := runner.New(runner.Config{
 		AppName: app, Agent: rootAgent, SessionService: contextRuntime.SessionService(sessions, cfg),
 		PluginConfig: runner.PluginConfig{Plugins: plugins},
@@ -256,5 +270,5 @@ func (a *Agent) Run(ctx context.Context, sess session.Session, msg *genai.Conten
 	ctx = tools.WithImageRuntime(ctx, imageConfig, a.options.HTTPClient)
 	// 文件与命令工具的工作区限制按当前配置在每一轮生效。
 	ctx = tools.WithWorkspaceScope(ctx, a.cfg.ToolsRestrictWorkspace)
-	return a.Runner.Run(WithContextTurn(ctx), a.user, sess.ID(), msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE})
+	return a.runWithAsyncTools(WithContextTurn(ctx), sess, msg)
 }

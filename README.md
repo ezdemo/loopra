@@ -323,6 +323,8 @@ AI 可以在回复正文中直接展示图片，例如 `![二维码](<C:/project
 
 命令工具支持 `cwd`、`max_char` 和 `timeout_ms`（毫秒）。一次性命令默认最多返回 64000 个字符、超时 120000 毫秒，`timeout_ms` 上限 3600000。交互会话先调用 `_start`，再用 `_wait`、`_stdin` 和 `_stop` 管理同一进程。
 
+原生主会话的一次性命令、`rg`、`sub_agent` 和内置 `web` 支持半异步执行：默认同步等待 5 秒，超过后返回 `running` 与 `call_id`，Agent 可继续独立工作。服务端通过工具元数据声明能力，插件也可设置 `async: true`；通用包装器自动提供 `yield_after_ms` 调整等待窗口（0 使用默认值，上限 60000），不会改变工具本身的执行期限。需要结果才能继续时，调用 `tool_result(call_id, timeout_ms)`；未被主动取得的最终结果会自动送回模型循环，界面更新原工具条目。取消当前轮次会终止并回收这些执行。MCP 导出及未声明支持的工具保持同步；后台执行不跨进程重启恢复。详见[半异步工具契约](docs/ASYNC_TOOLS.md)。
+
 `web` 用一个入口完成联网：`action=search` 做网页搜索，`action=code` 检索库、SDK 和 API 文档，`action=fetch` 读取 URL 并转成 Markdown、纯文本或 HTML。
 
 ### 技能

@@ -30,6 +30,26 @@ func eventLines(ev *session.Event) []map[string]any {
 			base["adk_event"] = json.RawMessage(raw)
 		}
 	}
+	// A late result updates the original UI tool row, while its ADK event
+	// carries a separate notification rather than a duplicate FunctionResponse.
+	if result, ok := ev.CustomMetadata["asyncToolResult"].(map[string]any); ok {
+		base["role"] = "tool"
+		base["tool_call_id"] = result["callId"]
+		base["tool_name"] = result["name"]
+		base["tool_status"] = result["status"]
+		base["async_tool_result"] = true
+		response, _ := result["response"].(map[string]any)
+		base["content"] = resultText(&genai.FunctionResponse{Response: response})
+		if changes, ok := ev.CustomMetadata["fileChanges"]; ok {
+			line := cloneMap(base)
+			for _, key := range []string{"content", "tool_call_id", "tool_name", "tool_status", "async_tool_result"} {
+				delete(line, key)
+			}
+			line["role"], line["file_changes"] = "assistant", changes
+			return []map[string]any{base, line}
+		}
+		return []map[string]any{base}
+	}
 	if ev.Content == nil {
 		if len(base) > 2 || ev.Actions.Compaction != nil {
 			line := cloneMap(base)
@@ -102,6 +122,9 @@ func eventLines(ev *session.Event) []map[string]any {
 				tool["role"] = "tool"
 				tool["tool_call_id"] = p.FunctionResponse.ID
 				tool["content"] = resultText(p.FunctionResponse)
+				if p.FunctionResponse.Response["async"] == true && p.FunctionResponse.Response["status"] == "running" && p.FunctionResponse.Response["call_id"] == p.FunctionResponse.ID {
+					tool["tool_status"] = "running"
+				}
 				// 保留 ADK 的响应名称与原始负载（Java
 				// 读取方会忽略这些键）；审批恢复
 				// 协议需要它们原样保留。

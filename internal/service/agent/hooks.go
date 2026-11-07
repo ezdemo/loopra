@@ -358,6 +358,13 @@ func (h *hookBridge) beforeTool(ctx agent.Context, t tool.Tool, args map[string]
 }
 
 func (h *hookBridge) afterTool(ctx agent.Context, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
+	if runtime := tools.AsyncFromContext(ctx); runtime != nil && runtime.Owns(ctx.FunctionCallID()) {
+		return nil, nil // The execution owner runs the hook on the final result.
+	}
+	return h.applyToolAfter(ctx, t, args, result, err)
+}
+
+func (h *hookBridge) applyToolAfter(ctx agent.Context, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
 	if errors.Is(err, tool.ErrConfirmationRequired) {
 		return nil, nil
 	}

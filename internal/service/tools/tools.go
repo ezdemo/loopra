@@ -32,6 +32,7 @@ type Metadata struct {
 	ReadOnly    bool
 	AutoApprove bool
 	Chat        bool // 插件声明该工具可在纯聊天中使用
+	Async       bool // 服务端声明可让出等待；不改变读写分类或审批
 }
 
 // Tool 把 ADK 工具与其 Loopra 元数据组合在一起。
@@ -73,9 +74,13 @@ func (r *Registry) ChatScope() bool {
 }
 
 func NewRegistry(entries ...Tool) *Registry {
+	prepared := make([]Tool, len(entries))
+	for i, entry := range entries {
+		prepared[i] = prepareEntry(entry)
+	}
 	return &Registry{
 		mu:       make(chan struct{}, 1),
-		entries:  append([]Tool(nil), entries...),
+		entries:  prepared,
 		disabled: map[string]bool{},
 		readonly: map[string]bool{},
 		auto:     map[string]bool{},
@@ -105,6 +110,7 @@ func (r *Registry) Policy() *hitl.Policy {
 
 // Add 追加一个工具条目（sub_agent 在组装完成后加入）。
 func (r *Registry) Add(entry Tool) {
+	entry = prepareEntry(entry)
 	r.mu <- struct{}{}
 	defer func() { <-r.mu }()
 	for i, e := range r.entries {
@@ -114,6 +120,16 @@ func (r *Registry) Add(entry Tool) {
 		}
 	}
 	r.entries = append(r.entries, entry)
+}
+
+func prepareEntry(entry Tool) Tool {
+	if wrapped, ok := entry.Tool.(*asyncTool); ok && !entry.Meta.Async {
+		entry.Tool = wrapped.asyncRunnable
+	}
+	if entry.Meta.Async {
+		entry.Tool = WithAsyncExecution(entry.Tool)
+	}
+	return entry
 }
 
 // Entries 返回已注册工具条目的快照。
@@ -218,7 +234,7 @@ func (r *Registry) List() []map[string]any {
 			"name": name, "description": e.Meta.Description,
 			"readOnly": readOnly, "readOnlyOverride": override,
 			"stormExempt": false, "enabled": !r.disabled[name],
-			"autoApproved": auto, "chat": e.Meta.Chat, "params": toolParameters(e.Tool),
+			"autoApproved": auto, "chat": e.Meta.Chat, "async": e.Meta.Async, "params": toolParameters(e.Tool),
 		}
 		if override == nil {
 			delete(view, "readOnlyOverride")
@@ -353,16 +369,16 @@ func FileTools(root string) []Tool {
 	return []Tool{
 		{readTool(root), Metadata{Name: "read", Description: readDescription, ReadOnly: true, AutoApprove: true}},
 		readImageTool(root),
-		{rgTool(root), Metadata{Name: "rg", Description: rgDescription, ReadOnly: true, AutoApprove: true}},
+		{rgTool(root), Metadata{Name: "rg", Description: rgDescription, ReadOnly: true, AutoApprove: true, Async: true}},
 		{writeTool(root), Metadata{Name: "write", Description: "创建或覆盖文件", ReadOnly: false, AutoApprove: true}},
 		{editTool(root), Metadata{Name: "edit", Description: "对文件执行多处精准替换", ReadOnly: false, AutoApprove: true}},
-		{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout_ms）", ReadOnly: false, AutoApprove: false}},
+		{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout_ms）", ReadOnly: false, AutoApprove: false, Async: true}},
 	}
 }
 
 // ShellTools 提供一次性命令和交互终端，不注册项目文件工具。
 func ShellTools(root string) []Tool {
-	return append([]Tool{{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout_ms）", ReadOnly: false, AutoApprove: false}}}, BashTools(root)...)
+	return append([]Tool{{bashTool(root), Metadata{Name: shellenv.Current.Name, Description: "执行一次性 " + shellenv.Current.Name + " 命令（支持 cwd、max_char、timeout_ms）", ReadOnly: false, AutoApprove: false, Async: true}}}, BashTools(root)...)
 }
 
 const readDescription = "读取本地文本文件，不受项目范围限制（可以读取依赖、日志、配置和项目外的任何文件）。用 offset 与 max_line 按行号跳读：offset 是起始行号（1 起，默认 1），max_line 是最多返回的行数（默认全部）。返回带行号的文本，同时给出 start_line、end_line、total_lines、truncated，可按需继续跳读。配合 rg 得到的行号使用，避免一次读取整个大文件。"

@@ -402,7 +402,7 @@ func (s *Controller) installSubRunner() {
 	// （Java：非只读，与其他工具一样受审批链约束）。
 	s.registry.Add(tools.Tool{
 		Tool: s.newSubAgentTool(),
-		Meta: tools.Metadata{Name: "sub_agent", Description: subAgentToolDescription},
+		Meta: tools.Metadata{Name: "sub_agent", Description: subAgentToolDescription, Async: true},
 	})
 }
 

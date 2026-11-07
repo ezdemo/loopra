@@ -187,6 +187,14 @@ func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatReque
 		return
 	}
 	s.ensureSessionTitle(ctx, req.SessionName, req.Message)
+	ctx, finishTools := s.agent.ToolTurn(ctx, sess)
+	defer func() {
+		if err := finishTools(); err != nil {
+			logging.Errorf("chat", "record final tool results: %v", err)
+			sse.sendError("工具结果保存失败: " + err.Error())
+		}
+		sse.done()
+	}()
 	content := userContent(req.Message, req.Images)
 	for {
 		pendings := s.driveTurn(ctx, sse, sess, req2Session(req), content)
@@ -304,6 +312,9 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 				// 等待审批的调用所对应的临时占位响应
 				// 保持隐藏；恢复后的轮次才会发出真实结果。
 			case p.FunctionResponse != nil:
+				if tools.IsAsyncPlaceholder(p.FunctionResponse.ID, p.FunctionResponse.Response) {
+					continue // Keep the original tool running until its final result.
+				}
 				// 该结果可能已经在工具完成时提前上报过。
 				if sink := agentpkg.ToolResultSinkFromContext(ctx); sink != nil && sink.ToolResultSent(p.FunctionResponse.ID) {
 					continue
@@ -316,7 +327,7 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 				})
 			}
 		}
-		if ev.IsFinalResponse() {
+		if ev.IsFinalResponse() && ev.CustomMetadata["asyncContinuation"] != true {
 			sse.send("complete", map[string]any{"content": eventText(ev)})
 		}
 	}
@@ -337,7 +348,6 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 		return pendings
 	}
 	logging.Infof("chat", "turn done session=%s agent=native in %s (tools=%d, reasoning=%dB)", sessionName, elapsed, toolCalls, reasoningBytes)
-	sse.done()
 	return nil
 }
 

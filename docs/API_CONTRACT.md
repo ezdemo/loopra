@@ -134,7 +134,7 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 ### 3.5 Tools（/api/tools）
 | 方法+路径 | 参数 | data |
 |---|---|---|
-| GET `` | — | `[{name, description, readOnly, readOnlyOverride?, stormExempt, enabled, autoApproved, params:[](恒空)}]` |
+| GET `` | — | `[{name, description, readOnly, readOnlyOverride?, stormExempt, enabled, autoApproved, chat, async, params}]`；`params` 来自工具 schema，异步工具包含通用 `yield_after_ms` |
 | POST `/{name}/toggle` | — | s `"已禁用/启用工具: x"`（400 `"工具不存在: x"`） |
 | POST `/{name}/auto-toggle` | — | s `"已添加/移除自动放行: x"` |
 | POST `/{name}/read-only` | body `{readOnly:b?}`（null=默认） | s `"已将工具分类设置为只读/写入/默认: x"` |

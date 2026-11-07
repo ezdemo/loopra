@@ -27,6 +27,7 @@ type BoundTool struct {
 	Description string
 	ReadOnly    bool
 	Chat        bool
+	Async       bool
 	Parameters  json.RawMessage
 	Call        func(ctx context.Context, args map[string]any) (map[string]any, error)
 }
@@ -61,6 +62,7 @@ type toolDef struct {
 	Description string          `json:"description"`
 	ReadOnly    bool            `json:"readOnly"`
 	Chat        bool            `json:"chat"`
+	Async       bool            `json:"async"`
 	Expose      string          `json:"expose"`
 	Parameters  json.RawMessage `json:"parameters"`
 }
@@ -450,7 +452,7 @@ func bindTools(run *running, id, display string, defs []toolDef, explicit bool, 
 		run.names = append(run.names, public)
 		self := run
 		run.bound = append(run.bound, BoundTool{
-			Name: public, Description: desc, ReadOnly: def.ReadOnly, Chat: def.Chat, Parameters: append(json.RawMessage(nil), params...),
+			Name: public, Description: desc, ReadOnly: def.ReadOnly, Chat: def.Chat, Async: def.Async, Parameters: append(json.RawMessage(nil), params...),
 			Call: func(ctx context.Context, args map[string]any) (map[string]any, error) {
 				return self.invoke(ctx, binding, args)
 			},

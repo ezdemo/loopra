@@ -290,32 +290,44 @@ func OriginalToolResultTool(base session.Service) (tool.Tool, error) {
 		}
 		for i := events.Len() - 1; i >= 0; i-- {
 			event := events.At(i)
-			if event == nil || event.Content == nil || event.IsolationScope != isolation ||
+			if event == nil || event.IsolationScope != isolation ||
 				(event.Branch != "" && event.Branch != ctx.Branch() && !strings.HasPrefix(ctx.Branch(), event.Branch+".")) {
+				continue
+			}
+			// A deferred call's final result lives in its completion event,
+			// including metadata-only events after an explicit result query.
+			if result, ok := event.CustomMetadata["asyncToolResult"].(map[string]any); ok && result["callId"] == input.CallID {
+				return toolResultPage(input, result["response"])
+			}
+			if event.Content == nil {
 				continue
 			}
 			for _, part := range event.Content.Parts {
 				if part == nil || part.FunctionResponse == nil || part.FunctionResponse.ID != input.CallID {
 					continue
 				}
-				raw, err := json.Marshal(part.FunctionResponse.Response)
-				if err != nil {
-					return nil, err
-				}
-				runes := []rune(string(raw))
-				start := min(input.Offset, len(runes))
-				limit := input.Limit
-				if limit == 0 {
-					limit = 4000
-				}
-				end := start + min(min(limit, 8000), len(runes)-start)
-				out := map[string]any{"callId": input.CallID, "text": string(runes[start:end]), "totalChars": len(runes)}
-				if end < len(runes) {
-					out["nextOffset"] = end
-				}
-				return out, nil
+				return toolResultPage(input, part.FunctionResponse.Response)
 			}
 		}
 		return nil, fmt.Errorf("tool result %q is not available in this context", input.CallID)
 	})
+}
+
+func toolResultPage(input readToolResultInput, response any) (map[string]any, error) {
+	raw, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+	runes := []rune(string(raw))
+	start := min(input.Offset, len(runes))
+	limit := input.Limit
+	if limit == 0 {
+		limit = 4000
+	}
+	end := start + min(min(limit, 8000), len(runes)-start)
+	out := map[string]any{"callId": input.CallID, "text": string(runes[start:end]), "totalChars": len(runes)}
+	if end < len(runes) {
+		out["nextOffset"] = end
+	}
+	return out, nil
 }

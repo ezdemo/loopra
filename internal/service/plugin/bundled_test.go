@@ -43,8 +43,8 @@ func TestBundledWebFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := findTool(t, h, "web")
-	if !tool.ReadOnly || !tool.Chat {
-		t.Fatal("web should be a read-only chat tool")
+	if !tool.ReadOnly || !tool.Chat || !tool.Async {
+		t.Fatal("web should be a read-only async chat tool")
 	}
 
 	markdown := callWeb(t, tool, map[string]any{"action": "fetch", "url": server.URL + "/page", "format": "markdown"})

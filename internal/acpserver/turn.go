@@ -16,12 +16,18 @@ import (
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
-func (s *liveSession) run(ctx context.Context, runtime *Runtime, blocks []acpsdk.ContentBlock) (acpsdk.StopReason, error) {
+func (s *liveSession) run(ctx context.Context, runtime *Runtime, blocks []acpsdk.ContentBlock) (reason acpsdk.StopReason, runErr error) {
 	content := userContent(blocks)
 	sess, err := s.agent.Session(ctx, s.id)
 	if err != nil {
 		return "", err
 	}
+	ctx, finishTools := s.agent.ToolTurn(ctx, sess)
+	defer func() {
+		if err := finishTools(); err != nil && runErr == nil {
+			runErr = err
+		}
+	}()
 	sink := &toolSink{sent: map[string]bool{}, emit: func(update acpsdk.SessionUpdate) {
 		s.emit(ctx, runtime, update)
 	}}
@@ -132,6 +138,9 @@ func (s *liveSession) drive(ctx context.Context, runtime *Runtime, sess session.
 				}})
 			case part.FunctionResponse != nil && pendingConfirmation(part.FunctionResponse):
 			case part.FunctionResponse != nil:
+				if tools.IsAsyncPlaceholder(part.FunctionResponse.ID, part.FunctionResponse.Response) {
+					continue
+				}
 				if sink.sentAlready(part.FunctionResponse.ID) {
 					continue
 				}

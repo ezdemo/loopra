@@ -318,6 +318,7 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 }
 
 func executionContext(ctx context.Context, cfg *config.Loopra, owner tools.SessionOwner) context.Context {
+	ctx = tools.WithoutAsyncRuntime(ctx)
 	ctx = tools.WithFileChanges(ctx, nil)
 	ctx = tools.WithImageRuntime(ctx, cfg, nil)
 	ctx = tools.WithWorkspaceScope(ctx, cfg != nil && cfg.ToolsRestrictWorkspace)
