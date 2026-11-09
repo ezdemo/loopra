@@ -58,7 +58,7 @@ Loopra 的技能是包含 `SKILL.md` 的目录，可以带有 `references/`、`s
 - 根据内容筛选文件：`rg(mode="files_with_matches", pattern="TODO|FIXME")`，这是原生 `rg -l`，每个匹配文件只返回一次。
 - 搜索代码原样片段时设置 `fixed_strings=true`；需要环视或反向引用时设置 `perl_regexp=true`，两者不能同时使用。默认正则为区分大小写的 Rust/Unicode 正则。
 - `path` 默认项目根，`globs` 使用 `/`，`!` 表示排除，最后匹配规则优先；显式正向 glob 可以覆盖 ignore/隐藏规则。`hidden` 和 `no_ignore` 独立，按需开启。
-- 默认输出最多 200 行、64 KiB，`max_results` 上限 1000。`truncated=true` 表示搜索被主动停止，不代表已遍历完整项目；应缩小 `path`/`globs`/`pattern`，或用 `read` 读取目标文件。
+- 默认输出最多 200 行、64 KiB，`max_results` 上限 1000。三种模式均支持 `offset`：搜索输出的起始行号（1 起，默认 1，0 同默认，不支持负数），包含上下文和分隔符，与源文件行号无关；跳过的行不占返回上限。`truncated=true` 表示搜索被主动停止，不代表已遍历完整项目；可调整 `offset` 继续读取（字节截断的末行需重读），分页时保持其余参数和文件内容不变；也可缩小 `path`/`globs`/`pattern`，或用 `read` 读取目标文件。
 - `matched=false`、`exit_code=1` 是正常的无结果；非法正则、超时等会返回工具错误。`rg` 的完整参数和示例始终以本轮工具定义为准。
 
 ## MCP：连接外部工具

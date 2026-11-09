@@ -29,7 +29,7 @@ files_with_matches：相当于 rg -l，pattern 必填，仅列出内容匹配的
 默认采用区分大小写的 Rust/Unicode 正则，不支持环视和反向引用；perl_regexp=true 使用 PCRE2。fixed_strings=true 将 pattern 当作原样文本，不可与 perl_regexp 同用。ignore_case=true 忽略内容大小写，word_regexp=true 限制整词。pattern 不要添加 shell 引号；JSON 中反斜杠仍须写成 \\。不要使用 HTML 实体（&lt;、&gt;、&amp;）：它们会被当作字面文本，XML 标签应直接写 <version>。
 path 默认为项目根，不受项目范围限制：相对路径按项目根解析，也接受项目外的目录和文件；globs 如 ["*.go","!**/*_test.go","!**/vendor/**"]。使用 /，采用 rg 原生 gitignore 风格；不含 / 的模式匹配任意层级文件名，! 前缀排除，多个规则最后匹配者优先。正向 glob 可覆盖忽略/隐藏规则。支持 *、**、?、[...] 和 {go,ts} 扩展；逗号是花括号展开的分隔符，不是多个独立模式的分隔符。
 默认跳过二进制、隐藏项，遵守 rg 原生 .gitignore/.ignore/.rgignore 及父目录/全局忽略规则（.gitignore 按 rg 的 Git 仓库检测生效）。hidden=true 包含隐藏项；no_ignore=true 禁用忽略规则；二者独立。files 模式列文件名时可以包含二进制文件。
-max_results 默认 200、最大 1000，限制输出行数（含上下文/分隔符），输出最多 64 KiB；超限主动停止并返回 truncated=true，缩小 path/globs/pattern 后重试。timeout_ms 默认 60000、最大 120000，取消/超时会清理搜索进程树。
+offset 是搜索输出的起始行号（1 起，默认 1，0 同默认，不支持负数），三种模式均适用，含上下文/分隔符，不是源文件行号。max_results 默认 200、最大 1000，限制从 offset 开始返回的输出行数（含上下文/分隔符），输出最多 64 KiB；跳过的行不占返回上限。超限主动停止并返回 truncated=true，可调整 offset 继续读取或缩小 path/globs/pattern。输出按路径排序；分页时保持搜索参数和文件内容不变，每次调用重新搜索。timeout_ms 默认 60000、最大 120000，取消/超时会清理搜索进程树。
 返回 result（文本）、matched、exit_code、truncated；stderr 非空时附诊断。正常退出码 0=有结果，1=无结果（不是失败），2=错误；truncated=true 时 exit_code 为主动终止产生的实际退出码，不代表搜索完整完成。
 本工具不列目录项，但能列文件：枚举/统计源码文件用 files 模式，按内容筛文件用 files_with_matches；统计行数、出现次数等也优先用本工具，不要在 shell 里逐文件 Get-Content/Measure-Object 或 Select-String——那在大仓库中会慢到几十秒。只有查看目录结构时才用当前 shell 的 Get-ChildItem、dir、ls、find。旧 grep/ls/glob 工具已移除。
 示例：
@@ -52,6 +52,7 @@ type rgInput struct {
 	Hidden       bool     `json:"hidden,omitempty" jsonschema:"包含隐藏文件/目录；不会禁用 ignore 规则；默认 false"`
 	NoIgnore     bool     `json:"no_ignore,omitempty" jsonschema:"禁用 rg 忽略规则（含父目录和全局规则）；不会自动包含隐藏项；默认 false"`
 	MaxDepth     int      `json:"max_depth,omitempty" jsonschema:"递归深度，1 表示仅直接子项，0 表示不限深度"`
+	Offset       int      `json:"offset,omitempty" jsonschema:"搜索输出的起始行号，1 起，默认 1，0 同默认，不支持负数；三种模式均适用，含上下文和分隔符，不是源文件行号"`
 	MaxResults   int      `json:"max_results,omitempty" jsonschema:"最多输出行数，默认 200，1..1000；含上下文和分隔符"`
 	TimeoutMs    int      `json:"timeout_ms,omitempty" jsonschema:"超时毫秒数，默认 60000，最大 120000"`
 }
@@ -121,6 +122,9 @@ func runRG(ctx context.Context, root string, in rgInput) (map[string]any, error)
 		limit = 200
 	}
 	stdout := &rgOutput{maxBytes: 64 * 1024, maxLines: limit, cancel: cancelOutput}
+	if in.Offset > 1 {
+		stdout.skipLines = in.Offset - 1
+	}
 	stderr := &rgOutput{maxBytes: 8 * 1024}
 	cmd := exec.CommandContext(runCtx, binary, args...)
 	cmd.Dir = workdir
@@ -151,7 +155,7 @@ func runRG(ctx context.Context, root string, in rgInput) (map[string]any, error)
 		text = "(无匹配)"
 	}
 	if stdout.truncated {
-		text += "\n[输出已截断；请缩小 path/globs/pattern 后重试]"
+		text += "\n[输出已截断；可调整 offset 继续读取或缩小 path/globs/pattern 后重试]"
 	}
 	out := map[string]any{"result": text, "matched": matched, "exit_code": exitCode, "truncated": stdout.truncated}
 	if stderr.buffer.Len() > 0 {
@@ -182,6 +186,9 @@ func rgArgs(in rgInput) ([]string, error) {
 	}
 	if in.ContextLines < 0 || in.ContextLines > 20 || (in.Mode != "content" && in.ContextLines != 0) {
 		return nil, fmt.Errorf("context_lines 仅用于 content，范围为 0..20")
+	}
+	if in.Offset < 0 {
+		return nil, fmt.Errorf("offset 不得为负数；起始输出行号从 1 开始")
 	}
 	if in.MaxDepth < 0 || in.MaxResults < 0 || in.MaxResults > 1000 || in.TimeoutMs < 0 || in.TimeoutMs > 120000 {
 		return nil, fmt.Errorf("max_depth 不得为负；max_results 最大 1000；timeout_ms 最大 120000")
@@ -245,6 +252,7 @@ type rgOutput struct {
 	buffer    bytes.Buffer
 	maxBytes  int
 	maxLines  int
+	skipLines int
 	lines     int
 	truncated bool
 	cancel    context.CancelFunc
@@ -254,6 +262,15 @@ func (out *rgOutput) Write(data []byte) (int, error) {
 	size := len(data)
 	if out.truncated {
 		return size, nil
+	}
+	// 跳过完整输出行后再应用返回上限；一行可能跨多次 Write。
+	for out.skipLines > 0 {
+		i := bytes.IndexByte(data, '\n')
+		if i < 0 {
+			return size, nil
+		}
+		out.skipLines--
+		data = data[i+1:]
 	}
 	keep := len(data)
 	if remaining := out.maxBytes - out.buffer.Len(); keep > remaining {
@@ -269,7 +286,7 @@ func (out *rgOutput) Write(data []byte) (int, error) {
 		}
 	}
 	out.buffer.Write(data[:keep])
-	if keep < size {
+	if keep < len(data) {
 		out.truncated = true
 		if out.cancel != nil {
 			out.cancel()

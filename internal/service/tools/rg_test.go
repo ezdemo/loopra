@@ -111,6 +111,7 @@ func TestRGNoMatchesErrorsAndLimits(t *testing.T) {
 		{}, {Mode: "list"}, {Pattern: "["}, {Mode: "files", Pattern: "needle"},
 		{Pattern: "x", FixedStrings: true, PerlRegexp: true},
 		{Pattern: "x", ContextLines: 21}, {Pattern: "x", MaxResults: 1001},
+		{Pattern: "x", Offset: -1},
 		{Pattern: "x", Globs: []string{""}},
 	} {
 		if _, err := runRG(context.Background(), root, in); err == nil {
@@ -135,6 +136,107 @@ func TestRGNoMatchesErrorsAndLimits(t *testing.T) {
 	cancel()
 	if _, err := runRG(ctx, root, rgInput{Pattern: "needle"}); err == nil {
 		t.Fatal("canceled search succeeded")
+	}
+}
+
+func TestRGOffset(t *testing.T) {
+	root := rgFixture(t)
+	if err := os.WriteFile(filepath.Join(root, "pages.txt"), []byte("first\nmiddle\nmiddle\nmiddle\nlast\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []rgInput{
+		{Pattern: "needle", Path: "main.go"},
+		{Pattern: "needle", Path: "main.go", ContextLines: 1},
+		{Pattern: "first|last", Path: "pages.txt", ContextLines: 1},
+		{Mode: "files", Globs: []string{"*.go"}},
+		{Mode: "files_with_matches", Pattern: "needle", Globs: []string{"*.go"}},
+	} {
+		t.Run(in.Mode+in.Pattern, func(t *testing.T) {
+			full, err := runRG(context.Background(), root, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(full["result"].(string), "\n")
+			if len(lines) < 2 {
+				t.Fatalf("fixture needs at least two output lines: %v", full)
+			}
+			in.Offset = 1
+			first, err := runRG(context.Background(), root, in)
+			if err != nil || first["result"] != full["result"] {
+				t.Fatalf("offset 1 = %v %v; want %v", first, err, full)
+			}
+			in.Offset = 2
+			in.MaxResults = 1
+			page, err := runRG(context.Background(), root, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text, _, _ := strings.Cut(page["result"].(string), "\n[输出已截断")
+			if text != lines[1] || page["truncated"] != (len(lines) > 2) || page["matched"] != true {
+				t.Fatalf("page = %v; want second line %q", page, lines[1])
+			}
+			var paged []string
+			for i := range lines {
+				in.Offset = i + 1
+				page, err := runRG(context.Background(), root, in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				text, _, _ := strings.Cut(page["result"].(string), "\n[输出已截断")
+				paged = append(paged, text)
+			}
+			if joined := strings.Join(paged, "\n"); joined != full["result"] {
+				t.Fatalf("paged output = %q; want %q", joined, full["result"])
+			}
+			in.Offset = len(lines) + 1
+			past, err := runRG(context.Background(), root, in)
+			if err != nil || past["result"] != "" || past["truncated"] != false || past["matched"] != true || past["exit_code"] != 0 {
+				t.Fatalf("past end = %v %v", past, err)
+			}
+		})
+	}
+	out, err := runRG(context.Background(), root, rgInput{Pattern: "unfindable-token", Offset: 10})
+	if err != nil || out["result"] != "(无匹配)" || out["matched"] != false || out["exit_code"] != 1 {
+		t.Fatalf("no matches with offset = %v %v", out, err)
+	}
+}
+
+func TestRGOutputSkipsAcrossWrites(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		chunks    []string
+		skip      int
+		maxBytes  int
+		maxLines  int
+		want      string
+		truncated bool
+	}{
+		{"split lines", []string{"fi", "rst\r", "\nsecond\nthi", "rd\nfourth\n"}, 2, 100, 1, "third", true},
+		{"exact window", []string{"first\nsec", "ond\n"}, 1, 100, 1, "second", false},
+		{"past end", []string{"first\n", "last"}, 3, 100, 1, "", false},
+		{"skipped bytes excluded", []string{strings.Repeat("x", 100000), "\nkeep\n"}, 1, 5, 1, "keep", false},
+		{"byte limit", []string{"skip\n123456\n", "ignored\n"}, 1, 5, 10, "12345", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cancels := 0
+			out := &rgOutput{skipLines: test.skip, maxBytes: test.maxBytes, maxLines: test.maxLines, cancel: func() { cancels++ }}
+			for _, chunk := range test.chunks {
+				n, err := out.Write([]byte(chunk))
+				if n != len(chunk) || err != nil {
+					t.Fatalf("Write = %d, %v; want %d, nil", n, err, len(chunk))
+				}
+			}
+			if out.String() != test.want || out.truncated != test.truncated {
+				t.Fatalf("output = %q, truncated = %v; want %q, %v", out.String(), out.truncated, test.want, test.truncated)
+			}
+			wantCancels := 0
+			if test.truncated {
+				wantCancels = 1
+			}
+			if cancels != wantCancels {
+				t.Fatalf("cancel count = %d; want %d", cancels, wantCancels)
+			}
+		})
 	}
 }
 
