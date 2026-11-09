@@ -63,6 +63,10 @@ func main() {
 	if len(positional) == 1 && options.Port == "" {
 		options.Port = positional[0]
 	}
+	mygo.App.SetName("Loopra")
+	if !mygo.App.RequestSingleInstanceLock() {
+		return
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -143,6 +147,9 @@ func main() {
 		}
 		if host != nil {
 			host.Attach(win)
+		}
+		if err := desktop.KeepInTray(win); err != nil {
+			logging.Errorf("desktop", "background tray unavailable: %v", err)
 		}
 		win.OnClosed(func() { stop() })
 	})
