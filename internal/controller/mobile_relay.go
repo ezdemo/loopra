@@ -43,7 +43,8 @@ func (h *mobileRelayHost) ServeHTTP(w http.ResponseWriter, request *http.Request
 	}
 	h.workers.Add(1)
 	h.mu.Unlock()
-	request = request.Clone(request.Context())
+	ctx := request.Context()
+	request = request.Clone(ctx)
 	request.Header.Set("X-Loopra-Key", h.key)
 	request.Host = "loopra.mobile"
 	request.RemoteAddr = "127.0.0.1:0"
@@ -66,7 +67,7 @@ func (h *mobileRelayHost) ServeHTTP(w http.ResponseWriter, request *http.Request
 	}()
 	select {
 	case <-done:
-	case <-request.Context().Done():
+	case <-ctx.Done():
 	}
 }
 
