@@ -30,6 +30,7 @@ import type { CoreServiceUpdateController } from './CoreServiceUpdate';
 import type { DesktopUpdateController } from './DesktopUpdate';
 import ProxySettings from './ProxySettings';
 import MemorySettings from './MemorySettings';
+import RemoteAccessSettings from './RemoteAccessSettings';
 import { GITEE_HOME_URL, GITHUB_HOME_URL } from '../update-scripts';
 import type { VersionCheck } from '../version';
 
@@ -191,6 +192,7 @@ export default function Settings(props: Props) {
         {tab === '项目' && <><BackendProjects server={props.server} workspaces={props.workspaces} sessions={sessions} onRefresh={props.onRefresh} /><h3 className="settings-section-title">会话与需求</h3><div className="settings-card"><SettingRow title="会话管理" description="查找、整理和管理工作区会话"><Button size="sm" variant="flat" onPress={props.onOpenSessions}>打开会话管理</Button></SettingRow><SettingRow title="需求池" description="查看和管理项目需求"><Button size="sm" variant="flat" onPress={props.onOpenRequirements}>打开需求池</Button></SettingRow></div></>}
         {tab === '服务器' && <BackendServer server={props.server} onSave={serverUrl => { void Promise.resolve(onConfig({ ...config, serverUrl })).catch(error => notify(String(error))); }} />}
         {tab === '网络代理' && <ProxySettings api={api} notify={notify} />}
+        {tab === '远程访问' && <RemoteAccessSettings api={api} notify={notify} onNestedDialog={setNestedDialog} />}
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}

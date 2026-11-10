@@ -111,6 +111,22 @@ test('cached bodies invoke the latest callbacks and optional controls follow ava
   } finally { await view.close(); }
 });
 
+test('mobile consumers omit unavailable history actions while keeping the shared renderer', async () => {
+  const session = { id: 'mobile', kind: 'remote', agentId: 'native', messages: [
+    { id: 'user', role: 'user', text: 'prompt', rollbackId: 'snapshot' }, message('answer'),
+  ] };
+  const view = await mount(session, { onEdit: undefined, onBranch: undefined, onRollback: undefined });
+  try {
+    assert.ok(view.container.querySelector('[aria-label="复制回复"]'));
+    assert.ok(view.container.querySelector('[aria-label="复制消息"]'));
+    assert.equal(view.container.querySelector('[aria-label="继续到新会话"]'), null);
+    assert.equal(view.container.querySelector('[aria-label="撤回到此消息"]'), null);
+    assert.equal(view.container.querySelector('[aria-label="重新编辑消息"]'), null);
+    await view.render(session, { onEdit: () => {} });
+    assert.ok(view.container.querySelector('[aria-label="重新编辑消息"]'));
+  } finally { await view.close(); }
+});
+
 for (const agentId of ['pi', 'dsh']) {
   test(`${agentId} does not offer historical branching without adapter support`, async () => {
     const view = await mount({ id: `${agentId}-session`, kind: 'remote', agentId, messages: [message('answer')] });

@@ -34,6 +34,12 @@
 
 ## 3. 控制器契约清单
 
+### 移动远程访问（Go 原生）
+
+GET / HEAD `/api/remote/relay` 返回 `{enabled,state,relayUrl?,hasRegistrationKey,pairingLink?,qrCode?}`，采用普通鉴权、ApiResponse 与 `Cache-Control: no-store`。PUT 接受 `{enabled?,relayUrl?,registrationKey?}`，省略密钥保留，空字符串清除，先持久化再重连。POST `/api/remote/relay/reset-pairing` 轮换身份并断开旧手机。配对只使用 `loopra://connect?...&v=1`。GET / HEAD `/api/mobile/handshake` 在普通响应包装中提供私有协议版本与能力。
+
+移动加密入口 `/__loopra_e2e__/v1` 直接复用工作台 `/api/`、HTTP 二进制和 SSE，保留公共鉴权、工作区、审批及存储语义；手机不接收本机访问密钥。详细协议见 [MOBILE.md](MOBILE.md)。
+
 ### 长期记忆（Go 原生运行时）
 
 以下端点沿用普通 API 包装与公共鉴权；查询必须指定 `scope=global|project`。`project` 还要求已注册项目的 `workspaceHash`，不接受纯聊天或路径。全局请求不依赖当前项目。

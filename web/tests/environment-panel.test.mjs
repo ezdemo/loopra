@@ -12,6 +12,7 @@ const helpers = await import('data:text/javascript;base64,' + Buffer.from(output
 const panel = await readFile(new URL('../src/components/EnvironmentPanel.tsx', import.meta.url), 'utf8');
 const panels = await readFile(new URL('../src/components/Panels.tsx', import.meta.url), 'utf8');
 const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
+const sharedStyles = await readFile(new URL('../src/workspace-styles.ts', import.meta.url), 'utf8');
 const css = await readFile(new URL('../src/environment.css', import.meta.url), 'utf8');
 
 test('changed and untracked entries share one list in Electron order', () => {
@@ -63,7 +64,8 @@ test('the Git tab owns the environment strip and swaps in the worktree view', ()
 });
 
 test('the panel stylesheet loads with the other workbench stylesheets', () => {
-  assert.match(main, /import '\.\/environment\.css';/);
+  assert.match(main, /import '\.\/workspace-styles';/);
+  assert.match(sharedStyles, /import '\.\/environment\.css';/);
   assert.match(css, /\.environment-panel/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });

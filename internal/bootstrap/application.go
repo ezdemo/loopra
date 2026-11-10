@@ -24,6 +24,7 @@ import (
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service"
 	"github.com/ezdemo/looprax/internal/service/agent"
+	"github.com/ezdemo/looprax/internal/service/almarelay"
 	"github.com/ezdemo/looprax/internal/service/bot"
 	"github.com/ezdemo/looprax/internal/service/memory"
 	"github.com/ezdemo/looprax/internal/service/tools"
@@ -47,6 +48,7 @@ func Run(ctx context.Context, options config.Options) error {
 			newToolRegistry,
 			newAgent,
 			newBots,
+			newRemoteRelay,
 			newBackend,    // @RestController 的运行时宿主
 			newRouter,     // Spring MVC 的 DispatcherServlet 装配
 			newHTTPServer, // ApplicationRunner：阻塞到进程退出
@@ -105,7 +107,7 @@ func newBots(settings *config.Server) (*bot.Service, error) {
 	return bot.New(repository.NewBotRepository(settings.Home), feishu.Provider{})
 }
 
-func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registry, configuration *service.ConfigService, files *service.FileService, memories *memory.Service, bots *bot.Service) (*backend, error) {
+func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registry, configuration *service.ConfigService, files *service.FileService, memories *memory.Service, bots *bot.Service, remote *almarelay.Manager) (*backend, error) {
 	dir, bundle, label := frontend.Resolve(settings.StaticDir, settings.Home, frontend.DistCandidates(), web.Bundle())
 	settings.StaticDir = dir
 	settings.StaticLabel = label
@@ -120,13 +122,16 @@ func newBackend(settings *config.Server, a *agent.Agent, registry *tools.Registr
 		Home: settings.Home, AccessKey: settings.AccessKey,
 		StaticDir: dir, StaticFS: bundle, PetsDir: settings.PetsDir,
 		Registry: registry, Configuration: configuration, Files: files, Memories: memories,
-		Bots:      bots,
-		OnUITheme: settings.OnUITheme, PetDesktop: desk, OnDesktopQuit: settings.OnDesktopQuit,
+		Bots:        bots,
+		RemoteRelay: remote,
+		OnUITheme:   settings.OnUITheme, PetDesktop: desk, OnDesktopQuit: settings.OnDesktopQuit,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &backend{controller: api, accessKey: key}, nil
+	b := &backend{controller: api, accessKey: key}
+	startRemoteRelay(remote, b)
+	return b, nil
 }
 
 // Close 释放 API 运行时；重复调用是安全的，HTTP 服务器与容器都会触发它。

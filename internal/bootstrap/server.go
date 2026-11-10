@@ -105,6 +105,7 @@ func (s *httpServer) Run(ctx context.Context) error {
 		}
 		time.Sleep(time.Millisecond)
 	}
+	s.backend.controller.BindMobileHTTP(s.server)
 	if s.settings.OnListen != nil {
 		s.settings.OnListen(baseURL, s.backend.accessKey)
 	}

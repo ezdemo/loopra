@@ -14,7 +14,7 @@ import { copyText } from './Markdown';
 import MessageContext from './MessageContext';
 import { messageFileStats } from '../file-stats';
 
-type MessageActions = BlockActions & { onEdit: (text: string, documents?: MessageDocument[]) => void; onBranch: (id: string) => void; onRollback: (message: Message) => void; busy: boolean; onRawEvents?: () => void };
+type MessageActions = BlockActions & { onEdit?: (text: string, documents?: MessageDocument[]) => void; onBranch?: (id: string) => void; onRollback?: (message: Message) => void; busy: boolean; onRawEvents?: () => void };
 type MessageViewActions = MessageActions & { canManageHistory: boolean };
 
 // App callbacks capture the current workspace/session. Keep event identities
@@ -24,9 +24,9 @@ function useMessageActions(actions: MessageActions): MessageActions {
   useLayoutEffect(() => { latest.current = actions; });
   const handlers = useMemo(() => ({
     notify: (text: string) => latest.current.notify(text),
-    onEdit: (text: string, documents?: MessageDocument[]) => latest.current.onEdit(text, documents),
-    onBranch: (id: string) => latest.current.onBranch(id),
-    onRollback: (message: Message) => latest.current.onRollback(message),
+    onEdit: (text: string, documents?: MessageDocument[]) => latest.current.onEdit?.(text, documents),
+    onBranch: (id: string) => latest.current.onBranch?.(id),
+    onRollback: (message: Message) => latest.current.onRollback?.(message),
     onOpenFile: (path: string) => latest.current.onOpenFile?.(path),
     onDiff: (path: string, diff?: string) => latest.current.onDiff?.(path, diff),
     onRevert: (changes: Parameters<NonNullable<BlockActions['onRevert']>>[0]) => latest.current.onRevert!(changes),
@@ -34,6 +34,9 @@ function useMessageActions(actions: MessageActions): MessageActions {
   }), []);
   return {
     ...handlers, busy: actions.busy,
+    onEdit: actions.onEdit ? handlers.onEdit : undefined,
+    onBranch: actions.onBranch ? handlers.onBranch : undefined,
+    onRollback: actions.onRollback ? handlers.onRollback : undefined,
     onOpenFile: actions.onOpenFile ? handlers.onOpenFile : undefined,
     onDiff: actions.onDiff ? handlers.onDiff : undefined,
     onRevert: actions.onRevert ? handlers.onRevert : undefined,
@@ -52,7 +55,7 @@ const UserMessage = memo(function UserMessage({ message, onEdit, onRollback, bus
     <MessageContext context={context} documents={documents} images={message.images} />
     <div className="msg-text">{text.length > 300 ? text.slice(0, 300) : text}{!expanded && text.length > 300 && '…'}<Collapse open={expanded && text.length > 300}>{text.slice(300)}</Collapse></div>
     {text.length > 300 && <button type="button" className="user-expand-btn" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '展开全部'}</button>}
-    <footer className="msg-footer"><time className="msg-time">{message.time}</time><span className="msg-actions">{canManageHistory && <>{(message.rollbackId || message.rollbackTimestamp) && <button aria-label="撤回到此消息" disabled={busy} onClick={() => onRollback(message)}><Undo2 size={13} /></button>}<IconButton label="重新编辑消息" onClick={() => onEdit(text, documents)}><Pencil size="0.8125rem" /></IconButton></>}<IconButton label="复制消息" onClick={() => { void copyText(message.text, notify); }}><Copy size="0.8125rem" /></IconButton></span></footer>
+    <footer className="msg-footer"><time className="msg-time">{message.time}</time><span className="msg-actions">{canManageHistory && <>{onRollback && (message.rollbackId || message.rollbackTimestamp) && <button aria-label="撤回到此消息" disabled={busy} onClick={() => onRollback(message)}><Undo2 size={13} /></button>}{onEdit && <IconButton label="重新编辑消息" onClick={() => onEdit(text, documents)}><Pencil size="0.8125rem" /></IconButton>}</>}<IconButton label="复制消息" onClick={() => { void copyText(message.text, notify); }}><Copy size="0.8125rem" /></IconButton></span></footer>
   </div></Enter>;
 });
 
@@ -90,7 +93,7 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
     </section>}
     <BlockRenderer blocks={final} streaming={streaming} {...actions} />
     {streaming && !message.text && <div className="thinking" role="status"><i /><i /><i /><span>正在准备回复…</span></div>}
-    {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>修改 {stats.edited.length} 文件</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>新增 {stats.created.length} 文件</button>}</span><span className="msg-actions"><IconButton label="复制回复" onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canBranch && <button type="button" className="msg-action-button" aria-label="继续到新会话" title="从此回复继续到新会话" disabled={actions.busy} onClick={() => actions.onBranch(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
+    {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>修改 {stats.edited.length} 文件</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>新增 {stats.created.length} 文件</button>}</span><span className="msg-actions"><IconButton label="复制回复" onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canBranch && actions.onBranch && <button type="button" className="msg-action-button" aria-label="继续到新会话" title="从此回复继续到新会话" disabled={actions.busy} onClick={() => actions.onBranch?.(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
   </div></Enter>;
 });
 

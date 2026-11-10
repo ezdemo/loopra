@@ -82,6 +82,12 @@ Controller 按业务文件组织，共享进程级的会话和任务上下文。
 
 Bot Service 在组合根显式装配，通过生命周期入口获得 Controller 提供的项目准备与轮次执行端口。每个 Bot 独立持有连接和取消上下文；飞书消息在持久化去重和绑定后异步执行，不占用事件确认窗口。Bot 不拥有独立的 Agent 执行栈，Native 轮次复用工作区运行时、关联项目、执行互斥、审批与 JSONL 历史。关闭服务会取消授权、长连接和执行并等待退出；旧连接回调不能覆盖新连接状态。
 
+## Loopra Mobile 与远程访问
+
+`mobile/` 使用 Tauri v2，独立实现手机布局、导航和会话状态，复用 LoopraClient、事件与历史适配及 Conversation / BlockRenderer 聊天渲染，不挂载桌面 App。`bootstrap.newRemoteRelay` 装配默认禁用的 Manager，`newBackend` 绑定移动 Host，HTTP 服务初始化后再绑定实际路由。Manager 串行持久化、替换连接和重置配对；写入失败不替换旧状态。
+
+`internal/service/almarelay` 仅处理外层中继、私有 E2E 会话及 HTTP/SSE 字节流，不含 Alma 业务兼容。Controller 的移动 Host 将认证后的相对 `/api/` 请求交给同一个路由和公共中间件，服务层不反向依赖 Controller。聊天处理器由应用跟踪，手机断线只解除读取；应用关闭先停止接收和关闭中继，再取消 Agent 并等待处理器。存储使用现有 JSONL 与审计事件。详见 [MOBILE.md](MOBILE.md)。
+
 ## 与 Java 开发方式的对应
 
 | Java / Spring 概念 | 本项目的对应位置 |

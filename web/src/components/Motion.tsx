@@ -47,7 +47,7 @@ export function AppMotion({ enabled, children }: { enabled: boolean; children: R
     return () => { MotionGlobalConfig.skipAnimations = previous; };
   }, [active]);
   return <MotionContext.Provider value={{ enabled: active }}>
-    <NextUIProvider skipFramerMotionAnimations={false} disableAnimation={!active} disableRipple={!active} reducedMotion={active ? 'user' : 'always'}>
+    <NextUIProvider className="app-motion-provider" skipFramerMotionAnimations={false} disableAnimation={!active} disableRipple={!active} reducedMotion={active ? 'user' : 'always'}>
       {children}
     </NextUIProvider>
   </MotionContext.Provider>;

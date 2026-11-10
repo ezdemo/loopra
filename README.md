@@ -416,6 +416,16 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 同一设置页可以一键启动 Cloudflare Quick Tunnel。本机需要已安装 `cloudflared` 并加入 PATH，也可以在页面填写可执行文件路径。Quick Tunnel 生成临时公网地址，应用退出后失效；本地代理只转发已配置的 MCP endpoint。该能力适合开发和测试。Quick Tunnel 不支持 SSE，请将 MCP 传输方式设为 Streamable HTTP。
 
+### Loopra Mobile
+
+`mobile/` 提供基于 Tauri v2 的 Android / iOS 客户端，独立的手机布局采用 miuix 风格、悬浮玻璃底栏和触控动效，核心聊天渲染复用 Loopra。通过自建 [alma-relay](https://github.com/yetone/alma-relay) 承载 Loopra 私有加密协议。桌面与 Web 在 **设置 → 连接与帮助 → 远程访问** 配置 HTTPS 中继和可选注册密钥，保存后显示 `loopra://` 配对链接与二维码，手机直接扫码连接。不再兼容 Alma 客户端协议。
+
+手机直接复用原生 HTTP/SSE 接口，提供项目与会话切换、流式聊天、停止、工具审批、Agent 提问、折叠思考/工具/子代理和消息内文件差异；字号和主题独立设置。终端、完整编辑器、插件界面、历史回滚和桌面设置未移植。手机断线不取消后台 Agent，重连后读取现有历史和状态。停用保留设置，重置配对使旧二维码失效。
+
+默认关闭。`LOOPRA_ALMA_RELAY_URL`、`LOOPRA_ALMA_RELAY_KEY` 可以提供初始设置；页面保存的配置优先，继续保存在 Loopra 数据目录的 `alma-relay.json`。管理接口为 `/api/remote/relay`，注册密钥不回显。当前「中继已连接」不代表手机 WSS 已连接。
+
+移动端开发、Android/iOS 构建见 [mobile/README.md](mobile/README.md)，协议和互操作测试见 [MOBILE.md](docs/MOBILE.md)。
+
 ### 上下文透镜
 
 安装 [上下文透视插件](https://github.com/ezdemo/loopra-plugins/tree/main/plugins/context-lens) 后，右侧面板的「透镜」页签可只读查看 Loopra Native 每次模型请求发送前的实际上下文组成与原文。最近的请求快照会保存到本地，重启后仍可查看。没有快照的旧会话（含外部 ACP Agent）展示已保存的消息、思考和工具记录，并明确标为会话历史。分类用量标为文本估算，原始会话记录不变；当前插件不提供固定补充信息或折叠工具结果。插件可通过 `ui.panel` 声明同样的右侧页签，见 [插件文档](docs/PLUGIN.md#右侧面板)。

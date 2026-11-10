@@ -1,0 +1,5 @@
+{
+  "extends": "../web/tsconfig.json",
+  "compilerOptions": { "types": ["vite/client"], "baseUrl": ".", "paths": { "@web/*": ["../web/src/*"] } },
+  "include": ["src", "../web/src/access-key.d.ts"]
+}

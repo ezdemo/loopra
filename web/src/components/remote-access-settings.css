@@ -1,0 +1,14 @@
+.remote-access-layout { display: grid; grid-template-columns: minmax(0, 1fr) 14rem; align-items: start; gap: 2rem; }
+.remote-access-form { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; padding-top: .5rem; }
+.remote-access-actions { margin-top: .25rem; }
+.remote-access-pairing { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+.remote-access-qr { display: block; width: 14rem; height: 14rem; max-width: 100%; border-radius: var(--radius, .75rem); background: #fff; }
+.remote-access-status { display: inline-flex; align-items: center; gap: .375rem; font-size: .8125rem; color: var(--secondary); }
+.remote-access-status::before { content: ''; width: .375rem; height: .375rem; border-radius: 50%; background: var(--muted); }
+.remote-access-status.is-connected::before { background: var(--blue); }
+.remote-access-link { display: flex; flex-direction: column; gap: .75rem; margin-top: 1.75rem; min-width: 0; }
+.remote-access-link textarea { overflow-wrap: anywhere; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: .75rem; }
+@media (max-width: 700px) {
+  .remote-access-layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .remote-access-pairing { justify-self: start; }
+}

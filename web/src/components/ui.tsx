@@ -6,8 +6,8 @@ export function LoadingSkeleton({ className = '' }: { className?: string }) {
   return <span aria-hidden="true" className={`loading-skeleton ${className}`} />;
 }
 
-export function IconButton({ label, children, onClick, className = '', active = false }: { label: string; children: ReactNode; onClick?: () => void; className?: string; active?: boolean }) {
-  return <Tooltip content={label} delay={600} closeDelay={0} classNames={{ content: 'app-tooltip' }}><Button isIconOnly variant="light" aria-label={label} title={label} onPress={onClick} className={`icon-button ${active ? 'active' : ''} ${className}`}>{children}</Button></Tooltip>;
+export function IconButton({ label, children, onClick, className = '', active = false, isDisabled = false }: { label: string; children: ReactNode; onClick?: () => void; className?: string; active?: boolean; isDisabled?: boolean }) {
+  return <Tooltip content={label} delay={600} closeDelay={0} classNames={{ content: 'app-tooltip' }}><Button isIconOnly variant="light" isDisabled={isDisabled} aria-label={label} title={label} onPress={onClick} className={`icon-button ${active ? 'active' : ''} ${className}`}>{children}</Button></Tooltip>;
 }
 
 export function LoopraMark({ small = false }: { small?: boolean }) {

@@ -164,6 +164,14 @@ func (s *Controller) tunnelController(w http.ResponseWriter, r *http.Request, ac
 
 func (s *Controller) Close() error {
 	var errs []error
+	if s.mobileRelay != nil {
+		s.mobileRelay.stopAccepting()
+	}
+	if s.remoteRelay != nil {
+		if err := s.remoteRelay.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if s.bots != nil {
 		if err := s.bots.Close(); err != nil {
 			errs = append(errs, err)
@@ -176,6 +184,9 @@ func (s *Controller) Close() error {
 	s.tasks.Stop()
 	s.abortAll()
 	s.acp.CloseAll()
+	if s.mobileRelay != nil {
+		s.mobileRelay.wait()
+	}
 	t := s.state.tunnel
 	t.mu.Lock()
 	defer t.mu.Unlock()

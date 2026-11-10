@@ -79,6 +79,7 @@ func NewRouter(controller *Controller) *ghttp.Server {
 	if err := server.Shutdown(); err != nil {
 		panic(fmt.Errorf("release GoFrame router listener: %w", err))
 	}
+	controller.BindMobileHTTP(server)
 	return server
 }
 
@@ -102,6 +103,7 @@ func (s *Controller) RegisterRoutes(server *ghttp.Server) {
 	s.registerExtensionsRoutes(api)
 	s.registerTasksRoutes(api)
 	s.registerBotRoutes(api)
+	s.registerRemoteRoutes(api)
 
 	health := func(r *ghttp.Request) {
 		withResponseWriter(r, func(w http.ResponseWriter) {

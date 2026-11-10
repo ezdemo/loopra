@@ -26,6 +26,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service"
 	"github.com/ezdemo/looprax/internal/service/acp"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
+	"github.com/ezdemo/looprax/internal/service/almarelay"
 	"github.com/ezdemo/looprax/internal/service/bot"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 	"github.com/ezdemo/looprax/internal/service/memory"
@@ -89,6 +90,8 @@ type Controller struct {
 	desktopUpdater     *desktopUpdater
 	shellTerms         *shellTerminals
 	bots               *bot.Service
+	remoteRelay        *almarelay.Manager
+	mobileRelay        *mobileRelayHost
 }
 
 // Options 配置服务端。
@@ -103,6 +106,7 @@ type Options struct {
 	Files         FileService
 	Memories      *memory.Service
 	Bots          *bot.Service
+	RemoteRelay   *almarelay.Manager
 	// OnUITheme 在界面偏好写入成功后调用，参数为 light、dark 或 system。
 	OnUITheme func(theme string)
 	// PetDesktop 在本进程里绘制原生宠物窗口。为空时页面仍把宠物画在输入框旁。
@@ -120,6 +124,7 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 		permissions:  hitl.NewRegistry(),
 		elicitations: hitl.NewElicitationRegistry(),
 		bots:         opts.Bots,
+		remoteRelay:  opts.RemoteRelay,
 		inflight:     &sync.Map{}, mcp: &mcpStore{}, acp: acp.NewManager(),
 	}
 	if s.home == "" && a != nil {
@@ -210,6 +215,7 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	if s.bots != nil {
 		s.bots.Start(context.Background(), s)
 	}
+	s.mobileRelay = &mobileRelayHost{key: s.key.value}
 	return s, s.key.value, nil
 }
 
