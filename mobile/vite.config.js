@@ -11,6 +11,6 @@ export default defineConfig({
     dedupe: ['react', 'react-dom', '@nextui-org/react', 'framer-motion'],
   },
   clearScreen: false,
-  server: { host: host || '127.0.0.1', port: 1420, strictPort: true, fs: { allow: ['..'] }, watch: { ignored: ['**/src-tauri/**'] }, hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined },
+  server: { host: host || '127.0.0.1', port: 1421, strictPort: true, fs: { allow: ['..'] }, watch: { ignored: ['**/src-tauri/**'] }, hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined },
   build: { target: 'es2022', chunkSizeWarningLimit: 2500 },
 });

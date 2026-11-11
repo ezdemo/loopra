@@ -12,9 +12,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[workspace]
+members = ["relay-core"]
+resolver = "2"
+
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-websocket = "2"
+loopra-relay = { path = "relay-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"

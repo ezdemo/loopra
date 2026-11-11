@@ -9,6 +9,7 @@
     "build": "pnpm typecheck && vite build",
     "test": "node --test tests/*.test.mjs",
     "tauri": "tauri",
+    "android:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1",
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build --apk --target aarch64",
@@ -19,16 +20,15 @@
     "@nextui-org/react": "2.6.11",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-barcode-scanner": "^2.0.0",
-    "@tauri-apps/plugin-websocket": "^2.0.0",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.468.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "6.0.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.3",

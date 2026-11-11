@@ -3,7 +3,7 @@
   "productName": "Loopra",
   "version": "0.1.1",
   "identifier": "app.loopra.mobile",
-  "build": { "beforeDevCommand": "pnpm dev", "devUrl": "http://localhost:1420", "beforeBuildCommand": "pnpm build", "frontendDist": "../dist" },
+  "build": { "beforeDevCommand": "pnpm dev", "devUrl": "http://localhost:1421", "beforeBuildCommand": "pnpm build", "frontendDist": "../dist" },
   "app": {
     "windows": [{ "label": "main", "title": "Loopra", "width": 430, "height": 900, "minWidth": 320, "useHttpsScheme": true }],
     "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob: https:; font-src 'self' data:; connect-src ipc: http://ipc.localhost https: wss: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-src 'self' blob:" }

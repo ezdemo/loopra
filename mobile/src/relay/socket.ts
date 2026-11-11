@@ -1,21 +1,8 @@
-import { isTauri } from '@tauri-apps/api/core';
-
 export type WireSocket = { send: (data: string | Uint8Array) => Promise<void>; close: () => Promise<void> };
 export type SocketFactory = (url: string, receive: (data: string | Uint8Array) => void, closed: () => void, signal: AbortSignal) => Promise<WireSocket>;
 
 export const openSocket: SocketFactory = async (url, receive, closed, signal) => {
   signal.throwIfAborted();
-  if (isTauri()) {
-    const { default: NativeWebSocket } = await import('@tauri-apps/plugin-websocket');
-    const socket = await NativeWebSocket.connect(url);
-    if (signal.aborted) { await socket.disconnect(); throw signal.reason; }
-    const remove = socket.addListener(message => {
-      if (message.type === 'Text') receive(message.data);
-      else if (message.type === 'Binary') receive(new Uint8Array(message.data));
-      else if (message.type === 'Close') closed();
-    });
-    return { send: data => socket.send(typeof data === 'string' ? data : Array.from(data)), close: async () => { remove(); await socket.disconnect(); } };
-  }
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
     socket.binaryType = 'arraybuffer';

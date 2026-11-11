@@ -1,6 +1,12 @@
 import { base64url, unbase64 } from './crypto';
 
-export type Pairing = { relayUrl: string; connectCode: string; version: 1 };
+export type Pairing = { relayUrl: string; connectCode: string; version: 1; displayName?: string };
+export function normalizeInstanceName(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const compact = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const name = Array.from(compact).slice(0, 40).join('');
+  return name || undefined;
+}
 export function validatePairing(value: unknown): Pairing {
   if (!value || typeof value !== 'object') throw new Error('配对信息无效');
   const fields = value as Record<string, unknown>;
@@ -11,7 +17,8 @@ export function validatePairing(value: unknown): Pairing {
   if ((relay.protocol !== 'https:' && !(relay.protocol === 'http:' && local)) || relay.username || relay.password || relay.pathname !== '/' || relay.search || relay.hash) throw new Error('中继地址需要有效的 HTTPS 域名');
   const bytes = unbase64(fields.connectCode);
   if (bytes.length !== 32 || base64url(bytes) !== fields.connectCode) throw new Error('配对码无效');
-  return { relayUrl: relay.origin, connectCode: fields.connectCode, version: 1 };
+  const displayName = normalizeInstanceName(fields.displayName);
+  return { relayUrl: relay.origin, connectCode: fields.connectCode, version: 1, ...(displayName ? { displayName } : {}) };
 }
 export function parsePairingLink(input: string): Pairing {
   if (input.length > 4096) throw new Error('配对链接过长');

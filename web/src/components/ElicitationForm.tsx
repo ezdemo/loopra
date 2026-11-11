@@ -32,7 +32,7 @@ export default function ElicitationForm({ request, onAnswer, draftKey = '', draf
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setBusy(false); }
   }
   return <form className="choice-popup elicitation-form" role="dialog" aria-label="Agent 提问" onSubmit={event => { event.preventDefault(); if (last) void submit('accept'); else navigate(current + 1); }}>
-    <header className="choice-popup-head"><span className="choice-progress" aria-live="polite">{pages.length > 1 ? `问题 ${current + 1} / ${pages.length}` : 'Agent 提问'}</span></header>
+    <header className={`choice-popup-head ${pages.length === 1 ? 'is-single' : ''}`}><span className="choice-progress" aria-live="polite">{pages.length > 1 ? `问题 ${current + 1} / ${pages.length}` : 'Agent 提问'}</span></header>
     <div className="elicitation-fields" ref={body} role="region" aria-label="当前问题内容" tabIndex={0}>
       <p className="elicitation-message">{request.message || '请回答以下问题'}</p>
       {(pages[current]?.fields || []).map(([name, field]) => {

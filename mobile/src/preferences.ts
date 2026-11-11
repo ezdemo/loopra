@@ -1,3 +1,9 @@
+declare global {
+  interface Window {
+    LoopraSystemBars?: { setDarkMode(dark: boolean): void };
+  }
+}
+
 export type MobilePreferences = { fontSize: number; theme: 'system' | 'light' | 'dark' };
 export const defaultPreferences: MobilePreferences = { fontSize: 16, theme: 'system' };
 export function readPreferences(): MobilePreferences {
@@ -14,6 +20,7 @@ export function paintPreferences(preferences: MobilePreferences) {
   document.documentElement.classList.add('workspace-theme');
   document.documentElement.classList.toggle('dark', dark);
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-  document.documentElement.style.setProperty('--phone-body-size', `${preferences.fontSize / 16}rem`);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#191919' : '#ffffff');
+  document.documentElement.style.setProperty('--mobile-font-scale', String(preferences.fontSize / 16));
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#09090a' : '#e9e9e6');
+  window.LoopraSystemBars?.setDarkMode(dark);
 }

@@ -8,6 +8,7 @@ export type RelayState = 'connecting' | 'connected' | 'disconnected' | 'closed';
 const asError = (error: unknown) => error instanceof Error ? error : new Error(String(error));
 
 export class RelayTransport {
+  readonly native = false;
   state: RelayState = 'disconnected';
   onState?: (state: RelayState, error?: Error) => void;
   private socket?: WireSocket;
@@ -22,6 +23,7 @@ export class RelayTransport {
   private lifetime?: AbortController;
 
   constructor(readonly pairing: Pairing, private factory: SocketFactory = openSocket) {}
+  resume() { /* Browser recovery is driven by visibility and focus in MobileApp. */ }
   private change(state: RelayState, error?: Error) { this.state = state; this.onState?.(state, error); }
   connect(): Promise<void> {
     if (this.state === 'connected') return Promise.resolve();

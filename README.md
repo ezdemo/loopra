@@ -418,7 +418,7 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 ### Loopra Mobile
 
-`mobile/` 提供基于 Tauri v2 的 Android / iOS 客户端，独立的手机布局采用 miuix 风格、悬浮玻璃底栏和触控动效，核心聊天渲染复用 Loopra。通过自建 [alma-relay](https://github.com/yetone/alma-relay) 承载 Loopra 私有加密协议。桌面与 Web 在 **设置 → 连接与帮助 → 远程访问** 配置 HTTPS 中继和可选注册密钥，保存后显示 `loopra://` 配对链接与二维码，手机直接扫码连接。不再兼容 Alma 客户端协议。
+`mobile/` 提供基于 Tauri v2 的 Android / iOS 客户端。手机端采用独立的液态玻璃应用面板：中性底图、磨砂分组、悬浮底栏和聊天输入面板，核心聊天渲染复用 Loopra。通过自建 [alma-relay](https://github.com/yetone/alma-relay) 承载 Loopra 私有加密协议。桌面与 Web 在 **设置 → 连接与帮助 → 远程访问** 配置 HTTPS 中继和可选注册密钥，保存后显示 `loopra://` 配对链接与二维码，手机直接扫码连接。不再兼容 Alma 客户端协议。
 
 手机直接复用原生 HTTP/SSE 接口，提供项目与会话切换、流式聊天、停止、工具审批、Agent 提问、折叠思考/工具/子代理和消息内文件差异；字号和主题独立设置。终端、完整编辑器、插件界面、历史回滚和桌面设置未移植。手机断线不取消后台 Agent，重连后读取现有历史和状态。停用保留设置，重置配对使旧二维码失效。
 

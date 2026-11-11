@@ -1,0 +1,7 @@
+{
+  "default": "launcher.svg",
+  "android_fg": "launcher-foreground.svg",
+  "android_fg_scale": 100,
+  "android_monochrome": "launcher-monochrome.svg",
+  "bg_color": "#ffffff"
+}

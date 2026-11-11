@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { load } from './load-source.mjs';
 
 const { RelayTransport } = await load('relay/transport.ts');
-const { parsePairingLink, validatePairing, pairingOrigin } = await load('relay/pairing.ts');
+const { normalizeInstanceName, parsePairingLink, validatePairing, pairingOrigin } = await load('relay/pairing.ts');
 const { relayFetch } = await load('relay/fetch.ts');
 const { derive, encode, concat, base64url, unbase64, counterIV, E2E_LABEL } = await load('relay/crypto.ts');
 const pairing = { relayUrl: 'https://relay.example', connectCode: base64url(new Uint8Array(32).fill(7)), version: 1 };
@@ -69,6 +69,9 @@ test('pairing accepts only versioned Loopra HTTPS origins and canonical secrets'
   assert.deepEqual(parsePairingLink(link()), pairing);
   for (const bad of [link({ v: '2' }), link({ e2e: '0' }), link({ u: 'http://relay.example' }), link({ u: 'https://relay.example/path' }), link({ k: 'short' }), link() + '&v=1', link().replace('loopra:', 'alma:')]) assert.throws(() => parsePairingLink(bad));
   assert.throws(() => validatePairing({ ...pairing, relayUrl: 'https://user@relay.example' }));
+  assert.deepEqual(validatePairing({ ...pairing, displayName: '  我的 主机\n' }), { ...pairing, displayName: '我的 主机' });
+  assert.equal(normalizeInstanceName('   '), undefined);
+  assert.equal(normalizeInstanceName('x'.repeat(60)).length, 40);
   assert.notEqual(await pairingOrigin(pairing), await pairingOrigin({ ...pairing, connectCode: base64url(new Uint8Array(32).fill(8)) }));
 });
 

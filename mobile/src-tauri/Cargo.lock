@@ -1707,12 +1707,29 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 name = "loopra-mobile"
 version = "0.1.1"
 dependencies = [
+ "loopra-relay",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-barcode-scanner",
- "tauri-plugin-websocket",
+ "url",
+]
+
+[[package]]
+name = "loopra-relay"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "futures-util",
+ "ring",
+ "rustls",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
  "url",
 ]
 
@@ -3260,26 +3277,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-websocket"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe432106abc61677935462da4615f1c5c710747485e23d18ac8eb3631b3a0ddf"
-dependencies = [
- "futures-util",
- "http",
- "log",
- "rand",
- "rustls",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.21",
- "tokio",
- "tokio-tungstenite",
-]
-
-[[package]]
 name = "tauri-runtime"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3484,7 +3481,19 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "socket2",
+ "tokio-macros",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -3522,6 +3531,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

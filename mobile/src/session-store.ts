@@ -1,20 +1,26 @@
-import { LoopraClient, applyEvent, historyMessages, withChatWorkspace, CHAT_WORKSPACE } from '@web/backend';
+import { LoopraClient, applyEvent, historyMessages, withChatWorkspace } from '@web/backend';
 import type { AgentEngine, HistoryMessage, RemoteConfig, RemoteSession, StreamEvent, Workspace } from '@web/backend';
+import type { AgentConfigOption } from '@web/agent-config';
 import type { Message, ChoiceBlockData } from '@web/chat';
 import { resolveChoiceBlock } from '@web/chat';
 import type { ElicitationRequest } from '@web/elicitation';
 
 export type MobileThread = RemoteSession & { id: string; workspaceHash: string };
-export type ThreadView = { messages: Message[]; loading: boolean; running: boolean; requestId?: string; error?: string; inputs?: ElicitationRequest[] };
+export type QueuedMessage = { id: string; text: string; workspaceHash: string; agentId: string };
+export type ThreadView = { messages: Message[]; queued: QueuedMessage[]; loading: boolean; running: boolean; requestId?: string; error?: string; inputs?: ElicitationRequest[] };
+export type PreparedAgent = { key: string; workspaceHash: string; agentId: string; sessionName: string; options: AgentConfigOption[] };
 export type MobileSnapshot = {
   workspaces: Workspace[]; threads: MobileThread[]; selected?: MobileThread;
   views: Record<string, ThreadView>; config?: RemoteConfig; engines: AgentEngine[];
+  configs: Record<string, AgentConfigOption[]>; configLoading: Record<string, boolean>; configErrors: Record<string, string>;
+  draft?: PreparedAgent; draftLoading: boolean; draftError?: string; configBusy: boolean;
   loading: boolean; error?: string;
 };
 export type ModelChoice = { id: string; name: string; channel: string; label: string };
+export const agentConfigKey = (workspaceHash: string, agentId: string) => JSON.stringify([workspaceHash, agentId]);
 export const threadId = (workspaceHash: string, name: string) => JSON.stringify([workspaceHash, name]);
 export const threadQuery = (thread: MobileThread) => new URLSearchParams({ workspaceHash: thread.workspaceHash, sessionName: thread.name }).toString();
-export const emptyView = (): ThreadView => ({ messages: [], loading: false, running: false });
+export const emptyView = (): ThreadView => ({ messages: [], queued: [], loading: false, running: false });
 export function modelChoices(config?: RemoteConfig): ModelChoice[] {
   return (config?.modelChannels || []).flatMap(channel => channel.models.map(model => ({
     id: JSON.stringify([channel.id, model.name]), name: model.name, channel: channel.id,
@@ -25,12 +31,16 @@ const messageOf = (error: unknown) => error instanceof Error ? error.message : S
 
 /** Owns phone navigation and streams independently of the desktop workbench. */
 export class MobileSessionStore {
-  private state: MobileSnapshot = { workspaces: [], threads: [], views: {}, engines: [], loading: true };
+  private state: MobileSnapshot = { workspaces: [], threads: [], views: {}, engines: [], configs: {}, configLoading: {}, configErrors: {}, draftLoading: false, configBusy: false, loading: true };
   private listeners = new Set<() => void>();
   private lifetime = new AbortController();
   private selection?: AbortController;
   private catalog?: AbortController;
   private streams = new Map<string, { controller: AbortController; requestId: string; stopping: boolean }>();
+  private configRequests = new Map<string, AbortController>();
+  private draftRequest?: { key: string; controller: AbortController; promise: Promise<PreparedAgent | undefined> };
+  private draining = new Set<string>();
+  private queueRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private syncing = false;
   private submitting = false;
   constructor(private api: Pick<LoopraClient, 'request' | 'stream'>) {}
@@ -74,8 +84,71 @@ export class MobileSessionStore {
   async select(thread?: MobileThread) {
     this.selection?.abort(); this.selection = new AbortController();
     this.publish({ selected: thread });
-    if (!thread || this.streams.has(thread.id)) return;
+    if (!thread) return;
+    void this.loadConfig(thread);
+    if (this.streams.has(thread.id)) return;
     await this.read(thread, true);
+    if (!this.state.views[thread.id]?.error) this.drainQueue(thread);
+  }
+  async loadConfig(thread: MobileThread) {
+    this.configRequests.get(thread.id)?.abort();
+    const controller = new AbortController();
+    this.configRequests.set(thread.id, controller);
+    const signal = AbortSignal.any([controller.signal, this.lifetime.signal]);
+    this.publish({ configLoading: { ...this.state.configLoading, [thread.id]: true }, configErrors: { ...this.state.configErrors, [thread.id]: '' } });
+    try {
+      const result = await this.api.request<{ configOptions: AgentConfigOption[] }>(`/agent-engines/config?${threadQuery(thread)}`, 'GET', undefined, signal);
+      if (signal.aborted) return undefined;
+      this.publish({ configs: { ...this.state.configs, [thread.id]: result.configOptions || [] } });
+      return result.configOptions || [];
+    } catch (error) {
+      if (!signal.aborted) this.publish({ configErrors: { ...this.state.configErrors, [thread.id]: messageOf(error) } });
+      return undefined;
+    } finally {
+      if (this.configRequests.get(thread.id) === controller) {
+        this.configRequests.delete(thread.id);
+        this.publish({ configLoading: { ...this.state.configLoading, [thread.id]: false } });
+      }
+    }
+  }
+  prepareDraft(workspaceHash: string, agentId: string) {
+    const key = agentConfigKey(workspaceHash, agentId);
+    if (this.draftRequest?.key === key) return this.draftRequest.promise;
+    if (this.state.draft?.key === key) return Promise.resolve(this.state.draft);
+    this.draftRequest?.controller.abort();
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, this.lifetime.signal]);
+    this.publish({ draftLoading: true, draftError: undefined });
+    const promise = (async () => {
+      try {
+        const prepared = await this.api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST', { workspaceHash, agentId }, signal);
+        if (signal.aborted) return undefined;
+        const draft: PreparedAgent = { key, workspaceHash, agentId: prepared.agentId || agentId, sessionName: prepared.sessionName, options: prepared.configOptions || [] };
+        this.publish({ draft, draftLoading: false, draftError: undefined });
+        return draft;
+      } catch (error) {
+        if (!signal.aborted) this.publish({ draftLoading: false, draftError: messageOf(error) });
+        return undefined;
+      } finally {
+        if (this.draftRequest?.controller === controller) this.draftRequest = undefined;
+      }
+    })();
+    this.draftRequest = { key, controller, promise };
+    return promise;
+  }
+  async changeConfig(target: { workspaceHash: string; sessionName: string; agentId: string; threadId?: string }, configId: string, value: string | boolean): Promise<AgentConfigOption[]> {
+    this.publish({ configBusy: true });
+    try {
+      const result = await this.api.request<{ configOptions: AgentConfigOption[] }>('/agent-engines/config', 'PUT', {
+        workspaceHash: target.workspaceHash, sessionName: target.sessionName, configId, value,
+      }, this.lifetime.signal);
+      const options = result.configOptions || [];
+      if (target.threadId) this.publish({ configs: { ...this.state.configs, [target.threadId]: options }, configErrors: { ...this.state.configErrors, [target.threadId]: '' } });
+      else if (this.state.draft && this.state.draft.workspaceHash === target.workspaceHash && this.state.draft.sessionName === target.sessionName) {
+        this.publish({ draft: { ...this.state.draft, options }, draftError: undefined });
+      }
+      return options;
+    } finally { this.publish({ configBusy: false }); }
   }
   private async read(thread: MobileThread, initial: boolean) {
     if (!this.selection) return;
@@ -95,7 +168,7 @@ export class MobileSessionStore {
           if (messages.at(-1)?.role !== 'assistant') messages.push({ id: `permission-${permission.permissionRequestId}`, role: 'assistant', text: '', blocks: [] });
           messages[messages.length - 1] = applyEvent(messages[messages.length - 1], { ...permission, type: 'choice' });
         }
-        this.view(thread.id, () => ({ messages, inputs, loading: false, running: status.running, requestId: status.requestId }));
+        this.view(thread.id, value => ({ ...value, messages, inputs, loading: false, running: status.running, requestId: status.requestId, error: undefined }));
       }
       if (status.title) this.publish({ threads: this.state.threads.map(item => item.id === thread.id ? { ...item, title: status.title } : item) });
     } catch (error) { if (!signal.aborted) this.view(thread.id, value => ({ ...value, loading: false, error: messageOf(error) })); }
@@ -105,26 +178,42 @@ export class MobileSessionStore {
     const thread = this.state.selected;
     if (this.syncing || !thread || this.streams.has(thread.id)) return;
     this.syncing = true;
-    try { await this.read(thread, false); } finally { this.syncing = false; }
+    try {
+      await this.read(thread, false);
+      if (!this.state.views[thread.id]?.error) this.drainQueue(thread);
+    } finally { this.syncing = false; }
   }
-  async send(text: string, options: { workspaceHash: string; agentId: string; model?: ModelChoice; effort?: string }, control = false, onAccepted?: () => void) {
-    if (!text.trim() || this.submitting) return false;
-    let thread = this.state.selected;
+  async send(text: string, options: { workspaceHash: string; agentId: string }, control = false, onAccepted?: () => void, targetThread?: MobileThread) {
+    if (!text.trim()) return false;
+    const thread = targetThread || this.state.selected;
+    if (thread && !control && (this.streams.has(thread.id) || this.state.views[thread.id]?.running)) {
+      this.view(thread.id, value => ({ ...value, queued: [...(value.queued || []), { id: crypto.randomUUID(), text: text.trim(), workspaceHash: options.workspaceHash, agentId: options.agentId }] }));
+      onAccepted?.();
+      return true;
+    }
+    return this.sendNow(text, options, control, onAccepted, thread);
+  }
+  private async sendNow(text: string, options: { workspaceHash: string; agentId: string }, control = false, onAccepted?: () => void, targetThread?: MobileThread) {
+    let thread = targetThread || this.state.selected;
+    if (this.submitting) return false;
     if (thread && (this.streams.has(thread.id) || this.state.views[thread.id]?.running || this.state.views[thread.id]?.loading)) throw new Error('当前会话仍在回复，请等待或停止后发送');
     this.submitting = true;
     let preparing = true;
+    let failed = false;
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, this.lifetime.signal]);
     try {
       if (!thread) {
-        const created = await this.api.request<{ sessionName: string; agentId: string }>('/agent-engines/prepare', 'POST', { workspaceHash: options.workspaceHash || CHAT_WORKSPACE.hash, agentId: options.agentId }, signal);
+        const key = agentConfigKey(options.workspaceHash, options.agentId);
+        const prepared = this.state.draft?.key === key ? this.state.draft : await this.prepareDraft(options.workspaceHash, options.agentId);
         signal.throwIfAborted();
-        thread = { id: threadId(options.workspaceHash, created.sessionName), workspaceHash: options.workspaceHash, name: created.sessionName, agentId: created.agentId, title: text.slice(0, 50), mtime: Date.now(), messageCount: 0 };
+        if (!prepared) throw new Error(this.state.draftError || '准备会话失败');
+        thread = { id: threadId(prepared.workspaceHash, prepared.sessionName), workspaceHash: prepared.workspaceHash, name: prepared.sessionName, agentId: prepared.agentId, title: text.slice(0, 50), mtime: Date.now(), messageCount: 0 };
         this.selection?.abort(); this.selection = new AbortController();
-        this.publish({ selected: thread, threads: [thread, ...this.state.threads.filter(item => item.id !== thread!.id)] });
+        this.publish({ selected: thread, threads: [thread, ...this.state.threads.filter(item => item.id !== thread!.id)], configs: { ...this.state.configs, [thread.id]: prepared.options }, draft: undefined });
       }
       const target = thread;
-      this.selection?.abort(); this.selection = new AbortController();
+      if (this.state.selected?.id === target.id) { this.selection?.abort(); this.selection = new AbortController(); }
       const requestId = crypto.randomUUID();
       const run = { controller, requestId, stopping: false }; this.streams.set(target.id, run);
       const answer: Message = { id: crypto.randomUUID(), role: 'assistant', text: '', blocks: [], startedAt: Date.now() };
@@ -134,10 +223,12 @@ export class MobileSessionStore {
       preparing = false;
       onAccepted?.();
       try {
-        await this.api.stream({ message: text, requestId, workspaceHash: target.workspaceHash, sessionName: target.name, agentId: target.agentId || options.agentId,
-          ...(options.model ? { model: options.model.name, modelChannelId: options.model.channel } : {}), reasoningEffort: options.effort,
-        }, event => {
+        await this.api.stream({ message: text, requestId, workspaceHash: target.workspaceHash, sessionName: target.name, agentId: target.agentId || options.agentId }, event => {
           if (signal.aborted || this.streams.get(target.id) !== run) return;
+          if (event.type === 'config_options' && event.configOptions) {
+            this.configRequests.get(target.id)?.abort();
+            this.publish({ configs: { ...this.state.configs, [target.id]: event.configOptions } }); return;
+          }
           if (event.type === 'elicitation' && event.elicitationRequestId && event.schema) {
             const input: ElicitationRequest = { elicitationRequestId: event.elicitationRequestId, message: event.message || '请回答以下问题', schema: event.schema };
             this.view(target.id, value => ({ ...value, inputs: [...(value.inputs || []).filter(item => item.elicitationRequestId !== input.elicitationRequestId), input] })); return;
@@ -146,17 +237,68 @@ export class MobileSessionStore {
           this.view(target.id, value => ({ ...value, messages: value.messages.map(message => message.id === answer.id ? applyEvent(message, event) : message) }));
         }, signal);
       } catch (error) {
+        failed = true;
         if (!signal.aborted) this.view(target.id, value => ({ ...value, error: messageOf(error) }));
       } finally {
+        const stopping = run.stopping;
         if (this.streams.get(target.id) === run) {
           this.streams.delete(target.id);
           this.view(target.id, value => ({ ...value, running: false, messages: value.messages.map(message => message.id === answer.id ? { ...message, finishedAt: Date.now() } : message) }));
-          // Read persisted history on the next sync, including a reply that outlived a lost stream.
-          if (!this.lifetime.signal.aborted && this.state.selected?.id === target.id) await this.read(target, false);
+          if (!stopping && !this.lifetime.signal.aborted) {
+            // Read persisted history on the next sync, including a reply that outlived a lost stream.
+            if (this.state.selected?.id === target.id) await this.read(target, false);
+            if (!failed && !this.state.views[target.id]?.error) this.drainQueue(target);
+          }
         }
       }
       return true;
     } finally { if (preparing) this.submitting = false; }
+  }
+  private drainQueue(thread: MobileThread) {
+    if (this.draining.has(thread.id) || this.streams.has(thread.id) || this.state.views[thread.id]?.running) return;
+    if (!this.state.views[thread.id]?.queued?.[0]) return;
+    this.draining.add(thread.id);
+    void (async () => {
+      try {
+        while (!this.lifetime.signal.aborted) {
+          if (this.streams.has(thread.id) || this.state.views[thread.id]?.running) return;
+          const next = this.state.views[thread.id]?.queued?.[0];
+          if (!next) return;
+          let accepted = false;
+          try {
+            await this.sendNow(next.text, { workspaceHash: next.workspaceHash, agentId: next.agentId }, false, () => {
+              accepted = true;
+              this.removeQueued(thread.id, next.id);
+            }, thread);
+          } catch (error) {
+            this.view(thread.id, value => ({ ...value, error: messageOf(error) }));
+            return;
+          }
+          // A failed stream or history refresh leaves the remaining queue for a later retry.
+          if (!accepted) { this.scheduleQueueDrain(thread); return; }
+          if (this.state.views[thread.id]?.error) return;
+        }
+      } finally {
+        this.draining.delete(thread.id);
+      }
+    })();
+  }
+  private scheduleQueueDrain(thread: MobileThread) {
+    if (this.lifetime.signal.aborted || this.queueRetries.has(thread.id)) return;
+    const timer = setTimeout(() => {
+      this.queueRetries.delete(thread.id);
+      this.drainQueue(thread);
+    }, 350);
+    this.queueRetries.set(thread.id, timer);
+  }
+  removeQueued(threadId: string, id: string) {
+    this.view(threadId, value => ({ ...value, queued: (value.queued || []).filter(item => item.id !== id) }));
+  }
+  promoteQueued(threadId: string, id: string) {
+    const current = this.state.views[threadId]?.queued || [];
+    const item = current.find(entry => entry.id === id);
+    if (!item || current[0]?.id === id) return;
+    this.view(threadId, value => ({ ...value, queued: [item, ...(value.queued || []).filter(entry => entry.id !== id)] }));
   }
   async stop() {
     const thread = this.state.selected;
@@ -169,9 +311,34 @@ export class MobileSessionStore {
     try {
       await this.api.request('/chat/abort', 'POST', { requestId, workspaceHash: thread.workspaceHash, sessionName: thread.name }, this.lifetime.signal);
       run?.controller.abort();
-      this.view(thread.id, value => ({ ...value, running: false }));
-      if (!run) await this.read(thread, false);
-    } catch (error) { if (run) run.stopping = false; throw error; }
+      if (run) await this.waitForStreamEnd(thread.id);
+      await this.waitUntilIdle(thread);
+      if (this.state.selected?.id === thread.id) await this.read(thread, false);
+      this.view(thread.id, value => ({ ...value, running: false, requestId: undefined }));
+      if (!this.state.views[thread.id]?.error) this.drainQueue(thread);
+    } catch (error) {
+      if (run && !run.controller.signal.aborted) run.stopping = false;
+      throw error;
+    }
+  }
+  private async waitForStreamEnd(threadId: string) {
+    const deadline = Date.now() + 5000;
+    while (this.streams.has(threadId)) {
+      if (Date.now() >= deadline) throw new Error('上一条回复仍在停止，消息已保留在队列中');
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+  }
+  private async waitUntilIdle(thread: MobileThread) {
+    const deadline = Date.now() + 10000;
+    while (true) {
+      const status = await this.api.request<{ running: boolean; requestId?: string }>(`/agent/session-status?${threadQuery(thread)}`, 'GET', undefined, this.lifetime.signal);
+      if (!status.running) {
+        this.view(thread.id, value => ({ ...value, running: false, requestId: status.requestId }));
+        return;
+      }
+      if (Date.now() >= deadline) throw new Error('上一条回复仍在停止，消息已保留在队列中');
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
   }
   async answer(choice: ChoiceBlockData, value: string, title: string, options: Parameters<MobileSessionStore['send']>[1]) {
     const thread = this.state.selected;
@@ -189,6 +356,11 @@ export class MobileSessionStore {
   }
   dispose() {
     this.lifetime.abort(); this.selection?.abort(); this.catalog?.abort();
+    this.draftRequest?.controller.abort();
+    for (const request of this.configRequests.values()) request.abort();
+    this.configRequests.clear();
+    for (const timer of this.queueRetries.values()) clearTimeout(timer);
+    this.queueRetries.clear();
     for (const stream of this.streams.values()) stream.controller.abort();
     this.streams.clear(); this.listeners.clear();
   }

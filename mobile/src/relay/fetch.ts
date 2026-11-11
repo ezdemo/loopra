@@ -1,8 +1,8 @@
-import type { RelayTransport } from './transport';
+type FetchTransport = { fetch: (path: string, init?: RequestInit) => Promise<Response> };
 
 // Only this device's virtual origin is routed through E2E. Tauri IPC, packaged
 // assets and external URLs keep their original fetch implementation.
-export function relayFetch(transport: RelayTransport, origin: string, fallback: typeof fetch): typeof fetch {
+export function relayFetch(transport: FetchTransport, origin: string, fallback: typeof fetch): typeof fetch {
   const request: typeof fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), origin);
     if (url.origin !== origin) return fallback(input, init);
@@ -26,7 +26,7 @@ export function relayFetch(transport: RelayTransport, origin: string, fallback: 
   return request;
 }
 
-export function installRelayFetch(transport: RelayTransport, origin: string): () => void {
+export function installRelayFetch(transport: FetchTransport, origin: string): () => void {
   const original = window.fetch;
   const routed = relayFetch(transport, origin, original.bind(window));
   window.fetch = routed;
