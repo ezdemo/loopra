@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
 import { Plus, RefreshCw, Search } from 'lucide-react';
-import { isChatWorkspace, type LoopraClient, type Workspace } from '../backend';
+import type { LoopraClient, Workspace } from '../backend';
+import { isProjectWorkspace } from '../custom-agents';
 import { memoryPath, type MemoryEntry } from '../memory';
 import { EmptySetting, Field, PageActions, SelectField, SettingSegments, TextField } from './SettingControls';
 import { ConfirmAction, errorText, RemoteState, useRemote } from './RemoteControls';
@@ -15,7 +16,7 @@ type Props = {
 };
 
 export default function MemorySettings({ api, workspaces, initialWorkspaceHash, onNestedDialog }: Props) {
-  const projects = workspaces.filter(item => !isChatWorkspace(item));
+  const projects = workspaces.filter(isProjectWorkspace);
   const [scope, setScope] = useState<'global' | 'project'>('global');
   const [selected, setSelected] = useState(initialWorkspaceHash || '');
   const workspace = projects.find(item => item.hash === selected)?.hash || projects[0]?.hash || '';

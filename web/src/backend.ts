@@ -10,12 +10,19 @@ export function acpStopMessage(reason?: string) {
   return ({ cancelled: '本次回复已停止', max_tokens: '已达到本轮输出上限，任务可能尚未完成', max_turn_requests: '已达到本轮请求次数上限，任务可能尚未完成', refusal: 'Agent 拒绝了本次请求' } as Record<string, string>)[reason || ''] || '';
 }
 export type ProjectLinks = { linkedProjectHashes: string[]; linkedProjectPaths: string[] };
-export type Workspace = { hash: string; name: string; path: string; displayName?: string | null; kind?: 'project' | 'chat'; linkedProjectHashes?: string[]; linkedProjectPaths?: string[] };
+/** 自定义智能体定义，与 /api/custom-agents 的 JSON 一致。tools/skills 为 null 表示不限制。 */
+export type CustomAgent = { id: string; name: string; instruction: string; projectHash: string; tools: string[] | null; skills: string[] | null; createdAt: number; updatedAt: number };
+export type CustomAgentCatalogTool = { name: string; description: string; readOnly: boolean };
+export type CustomAgentCatalogSkill = { name: string; description: string; scope: string };
+export type CustomAgentCatalog = { chatTools: CustomAgentCatalogTool[]; projectTools: CustomAgentCatalogTool[]; skills: CustomAgentCatalogSkill[] };
+export type Workspace = { hash: string; name: string; path: string; displayName?: string | null; kind?: 'project' | 'chat' | 'agent'; agent?: CustomAgent; linkedProjectHashes?: string[]; linkedProjectPaths?: string[] };
 /** Must match site.sorghum.loopra.bin.agent.environment.ChatMode.WORKSPACE_HASH. */
 export const CHAT_WORKSPACE: Workspace = { hash: '__loopra_chat__', name: '纯聊天', path: '', kind: 'chat' };
 export const isChatWorkspace = (workspace?: Pick<Workspace, 'hash'> | null) => workspace?.hash === CHAT_WORKSPACE.hash;
-export function withChatWorkspace(workspaces: Workspace[]): Workspace[] {
-  return [CHAT_WORKSPACE, ...workspaces.filter(item => !isChatWorkspace(item)).map(item => ({ ...item, kind: item.kind || 'project' as const }))];
+/** 自定义智能体的 id 就是它的工作区 hash。 */
+export const agentWorkspace = (agent: CustomAgent): Workspace => ({ hash: agent.id, name: agent.name, path: '', kind: 'agent', agent });
+export function withChatWorkspace(workspaces: Workspace[], agents: CustomAgent[] = []): Workspace[] {
+  return [CHAT_WORKSPACE, ...agents.map(agentWorkspace), ...workspaces.filter(item => !isChatWorkspace(item)).map(item => ({ ...item, kind: item.kind || 'project' as const }))];
 }
 export type AgentEngine = { id: string; name: string; available: boolean; detail?: string };
 export type AcpPlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: string };

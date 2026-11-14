@@ -177,7 +177,7 @@ func (s *Controller) snapshotRollback(w http.ResponseWriter, r *http.Request) {
 			restoreCode = value
 		}
 	}
-	if s.agent != nil && s.agent.App() == chatWorkspace {
+	if s.agent != nil && s.chatScoped() {
 		restoreCode = false
 	}
 	if restoreCode && strings.TrimSpace(body.MsgID) == "" {

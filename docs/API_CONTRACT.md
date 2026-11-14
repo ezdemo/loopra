@@ -254,6 +254,40 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
 
 消息先持久化绑定及最近 512 条消息 ID，再异步执行，避免模型耗时阻塞事件确认。同一聊天执行中不接受第二轮，返回忙碌提示；保存失败不执行，重启后保留去重信息。已接收的失败任务不会因同一消息重复投递自动重跑，需用户再次发送。单轮最长 30 分钟，工作台审批计入该时长。
 
+### 自定义智能体（Go 原生）
+
+侧栏「智能体」区内置的「纯聊天」之外，用户可定义自己的智能体。智能体定义持久化在 `~/.loopra/agents.json`，`id` 形如 `agent_` + 12 位小写十六进制，同时就是它的工作区 hash：会话存于 `~/.loopra/workspace/<id>/sessions`，`/sessions?workspaceHash=<id>`、聊天流、快照、文件等接口直接以该 id 定位。`/api/workspaces` **不返回**自定义智能体。
+
+条目 JSON：
+
+```json
+{ "id": "agent_a1b2c3d4e5f6", "name": "审阅助手", "instruction": "…", "projectHash": "", "tools": null, "skills": null, "createdAt": 0, "updatedAt": 0 }
+```
+
+- `name`：去空白后 1–40 字符，大小写不敏感唯一，且不能叫「纯聊天」。
+- `instruction`：角色设定（附加到系统提示的角色块），≤ 20000 字符，可空。
+- `projectHash`：`""` 表示不绑定项目；非空必须是已注册项目的 hash（拒绝纯聊天与其他智能体）。
+- `tools` / `skills`：`null`（或字段缺省）= 不限制（使用默认工具/技能集）；数组 = 显式允许列表，`[]` 表示全部禁用。工具名按 `tools.ResolveName` 规范化去重，skills 存目录中的 `scope` 字符串，均不校验目录存在性。
+
+| 方法与路径 | 请求 | data |
+| --- | --- | --- |
+| GET / HEAD `/api/custom-agents` | — | 智能体数组，按创建顺序 |
+| POST `/api/custom-agents` | `{name,instruction?,projectHash?,tools?,skills?}` | 创建后的智能体 |
+| PUT `/api/custom-agents/{id}` | 同上（全量替换可编辑字段，保留 id/createdAt，更新 updatedAt） | 更新后的智能体；id 不存在返回失败 |
+| DELETE `/api/custom-agents/{id}` | — | 删除定义及 `~/.loopra/workspace/<id>` 全部会话；有运行中会话时拒绝且不改动 |
+| GET / HEAD `/api/custom-agents/catalog` | — | `{chatTools:[{name,description,readOnly}], projectTools:[同构], skills:[{name,description,scope}]}`，按名称排序；chatTools 为纯聊天作用域注册表，projectTools 为默认项目注册表 |
+
+行为：
+
+- 未绑定（`projectHash=""`）：与纯聊天完全一致——聊天作用域工具、全局记忆、无文件/Git/关联项目，工作目录为 `~/.loopra/chat-workspace`。
+- 已绑定：表现等同所绑项目——文件与命令工具、Git/隔离分支、关联项目、项目技能与项目记忆全部可用；`workspaceHash=<agent id>` 的请求按绑定项目解析。绑定项目已删除时返回错误而不是回退。
+- `instruction` 非空时在系统提示末尾附加 `以下是用户为当前智能体「<name>」设定的角色与要求，请严格遵循：\n<instruction>` 角色块。
+- `tools` 允许列表独立于全局禁用配置，在注册表重建后仍然生效；`skills` 过滤系统提示列表、`skilllist/skillsearch/skillrefresh` 与 `skillread`（scope 不在列表内即拒绝）。
+- 自定义智能体只支持内置引擎：`agentId` 非 `native`/空的聊天请求被拒绝。
+- 删除会同时清理运行时、权限与定时任务缓存及全部会话目录；顺序为先删定义再删目录，保证不会有"仍被列出但目录残缺"的智能体。
+
+错误沿用 `{success:false,error}` 包装：校验失败（重名、超长、projectHash 非注册项目、id 不存在、删除时有运行中会话等）以中文 `error` 文案返回失败；`agents.json` 损坏时接口报错而不是静默重置。
+
 ## 4. 静态资源与 /config.json
 
 - 前端产物在 classpath `/static/`（GET/HEAD 免鉴权由 §2 规则判定）。

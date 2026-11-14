@@ -19,8 +19,12 @@ func (s *Controller) installMemoryTools() {
 		return
 	}
 	project := s.agent.App()
-	if project == chatWorkspace {
+	switch {
+	case s.chatScoped():
 		project = ""
+	case s.profile != nil:
+		// 绑定项目的智能体与该项目共用一份项目级记忆。
+		project = s.profile.ProjectHash
 	}
 	for _, entry := range tools.MemoryTools(s.memories, project) {
 		s.registry.Add(entry)

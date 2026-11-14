@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Bot, CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
+import { Bot, CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton, LoopraMark } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
@@ -67,6 +67,9 @@ export type SidebarProps = {
   onDeleteSession: (session: Session) => void;
   onReorder: (from: string, to: string) => void;
   onReorderSessions: (workspaceHash: string, fromId: string, toId: string) => void;
+  /** 打开新建/编辑自定义智能体对话框。 */
+  onNewAgent?: () => void;
+  onEditAgent?: (workspace: Workspace) => void;
 };
 
 /**
@@ -115,8 +118,8 @@ export default function Sidebar(props: SidebarProps) {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }
-  const agentWorkspaces = workspaces.filter(item => item.kind === 'chat');
-  const projectWorkspaces = workspaces.filter(item => item.kind !== 'chat');
+  const agentWorkspaces = workspaces.filter(item => item.kind === 'chat' || item.kind === 'agent');
+  const projectWorkspaces = workspaces.filter(item => item.kind === 'project' || !item.kind);
   const sections = [
     { id: 'agents', title: english ? 'Agents' : '智能体', items: agentWorkspaces },
     { id: 'projects', title: english ? 'Projects' : '项目', items: projectWorkspaces },
@@ -184,6 +187,9 @@ export default function Sidebar(props: SidebarProps) {
           <button type="button" className="sidebar-section-toggle" aria-expanded={!collapsedSections.includes(section.id)} aria-controls={`sidebar-${section.id}`} onClick={() => toggleSection(section.id)}>
             <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="m4 2 4 4-4 4Z" /></svg><span>{section.title}</span>
           </button>
+          {section.id === 'agents' && <div>
+            <IconButton label={english ? 'New agent' : '新建智能体'} onClick={() => props.onNewAgent?.()}><Plus size="0.875rem" /></IconButton>
+          </div>}
           {section.id === 'projects' && <div>
             <IconButton label="添加项目" onClick={props.onManageProjects}><FolderPlus size="0.875rem" /></IconButton>
             <IconButton label={allCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={toggleProjects}>{allCollapsed ? <CopyPlus size="0.875rem" /> : <CopyMinus size="0.875rem" />}</IconButton>
@@ -198,15 +204,18 @@ export default function Sidebar(props: SidebarProps) {
           const shown = showAll ? own : own.slice(0, SESSION_GROUP_LIMIT);
           const foldable = own.length > SESSION_GROUP_LIMIT;
           const chat = item.kind === 'chat';
-          return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash, chat)}>
+          const agent = item.kind === 'agent';
+          const locked = chat || agent;
+          return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash, locked)}>
             <div className="workspace-heading-row">
-              <button type="button" title={item.path || (chat ? '不绑定工作区' : item.name)} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
-                <ChevronRight className="workspace-chevron" />{chat ? <MessageSquare className="workspace-chat-icon" aria-hidden="true" /> : open ? <FolderOpen /> : <FolderClosed />}<span>{item.name}</span>
+              <button type="button" title={item.path || (agent ? (item.agent?.projectHash ? `${english ? 'Bound to' : '绑定'}：${workspaces.find(entry => entry.hash === item.agent?.projectHash)?.name || item.agent.projectHash}` : (english ? 'No project' : '不绑定工作区')) : chat ? '不绑定工作区' : item.name)} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
+                <ChevronRight className="workspace-chevron" />{agent ? <Bot className="workspace-chat-icon" aria-hidden="true" /> : chat ? <MessageSquare className="workspace-chat-icon" aria-hidden="true" /> : open ? <FolderOpen /> : <FolderClosed />}<span>{item.name}</span>
               </button>
               <span className="workspace-tools">
                 <IconButton label={`在 ${item.name} 新建会话`} onClick={() => props.onNewSession(item.hash)}><Plus size="0.8125rem" /></IconButton>
                 <IconButton label={`刷新 ${item.name} 的会话`} onClick={() => props.onRefreshProject(item.hash)}><RefreshCw size="0.8125rem" /></IconButton>
                 <IconButton label={`管理 ${item.name} 的会话`} onClick={() => props.onManageProject(item)}><MoreHorizontal size="0.9375rem" /></IconButton>
+                {agent && <IconButton label={english ? `Edit agent ${item.name}` : `编辑智能体 ${item.name}`} onClick={() => props.onEditAgent?.(item)}><Pencil size="0.8125rem" /></IconButton>}
               </span>
             </div>
             <Collapse open={open} className="workspace-sessions">

@@ -58,6 +58,8 @@ function harness() {
     sendMessageRef: { current: undefined }, sessionsRef: { current: [] }, queuedRef: { current: {} }, remoteRunRef: { current: null }, sessionStatusRevision: { current: 0 },
     backend: { status: 'connected', ready: true }, workspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
     CHAT_WORKSPACE: { hash: '__loopra_chat__' }, isChatWorkspace: workspace => workspace?.hash === '__loopra_chat__',
+    isChatScoped: workspace => workspace?.hash === '__loopra_chat__' || (workspace?.kind === 'agent' && !workspace?.agent?.projectHash),
+    isProjectWorkspace: workspace => !workspace?.kind || workspace.kind === 'project',
     projectWorkspaces: [{ hash: 'a', name: 'A' }, { hash: 'b', name: 'B' }],
     preferences: { sound: false, notifications: false }, composerContext: context, emptyContext: context, composerConfigBusy: false,
     LARGE_PASTE_THRESHOLD_CHARS: 10000, preparedNewSession: { current: null },

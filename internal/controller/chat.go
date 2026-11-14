@@ -93,6 +93,10 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, "Agent 引擎不可用: "+req.AgentID)
 		return
 	}
+	if s.profile != nil && req.AgentID != "native" {
+		writeFail(w, http.StatusBadRequest, "自定义智能体仅支持内置引擎")
+		return
+	}
 	job, err := s.admitChat(&req)
 	if err != nil {
 		startSSE(w).sendError(err.Error())

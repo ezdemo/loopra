@@ -28,6 +28,7 @@ import (
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/almarelay"
 	"github.com/ezdemo/looprax/internal/service/bot"
+	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 	"github.com/ezdemo/looprax/internal/service/memory"
 	openapiservice "github.com/ezdemo/looprax/internal/service/openapi"
@@ -92,6 +93,8 @@ type Controller struct {
 	bots               *bot.Service
 	remoteRelay        *almarelay.Manager
 	mobileRelay        *mobileRelayHost
+	agentStore         *customagent.Store
+	profile            *customagent.Agent // 非 nil 表示这是一个自定义智能体的运行时视图
 }
 
 // Options 配置服务端。
@@ -171,6 +174,9 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	s.memories = opts.Memories
 	if s.memories == nil {
 		s.memories = memory.NewService(repository.NewMemoryRepository(s.home))
+	}
+	if s.home != "" {
+		s.agentStore = customagent.New(s.home)
 	}
 	s.state = newRuntimeState(s)
 	if opts.OnDesktopQuit != nil {

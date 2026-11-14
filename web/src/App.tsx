@@ -40,7 +40,8 @@ import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, withoutWorkspaceContext, type ComposerContext, type ComposerOptions, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, moveQueued, nextQueued, promoteQueued, removeQueued, restoreQueuedDraft, type MessageQueue } from './message-queue';
-import { acpStopMessage, applyEvent, CHAT_WORKSPACE, DEFAULT_SERVER, historyMessages, isChatWorkspace, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type HistoryMessage, type RemoteSession, type StreamEvent, type Workspace } from './backend';
+import { acpStopMessage, applyEvent, CHAT_WORKSPACE, DEFAULT_SERVER, historyMessages, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type CustomAgent, type HistoryMessage, type RemoteSession, type StreamEvent, type Workspace } from './backend';
+import { isAgentWorkspace, isChatScoped, isProjectWorkspace } from './custom-agents';
 import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
@@ -52,6 +53,7 @@ import { ConfirmAction } from './components/RemoteControls';
 import RollbackMessageDialog from './components/RollbackMessageDialog';
 import ProjectSessions from './components/ProjectSessions';
 import ProjectManager from './components/ProjectManager';
+import AgentEditor from './components/AgentEditor';
 import Help from './components/Help';
 import SessionsManager from './components/SessionsManager';
 import RequirementBoard from './components/RequirementBoard';
@@ -122,6 +124,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const editorKey = `${server}/${workspace}`;
   const editorTabs = workspaceEditors[editorKey] || emptyWorkspaceTabs;
   const [projectDialog, setProjectDialog] = useState<Workspace>();
+  // 'new' = 新建；否则携带正在编辑的智能体。
+  const [agentEditor, setAgentEditor] = useState<'new' | CustomAgent>();
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -248,14 +252,21 @@ export default function App({ startupPending = false, initialServer }: { startup
   const session = sessions.find(item => item.id === activeId);
   const composerHistory = useMemo(() => session ? getSessionMessages(session).map(message => message.text) : [], [session?.messages, session?.kind]);
   const isHome = !session;
-  const chatMode = workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
+  const workspaceEntry = workspaces.find(item => item.hash === workspace);
+  const sessionWorkspaceEntry = session ? workspaces.find(item => item.hash === session.workspaceHash) : undefined;
+  // 聊天域（纯聊天与未绑定项目的智能体）不带项目上下文：隐藏文件/Git 面板、@ 引用、MCP 透传、关联项目与隔离分支。
+  const chatMode = isChatScoped(workspaceEntry) || isChatScoped(sessionWorkspaceEntry)
+    || workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
+  // 自定义智能体只支持内置引擎，绑定项目的也一样。
+  const agentLocked = isAgentWorkspace(workspaceEntry) || isAgentWorkspace(sessionWorkspaceEntry);
   const [panelOpen, setChanges, changesTab, setChangesTab] = useSessionPanel(server, session?.id, workspace);
   const surfaceOpen = skillsOpen || schedulesOpen || botsOpen || !!pluginPage;
   const changes = panelOpen && !surfaceOpen;
   const changesMounted = usePresence(changes);
   const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
-  // External ACP engines own their own toolset, so pure chat stays on Native.
-  const agentId = chatMode ? 'native' : requestedAgentId;
+  // External ACP engines own their own toolset, so chat-scoped workspaces and
+  // custom agents stay on Native.
+  const agentId = chatMode || agentLocked ? 'native' : requestedAgentId;
   const externalAgent = agentId !== 'native';
   const selectedEngineAvailable = engines.find(item => item.id === agentId)?.available;
   const agentConfigKey = `${server}::${workspace}::${agentId}`;
@@ -343,7 +354,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const pluginContext = useMemo(() => ({ workspaceHash: currentWorkspace?.hash, workspaceDir: currentWorkspace?.path,
     sessionId: session?.id, filePath: editorTabs.files.find(file => file.path === editorTabs.active)?.path,
   }), [currentWorkspace?.hash, currentWorkspace?.path, session?.id, editorTabs.files, editorTabs.active]);
-  const projectWorkspaces = useMemo(() => workspaces.filter(item => !isChatWorkspace(item)), [workspaces]);
+  const projectWorkspaces = useMemo(() => workspaces.filter(isProjectWorkspace), [workspaces]);
   const workspaceName = currentWorkspace?.name || '选择工作区';
   useEffect(() => {
     setTerminal(false);
@@ -372,6 +383,22 @@ export default function App({ startupPending = false, initialServer }: { startup
   }, [preferences.fontScale]);
 
   function notify(message: string) { setToast(message); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); }
+  // 智能体列表加载失败不拖垮连接，错误只提示一次（内容变化时再次提示）。
+  useEffect(() => { if (backend.agentsError) notify(`加载智能体失败：${backend.agentsError}`); }, [backend.agentsError]);
+  async function agentSaved(saved: CustomAgent) {
+    await backend.refreshWorkspaces();
+    notify(`智能体「${saved.name}」已保存`);
+    // 新建后直接选中新智能体的主页；编辑停留原处。
+    if (agentEditor === 'new') newSession(saved.id);
+  }
+  async function agentDeleted(deleted: CustomAgent) {
+    await backend.refreshWorkspaces();
+    notify(`智能体「${deleted.name}」已删除`);
+    // 当前停留在被删智能体（或其会话）时回到纯聊天主页。
+    if (workspace === deleted.id || session?.workspaceHash === deleted.id) {
+      setActiveId(null); setWorkspace(CHAT_WORKSPACE.hash);
+    }
+  }
   function currentClientSettings(): ClientSettings {
     return { preferences: preferencesRef.current, profile: profileRef.current, petEnabled: agentSettingsRef.current.petEnabled };
   }
@@ -1121,7 +1148,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     const sendSession = queuedSession || session;
     if (sendSession && isSessionOccupied(sendSession.id)) return false;
     const sendWorkspace = queuedSession ? workspaces.find(item => item.hash === queuedSession.workspaceHash) : currentWorkspace;
-    const sendAgentId = isChatWorkspace(sendWorkspace) ? 'native' : queuedSession ? queuedSession.agentId || 'native' : agentId;
+    const sendAgentId = sendWorkspace && !isProjectWorkspace(sendWorkspace) ? 'native' : queuedSession ? queuedSession.agentId || 'native' : agentId;
     const requestKey = sendSession && !fresh ? sessionRunKey(server, sendSession.id) : homeRunKey;
     if (runs.get(requestKey) || remoteRunRef.current === (sendSession?.id ?? '')) { if (override === undefined) queueMessage(); return false; }
     if (override === undefined && !draft.trim() && !composerContext.files.length) return false;
@@ -1133,7 +1160,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     // a reference block before sending, matching legacy ChatInput.vue. The paste
     // handler already externalizes clipboard text; this covers typed/edited text.
     let savedInput: string | undefined;
-    if (sendWorkspace && !isChatWorkspace(sendWorkspace) && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
+    if (sendWorkspace && !isChatScoped(sendWorkspace) && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
       try {
         const saved = await api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: sendWorkspace.hash, content: prompt });
         if (!saved?.path) throw new Error('服务端未返回文件路径');
@@ -1151,7 +1178,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     }
     if (preferences.sound) prepareCompletionSound();
     const sourceContext = overrideContext || composerContext;
-    const context = isChatWorkspace(sendWorkspace) ? { ...withoutWorkspaceContext(sourceContext), skills: [...sourceContext.skills] } : { ...sourceContext };
+    const context = isChatScoped(sendWorkspace) ? { ...withoutWorkspaceContext(sourceContext), skills: [...sourceContext.skills] } : { ...sourceContext };
     const text = composeOutgoing(prompt, context, savedInput);
     const controller = new AbortController(); const requestId = crypto.randomUUID();
     const request = runs.claim(requestKey, { controller, requestId, server, workspaceHash: sendWorkspace.hash, session: fresh ? undefined : sendSession });
@@ -1226,7 +1253,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         setShowScrollBtn(false);
       }
       const attachments = context.attachments || [];
-      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: target.workspaceHash === CHAT_WORKSPACE.hash ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash) }, event => {
+      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: isChatScoped(workspaces.find(item => item.hash === target?.workspaceHash)) ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash) }, event => {
         if (!runs.owns(request) || controller.signal.aborted || !sameServer()) return;
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
@@ -1320,7 +1347,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     setGitBranch('工作区');
   }, [api, workspace]);
   useEffect(() => {
-    if (backend.status !== 'connected' || !workspace || workspace === CHAT_WORKSPACE.hash) return;
+    if (backend.status !== 'connected' || !workspace || isChatScoped(workspaceEntry)) return;
     const controller = new AbortController();
     let request = 0;
     const refresh = () => {
@@ -1331,7 +1358,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     refresh();
     const unwatch = watchWorkspaceChanges(workspace, refresh);
     return () => { controller.abort(); unwatch(); };
-  }, [api, workspace, backend.status]);
+  }, [api, workspace, workspaceEntry, backend.status]);
   useEffect(() => {
     const config = backend.config; if (!config) return;
     const modelId = `${config.modelChannelId}:${config.model}`;
@@ -1472,7 +1499,8 @@ export default function App({ startupPending = false, initialServer }: { startup
         plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onManageProjects={() => { setMenu(null); setProjectsOpen(true); if (narrow) setSidebar(false); }}
-        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions} />}
+        onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions}
+        onNewAgent={() => setAgentEditor('new')} onEditAgent={item => { if (item.agent) setAgentEditor(item.agent); }} />}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={surfaceOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           chatMode={chatMode} panelAvailable={!surfaceOpen}
@@ -1498,7 +1526,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
           {isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={selectWorkspace} onManage={() => { setMenu(null); setProjectsOpen(true); }}
-            engines={chatMode ? engines.filter(engine => engine.id === 'native') : engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy || chatMode} onAgent={switchAgent}
+            engines={chatMode || agentLocked ? engines.filter(engine => engine.id === 'native') : engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy || chatMode || agentLocked} disabledReason={agentLocked ? '自定义智能体仅支持 Loopra Native' : undefined} onAgent={switchAgent}
             onTaskToolbarMount={setHomeTaskToolbar}
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
@@ -1518,6 +1546,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
     {projectDialog && <ProjectSessions key={`${server}/${projectDialog.hash}`} api={api} workspace={projectDialog} workspaces={projectWorkspaces} count={sessions.filter(item => item.workspaceHash === projectDialog.hash).length} sessions={sessions.filter(item => item.workspaceHash === projectDialog.hash)} onClose={() => setProjectDialog(undefined)} onRefresh={async () => { await backend.refreshWorkspaces(); }} onCompleted={(kind, sessionNames) => projectMaintained(kind, projectDialog, sessionNames)} onUpdated={(hash, links) => setProjectDialog(previous => previous?.hash === hash ? { ...previous, ...links } : previous)} onRenamed={(previous, renamed) => { setProjectDialog(renamed); setComposerContext(current => ({ ...current, projects: current.projects.map(name => name === previous.name ? renamed.name : name) })); }} notify={notify} />}
     {projectsOpen && <ProjectManager api={api} workspaces={projectWorkspaces} sessions={sessions} current={workspace} onClose={() => setProjectsOpen(false)} onRefresh={backend.refreshWorkspaces} onAdded={item => { setExpandedWorkspaces(previous => previous.includes(item.hash) ? previous : [...previous, item.hash]); newSession(item.hash); }} onDeleted={item => projectMaintained('delete', item)} notify={notify} />}
+    {agentEditor && <AgentEditor api={api} agent={agentEditor === 'new' ? undefined : agentEditor} workspaces={projectWorkspaces} sessionCount={agentEditor === 'new' ? 0 : sessions.filter(item => item.workspaceHash === agentEditor.id).length} onClose={() => setAgentEditor(undefined)} onSaved={agentSaved} onDeleted={agentDeleted} />}
     {sessionsOpen && <SessionsManager api={api} sessions={sessions} workspaceHash={workspace} workspaceName={workspaceName} activeId={activeId} onClose={() => setSessionsOpen(false)} onOpen={id => { setSessionsOpen(false); void selectSession(id); }} onNew={() => { setSessionsOpen(false); newSession(); }} onChanged={() => backend.refresh()} notify={notify} />}
     <Help open={helpOpen} onClose={() => setHelpOpen(false)} server={server} />
     {requirementsOpen && <RequirementBoard api={api} onClose={() => setRequirementsOpen(false)} notify={notify} />}

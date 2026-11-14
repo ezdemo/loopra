@@ -20,6 +20,7 @@ import (
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
+	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 	"github.com/ezdemo/looprax/internal/service/schedule"
 	"github.com/ezdemo/looprax/internal/service/tools"
@@ -72,6 +73,21 @@ func (s *Controller) resolveProject(hash string) (string, error) {
 	if hash == chatWorkspace {
 		path := filepath.Join(s.home, "chat-workspace")
 		return path, os.MkdirAll(path, 0o755)
+	}
+	if customagent.IsID(hash) {
+		agent, err := s.customAgent(hash)
+		if err != nil {
+			return "", err
+		}
+		if agent.ProjectHash == "" {
+			path := filepath.Join(s.home, "chat-workspace")
+			return path, os.MkdirAll(path, 0o755)
+		}
+		resolved, err := s.resolveProject(agent.ProjectHash)
+		if err != nil {
+			return "", fmt.Errorf("绑定的项目不存在")
+		}
+		return resolved, nil
 	}
 	if filepath.IsAbs(hash) {
 		if info, err := os.Stat(hash); err == nil && info.IsDir() {
@@ -138,10 +154,20 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 	if root.agent == nil {
 		return nil, fmt.Errorf("Agent 未初始化")
 	}
+	var profile *customagent.Agent
+	if customagent.IsID(hash) {
+		profile, err = s.customAgent(hash)
+		if err != nil {
+			return nil, err
+		}
+	}
 	cfg.WorkspaceDir = resolved
-	chat := hash == chatWorkspace
+	anchor := *root
+	anchor.profile = profile
+	// 此时 anchor.agent 仍是根智能体，不能用 chatScoped()，直接按 hash 判定。
+	chat := hash == chatWorkspace || (profile != nil && profile.ProjectHash == "")
 	reg := tools.NewRegistry()
-	instruction := root.chatSystemInstruction()
+	instruction := anchor.chatSystemInstruction()
 	if chat {
 		reg = tools.NewRegistry(tools.ShellTools(os.TempDir())...)
 		reg.SetChatScope(true)
@@ -150,14 +176,13 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 		if hash == root.agent.App() && root.registry != nil && filepath.Clean(resolved) == filepath.Clean(root.workspaceRoot()) {
 			reg = tools.NewRegistry(root.registry.Entries()...)
 		}
-		instruction = root.systemInstructionFor(resolved, hash, nil)
+		instruction = anchor.systemInstructionFor(resolved, hash, nil)
 	}
 	root.attachPluginTools(reg)
 	a, err := root.agent.Derive(hash, cfg, []tool.Toolset{reg}, instruction)
 	if err != nil {
 		return nil, err
 	}
-	anchor := *root
 	anchor.cfg, anchor.agent, anchor.registry = cfg, a, reg
 	if st.permissions[hash] == nil {
 		st.permissions[hash] = hitl.NewRegistry()
@@ -182,6 +207,38 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 
 const chatWorkspace = "__loopra_chat__"
 
+// customAgent 读取一个自定义智能体定义；不存在或读取失败都会报错。
+func (s *Controller) customAgent(id string) (*customagent.Agent, error) {
+	if s.agentStore == nil {
+		return nil, fmt.Errorf("智能体不存在")
+	}
+	agent, err := s.agentStore.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("智能体不存在")
+	}
+	return agent, nil
+}
+
+// chatScoped 报告当前运行时是否按「无项目」的纯聊天方式装配：内置纯聊天，
+// 或未绑定项目的自定义智能体。
+func (s *Controller) chatScoped() bool {
+	if s.profile != nil {
+		return s.profile.ProjectHash == ""
+	}
+	return s.agent != nil && s.agent.App() == chatWorkspace
+}
+
+// agentBlock 把用户为自定义智能体写的角色与要求追加到系统提示词末尾。
+func (s *Controller) agentBlock() string {
+	if s.profile == nil || strings.TrimSpace(s.profile.Instruction) == "" {
+		return ""
+	}
+	return "\n\n以下是用户为当前智能体「" + s.profile.Name + "」设定的角色与要求，请严格遵循：\n" + s.profile.Instruction
+}
+
 // chatInstruction 限定纯聊天的文件操作范围，技能和命令工具保持可用。
 const chatInstruction = `你是 Loopra，当前处于纯聊天。
 直接回答用户的问题，用对话完成交流。
@@ -200,6 +257,7 @@ func (s *Controller) chatSystemInstruction() string {
 	for _, entry := range s.globalSkillMetadata() {
 		fmt.Fprintf(&text, "- %s: %s\n", entry["scope"], entry["description"])
 	}
+	text.WriteString(s.agentBlock())
 	return text.String()
 }
 
@@ -213,7 +271,7 @@ func (s *Controller) systemInstruction(workspace string) string {
 }
 
 func (s *Controller) systemInstructionFor(workspace, hash string, projects []linkedProject) string {
-	if hash == chatWorkspace {
+	if hash == chatWorkspace || (s.profile != nil && s.profile.ProjectHash == "") {
 		return s.chatSystemInstruction()
 	}
 	if projects == nil {
@@ -240,8 +298,12 @@ func (s *Controller) systemInstructionFor(workspace, hash string, projects []lin
 		fmt.Fprintf(&text, "- %s: %s\n", entry["scope"], entry["description"])
 	}
 	for _, entry := range scanSkills(filepath.Join(workspace, ".loopra", "skills"), "@project-skills") {
+		if !s.skillAllowed(fmt.Sprint(entry["scope"])) {
+			continue
+		}
 		fmt.Fprintf(&text, "- %s: %s\n", entry["scope"], entry["description"])
 	}
+	text.WriteString(s.agentBlock())
 	return text.String()
 }
 
@@ -344,6 +406,9 @@ func (s *Controller) applyToolConfig() {
 		return
 	}
 	s.registry.Configure(s.cfg.DisabledTools, s.cfg.AutoWhitelist, s.cfg.ToolReadOnlyOverrides)
+	if s.profile != nil {
+		s.registry.SetAllowed(s.profile.Tools)
+	}
 }
 
 func (s *Controller) currentSession() string {

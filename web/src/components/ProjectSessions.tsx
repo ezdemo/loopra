@@ -27,7 +27,10 @@ const CLEANUP_SCOPES: { value: CleanupScope; days?: CleanupPeriod; label: string
 export default function ProjectSessions({ api, workspace, workspaces = [], count, sessions, onClose, onRefresh, onCompleted, onRenamed, onUpdated, notify }: { api: LoopraClient; workspace: Workspace; workspaces?: Workspace[]; count: number; sessions?: Session[]; onClose: () => void; onRefresh: () => Promise<void>; onCompleted: (kind: MaintenanceResult, sessionNames?: string[]) => void; onRenamed?: (previous: Workspace, renamed: Workspace) => void; onUpdated?: (hash: string, links: ProjectLinks) => void; notify: (message: string) => void }) {
   const [project, setProject] = useState(workspace);
   const chat = workspace.kind === 'chat';
-  const title = chat ? '管理纯聊天会话' : '管理项目会话';
+  const agent = workspace.kind === 'agent';
+  // 智能体只管理会话：不显示项目重命名、关联副项目和删除项目。
+  const sessionsOnly = chat || agent;
+  const title = agent ? '管理智能体会话' : chat ? '管理纯聊天会话' : '管理项目会话';
   const [displayName, setDisplayName] = useState(workspace.displayName ?? workspace.name);
   const [links, setLinks] = useState<ProjectLinks>({ linkedProjectHashes: workspace.linkedProjectHashes ?? [], linkedProjectPaths: workspace.linkedProjectPaths ?? [] });
   const { linkedProjectHashes: linkedHashes, linkedProjectPaths: linkedPaths } = links;
@@ -45,7 +48,7 @@ export default function ProjectSessions({ api, workspace, workspaces = [], count
   const [busy, setBusy] = useState<BusyOperation>('');
   const [error, setError] = useState('');
   const locked = useRef(false);
-  const candidates = workspaces.filter(item => item.hash !== workspace.hash && item.kind !== 'chat');
+  const candidates = workspaces.filter(item => item.hash !== workspace.hash && (item.kind === 'project' || !item.kind));
   const missingLinks = linkedHashes.filter(hash => !candidates.some(item => item.hash === hash));
   const pathName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
   function updateLinks(next: ProjectLinks) {
@@ -217,12 +220,12 @@ export default function ProjectSessions({ api, workspace, workspaces = [], count
     <ModalHeader className="app-dialog-header"><h2>{title}</h2></ModalHeader>
     <ModalBody className="app-dialog-body">
       <div className="project-dialog-summary"><div><strong>{project.name}</strong><span>{count} 个会话</span></div>{project.path && <p>{project.path}</p>}</div>
-      {!chat && <form className="project-dialog-rename" onSubmit={event => { event.preventDefault(); void renameProject(); }}>
+      {!sessionsOnly && <form className="project-dialog-rename" onSubmit={event => { event.preventDefault(); void renameProject(); }}>
         <label htmlFor="project-session-display-name">项目展示名称</label>
         <div><Input id="project-session-display-name" aria-label="项目展示名称" value={displayName} maxLength={80} isDisabled={!!busy} onValueChange={setDisplayName} autoComplete="off" placeholder="留空恢复文件夹名称" size="md" variant="bordered" radius="lg" className="settings-field project-dialog-input" classNames={{ inputWrapper: 'project-dialog-input-wrapper' }} /><Button type="submit" size="sm" color="primary" isLoading={busy === 'rename'} isDisabled={!!busy || displayName.trim() === (project.displayName ?? project.name)}>保存名称</Button></div>
         <p>最多 80 个字符，留空恢复文件夹名称。</p>
       </form>}
-      {!chat && <section className="project-dialog-links" aria-label="关联副项目">
+      {!sessionsOnly && <section className="project-dialog-links" aria-label="关联副项目">
         <div className="project-dialog-links-heading"><h3>关联副项目</h3><span>{linkCount} / 8</span></div>
         <form className="project-dialog-link-add" onSubmit={event => { event.preventDefault(); void addLinkedProject(); }}>
           <Input aria-label="副项目路径" value={linkPath} onValueChange={setLinkPath} placeholder="输入项目文件夹的绝对路径" isDisabled={!!busy} isReadOnly={linkCount >= 8} autoComplete="off" size="md" variant="bordered" radius="lg" className="settings-field project-dialog-input" classNames={{ inputWrapper: 'project-dialog-input-wrapper' }}
@@ -248,14 +251,14 @@ export default function ProjectSessions({ api, workspace, workspaces = [], count
       </section>}
       <div className="project-dialog-operations">
         <div className="project-dialog-operation project-dialog-cleanup">
-          <div><h3>清理会话</h3><p>{chat ? '按最后活动时间清理，也可以删除全部会话。' : '按最后活动时间清理，也可以删除全部会话；项目记录会保留。'}</p></div>
+          <div><h3>清理会话</h3><p>{sessionsOnly ? '按最后活动时间清理，也可以删除全部会话。' : '按最后活动时间清理，也可以删除全部会话；项目记录会保留。'}</p></div>
           <div className="project-dialog-cleanup-controls">
             <div className="project-dialog-cleanup-select"><SelectField label="清理范围" value={cleanupScope} onChange={value => setCleanupScope(value as CleanupScope)} options={CLEANUP_SCOPES.map(scope => ({ value: scope.value, label: scope.label }))} disabled={!!busy} /></div>
             <Button size="sm" color="danger" variant="flat" isLoading={busy === 'clear-all' || busy.startsWith('clear:')} isDisabled={!!busy || cleanupCount === 0} onPress={() => void clearSelectedSessions()}>清理会话</Button>
           </div>
           <p className="project-dialog-cleanup-preview">{selectedScope.days === undefined ? `将删除全部 ${count} 个会话` : `将删除 ${cleanupCount} 个超过 ${selectedScope.days} 天未活动的会话`}，此操作不可恢复。</p>
         </div>
-        {!chat && <div className="project-dialog-operation"><div><h3>删除项目</h3><p>移除项目及其会话，磁盘上的文件不受影响。</p></div><Button size="sm" color="danger" variant="flat" isLoading={busy === 'delete'} isDisabled={!!busy} onPress={() => void run('delete', '删除', () => api.request(`/workspaces/${encodeURIComponent(workspace.hash)}`, 'DELETE'), '项目已删除')}>删除项目</Button></div>}
+        {!sessionsOnly && <div className="project-dialog-operation"><div><h3>删除项目</h3><p>移除项目及其会话，磁盘上的文件不受影响。</p></div><Button size="sm" color="danger" variant="flat" isLoading={busy === 'delete'} isDisabled={!!busy} onPress={() => void run('delete', '删除', () => api.request(`/workspaces/${encodeURIComponent(workspace.hash)}`, 'DELETE'), '项目已删除')}>删除项目</Button></div>}
       </div>
       {error && !choosingProject && <p role="alert" className="settings-error">{error}</p>}
     </ModalBody>

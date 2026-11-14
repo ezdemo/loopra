@@ -38,6 +38,7 @@ const MemorySettings = (await import(await sourceUrl('components/MemorySettings.
   '@nextui-org/react': nextui,
   'lucide-react': dataUrl('export const Plus=()=>null, RefreshCw=()=>null, Search=()=>null;'),
   '../backend': dataUrl(`export const isChatWorkspace = item => item?.hash === '__loopra_chat__';`),
+  '../custom-agents': dataUrl(`export const isProjectWorkspace = item => !item?.kind || item.kind === 'project';`),
   '../memory': memoryUrl,
   './SettingControls': controls,
   './RemoteControls': remoteUrl,

@@ -28,7 +28,7 @@ func (s *Controller) filesController(w http.ResponseWriter, r *http.Request) {
 			writeFail(w, http.StatusBadRequest, "粘贴内容超过 4 MiB 限制")
 			return
 		}
-		if s.agent.App() == "__loopra_chat__" {
+		if s.chatScoped() {
 			writeFail(w, http.StatusBadRequest, "纯聊天模式不会把输入保存到工作区")
 			return
 		}

@@ -145,7 +145,7 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 		}
 	}
 	model, channel, effort := settings["model"].(string), settings["modelChannelId"].(string), settings["reasoningEffort"].(string)
-	chat := s.agent != nil && s.agent.App() == chatWorkspace
+	chat := s.agent != nil && s.chatScoped()
 	if chat {
 		req.LinkedProjectHashes = nil
 	}
@@ -214,7 +214,7 @@ func (s *Controller) prepareTurn(req *chatRequest) (*Controller, error) {
 // prepareWorktree 应用隔离分支模式并返回本轮的工作区视图；
 // 原生与外部 ACP 引擎共用。
 func (s *Controller) prepareWorktree(req *chatRequest) (*Controller, error) {
-	if s.agent != nil && s.agent.App() == chatWorkspace {
+	if s.agent != nil && s.chatScoped() {
 		return s, nil
 	}
 	meta := s.sessionMetaRead(req.SessionName)

@@ -13,7 +13,7 @@ const backendUrl = dataUrl(`
       requests.push(path);
       const ready = {
         '/system/health': { version: 'test' }, '/agent/status': { ready: true },
-        '/config': { modelChannels: [] }, '/workspaces': [{ hash: 'project', name: 'Project', path: '/project' }],
+        '/config': { modelChannels: [] }, '/workspaces': [{ hash: 'project', name: 'Project', path: '/project' }], '/custom-agents': [],
         '/sessions?workspaceHash=project': [{ name: 'saved' }], '/version/check': {},
       };
       if (path in ready) return ready[path];

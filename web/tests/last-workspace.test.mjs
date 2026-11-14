@@ -93,3 +93,13 @@ test('switching services resets user intent and ignores responses from the old s
   assert.deepEqual(state.record, { status: 'loading' });
   assert.equal(workspaceSelectionReducer(state, { type: 'received', server: 'first', hash: 'other' }), state);
 });
+
+test('a remembered custom agent restores while it exists and falls back once deleted', () => {
+  const withAgent = [...projects, { hash: 'agent_a1b2c3d4e5f6', path: '', name: '审阅助手' }];
+  // The agent still exists: the remembered selection restores it like a project.
+  assert.equal(preferredWorkspace('', withAgent, 'agent_a1b2c3d4e5f6', 'C:\\code\\looprax'), 'agent_a1b2c3d4e5f6');
+  // The agent was deleted: fall back to the configured project instead of a dead id.
+  assert.equal(preferredWorkspace('', projects, 'agent_a1b2c3d4e5f6', 'C:\\code\\looprax'), 'looprax');
+  // With no configured match either, the built-in chat (first entry) wins.
+  assert.equal(preferredWorkspace('', projects, 'agent_a1b2c3d4e5f6', 'C:\\missing'), '__loopra_chat__');
+});

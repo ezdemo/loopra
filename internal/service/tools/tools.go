@@ -50,7 +50,8 @@ type Registry struct {
 	auto     map[string]bool
 	filter   func(agentpkg.ReadonlyContext, Metadata) bool
 	policy   *hitl.Policy
-	chat     bool // 这是纯聊天的工具表，只接收声明了 Chat 的插件工具
+	chat     bool            // 这是纯聊天的工具表，只接收声明了 Chat 的插件工具
+	allowed  map[string]bool // 自定义智能体的允许清单；nil 表示不限制
 }
 
 // SetChatScope 把这张表标成纯聊天。之后只加入声明可在聊天中使用的插件工具。
@@ -60,6 +61,24 @@ func (r *Registry) SetChatScope(chat bool) {
 	}
 	r.mu <- struct{}{}
 	r.chat = chat
+	<-r.mu
+}
+
+// SetAllowed 安装独立于启停配置的允许清单：nil 解除限制，非 nil（含空
+// 切片）只放行清单内的工具。Configure 不重置它，新建 Registry 后需重新安装。
+func (r *Registry) SetAllowed(names []string) {
+	if r == nil {
+		return
+	}
+	r.mu <- struct{}{}
+	if names == nil {
+		r.allowed = nil
+	} else {
+		r.allowed = map[string]bool{}
+		for _, name := range names {
+			r.allowed[ResolveName(name)] = true
+		}
+	}
 	<-r.mu
 }
 
@@ -179,6 +198,9 @@ func (r *Registry) Tools(ctx agentpkg.ReadonlyContext) ([]tool.Tool, error) {
 		if r.disabled[e.Meta.Name] {
 			continue
 		}
+		if r.allowed != nil && !r.allowed[e.Meta.Name] {
+			continue
+		}
 		meta := e.Meta
 		if forced, ok := r.readonly[meta.Name]; ok {
 			meta.ReadOnly = forced
@@ -233,7 +255,7 @@ func (r *Registry) List() []map[string]any {
 		view := map[string]any{
 			"name": name, "description": e.Meta.Description,
 			"readOnly": readOnly, "readOnlyOverride": override,
-			"stormExempt": false, "enabled": !r.disabled[name],
+			"stormExempt": false, "enabled": !r.disabled[name] && (r.allowed == nil || r.allowed[name]),
 			"autoApproved": auto, "chat": e.Meta.Chat, "async": e.Meta.Async, "params": toolParameters(e.Tool),
 		}
 		if override == nil {

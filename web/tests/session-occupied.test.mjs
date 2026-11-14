@@ -134,6 +134,8 @@ function sendEnvironment() {
   Object.assign(env, {
     currentWorkspace: { hash: 'project' }, workspaces: [{ hash: 'project' }], projectWorkspaces: [], agentId: 'codex', composerConfigBusy: false,
     draft: state.draft, composerContext: state.context, isChatWorkspace, historyMessages, applyEvent, CHAT_WORKSPACE,
+    isChatScoped: workspace => workspace?.hash === '__loopra_chat__' || (workspace?.kind === 'agent' && !workspace?.agent?.projectHash),
+    isProjectWorkspace: workspace => !workspace?.kind || workspace.kind === 'project',
     activeRequest: { current: undefined }, remoteRunRef: { current: null }, sessionsRef: { current: state.sessions },
     composerViewRef: { current: { server: env.server, activeId: target.id, draft: state.draft } },
     preferences: { sound: false }, LARGE_PASTE_THRESHOLD_CHARS: 100000,

@@ -35,6 +35,7 @@ const { createElement } = await import(${JSON.stringify(reactUrl)});
 const Icon = () => null;
 export const Check = Icon;
 export const ChevronDown = Icon;
+export const Bot = Icon;
 export const FolderClosed = Icon;
 export const FolderPlus = Icon;
 export const MessageCircle = Icon;

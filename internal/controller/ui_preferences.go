@@ -233,10 +233,10 @@ func (p *uiPreferences) apply(patch map[string]json.RawMessage) error {
 var profileColors = map[string]bool{"blue": true, "violet": true, "rose": true, "amber": true, "green": true, "slate": true}
 var profileAvatar = regexp.MustCompile(`^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$`)
 
-// 项目 hash 只有三种来源：路径的十二位小写 MD5、工作目录为空时的 default，
-// 以及纯聊天的 __loopra_chat__。只接受这些确切形式，避免把路径、任意短串或
-// 其他内容当成项目写进设置文件。
-var workspaceRef = regexp.MustCompile(`^([0-9a-f]{12}|default|__loopra_chat__)$`)
+// 项目 hash 的来源：路径的十二位小写 MD5、工作目录为空时的 default、
+// 纯聊天的 __loopra_chat__，以及自定义智能体的 agent_ 加十二位小写十六进制。
+// 只接受这些确切形式，避免把路径、任意短串或其他内容当成项目写进设置文件。
+var workspaceRef = regexp.MustCompile(`^([0-9a-f]{12}|default|__loopra_chat__|agent_[0-9a-f]{12})$`)
 
 func validWorkspaceRef(value string) bool {
 	value = strings.TrimSpace(value)

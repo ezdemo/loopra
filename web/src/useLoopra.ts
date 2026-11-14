@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Provider, Session } from './lib';
-import { LoopraClient, configProviders, remoteSession, withChatWorkspace, type RemoteConfig, type RemoteSession, type Workspace } from './backend';
+import { LoopraClient, configProviders, remoteSession, withChatWorkspace, type CustomAgent, type RemoteConfig, type RemoteSession, type Workspace } from './backend';
 import type { SkillConfig, ToolConfig } from './settings-data';
 import type { VersionCheck } from './version';
 
@@ -21,7 +21,23 @@ export default function useLoopra(server: string, enabled = true) {
   const [updateCheck, setUpdateCheck] = useState<VersionCheck>();
   const [ready, setReady] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [agents, setAgents] = useState<CustomAgent[]>([]);
+  // 智能体列表失败不拖垮整个连接：保留上一份列表并把错误交给上层提示一次。
+  const [agentsError, setAgentsError] = useState('');
   const providersRevision = useRef(0);
+  const agentsRef = useRef<CustomAgent[]>([]);
+  agentsRef.current = agents;
+  const loadAgents = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const next = await api.request<CustomAgent[]>('/custom-agents', 'GET', undefined, signal);
+      if (signal?.aborted) return agentsRef.current;
+      setAgents(next); setAgentsError('');
+      return next;
+    } catch (cause) {
+      if (!signal?.aborted) setAgentsError(cause instanceof Error ? cause.message : '加载智能体失败');
+      return agentsRef.current;
+    }
+  }, [api]);
   const refreshProviders = useCallback(async (signal?: AbortSignal) => {
     const revision = ++providersRevision.current;
     const nextConfig = await api.request<RemoteConfig>('/config', 'GET', undefined, signal);
@@ -44,12 +60,12 @@ export default function useLoopra(server: string, enabled = true) {
     setSessionsLoading(false);
   }, [api]);
   const refreshWorkspaces = useCallback(async () => {
-    const projects = await api.request<Workspace[]>('/workspaces');
-    const visible = withChatWorkspace(projects);
+    const [projects, agents] = await Promise.all([api.request<Workspace[]>('/workspaces'), loadAgents()]);
+    const visible = withChatWorkspace(projects, agents);
     setWorkspaces(visible);
     await refreshSessions(visible);
     return visible;
-  }, [api, refreshSessions]);
+  }, [api, loadAgents, refreshSessions]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!enabled) return;
     const revision = ++providersRevision.current;
@@ -60,9 +76,10 @@ export default function useLoopra(server: string, enabled = true) {
         api.request<{ ready: boolean }>('/agent/status', 'GET', undefined, signal),
         api.request<RemoteConfig>('/config', 'GET', undefined, signal),
         api.request<Workspace[]>('/workspaces', 'GET', undefined, signal),
+        loadAgents(signal),
       ]);
       if (signal?.aborted) return;
-      const visibleProjects = withChatWorkspace(projects);
+      const visibleProjects = withChatWorkspace(projects, agentsRef.current);
       setVersion(health.version); setReady(agent.ready); setConfig(nextConfig);
       if (revision === providersRevision.current) setProviders(configProviders(nextConfig));
       setWorkspaces(visibleProjects);
@@ -84,7 +101,7 @@ export default function useLoopra(server: string, enabled = true) {
       } else { setSessions([]); setSessionsLoading(false); setTools([]); setSkills([]); }
       setStatus('connected');
     } catch (cause) { if (signal?.aborted) return; setStatus('error'); setSessionsLoading(false); setReady(false); setError(cause instanceof Error ? cause.message : '连接失败'); }
-  }, [api, refreshSessions, enabled]);
+  }, [api, loadAgents, refreshSessions, enabled]);
   useEffect(() => { const controller = new AbortController(); void refresh(controller.signal); return () => controller.abort(); }, [refresh]);
   useEffect(() => {
     if (status !== 'connected') return;
@@ -109,5 +126,5 @@ export default function useLoopra(server: string, enabled = true) {
     const timer = setInterval(check, VERSION_CHECK_INTERVAL_MS);
     return () => { clearInterval(timer); controller.abort(); };
   }, [api, status, version]);
-  return { api, sessions, setSessions, sessionsLoading, workspaces, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshCapabilities, refreshProviders, refreshSessions, refreshWorkspaces };
+  return { api, sessions, setSessions, sessionsLoading, workspaces, agents, agentsError, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshCapabilities, refreshProviders, refreshSessions, refreshWorkspaces };
 }

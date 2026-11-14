@@ -335,10 +335,11 @@ test('eight saved links disable both path entry and folder selection', async () 
 });
 
 test('persistent links distinguish same-name projects by directory and save without closing', async () => {
-  const view = await mount(3, { workspaces: [workspace, { hash: 'bbb', name: 'same', path: 'C:\\one' }, { hash: 'ccc', name: 'same', path: 'D:\\two' }, { hash: 'chat', name: '纯聊天', kind: 'chat' }] });
+  const view = await mount(3, { workspaces: [workspace, { hash: 'bbb', name: 'same', path: 'C:\\one' }, { hash: 'ccc', name: 'same', path: 'D:\\two' }, { hash: 'chat', name: '纯聊天', kind: 'chat' }, { hash: 'agent_ffffffffffff', name: '智能体', path: '', kind: 'agent' }] });
   try {
     await openProjectPicker(view);
     const checkboxes = pickerCheckboxes(view);
+    // 纯聊天与自定义智能体都不是关联候选项目。
     assert.equal(checkboxes.length, 2);
     await click(checkboxes[1]);
     assert.deepEqual(view.calls(), [{ path: '/workspaces/aaa111/links', method: 'PUT', body: linksBody([], ['D:\\two']) }]);
@@ -597,6 +598,20 @@ test('pure chat offers session maintenance without project name or deletion cont
     assert.equal(buttonIn(view.container, '刷新会话列表'), undefined);
     assert.deepEqual(view.calls(), []);
     assert.deepEqual(view.events, []);
+  } finally { await view.close(); }
+});
+
+test('a custom agent offers session maintenance without project name, links or deletion controls', async () => {
+  const agentWorkspace = { hash: 'agent_a1b2c3d4e5f6', name: '审阅助手', path: '', kind: 'agent', agent: { id: 'agent_a1b2c3d4e5f6', name: '审阅助手', instruction: '', projectHash: '', tools: null, skills: null, createdAt: 1, updatedAt: 1 } };
+  const view = await mount(4, { workspace: agentWorkspace });
+  try {
+    assert.equal(view.container.querySelector('h2').textContent, '管理智能体会话');
+    assert.equal(view.container.querySelector('.project-dialog-summary strong').textContent, '审阅助手');
+    assert.equal(view.container.querySelector('.project-dialog-rename'), null);
+    assert.equal(view.container.querySelector('.project-dialog-links'), null);
+    assert.equal(buttonIn(view.container, '删除项目'), undefined);
+    await click(buttonIn(view.container, '清理会话'));
+    assert.equal(new URL(view.calls()[0].path, 'http://test.invalid').searchParams.get('workspaceHash'), agentWorkspace.hash);
   } finally { await view.close(); }
 });
 

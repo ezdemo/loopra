@@ -53,15 +53,37 @@ func (s *Controller) globalSkillMetadata() []map[string]any {
 			out = append(out, map[string]any{"name": skill.Name, "description": skill.Description, "scope": "@plugin-skills/" + skill.PluginID, "runAs": "", "directoryName": skill.PluginID})
 		}
 	}
-	return out
+	kept := out[:0]
+	for _, entry := range out {
+		if s.skillAllowed(fmt.Sprint(entry["scope"])) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
+// skillAllowed 应用自定义智能体的技能允许清单；scope 为 nil（未设置清单）时全部放行。
+func (s *Controller) skillAllowed(scope string) bool {
+	if s.profile == nil || s.profile.Skills == nil {
+		return true
+	}
+	for _, allowed := range s.profile.Skills {
+		if allowed == scope {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Controller) availableSkillMetadata() []map[string]any {
 	out := s.globalSkillMetadata()
-	if s.agent != nil && s.agent.App() == chatWorkspace {
+	if s.chatScoped() {
 		return out
 	}
 	for _, entry := range scanSkills(filepath.Join(s.workspaceRoot(), ".loopra", "skills"), "@project-skills") {
+		if !s.skillAllowed(fmt.Sprint(entry["scope"])) {
+			continue
+		}
 		out = append(out, map[string]any{"name": entry["name"], "description": entry["description"], "scope": entry["scope"], "runAs": "", "directoryName": entry["directoryName"]})
 	}
 	return out
@@ -133,6 +155,9 @@ func (s *Controller) installSkillTools() {
 		Path string `json:"path,omitempty" jsonschema:"可选。省略则读取 SKILL.md。只能填该技能目录里已有文件的相对路径，例如 README.md 或 references/guide.txt。不要填目录，也不要猜测 SKILL.md 没点名的路径"`
 	}
 	read, _ := functiontool.New[readInput, map[string]any](functiontool.Config{Name: "skillread", Description: skillReadDescription}, func(ctx agentctx.Context, in readInput) (map[string]any, error) {
+		if !s.skillAllowed(in.Name) {
+			return nil, fmt.Errorf("技能 %s 不在当前智能体的可用范围", in.Name)
+		}
 		text, err := s.readSkill(in.Name, in.Path)
 		if err != nil {
 			return nil, err
