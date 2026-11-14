@@ -15,6 +15,7 @@ import (
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
 	"github.com/ezdemo/looprax/internal/service/acp"
+	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
@@ -155,7 +156,9 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	}
 	linkedRoots := projectRoots(projects)
 	instruction := s.withMemoryInstruction(s.systemInstructionFor(s.workspaceRoot(), s.agent.App(), projects))
-	changed := model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
+	// 会话级角色不体现在工作区缓存 Agent 的指令与工具清单里，必须重建。
+	sessionPersona := s.agent != nil && s.profile != nil && !customagent.IsID(s.agent.App())
+	changed := sessionPersona || model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
 	var mcpSets []tool.Toolset
 	var closers []io.Closer
 	if !chat {
@@ -203,12 +206,44 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	return &view, nil
 }
 
+// sessionPersona 校验待绑定到会话的自定义智能体 id 并返回定义。
+func (s *Controller) sessionPersona(id string) (*customagent.Agent, error) {
+	if s.agent != nil && s.agent.App() == chatWorkspace {
+		return nil, fmt.Errorf("自定义智能体仅支持项目工作区")
+	}
+	if !customagent.IsID(id) {
+		return nil, fmt.Errorf("智能体不存在")
+	}
+	return s.customAgent(id)
+}
+
+// turnProfile 返回会话 .meta 绑定的自定义智能体角色；智能体工作区的
+// 角色由工作区自身决定（profile 已就位），定义被删或损坏时退化为默认角色。
+func (s *Controller) turnProfile(sessionName string) *customagent.Agent {
+	if s.profile != nil {
+		return s.profile
+	}
+	id := strOr(s.sessionMetaRead(sessionName), "customAgentId", "")
+	if !customagent.IsID(id) || s.agentStore == nil {
+		return nil
+	}
+	profile, err := s.agentStore.Get(id)
+	if err != nil {
+		return nil
+	}
+	return profile
+}
+
 func (s *Controller) prepareTurn(req *chatRequest) (*Controller, error) {
-	view, err := s.prepareWorktree(req)
+	// 会话级角色先于隔离分支与轮次派生就位：两处都会把
+	// 角色块写进系统提示词，并把 tools/skills 允许清单应用到本轮注册表。
+	view := *s
+	view.profile = s.turnProfile(req.SessionName)
+	prepared, err := view.prepareWorktree(req)
 	if err != nil {
 		return nil, err
 	}
-	return view.turnRuntime(req)
+	return prepared.turnRuntime(req)
 }
 
 // prepareWorktree 应用隔离分支模式并返回本轮的工作区视图；

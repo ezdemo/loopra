@@ -41,7 +41,7 @@ import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeIn
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, moveQueued, nextQueued, promoteQueued, removeQueued, restoreQueuedDraft, type MessageQueue } from './message-queue';
 import { acpStopMessage, applyEvent, CHAT_WORKSPACE, DEFAULT_SERVER, historyMessages, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type CustomAgent, type HistoryMessage, type RemoteSession, type StreamEvent, type Workspace } from './backend';
-import { isAgentWorkspace, isChatScoped, isProjectWorkspace } from './custom-agents';
+import { isAgentWorkspace, isChatScoped, isProjectWorkspace, validDraftAgentId } from './custom-agents';
 import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
@@ -170,6 +170,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [menu, setMenu] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [newAgentId, setNewAgentId] = useLocalState('agent-engine', 'native');
+  // 新项目会话绑定的自定义智能体角色；仅项目工作区 + 内置引擎生效。
+  const [newCustomAgentId, setNewCustomAgentId] = useLocalState('agent-persona', '');
   const [agentPreferencesServer, setAgentPreferencesServer] = useState<string>();
   const [agentPreferencesRevision, setAgentPreferencesRevision] = useState(0);
   const [agentPreferencesError, setAgentPreferencesError] = useState('');
@@ -268,8 +270,16 @@ export default function App({ startupPending = false, initialServer }: { startup
   // custom agents stay on Native.
   const agentId = chatMode || agentLocked ? 'native' : requestedAgentId;
   const externalAgent = agentId !== 'native';
+  // 草稿角色只在新会话首页参与装配：项目工作区 + Loopra Native，
+  // 已有会话一律沿用自身 .meta 绑定，不吃首页草稿。
+  const draftAgentId = !session && !chatMode && !agentLocked && agentId === 'native' ? newCustomAgentId : '';
+  // 草稿角色持久化在本地，指向的智能体可能已删除；列表加载完成后清空失效草稿。
+  useEffect(() => {
+    if (!validDraftAgentId(newCustomAgentId, backend.agents, backend.agentsLoaded)) setNewCustomAgentId('');
+  }, [newCustomAgentId, backend.agents, backend.agentsLoaded, setNewCustomAgentId]);
+  const agentPersonaId = session?.customAgentId || draftAgentId;
   const selectedEngineAvailable = engines.find(item => item.id === agentId)?.available;
-  const agentConfigKey = `${server}::${workspace}::${agentId}`;
+  const agentConfigKey = `${server}::${workspace}::${agentId}::${agentPersonaId}`;
   const homeRunKey = draftRunKey(server, workspace, agentId, agentDraftRevision);
   const currentRunKey = session ? sessionRunKey(server, session.id) : homeRunKey;
   composerViewRef.current = { server, activeId, draft, draftKey: homeRunKey };
@@ -529,17 +539,17 @@ export default function App({ startupPending = false, initialServer }: { startup
    * message is sent, so browsing the home page never adds empty sessions.
    */
   async function loadNewAgentConfig(workspaceHash: string, requestedAgent: string, signal?: AbortSignal) {
-    const key = `${server}::${workspaceHash}::${requestedAgent}`;
+    const key = `${server}::${workspaceHash}::${requestedAgent}::${draftAgentId}`;
     const request = ++agentConfigRequest.current;
     const busyId = `new:${key}:${request}`;
     setAgentConfigBusy(busyId); setAgentConfigError('');
     try {
-      const prepared = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
-        { workspaceHash, sessionName: undefined, agentId: requestedAgent }, signal);
+      const prepared = await api.request<{ sessionName: string; agentId: string; customAgentId?: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
+        { workspaceHash, sessionName: undefined, agentId: requestedAgent, customAgentId: draftAgentId || undefined }, signal);
       if (signal?.aborted || request !== agentConfigRequest.current) return;
       const project = workspaces.find(item => item.hash === workspaceHash);
       if (!project) return;
-      const target = remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, project);
+      const target = remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, customAgentId: prepared.customAgentId || draftAgentId || undefined, title: '新会话', messageCount: 0, mtime: Date.now() }, project);
       preparedNewSession.current = { key, target };
       // Preparation restores the backend's per-Agent defaults before returning.
       storeNewAgentConfig({ key, options: prepared.configOptions });
@@ -556,10 +566,10 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (!currentWorkspace) { notify('请先选择工作区'); return; }
     setAgentConfigBusy(session?.id || 'new'); setAgentConfigError('');
     try {
-      const prepared = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
-        { workspaceHash: currentWorkspace.hash, sessionName: session?.name, agentId });
+      const prepared = await api.request<{ sessionName: string; agentId: string; customAgentId?: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
+        { workspaceHash: currentWorkspace.hash, sessionName: session?.name, agentId, customAgentId: session?.customAgentId || draftAgentId || undefined });
       const options = prepared.configOptions;
-      const target = session || remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, title: '新会话', messageCount: 0, mtime: Date.now() }, currentWorkspace);
+      const target = session || remoteSession({ name: prepared.sessionName, agentId: prepared.agentId, customAgentId: prepared.customAgentId || draftAgentId || undefined, title: '新会话', messageCount: 0, mtime: Date.now() }, currentWorkspace);
       if (!session) cacheAgentConfig(prepared.agentId, options);
       setAgentConfigs(current => ({ ...current, [target.id]: options }));
       // A fresh session goes to the top, matching the server's newest-first list.
@@ -658,15 +668,37 @@ export default function App({ startupPending = false, initialServer }: { startup
   }
   /** Switching the Agent always starts a new conversation, and never mid-run. */
   async function switchAgent(id: string) {
-    if (id === agentId) return;
+    if (id === agentId && !draftAgentId) return;
     if (generatingId || remoteRun) { notify('任务运行中，结束后才能切换 Agent'); return; }
     if (!agentPreferencesReady || agentSelectionBusy) return;
     setAgentSelectionBusy(true);
     try {
       await api.request('/agent-engines/preferences', 'PUT', { selectedAgent: id });
       setNewAgentId(id);
+      // 引擎行同时代表默认角色：选引擎即清除草稿上绑定的自定义智能体。
+      setNewCustomAgentId('');
       newSession();
     } catch (error) { notify(`保存 Agent 失败：${error instanceof Error ? error.message : String(error)}`); }
+    finally { setAgentSelectionBusy(false); }
+  }
+  /** 自定义智能体依附内置引擎：选择角色时在需要时先切回 Loopra Native。 */
+  async function selectCustomAgent(id: string) {
+    if (id === draftAgentId && (agentId === 'native' || !id)) return;
+    if (generatingId || remoteRun) { notify('任务运行中，结束后才能切换 Agent'); return; }
+    if (!agentPreferencesReady || agentSelectionBusy) return;
+    setAgentSelectionBusy(true);
+    try {
+      if (agentId !== 'native') {
+        await api.request('/agent-engines/preferences', 'PUT', { selectedAgent: 'native' });
+        setNewAgentId('native');
+      }
+      setNewCustomAgentId(id);
+      // 角色只影响下一次会话草稿：丢弃已准备的草稿，让装配效果重新生效。
+      agentConfigRequest.current++;
+      preparedNewSession.current = null;
+      storeNewAgentConfig(null);
+      setAgentDraftRevision(value => value + 1);
+    } catch (error) { notify(`保存智能体失败：${error instanceof Error ? error.message : String(error)}`); }
     finally { setAgentSelectionBusy(false); }
   }
   function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') {
@@ -1149,6 +1181,8 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (sendSession && isSessionOccupied(sendSession.id)) return false;
     const sendWorkspace = queuedSession ? workspaces.find(item => item.hash === queuedSession.workspaceHash) : currentWorkspace;
     const sendAgentId = sendWorkspace && !isProjectWorkspace(sendWorkspace) ? 'native' : queuedSession ? queuedSession.agentId || 'native' : agentId;
+    // 会话级角色沿用会话绑定；只有新建会话（无会话或 fresh 重开）才携带首页草稿角色，且只在项目 + Native 下生效。
+    const sendCustomAgentId = fresh || !sendSession ? (sendAgentId === 'native' && sendWorkspace && isProjectWorkspace(sendWorkspace) ? newCustomAgentId : '') : sendSession.customAgentId || '';
     const requestKey = sendSession && !fresh ? sessionRunKey(server, sendSession.id) : homeRunKey;
     if (runs.get(requestKey) || remoteRunRef.current === (sendSession?.id ?? '')) { if (override === undefined) queueMessage(); return false; }
     if (override === undefined && !draft.trim() && !composerContext.files.length) return false;
@@ -1223,9 +1257,9 @@ export default function App({ startupPending = false, initialServer }: { startup
           preparedNewSession.current = null;
           storeNewAgentConfig(null);
         } else {
-          const created = await api.request<{ sessionName: string; agentId: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
-            { workspaceHash: sendWorkspace.hash, agentId: sendAgentId }, controller.signal);
-          target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId: created.agentId }, sendWorkspace);
+          const created = await api.request<{ sessionName: string; agentId: string; customAgentId?: string; configOptions: AgentConfigOption[] }>('/agent-engines/prepare', 'POST',
+            { workspaceHash: sendWorkspace.hash, agentId: sendAgentId, customAgentId: sendCustomAgentId || undefined }, controller.signal);
+          target = remoteSession({ name: created.sessionName, title: titleSource.slice(0, 60), messageCount: 0, mtime: now, agentId: created.agentId, customAgentId: created.customAgentId || sendCustomAgentId || undefined }, sendWorkspace);
           setAgentConfigs(current => ({ ...current, [target!.id]: created.configOptions }));
           seededConfigAt.current[target.id] = Date.now();
         }
@@ -1253,7 +1287,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         setShowScrollBtn(false);
       }
       const attachments = context.attachments || [];
-      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: isChatScoped(workspaces.find(item => item.hash === target?.workspaceHash)) ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash) }, event => {
+      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, customAgentId: target.customAgentId || sendCustomAgentId || undefined, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: isChatScoped(workspaces.find(item => item.hash === target?.workspaceHash)) ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash) }, event => {
         if (!runs.owns(request) || controller.signal.aborted || !sameServer()) return;
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
@@ -1464,7 +1498,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
     : <Composer home={isHome} loading={workspaceLoading} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
-    agentId={agentId} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
+    agentId={agentId} agentName={agentPersonaId ? backend.agents.find(item => item.id === agentPersonaId)?.name : undefined} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
     providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !surfaceOpen && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} desktopPet={nativePet.native} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={composerHistory}
@@ -1527,6 +1561,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           {isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={selectWorkspace} onManage={() => { setMenu(null); setProjectsOpen(true); }}
             engines={chatMode || agentLocked ? engines.filter(engine => engine.id === 'native') : engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy || chatMode || agentLocked} disabledReason={agentLocked ? '自定义智能体仅支持 Loopra Native' : undefined} onAgent={switchAgent}
+            agents={chatMode || agentLocked ? [] : backend.agents} customAgentId={draftAgentId} onSelectAgent={selectCustomAgent}
             onTaskToolbarMount={setHomeTaskToolbar}
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}

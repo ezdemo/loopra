@@ -26,6 +26,7 @@ import (
 // chatRequest 与 Java ChatRequest 的请求体保持一致（契约 §0）。
 type chatRequest struct {
 	AgentID             string   `json:"agentId"`
+	CustomAgentID       string   `json:"customAgentId"`
 	Message             string   `json:"message"`
 	Stream              bool     `json:"stream"`
 	RequestID           string   `json:"requestId"`
@@ -97,10 +98,47 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, "自定义智能体仅支持内置引擎")
 		return
 	}
+	// 项目/纯聊天工作区的会话可以在 .meta 绑定一个自定义智能体角色。
+	// 与引擎绑定一致：有内容后不允许静默换绑，绑定后只支持内置引擎。
+	if s.profile != nil && req.CustomAgentID != "" && req.CustomAgentID != s.profile.ID {
+		writeFail(w, http.StatusBadRequest, "智能体工作区不能绑定其他智能体")
+		return
+	}
+	persona := strOr(meta, "customAgentId", "")
+	if req.CustomAgentID != "" {
+		if req.AgentID != "native" {
+			writeFail(w, http.StatusBadRequest, "自定义智能体仅支持内置引擎")
+			return
+		}
+		if _, err := s.sessionPersona(req.CustomAgentID); err != nil {
+			writeFail(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if persona != req.CustomAgentID && len(s.sessionMessages(r.Context(), req.SessionName)) > 0 {
+			if persona != "" {
+				writeFail(w, http.StatusConflict, "会话已绑定其他智能体，请新建会话")
+			} else {
+				writeFail(w, http.StatusConflict, "会话已有内容，无法绑定智能体，请新建会话")
+			}
+			return
+		}
+	}
+	if req.CustomAgentID != "" {
+		persona = req.CustomAgentID
+	}
+	if persona != "" && req.AgentID != "native" {
+		writeFail(w, http.StatusConflict, "会话已绑定智能体，仅支持内置引擎")
+		return
+	}
 	job, err := s.admitChat(&req)
 	if err != nil {
 		startSSE(w).sendError(err.Error())
 		return
+	}
+	// 绑定只在任务获准进入队列后落盘，被拒/占用的请求不改写 .meta；
+	// prepareTurn 仍在本轮读取到该值。
+	if req.CustomAgentID != "" && req.CustomAgentID != strOr(meta, "customAgentId", "") {
+		s.sessionMetaSet(req.SessionName, map[string]any{"customAgentId": req.CustomAgentID})
 	}
 	defer s.releaseChat(job)
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))

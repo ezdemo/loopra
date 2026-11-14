@@ -16,7 +16,7 @@ const backendUrl = dataUrl(backendSource);
 const moduleSource = (await transpile('custom-agents.ts')).replaceAll("'./backend'", JSON.stringify(backendUrl)).replaceAll('"./backend"', JSON.stringify(backendUrl));
 const backend = await import(backendUrl);
 const { CHAT_WORKSPACE, withChatWorkspace } = backend;
-const { isProjectWorkspace, isAgentWorkspace, isChatScoped, agentNameError, normalizeAgentName, agentPayload, draftFromAgent, toggleValue, pruneTools, pruneSkills, groupCatalogTools, catalogToolsFor } = await import(dataUrl(moduleSource));
+const { isProjectWorkspace, isAgentWorkspace, isChatScoped, agentNameError, normalizeAgentName, agentPayload, draftFromAgent, toggleValue, pruneTools, pruneSkills, groupCatalogTools, catalogToolsFor, validDraftAgentId } = await import(dataUrl(moduleSource));
 
 const projects = [
   { hash: 'looprax', name: 'looprax', path: '/code/looprax' },
@@ -115,4 +115,11 @@ test('catalogToolsFor 按是否绑定项目选择目录', () => {
   assert.equal(catalogToolsFor(catalog, '')[0].name, 'a');
   assert.equal(catalogToolsFor(catalog, 'looprax')[0].name, 'b');
   assert.deepEqual(catalogToolsFor(undefined, ''), []);
+});
+
+test('草稿角色只在列表加载完成后按存在性校验', () => {
+  assert.equal(validDraftAgentId('', agents, true), true);
+  assert.equal(validDraftAgentId('agent_gone', [], false), true, '未加载不清理');
+  assert.equal(validDraftAgentId('agent_gone', [], true), false, '加载完成后按列表判定');
+  assert.equal(validDraftAgentId('agent_aaaaaaaaaaaa', agents, true), true);
 });

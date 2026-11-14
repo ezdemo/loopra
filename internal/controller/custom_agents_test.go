@@ -347,3 +347,185 @@ func TestAgentSkillAllowlist(t *testing.T) {
 		t.Fatalf("skillread = %v %v", result, err)
 	}
 }
+
+// 项目工作区里单个会话绑定自定义智能体角色：角色只作用于该会话的
+// 轮次派生，工作区仍是项目域（文件工具、sub_agent、非聊天指令）。
+func TestSessionBoundAgentInProject(t *testing.T) {
+	ts, key, s, _ := parityServer(t, "")
+	project := s.agent.App()
+	code, env := postAgent(t, ts, key, map[string]any{
+		"name": "评审员", "instruction": "只做代码评审", "tools": []string{"read", "skillread"},
+	})
+	if code != http.StatusOK {
+		t.Fatal(env)
+	}
+	id := env["data"].(map[string]any)["id"].(string)
+	code, env = postAgent(t, ts, key, map[string]any{"name": "第二个", "instruction": "备用"})
+	if code != http.StatusOK {
+		t.Fatal(env)
+	}
+	other := env["data"].(map[string]any)["id"].(string)
+
+	// 未知角色、格式非法的 id 与非内置引擎都在 prepare 阶段被拒。
+	for _, body := range []map[string]any{
+		{"workspaceHash": project, "sessionName": "bad", "agentId": "native", "customAgentId": "agent_0123456789ab"},
+		{"workspaceHash": project, "sessionName": "bad", "agentId": "native", "customAgentId": "nope"},
+		{"workspaceHash": project, "sessionName": "bad", "agentId": "codex", "customAgentId": id},
+	} {
+		if code, env := call(t, ts, "POST", "/api/agent-engines/prepare", key, body); code != http.StatusBadRequest {
+			t.Fatalf("prepare %v = %d %v", body, code, env)
+		}
+	}
+	// 正常绑定并回显。
+	code, env = call(t, ts, "POST", "/api/agent-engines/prepare", key, map[string]any{
+		"workspaceHash": project, "sessionName": "persona-one", "agentId": "native", "customAgentId": id,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("prepare = %d %v", code, env)
+	}
+	data := env["data"].(map[string]any)
+	if data["customAgentId"] != id || data["agentId"] != "native" {
+		t.Fatalf("prepare data = %v", data)
+	}
+	if got := strOr(s.sessionMetaRead("persona-one"), "customAgentId", ""); got != id {
+		t.Fatalf("meta = %q", got)
+	}
+	// 写入一条历史，让绑定冲突分支可被命中。
+	created, err := s.agent.Sessions.Create(context.Background(), createReq(s.agent, "persona-one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appendTextEvent(t, s.agent, created.Session, "seed"); err != nil {
+		t.Fatal(err)
+	}
+	// 会话列表透出绑定。
+	code, env = call(t, ts, "GET", "/api/sessions?workspaceHash="+project, key, nil)
+	if code != http.StatusOK {
+		t.Fatalf("list = %d %v", code, env)
+	}
+	found := false
+	for _, item := range env["data"].([]any) {
+		row := item.(map[string]any)
+		if row["name"] == "persona-one" {
+			found = row["customAgentId"] == id
+		}
+	}
+	if !found {
+		t.Fatalf("session row missing customAgentId: %v", env["data"])
+	}
+	// 轮次派生带上角色块与工具白名单，但保持项目上下文。
+	turn, err := s.prepareTurn(&chatRequest{SessionName: "persona-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.chatScoped() {
+		t.Fatal("persona session must stay project scoped")
+	}
+	text := turn.agent.Instruction()
+	if !strings.Contains(text, "「评审员」") || !strings.Contains(text, "只做代码评审") {
+		t.Fatalf("instruction = %s", text)
+	}
+	turn.registry.SetPolicy(nil)
+	exposed, err := turn.registry.Tools(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range exposed {
+		if tl.Name() != "read" && tl.Name() != "skillread" {
+			t.Fatalf("exposed %s", tl.Name())
+		}
+	}
+	// 空会话可以改绑；有内容的会话拒绝换绑。
+	code, env = call(t, ts, "POST", "/api/agent-engines/prepare", key, map[string]any{
+		"workspaceHash": project, "sessionName": "persona-empty", "agentId": "native", "customAgentId": id,
+	})
+	if code != http.StatusOK {
+		t.Fatal(env)
+	}
+	code, _ = call(t, ts, "POST", "/api/agent-engines/prepare", key, map[string]any{
+		"workspaceHash": project, "sessionName": "persona-empty", "agentId": "native", "customAgentId": other,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("rebind empty = %d", code)
+	}
+	if got := strOr(s.sessionMetaRead("persona-empty"), "customAgentId", ""); got != other {
+		t.Fatalf("rebind meta = %q", got)
+	}
+	code, _ = call(t, ts, "POST", "/api/agent-engines/prepare", key, map[string]any{
+		"workspaceHash": project, "sessionName": "persona-one", "agentId": "native", "customAgentId": other,
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("rebind populated = %d", code)
+	}
+	// 聊天入口同样拦截换绑与外部引擎组合。
+	code, _ = call(t, ts, "POST", "/api/chat/stream", key, map[string]any{
+		"workspaceHash": project, "sessionName": "persona-one", "message": "hi",
+		"agentId": "native", "customAgentId": other,
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("chat rebind = %d", code)
+	}
+	code, _ = call(t, ts, "POST", "/api/chat/stream", key, map[string]any{
+		"workspaceHash": project, "sessionName": "fresh", "message": "hi",
+		"agentId": "codex", "customAgentId": id,
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("chat external+persona = %d", code)
+	}
+	// 分支继承绑定。
+	code, env = call(t, ts, "POST", "/api/sessions/persona-one/branch?messageCount=1", key, nil)
+	if code != http.StatusOK {
+		t.Fatalf("branch = %d %v", code, env)
+	}
+	branched := env["data"].(map[string]any)["sessionName"].(string)
+	if got := strOr(s.sessionMetaRead(branched), "customAgentId", ""); got != id {
+		t.Fatalf("branch meta = %q", got)
+	}
+}
+
+// 未绑定但已有内容的会话同样拒绝首次绑定（409 且不落 .meta）；
+// 纯聊天工作区不接受 customAgentId（400）。
+func TestSessionBindRejectsPopulatedAndChat(t *testing.T) {
+	ts, key, s, _ := parityServer(t, "")
+	project := s.agent.App()
+	code, env := postAgent(t, ts, key, map[string]any{"name": "评审员", "instruction": "只做代码评审"})
+	if code != http.StatusOK {
+		t.Fatal(env)
+	}
+	id := env["data"].(map[string]any)["id"].(string)
+
+	// 造一条没有绑定、但已有消息的会话。
+	created, err := s.agent.Sessions.Create(context.Background(), createReq(s.agent, "populated"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appendTextEvent(t, s.agent, created.Session, "seed"); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/agent-engines/prepare", "/api/chat/stream"} {
+		body := map[string]any{
+			"workspaceHash": project, "sessionName": "populated", "agentId": "native", "customAgentId": id,
+		}
+		if path == "/api/chat/stream" {
+			body["message"] = "hi"
+		}
+		if code, env := call(t, ts, "POST", path, key, body); code != http.StatusConflict {
+			t.Fatalf("%s bind populated = %d %v", path, code, env)
+		}
+	}
+	if got := strOr(s.sessionMetaRead("populated"), "customAgentId", ""); got != "" {
+		t.Fatalf("meta must stay unbound, got %q", got)
+	}
+	// 纯聊天工作区：prepare 与 chat/stream 都返回 400。
+	for _, path := range []string{"/api/agent-engines/prepare", "/api/chat/stream"} {
+		body := map[string]any{
+			"workspaceHash": chatWorkspace, "sessionName": "chat-persona", "agentId": "native", "customAgentId": id,
+		}
+		if path == "/api/chat/stream" {
+			body["message"] = "hi"
+		}
+		if code, env := call(t, ts, "POST", path, key, body); code != http.StatusBadRequest {
+			t.Fatalf("%s chat workspace = %d %v", path, code, env)
+		}
+	}
+}

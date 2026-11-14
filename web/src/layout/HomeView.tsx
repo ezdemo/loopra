@@ -2,7 +2,7 @@ import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { Bot, Check, ChevronDown, FolderClosed, FolderPlus, MessageCircle } from 'lucide-react';
 import { Enter, Popup } from '../components/Motion';
 import { LoadingSkeleton, LoopraMark } from '../components/ui';
-import type { AgentEngine, Workspace } from '../backend';
+import type { AgentEngine, CustomAgent, Workspace } from '../backend';
 import AgentSwitcher from './AgentSwitcher';
 import { useMenuPlacement } from './menu-placement';
 
@@ -23,6 +23,10 @@ type HomeViewProps = {
   agentId: string;
   agentDisabled: boolean;
   onAgent: (id: string) => void;
+  /** 项目工作区可选的自定义智能体角色（绑定到新会话）。 */
+  agents?: CustomAgent[];
+  customAgentId?: string;
+  onSelectAgent?: (id: string) => void;
   /** Re-detect Agent runtimes when the chooser opens. */
   onRefreshEngines?: () => void;
   /** Isolation switch for the prepared draft, right-aligned on the switcher row. */
@@ -32,7 +36,7 @@ type HomeViewProps = {
 };
 
 export default function HomeView({ workspaces, workspacesLoading, enginesLoading, workspace, workspaceName, chatMode, disabledReason, menuOpen, onToggleMenu, onSelect, onManage,
-  engines, agentId, agentDisabled, onAgent, onRefreshEngines, isolation, onTaskToolbarMount, children }: HomeViewProps) {
+  engines, agentId, agentDisabled, onAgent, agents, customAgentId, onSelectAgent, onRefreshEngines, isolation, onTaskToolbarMount, children }: HomeViewProps) {
   // The menu opens upward by default. It is capped to the room above (the list
   // scrolls inside) and only flips below the anchor when the top of the window
   // leaves too little usable height. Heading and footer stay put either way.
@@ -53,7 +57,7 @@ export default function HomeView({ workspaces, workspacesLoading, enginesLoading
           <hr /><button onClick={onManage}><FolderPlus size="1rem" />管理项目</button>
         </Popup>
       </div>}
-      {enginesLoading ? <div className="welcome-selector-loading" role="status" aria-label="正在加载智能体"><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <AgentSwitcher engines={engines} agentId={agentId} disabled={agentDisabled} disabledReason={disabledReason || (chatMode ? '纯聊天仅支持 Loopra Native；切换到项目后可选择其他 Agent' : undefined)} onSelect={onAgent} onRefreshEngines={onRefreshEngines} />}
+      {enginesLoading ? <div className="welcome-selector-loading" role="status" aria-label="正在加载智能体"><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <AgentSwitcher engines={engines} agentId={agentId} disabled={agentDisabled} disabledReason={disabledReason || (chatMode ? '纯聊天仅支持 Loopra Native；切换到项目后可选择其他 Agent' : undefined)} onSelect={onAgent} onRefreshEngines={onRefreshEngines} agents={agents} customAgentId={customAgentId} onSelectAgent={onSelectAgent} />}
       <div className="welcome-task-toolbar" ref={onTaskToolbarMount} />
       {workspacesLoading ? <div className="welcome-selector-loading welcome-isolation-loading" role="status" aria-label="正在加载分支配置"><LoadingSkeleton className="skeleton-isolation" /></div> : isolation}
     </div>

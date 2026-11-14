@@ -212,6 +212,7 @@ func (s *Controller) enginePrepare(w http.ResponseWriter, r *http.Request) {
 		WorkspaceHash string `json:"workspaceHash"`
 		SessionName   string `json:"sessionName"`
 		AgentID       string `json:"agentId"`
+		CustomAgentID string `json:"customAgentId"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.AgentID == "looprax" {
@@ -220,6 +221,16 @@ func (s *Controller) enginePrepare(w http.ResponseWriter, r *http.Request) {
 	if body.AgentID != "" && body.AgentID != "native" && !acp.IsExternal(body.AgentID) {
 		writeFail(w, http.StatusBadRequest, "Agent 引擎不可用: "+body.AgentID)
 		return
+	}
+	if body.CustomAgentID != "" {
+		if body.AgentID != "" && body.AgentID != "native" {
+			writeFail(w, http.StatusBadRequest, "自定义智能体仅支持内置引擎")
+			return
+		}
+		if _, err := s.sessionPersona(body.CustomAgentID); err != nil {
+			writeFail(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	name := strings.TrimSpace(body.SessionName)
 	if name == "" && s.acp != nil && body.AgentID != "" && body.AgentID != "native" && acp.IsExternal(body.AgentID) {
@@ -238,12 +249,27 @@ func (s *Controller) enginePrepare(w http.ResponseWriter, r *http.Request) {
 		s.prepareExternalEngine(w, r, name, body.AgentID)
 		return
 	}
+	if body.CustomAgentID != "" {
+		bound := strOr(s.sessionMetaRead(name), "customAgentId", "")
+		if bound != body.CustomAgentID && len(s.sessionMessages(r.Context(), name)) > 0 {
+			if bound != "" {
+				writeFail(w, http.StatusConflict, "会话已绑定其他智能体，请新建会话")
+			} else {
+				writeFail(w, http.StatusConflict, "会话已有内容，无法绑定智能体，请新建会话")
+			}
+			return
+		}
+	}
 	_, existing := s.agent.Sessions.Get(r.Context(), getSessionRequest(s.agent, name))
 	if _, err := s.resolveSessionSettings(name, nil); err != nil {
 		writeFail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.sessionMetaSet(name, map[string]any{"agentId": "native"})
+	patch := map[string]any{"agentId": "native"}
+	if body.CustomAgentID != "" {
+		patch["customAgentId"] = body.CustomAgentID
+	}
+	s.sessionMetaSet(name, patch)
 	if existing != nil {
 		prefs := s.enginePreferencesRead()
 		agents, _ := prefs["agents"].(map[string]any)
@@ -254,10 +280,14 @@ func (s *Controller) enginePrepare(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeOK(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"sessionName": name, "agentId": "native",
 		"configOptions": s.nativeConfigOptions(name),
-	})
+	}
+	if persona := strOr(s.sessionMetaRead(name), "customAgentId", ""); persona != "" {
+		out["customAgentId"] = persona
+	}
+	writeOK(w, http.StatusOK, out)
 }
 
 // engineConfig 读取或更新某个会话的引擎配置；原生

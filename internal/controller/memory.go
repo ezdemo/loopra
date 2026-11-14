@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ezdemo/looprax/internal/model"
+	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/memory"
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
@@ -22,8 +23,9 @@ func (s *Controller) installMemoryTools() {
 	switch {
 	case s.chatScoped():
 		project = ""
-	case s.profile != nil:
-		// 绑定项目的智能体与该项目共用一份项目级记忆。
+	case s.agent != nil && s.profile != nil && customagent.IsID(s.agent.App()):
+		// 绑定项目的智能体与该项目共用一份项目级记忆；项目会话临时
+		// 套用的角色不改动工作区身份，仍使用当前项目作用域。
 		project = s.profile.ProjectHash
 	}
 	for _, entry := range tools.MemoryTools(s.memories, project) {

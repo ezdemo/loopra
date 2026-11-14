@@ -28,11 +28,11 @@ export type AgentEngine = { id: string; name: string; available: boolean; detail
 export type AcpPlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: string };
 export type AcpCommand = { name: string; description?: string; inputHint?: string };
 export type AcpSessionState = { plan: AcpPlanEntry[]; commands: AcpCommand[] };
-export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string };
+export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string; customAgentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; displayName?: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; toolsRestrictWorkspace: boolean; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string; toolModel: string; toolModelChannelId: string };
 export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; resultDelta?: string; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema'] };
-export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[] };
+export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; customAgentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[] };
 
 export function serverAddress(value: string) {
   const url = new URL(value.trim() || DEFAULT_SERVER);
@@ -360,7 +360,7 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
   return messages;
 }
 export function remoteSession(item: RemoteSession, workspace: Workspace): Session {
-  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime, messageCount: item.messageCount || 0, worktreeMode: !!item.worktreeMode, ...(item.agentId ? { agentId: item.agentId } : {}) };
+  return { id: `${workspace.hash}/${item.name}`, name: item.name, workspaceHash: workspace.hash, title: item.title || item.name, workspace: workspace.name, kind: 'remote', messages: [], mtime: item.mtime, messageCount: item.messageCount || 0, worktreeMode: !!item.worktreeMode, ...(item.agentId ? { agentId: item.agentId } : {}), ...(item.customAgentId ? { customAgentId: item.customAgentId } : {}) };
 }
 export function configProviders(config: RemoteConfig): Provider[] {
   return (config.modelChannels || []).map(channel => ({ id: channel.id, name: channel.name, type: channel.apiProtocol, baseUrl: channel.baseUrl, apiKey: channel.apiKey, compatibility: channel.specialCompatibility, count: channel.models.length, enabled: true, models: channel.models.map(model => ({ ...model, priceEnabled: !!model.price, inputPrice: model.price?.input || 0, cachePrice: model.price?.cache || 0, outputPrice: model.price?.output || 0 })) }));

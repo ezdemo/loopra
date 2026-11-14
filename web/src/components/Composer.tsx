@@ -21,7 +21,10 @@ import { clampComposerHeight, composerHeight, composerHeightCeiling, composerSes
 
 type Props = {
   loading?: boolean;
-  agentId?: string; engines?: AgentEngine[];
+  agentId?: string;
+  /** 会话绑定的自定义智能体名；提供时代替引擎名展示。 */
+  agentName?: string;
+  engines?: AgentEngine[];
   agentConfig?: AgentConfigState;
   acpCommands?: AcpCommand[];
   home: boolean; language: string; draft: string; onDraft: (text: string) => void;
@@ -130,7 +133,7 @@ export default function Composer(props: Props) {
   const initialConfigLoading = !!props.loading || (agentBusy && !props.agentConfig?.error && !agentOptions?.length && !props.generating && !props.remoteRunning);
   const sendDisabled = agentBusy || (!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy);
   function sendDraft() { if (!sendDisabled) props.onSend(); }
-  const agentEngineName = props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
+  const agentEngineName = props.agentName || props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
   const handledOptions = new Set([agentMode, agentModel, agentEffort, agentFast, agentPlan].filter(Boolean).map(option => option!.id));
   const otherAgentOptions = (agentOptions || []).filter(option => !handledOptions.has(option.id));
   const agentModeValue = agentMode ? configValue(agentMode) : '';

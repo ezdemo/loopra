@@ -107,7 +107,7 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 | PUT `/preferences` | body `{selectedAgent*}` | 同上 |
 | GET `/session` | q: workspaceHash*, sessionName* | `{agentId:s, hasMessages:b}` |
 | GET `/config` | q: workspaceHash*, sessionName* | `{configOptions:[...]}` |
-| POST `/prepare` | body `{workspaceHash*, sessionName?, agentId?}` | `{sessionName:s, agentId:s, configOptions:[...]}`（空 sessionName 新建 `loopra-<uuid>`） |
+| POST `/prepare` | body `{workspaceHash*, sessionName?, agentId?, customAgentId?}` | `{sessionName:s, agentId:s, customAgentId?:s, configOptions:[...]}`（空 sessionName 新建 `loopra-<uuid>`；customAgentId 仅项目工作区 + native，语义见「自定义智能体」一节） |
 | PUT `/config` | body `{workspaceHash, sessionName*, configId*, value*}` | `{configOptions:[...]}` |
 
 ### 3.4 Config（/api）
@@ -163,7 +163,7 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 ### 3.7 Sessions（/api/sessions）
 | 方法+路径 | 参数 | data |
 |---|---|---|
-| GET `` | q: workspaceHash? | `[{name,title,messageCount:l,current:b,mtime:l,worktreeMode:b,agentId:s(默认"native")}]`（仅含写入过消息的会话：`.jsonl` 或审计 `.events` 有内容） |
+| GET `` | q: workspaceHash? | `[{name,title,messageCount:l,current:b,mtime:l,worktreeMode:b,agentId:s(默认"native"),customAgentId?:s}]`（仅含写入过消息的会话：`.jsonl` 或审计 `.events` 有内容；customAgentId 仅在绑定角色时出现） |
 | PUT `/order` | q: workspaceHash*; body `[sessionName...]` | s `"排序已保存"` |
 | GET `/current` | q: workspaceHash? | `{workspaceHash, sessionName}` |
 | POST `/new` | q: workspaceHash*, sessionName?, worktreeMode?:b | `{message:"已创建新会话", workspaceHash, sessionName}`（惰性：不创建会话日志，首条消息写入时才落盘） |
@@ -284,6 +284,7 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
 - `instruction` 非空时在系统提示末尾附加 `以下是用户为当前智能体「<name>」设定的角色与要求，请严格遵循：\n<instruction>` 角色块。
 - `tools` 允许列表独立于全局禁用配置，在注册表重建后仍然生效；`skills` 过滤系统提示列表、`skilllist/skillsearch/skillrefresh` 与 `skillread`（scope 不在列表内即拒绝）。
 - 自定义智能体只支持内置引擎：`agentId` 非 `native`/空的聊天请求被拒绝。
+- 项目工作区的单个会话也可绑定一个角色：`POST /agent-engines/prepare` 与 `POST /api/chat/stream` 接受 `customAgentId`，写入会话 `.meta` 后由 `/api/sessions` 透出、分支/分叉继承。绑定会话仍是项目域（文件/Git/关联项目/项目技能不变），仅轮次系统提示追加角色块、工具与技能按该角色清单过滤；`customAgentId` 与非 `native` 的 `agentId` 同传返回 400，未知 id 返回 400，已有内容的会话换绑返回 409，未绑定但已有内容的会话首次绑定同样返回 409，绑定了角色的会话改用外部引擎返回 409。纯聊天工作区传 `customAgentId` 返回 400；智能体工作区自身的会话不能再绑其他角色。
 - 删除会同时清理运行时、权限与定时任务缓存及全部会话目录；顺序为先删定义再删目录，保证不会有"仍被列出但目录残缺"的智能体。
 
 错误沿用 `{success:false,error}` 包装：校验失败（重名、超长、projectHash 非注册项目、id 不存在、删除时有运行中会话等）以中文 `error` 文案返回失败；`agents.json` 损坏时接口报错而不是静默重置。

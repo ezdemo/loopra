@@ -28,7 +28,7 @@ const options = [
 function environment() {
   const calls = [], state = { selected: 'native', ready: undefined, error: '', drafts: [], cached: [], composer: {}, busy: undefined };
   const env = {
-    server: 'http://127.0.0.1:40001', newAgentId: 'native', backend: { status: 'connected' },
+    server: 'http://127.0.0.1:40001', newAgentId: 'native', draftAgentId: '', backend: { status: 'connected' },
     enginesError: '', selectedEngineAvailable: true,
     preparedNewSession: { current: null }, newAgentConfigRef: { current: null },
     composerViewRef: { current: { server: 'http://127.0.0.1:40001', activeId: null, draftKey: 'home' } }, homeRunKey: 'home',
@@ -36,6 +36,7 @@ function environment() {
     api: { async request(path, method, body) { calls.push({ path, method, body }); return { selectedAgent: 'codex' }; } },
     setAgentPreferencesServer: value => { state.ready = value; },
     setNewAgentId: value => { state.selected = value; },
+    setNewCustomAgentId: value => { env.draftAgentId = value; },
     setAgentConfigError: value => { state.error = value; },
     setAgentPreferencesError: value => { state.error = value; },
     storeNewAgentConfig: value => { env.newAgentConfigRef.current = value; state.drafts.push(value); },
@@ -200,7 +201,7 @@ test('home takes the restored backend configuration without replaying browser de
   await callback('loadNewAgentConfig', env)('project', 'codex');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, '/agent-engines/prepare');
-  assert.equal(env.preparedNewSession.current.key, `${env.server}::project::codex`);
+  assert.equal(env.preparedNewSession.current.key, `${env.server}::project::codex::`);
   assert.deepEqual(state.drafts.at(-1).options, options);
   assert.deepEqual(state.cached, [{ agent: 'codex', values: options }]);
 });

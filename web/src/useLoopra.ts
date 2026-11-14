@@ -24,6 +24,8 @@ export default function useLoopra(server: string, enabled = true) {
   const [agents, setAgents] = useState<CustomAgent[]>([]);
   // 智能体列表失败不拖垮整个连接：保留上一份列表并把错误交给上层提示一次。
   const [agentsError, setAgentsError] = useState('');
+  // 标记当前列表真正来自一次成功加载：加载中与失败都不当作"空列表"消费。
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const providersRevision = useRef(0);
   const agentsRef = useRef<CustomAgent[]>([]);
   agentsRef.current = agents;
@@ -31,7 +33,7 @@ export default function useLoopra(server: string, enabled = true) {
     try {
       const next = await api.request<CustomAgent[]>('/custom-agents', 'GET', undefined, signal);
       if (signal?.aborted) return agentsRef.current;
-      setAgents(next); setAgentsError('');
+      setAgents(next); setAgentsError(''); setAgentsLoaded(true);
       return next;
     } catch (cause) {
       if (!signal?.aborted) setAgentsError(cause instanceof Error ? cause.message : '加载智能体失败');
@@ -69,7 +71,7 @@ export default function useLoopra(server: string, enabled = true) {
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!enabled) return;
     const revision = ++providersRevision.current;
-    setStatus('connecting'); setError('');
+    setStatus('connecting'); setError(''); setAgentsLoaded(false);
     try {
       const [health, agent, nextConfig, projects] = await Promise.all([
         api.request<{ version: string }>('/system/health', 'GET', undefined, signal),
@@ -126,5 +128,5 @@ export default function useLoopra(server: string, enabled = true) {
     const timer = setInterval(check, VERSION_CHECK_INTERVAL_MS);
     return () => { clearInterval(timer); controller.abort(); };
   }, [api, status, version]);
-  return { api, sessions, setSessions, sessionsLoading, workspaces, agents, agentsError, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshCapabilities, refreshProviders, refreshSessions, refreshWorkspaces };
+  return { api, sessions, setSessions, sessionsLoading, workspaces, agents, agentsError, agentsLoaded, providers, setProviders, config, tools, skills, prompt, status, ready, error, version, updateCheck, refresh, refreshCapabilities, refreshProviders, refreshSessions, refreshWorkspaces };
 }

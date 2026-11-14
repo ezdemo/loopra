@@ -105,9 +105,13 @@ func (s *Controller) removeSession(ctx context.Context, name string) error {
 
 // sessionRow 组装会话列表中的一行。
 func (s *Controller) sessionRow(name string, meta map[string]any, messages []map[string]any, mtime int64) map[string]any {
-	return map[string]any{
+	row := map[string]any{
 		"name": name, "title": s.sessionDisplayTitle(name, messages), "messageCount": len(messages),
 		"current": s.currentSession() == name, "mtime": mtime,
 		"worktreeMode": meta["worktreeMode"] == true, "agentId": s.listedAgentID(name, meta),
 	}
+	if persona := strOr(meta, "customAgentId", ""); persona != "" {
+		row["customAgentId"] = persona
+	}
+	return row
 }

@@ -223,12 +223,20 @@ func (s *Controller) customAgent(id string) (*customagent.Agent, error) {
 }
 
 // chatScoped 报告当前运行时是否按「无项目」的纯聊天方式装配：内置纯聊天，
-// 或未绑定项目的自定义智能体。
+// 或未绑定项目的自定义智能体。判定依据是工作区身份而不是 profile 本身，
+// 这样项目会话临时套用自定义智能体角色时不会退化成聊天域。
 func (s *Controller) chatScoped() bool {
-	if s.profile != nil {
-		return s.profile.ProjectHash == ""
+	if s.agent == nil {
+		return false
 	}
-	return s.agent != nil && s.agent.App() == chatWorkspace
+	app := s.agent.App()
+	if app == chatWorkspace {
+		return true
+	}
+	if customagent.IsID(app) {
+		return s.profile == nil || s.profile.ProjectHash == ""
+	}
+	return false
 }
 
 // agentBlock 把用户为自定义智能体写的角色与要求追加到系统提示词末尾。
@@ -271,7 +279,9 @@ func (s *Controller) systemInstruction(workspace string) string {
 }
 
 func (s *Controller) systemInstructionFor(workspace, hash string, projects []linkedProject) string {
-	if hash == chatWorkspace || (s.profile != nil && s.profile.ProjectHash == "") {
+	// 按目标工作区身份判定聊天域：项目会话套用未绑定项目的智能体
+	// 角色时，profile.ProjectHash 为空但仍是项目上下文。
+	if hash == chatWorkspace || (customagent.IsID(hash) && s.profile != nil && s.profile.ProjectHash == "") {
 		return s.chatSystemInstruction()
 	}
 	if projects == nil {

@@ -42,6 +42,12 @@ export function agentWorkspaceOf(workspace: Workspace | undefined): CustomAgent 
 
 export const normalizeAgentName = (name: string) => name.trim();
 
+/** 校验持久化的草稿角色：仅在列表真正加载完成后才判定存在性，加载中与拉取失败都保留草稿。 */
+export function validDraftAgentId(id: string, agents: CustomAgent[], loaded: boolean): boolean {
+  if (!id || !loaded) return true;
+  return agents.some(agent => agent.id === id);
+}
+
 /** 与后端校验一致：去空白后 1–40 个字符。返回 '' 表示合法。 */
 export function agentNameError(name: string): string {
   const length = [...normalizeAgentName(name)].length;

@@ -1,20 +1,26 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { Bot, Check, ChevronDown } from 'lucide-react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Popup } from '../components/Motion';
 import AgentIcon from '../components/AgentIcon';
-import type { AgentEngine } from '../backend';
+import type { AgentEngine, CustomAgent } from '../backend';
 import { agentAcpInstallPrompt } from '../agent-install';
 import { useMenuPlacement } from './menu-placement';
 
 /**
  * Agent chooser shown beside the project switcher on the home screen. Switching
  * starts a new conversation, so it stays disabled while any run is active.
+ * Custom agents are personas on the native engine: picking one also selects
+ * Loopra Native, so external engines never receive them.
  */
-export default function AgentSwitcher({ engines, agentId, disabled, disabledReason, onSelect, onRefreshEngines }: {
+export default function AgentSwitcher({ engines, agentId, disabled, disabledReason, onSelect, onRefreshEngines, agents, customAgentId, onSelectAgent }: {
   engines: AgentEngine[]; agentId: string; disabled: boolean; disabledReason?: string; onSelect: (id: string) => void;
   /** Re-detect the runtime when the menu opens (the backend checks on every call). */
   onRefreshEngines?: () => void;
+  /** Custom agent personas for the new session (empty hides the section). */
+  agents?: CustomAgent[];
+  customAgentId?: string;
+  onSelectAgent?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [installing, setInstalling] = useState<AgentEngine | null>(null);
@@ -33,6 +39,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
     return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', escape); };
   }, [open]);
   const current = engines.find(engine => engine.id === (agentId || 'native'));
+  const persona = agents?.find(item => item.id === customAgentId);
   function toggle() {
     if (open) { setOpen(false); return; }
     // Installation happens outside the app, so re-detect every time the menu opens.
@@ -71,14 +78,14 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
   return <div className="agent-selector menu-anchor" data-popover ref={root} data-placement={placement.side} style={placementStyle}>
     <button type="button" aria-label="选择 Agent" aria-expanded={open} disabled={disabled}
       title={disabled ? disabledReason || '任务运行中，结束后才能切换 Agent' : '选择 Agent'} onClick={toggle}>
-      <AgentIcon agentId={agentId || 'native'} />
-      {current?.name || (agentId === 'native' ? 'Loopra Native' : agentId)}
+      {persona ? <Bot size="1rem" /> : <AgentIcon agentId={agentId || 'native'} />}
+      {persona?.name || current?.name || (agentId === 'native' ? 'Loopra Native' : agentId)}
       <ChevronDown size="0.875rem" />
     </button>
     <Popup open={open} className="popup workspace-menu agent-menu">
       <h3>选择 Agent</h3>
       <div className="composer-tool-list">{engines.map(engine => {
-        const selected = engine.id === (agentId || 'native');
+        const selected = !persona && engine.id === (agentId || 'native');
         const installable = !engine.available && !!agentAcpInstallPrompt(engine.id);
         return <div key={engine.id} className="agent-option">
           <button type="button" disabled={!engine.available && !installable}
@@ -95,6 +102,19 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
             title="查看安装说明" onClick={() => openInstall(engine)}>安装说明</button>}
         </div>;
       })}</div>
+      {!!agents?.length && onSelectAgent && <>
+        <h3>自定义智能体</h3>
+        <div className="composer-tool-list">{agents.map(agent => {
+          const selected = agent.id === customAgentId;
+          return <div key={agent.id} className="agent-option">
+            <button type="button" title={agent.instruction || undefined} onClick={() => { setOpen(false); onSelectAgent(selected ? '' : agent.id); }}>
+              <Bot size="1rem" />
+              <span><strong>{agent.name}</strong></span>
+              {selected && <Check size="1rem" />}
+            </button>
+          </div>;
+        })}</div>
+      </>}
     </Popup>
     <Modal isOpen={!!installing} onClose={() => setInstalling(null)} placement="center" scrollBehavior="inside"
       classNames={{ base: 'app-dialog agent-install-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }}

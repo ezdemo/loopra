@@ -105,10 +105,10 @@ function harness() {
       },
     },
   };
-  function render(session, draft = 'unrelated draft') {
+  function render(session, draft = 'unrelated draft', newCustomAgentId = '') {
     const homeRunKey = draftRunKey(shared.server, session?.workspaceHash || 'a', session?.agentId || 'external', 0);
     shared.composerViewRef.current = { server: shared.server, activeId: session?.id || null, draft, draftKey: homeRunKey };
-    const env = { ...shared, homeRunKey, session, currentWorkspace: shared.workspaces.find(item => item.hash === (session?.workspaceHash || 'a')), workspace: session?.workspaceHash || 'a', agentId: session?.agentId || 'external', draft, remoteRun: session ? { id: session.id, requestId: 'remote-request' } : null };
+    const env = { ...shared, homeRunKey, session, currentWorkspace: shared.workspaces.find(item => item.hash === (session?.workspaceHash || 'a')), workspace: session?.workspaceHash || 'a', agentId: session?.agentId || 'external', newCustomAgentId, draft, remoteRun: session ? { id: session.id, requestId: 'remote-request' } : null };
     const functions = renderFunctions(env);
     shared.sendMessageRef.current = functions.sendMessage;
     return functions;
@@ -696,4 +696,23 @@ test('uploaded documents remain attached to the live and reloaded user message',
   assert.deepEqual(splitUserAttachments(reloaded.text), parsed);
   h.streams[0].finish();
   await sending;
+});
+
+test('existing and queued sessions never pick up the home draft persona', async () => {
+  const h = harness();
+  const bound = { ...other, id: 'b/bound', name: 'bound', customAgentId: 'agent_bound' };
+  h.shared.sessionsRef.current = [other, bound];
+  // An existing session without its own binding sends no persona, even when a
+  // home draft persona is selected.
+  const send = h.render(other, 'unrelated draft', 'agent_draft').sendMessage('B');
+  await until(() => h.streams.length === 1);
+  assert.equal(h.streams[0].body.customAgentId, undefined);
+  h.streams[0].finish(); await send;
+  // A queued send forwards only the queued session's own binding.
+  h.shared.queuedRef.current = queue.enqueue({}, bound.id, { id: 'queued', text: 'follow up', context });
+  const queued = h.render(other, 'unrelated draft', 'agent_draft').sendQueuedMessage(bound.id);
+  await until(() => h.streams.length === 2);
+  assert.equal(h.streams[1].body.sessionName, bound.name);
+  assert.equal(h.streams[1].body.customAgentId, 'agent_bound');
+  h.streams[1].finish(); await queued;
 });

@@ -240,9 +240,10 @@ export default function Sidebar(props: SidebarProps) {
                 }}
                 onDragEnd={() => { setDraggingSession(''); setDragOverSession(''); }}
                 className={`session-row ${activeId === entry.id ? 'selected' : ''}${draggingSession === entry.id ? ' dragging' : ''}${dragOverSession === entry.id && draggingSession !== entry.id ? ' drag-over' : ''}`}>
-                <button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => props.onSelectSession(entry.id)} title={entry.title}>
+                <button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => props.onSelectSession(entry.id)}
+                  title={entry.customAgentId ? `${entry.title} · ${workspaces.find(ws => ws.hash === entry.customAgentId)?.name || '自定义智能体'}` : entry.title}>
                   {activeId === entry.id && <SelectionIndicator />}
-                  <AgentIcon agentId={entry.agentId || 'native'} />
+                  {entry.customAgentId ? <Bot size="0.875rem" aria-hidden="true" /> : <AgentIcon agentId={entry.agentId || 'native'} />}
                   <SessionTitle text={entry.title} />
                   {props.runningIds?.has(entry.id) ? <span className="session-run-indicator running" role="img" aria-label="正在运行" title="正在运行" /> : props.unreadIds?.has(entry.id) && <span className="session-run-indicator" role="img" aria-label="有新回复" title="有新回复" />}
                   {entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}

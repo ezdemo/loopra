@@ -379,7 +379,7 @@ func (s *Controller) sessionBranch(w http.ResponseWriter, r *http.Request, name 
 	// 继承模型设置与派生标题
 	meta := s.sessionMetaRead(name)
 	newMeta := map[string]any{}
-	for _, k := range []string{"model", "modelChannelId", "reasoningEffort"} {
+	for _, k := range []string{"model", "modelChannelId", "reasoningEffort", "customAgentId"} {
 		if v := strOr(meta, k, ""); v != "" {
 			newMeta[k] = v
 		}

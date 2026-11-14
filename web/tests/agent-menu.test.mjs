@@ -6,7 +6,7 @@ import ts from 'typescript';
 
 // The Agent chooser shares the project menu's placement rules: upward by
 // default, capped to the room its clipping pane leaves, flipped below only when
-// that side is unusable. The menu shows only the engine rows.
+// that side is unusable. Engine rows come first, custom-agent personas below.
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://test.invalid' });
 const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, IS_REACT_ACT_ENVIRONMENT: true };
 const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -30,6 +30,7 @@ const placementUrl = await sourceUrl('layout/menu-placement.ts');
 const iconStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 const Icon = () => null;
+export const Bot = Icon;
 export const Check = Icon;
 export const ChevronDown = Icon;
 `);
@@ -168,4 +169,28 @@ test('available Agent rows continue to select the engine', async () => {
     assert.deepEqual(selected, ['codex']);
     assert.equal(view.container.querySelector('[role="dialog"]'), null);
   } finally { await view.close(); }
+});
+
+test('custom agent rows select and toggle the persona instead of an engine', async () => {
+  const picked = [];
+  const agents = [
+    { id: 'agent_aaaaaaaaaaaa', name: '评审员', instruction: '只做代码评审' },
+    { id: 'agent_bbbbbbbbbbbb', name: '翻译', instruction: '' },
+  ];
+  const view = await mount({ top: 400, bottom: 420 }, 800, { agents, customAgentId: 'agent_aaaaaaaaaaaa', onSelectAgent: id => picked.push(id) });
+  try {
+    const headings = [...view.menu.querySelectorAll('h3')].map(item => item.textContent);
+    assert.deepEqual(headings, ['选择 Agent', '自定义智能体']);
+    const rows = [...view.menu.querySelectorAll('.composer-tool-list')].at(-1).querySelectorAll('.agent-option > button');
+    assert.equal(rows.length, agents.length);
+    // 已选中的角色再次点击是取消绑定（传空串），而不是重复选择。
+    await act(async () => rows[0].click());
+    assert.deepEqual(picked, ['']);
+  } finally { await view.close(); }
+  const other = await mount({ top: 400, bottom: 420 }, 800, { agents, onSelectAgent: id => picked.push(id) });
+  try {
+    const rows = [...other.menu.querySelectorAll('.composer-tool-list')].at(-1).querySelectorAll('.agent-option > button');
+    await act(async () => rows[1].click());
+    assert.deepEqual(picked, ['', 'agent_bbbbbbbbbbbb']);
+  } finally { await other.close(); }
 });
