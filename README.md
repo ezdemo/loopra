@@ -416,6 +416,14 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 同一设置页可以一键启动 Cloudflare Quick Tunnel。本机需要已安装 `cloudflared` 并加入 PATH，也可以在页面填写可执行文件路径。Quick Tunnel 生成临时公网地址，应用退出后失效；本地代理只转发已配置的 MCP endpoint。该能力适合开发和测试。Quick Tunnel 不支持 SSE，请将 MCP 传输方式设为 Streamable HTTP。
 
+### 连接器
+
+连接器把常用服务（高德地图、Notion、Gmail、钉钉等）包装成开箱即用的 MCP 能力，不需要手写 MCP 配置。侧栏进入「技能与插件 → 连接器」，按分类或搜索找到服务后点卡片上的 `+` 连接。
+
+登录方式按服务而定：支持 OAuth 的服务（如 Notion、Gmail）一键跳转浏览器完成授权；其余服务粘贴令牌或应用凭据即可。钉钉等本地 stdio 服务需要本机安装 [Node.js](https://nodejs.org)。凭据保存在 `~/.loopra/connectors.json`，不会出现在对话或日志里。
+
+连接后服务即作为 MCP 来源进入 Agent 的工具搜索，工具名以 `<连接器 id>/<工具>` 限定。已连接的连接器可在卡片上全局启停，也可以在输入框 `+` 菜单的「连接器」里按会话开关。任务需要某个尚未连接的服务时，Agent 会在输入框上方弹出连接卡片，在卡片里完成连接后同一轮继续执行；也可以直接对话让 Agent 启用、停用或断开连接器。「自定义连接器」区沿用现有 MCP 管理页。接口定义见 [API 契约](docs/API_CONTRACT.md)。
+
 ### Loopra Mobile
 
 `mobile/` 提供基于 Tauri v2 的 Android / iOS 客户端。手机端采用独立的液态玻璃应用面板：中性底图、磨砂分组、悬浮底栏和聊天输入面板，核心聊天渲染复用 Loopra。通过自建 [alma-relay](https://github.com/yetone/alma-relay) 承载 Loopra 私有加密协议。桌面与 Web 在 **设置 → 连接与帮助 → 远程访问** 配置 HTTPS 中继和可选注册密钥，保存后显示 `loopra://` 配对链接与二维码，手机直接扫码连接。不再兼容 Alma 客户端协议。

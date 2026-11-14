@@ -30,6 +30,7 @@ const { default: Hub } = await import(await compile('components/SkillsAndPlugins
   '@nextui-org/react': nextui,
   './SkillsPage': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export default ({embedded, onRefresh, view, refreshKey, installedRefreshKey}) => h('button', {onClick:onRefresh, 'data-skills':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-installed-refresh':installedRefreshKey}, '技能列表');`),
   './ResourceManagers': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export const ExtensionManager = ({embedded, onChanged, notify, context, view, refreshKey}) => h('button', {onClick:() => { onChanged(); notify('插件已更新'); }, 'data-plugins':embedded, 'data-view':view, 'data-refresh':refreshKey, 'data-session':context?.sessionId}, '安装插件');`),
+  './ConnectorsPage': dataUrl(`import {createElement as h} from ${JSON.stringify(react)}; export default ({view, refreshKey, searchQuery, onViewChange}) => h('button', {onClick:() => onViewChange?.('discover'), 'data-connectors':true, 'data-view':view, 'data-refresh':refreshKey, 'data-search':searchQuery}, '连接器');`),
 }));
 const { capabilitiesTabForSection } = await import(await compile('capabilities-navigation.ts'));
 
@@ -46,7 +47,7 @@ test('one hub switches between skills and plugins while preserving refresh and p
   try {
     await act(async () => root.render(h(View)));
     const typeNavigation = container.querySelector('header [role="tablist"][aria-label="内容类型"]');
-    assert.deepEqual([...typeNavigation.querySelectorAll('button')].map(button => button.textContent), ['插件', '技能']);
+    assert.deepEqual([...typeNavigation.querySelectorAll('button')].map(button => button.textContent), ['插件', '技能', '连接器']);
     assert.equal(typeNavigation.querySelector('[aria-selected="true"]').textContent, '插件');
     assert.deepEqual([...container.querySelectorAll('[role="tablist"][aria-label="内容视图"] button')].map(button => button.textContent), ['我的内容', '发现']);
     assert.equal(container.querySelector('.library-type-filter'), null);
@@ -72,6 +73,13 @@ test('one hub switches between skills and plugins while preserving refresh and p
     await click('技能列表'); assert.equal(refreshes, 1);
     await click('我的内容'); assert.equal(container.querySelector('[data-skills]').getAttribute('data-view'), 'installed');
     await click('插件'); assert.equal(container.querySelector('[data-skills]'), null); assert.equal(container.querySelector('[data-plugins]').getAttribute('data-view'), 'installed');
+    await click('连接器');
+    assert.equal(container.querySelector('input').placeholder, '搜索连接器…');
+    const connectors = () => container.querySelector('[data-connectors]');
+    assert.equal(connectors().getAttribute('data-view'), 'installed');
+    await click('发现'); assert.equal(connectors().getAttribute('data-view'), 'discover');
+    await click('技能'); await click('连接器'); assert.equal(connectors().getAttribute('data-view'), 'installed');
+    await click('添加连接器'); assert.equal(connectors().getAttribute('data-view'), 'discover');
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
@@ -79,5 +87,6 @@ test('legacy plugin shortcuts open the plugin tab in the unified hub', () => {
   for (const section of ['插件', '拓展包', 'OpenAPI']) assert.equal(capabilitiesTabForSection(section), 'plugins');
   assert.equal(capabilitiesTabForSection('技能'), 'skills');
   assert.equal(capabilitiesTabForSection('技能与插件'), 'plugins');
+  for (const section of ['连接器', 'MCP']) assert.equal(capabilitiesTabForSection(section), 'connectors');
   assert.equal(capabilitiesTabForSection('服务器'), undefined);
 });

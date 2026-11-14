@@ -17,6 +17,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service/acp"
 	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/tools"
+	"github.com/ezdemo/looprax/internal/service/toolsearch"
 )
 
 type chatJob struct {
@@ -159,11 +160,14 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	// 会话级角色不体现在工作区缓存 Agent 的指令与工具清单里，必须重建。
 	sessionPersona := s.agent != nil && s.profile != nil && !customagent.IsID(s.agent.App())
 	changed := sessionPersona || model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
-	var mcpSets []tool.Toolset
+	var turnSet *toolsearch.Set
 	var closers []io.Closer
 	if !chat {
-		mcpSets, closers = s.turnMcpSets(req.SessionName)
-		changed = changed || len(mcpSets) > 0
+		if len(req.Connectors) > 0 {
+			s.mergeRequestConnectors(req.SessionName, req.Connectors)
+		}
+		turnSet, closers = s.turnMcpSets(req.SessionName)
+		changed = changed || turnSet != nil
 		// 在新建的轮次中纳入已更新的项目/用户指令。
 		for _, path := range []string{filepath.Join(s.home, "loopra.md"), filepath.Join(s.workspaceRoot(), "loopra.md"), filepath.Join(s.workspaceRoot(), "AGENTS.md")} {
 			if _, err := os.Stat(path); err == nil {
@@ -185,13 +189,16 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	view.cfg = cfg
 	view.linkedProjectRoots = linkedRoots
 	view.turnClosers = closers
+	view.turnSet = turnSet
 	var sets []tool.Toolset
 	if s.registry != nil {
 		view.registry = tools.NewRegistry(s.registry.Entries()...)
 		view.applyToolConfig()
 		sets = []tool.Toolset{view.registry}
 	}
-	sets = append(sets, mcpSets...)
+	if turnSet != nil {
+		sets = append(sets, turnSet)
+	}
 	a, err := s.agent.Derive(s.agent.App(), cfg, sets, strings.TrimSpace(instruction))
 	if err != nil {
 		view.closeTurnTools()

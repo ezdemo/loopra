@@ -289,6 +289,29 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
 
 错误沿用 `{success:false,error}` 包装：校验失败（重名、超长、projectHash 非注册项目、id 不存在、删除时有运行中会话等）以中文 `error` 文案返回失败；`agents.json` 损坏时接口报错而不是静默重置。
 
+### 3.19 Connectors（/api/connectors）
+
+连接器是面向非技术用户的内置服务目录：选择服务、登录（OAuth 一键授权或粘贴令牌/凭据）后，其 MCP 工具以同名 MCP 服务进入每轮 toolsearch 管线，限定名形如 `<id>/<tool>`。目录与凭据存于 `~/.loopra/connectors.json`（0600）；API 不回显字段值与令牌。
+
+| 方法与路径 | 请求 | data |
+| --- | --- | --- |
+| GET / HEAD `/connectors` | — | `{categories:[{id,name}], connectors:[{id,name,category,color,description,capabilities,docsUrl,status("available"/"connected"/"needs_reauth"/"missing_requirement"),enabled,connectedAt,authType("oauth"/"token"/"credentials"),authClient(""/"user"),fields:[{key,label,secret}],configuredFields:[key],helpUrl,requires,requirementsMet}], custom:[{name,type,enabled}]}`；`custom` 为自配 MCP 服务 |
+| POST `/connectors/{id}/connect` | `{fields:{key:value}}` | token/credentials：校验字段并以 15s 工具探测，成功才持久化，返回 `{status:"connected",toolCount}`；oauth：启动授权流程，返回 `{flowId,authorizationUrl}` |
+| GET / HEAD `/connectors/flows/{flowId}` | — | `{status:"pending"/"connected"/"failed"/"cancelled",error?}` |
+| POST `/connectors/flows/{flowId}/cancel` | — | 取消流程并关闭回环回调监听 |
+| POST `/connectors/{id}/toggle` | `{enabled}` | `{enabled}` |
+| POST `/connectors/{id}/disconnect` | — | 删除字段与令牌，目录条目保留 |
+| GET / HEAD `/connectors/{id}/tools` | — | `{connected:b, tools:[{name,description}]}` |
+| GET / HEAD `/connectors/session` | q: sessionName* | 已连接连接器 `[{id,name,enabled,override?}]`，enabled 为会话生效值 |
+| PUT `/connectors/session` | `{sessionName*,id*,enabled}` | enabled 为 null 时清除覆盖；覆盖存会话 `.meta` 的 `connectors` 键（id→bool） |
+
+行为：
+
+- OAuth 经 go-sdk 授权码处理器：无 `client` 声明时动态客户端注册（client_name=Loopra），`"client":"user"` 时使用用户提交的 clientId/clientSecret；回调监听 `127.0.0.1` 随机端口，流程超时 5 分钟，完成后状态短暂保留供轮询。`excludeScopes` 在请求授权前被剔除。
+- 运行时（会话轮次）只使用已持久化的可刷新令牌源；资源返回 401/403 时不重新发起授权，连接器标记 `needs_reauth` 并被工具管线跳过，直至用户重新连接。
+- 会话生效启用值 = 会话覆盖 ?? 全局 enabled；`requires:["node"]` 时 npx 不可解析即拒绝连接。连接器与自定义 MCP 服务同名时以连接器为准。
+- `POST /chat/stream` 的 ChatRequest 可携带 `connectors:{id:bool}`，在构建该轮工具前合并进会话 `.meta` 的 `connectors` 覆盖，使尚无会话名的新会话首条消息即能携带连接器选择。
+
 ## 4. 静态资源与 /config.json
 
 - 前端产物在 classpath `/static/`（GET/HEAD 免鉴权由 §2 规则判定）。

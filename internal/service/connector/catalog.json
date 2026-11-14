@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "categories": [
+    { "id": "office", "name": "办公协作" },
+    { "id": "project", "name": "项目管理" },
+    { "id": "design", "name": "设计创作" },
+    { "id": "life", "name": "生活出行" },
+    { "id": "developer", "name": "开发者" }
+  ],
+  "connectors": [
+    {
+      "id": "feishu",
+      "name": "飞书",
+      "category": "office",
+      "color": "#3370FF",
+      "description": "读写飞书云文档，收发消息与群聊。",
+      "capabilities": ["搜索与读取云文档", "创建和编辑文档", "发送消息与管理群聊"],
+      "docsUrl": "https://open.larkoffice.com/document/mcp_open_tools/end-user-use-remote-mcp-server?lang=en-US",
+      "transport": { "type": "streamable", "url": "https://mcp.feishu.cn/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "dingtalk",
+      "name": "钉钉",
+      "category": "office",
+      "color": "#0089FF",
+      "description": "以企业内部应用身份查询通讯录、管理日程与待办、发送机器人消息。",
+      "capabilities": ["搜索通讯录成员", "创建与查询日程", "管理待办", "机器人发送消息"],
+      "docsUrl": "https://open.dingtalk.com/document/ai-dev/second-level-node-1.md",
+      "requires": ["node"],
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "dingtalk-mcp@1.1.21"],
+        "env": {
+          "DINGTALK_Client_ID": "{{clientId}}",
+          "DINGTALK_Client_Secret": "{{clientSecret}}",
+          "ACTIVE_PROFILES": "dingtalk-contacts,dingtalk-calendar,dingtalk-tasks,dingtalk-robot-send-message"
+        }
+      },
+      "auth": {
+        "type": "credentials",
+        "helpUrl": "https://open.dingtalk.com/document/ai-dev/second-level-node-1.md",
+        "fields": [
+          { "key": "clientId", "label": "Client ID（AppKey）" },
+          { "key": "clientSecret", "label": "Client Secret（AppSecret）", "secret": true }
+        ]
+      }
+    },
+    {
+      "id": "tencent-docs",
+      "name": "腾讯文档",
+      "category": "office",
+      "color": "#1E6FFF",
+      "description": "创建、读取和整理腾讯文档存储空间中的文档。",
+      "capabilities": ["创建在线文档", "读取与编辑文档", "管理空间节点"],
+      "docsUrl": "https://docs.qq.com/open/document/mcp/tool-introduce/",
+      "transport": {
+        "type": "streamable",
+        "url": "https://docs.qq.com/openapi/mcp",
+        "headers": { "Authorization": "{{token}}" }
+      },
+      "auth": {
+        "type": "token",
+        "helpUrl": "https://docs.qq.com/open/auth/mcp.html",
+        "fields": [{ "key": "token", "label": "MCP Token", "secret": true }]
+      }
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "category": "office",
+      "color": "#000000",
+      "description": "搜索、读取和编辑 Notion 页面与数据库。",
+      "capabilities": ["搜索页面", "创建与更新页面", "查询数据库"],
+      "docsUrl": "https://developers.notion.com/docs/mcp",
+      "transport": { "type": "streamable", "url": "https://mcp.notion.com/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "category": "office",
+      "color": "#EA4335",
+      "description": "搜索和阅读邮件，撰写邮件草稿。",
+      "capabilities": ["搜索邮件", "阅读邮件线程", "撰写草稿"],
+      "docsUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "transport": { "type": "streamable", "url": "https://gmailmcp.googleapis.com/mcp/v1" },
+      "auth": {
+        "type": "oauth",
+        "client": "user",
+        "excludeScopes": ["https://www.googleapis.com/auth/gmail.metadata"],
+        "helpUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+        "fields": [
+          { "key": "clientId", "label": "OAuth Client ID" },
+          { "key": "clientSecret", "label": "OAuth Client Secret", "secret": true }
+        ]
+      }
+    },
+    {
+      "id": "google-calendar",
+      "name": "Google 日历",
+      "category": "office",
+      "color": "#4285F4",
+      "description": "查询日程与空闲时间，安排会议。",
+      "capabilities": ["查询日程", "查看空闲时间", "创建日程"],
+      "docsUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      "transport": { "type": "streamable", "url": "https://calendarmcp.googleapis.com/mcp/v1" },
+      "auth": {
+        "type": "oauth",
+        "client": "user",
+        "helpUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+        "fields": [
+          { "key": "clientId", "label": "OAuth Client ID" },
+          { "key": "clientSecret", "label": "OAuth Client Secret", "secret": true }
+        ]
+      }
+    },
+    {
+      "id": "google-drive",
+      "name": "Google 云端硬盘",
+      "category": "office",
+      "color": "#34A853",
+      "description": "搜索、读取和创建云端硬盘文件。",
+      "capabilities": ["搜索文件", "读取文件内容", "创建文件"],
+      "docsUrl": "https://developers.google.com/workspace/drive/api/guides/configure-mcp-server",
+      "transport": { "type": "streamable", "url": "https://drivemcp.googleapis.com/mcp/v1" },
+      "auth": {
+        "type": "oauth",
+        "client": "user",
+        "helpUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+        "fields": [
+          { "key": "clientId", "label": "OAuth Client ID" },
+          { "key": "clientSecret", "label": "OAuth Client Secret", "secret": true }
+        ]
+      }
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "category": "project",
+      "color": "#5E6AD2",
+      "description": "查询和管理 Linear 中的议题、项目与周期。",
+      "capabilities": ["搜索议题", "创建与更新议题", "查看项目进度"],
+      "docsUrl": "https://linear.app/docs/mcp",
+      "transport": { "type": "streamable", "url": "https://mcp.linear.app/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "atlassian",
+      "name": "Jira 与 Confluence",
+      "category": "project",
+      "color": "#0052CC",
+      "description": "检索 Jira 工单和 Confluence 页面，创建与更新内容。",
+      "capabilities": ["搜索 Jira 工单", "创建与更新工单", "读取和编辑 Confluence 页面"],
+      "docsUrl": "https://support.atlassian.com/atlassian-rovo-mcp-server/",
+      "transport": { "type": "streamable", "url": "https://mcp.atlassian.com/v2/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "clickup",
+      "name": "ClickUp",
+      "category": "project",
+      "color": "#7B68EE",
+      "description": "管理 ClickUp 任务、列表与文档。",
+      "capabilities": ["搜索任务", "创建与更新任务", "读取文档"],
+      "docsUrl": "https://help.clickup.com/hc/en-us/articles/33335772678423",
+      "transport": { "type": "streamable", "url": "https://mcp.clickup.com/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "monday",
+      "name": "monday.com",
+      "category": "project",
+      "color": "#FF3D57",
+      "description": "查询和更新 monday.com 看板与条目。",
+      "capabilities": ["查询看板", "创建与更新条目"],
+      "docsUrl": "https://developer.monday.com/apps/docs/mondaycom-mcp-integration",
+      "transport": { "type": "streamable", "url": "https://mcp.monday.com/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "airtable",
+      "name": "Airtable",
+      "category": "project",
+      "color": "#18BFFF",
+      "description": "读取和写入 Airtable 表格记录。",
+      "capabilities": ["查询记录", "创建与更新记录", "查看表结构"],
+      "docsUrl": "https://support.airtable.com/docs/using-the-airtable-mcp-server",
+      "transport": { "type": "streamable", "url": "https://mcp.airtable.com/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "canva",
+      "name": "Canva 可画",
+      "category": "design",
+      "color": "#00C4CC",
+      "description": "搜索和生成 Canva 设计。",
+      "capabilities": ["搜索设计", "生成设计", "导出设计"],
+      "docsUrl": "https://www.canva.dev/docs/mcp/",
+      "transport": { "type": "streamable", "url": "https://mcp.canva.com/mcp" },
+      "auth": { "type": "oauth" }
+    },
+    {
+      "id": "amap",
+      "name": "高德地图",
+      "category": "life",
+      "color": "#2F7BFF",
+      "description": "地点搜索、路线规划与天气查询。",
+      "capabilities": ["搜索地点与周边", "驾车/公交/步行/骑行路线规划", "天气查询"],
+      "docsUrl": "https://developer.amap.com/api/mcp-server/gettingstarted",
+      "transport": { "type": "streamable", "url": "https://mcp.amap.com/mcp?key={{key}}" },
+      "auth": {
+        "type": "token",
+        "helpUrl": "https://developer.amap.com/api/mcp-server/gettingstarted",
+        "fields": [{ "key": "key", "label": "Web 服务 Key", "secret": true }]
+      }
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "category": "developer",
+      "color": "#181717",
+      "description": "管理仓库、Issue 与 Pull Request。",
+      "capabilities": ["搜索代码与仓库", "处理 Issue", "审阅 Pull Request"],
+      "docsUrl": "https://github.com/github/github-mcp-server",
+      "transport": {
+        "type": "streamable",
+        "url": "https://api.githubcopilot.com/mcp/",
+        "headers": { "Authorization": "Bearer {{token}}" }
+      },
+      "auth": {
+        "type": "token",
+        "helpUrl": "https://github.com/settings/personal-access-tokens",
+        "fields": [{ "key": "token", "label": "Personal Access Token", "secret": true }]
+      }
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "category": "developer",
+      "color": "#362D59",
+      "description": "查询错误与性能问题。",
+      "capabilities": ["搜索问题", "查看错误详情"],
+      "docsUrl": "https://docs.sentry.io/product/sentry-mcp/",
+      "transport": { "type": "streamable", "url": "https://mcp.sentry.dev/mcp" },
+      "auth": { "type": "oauth" }
+    }
+  ]
+}

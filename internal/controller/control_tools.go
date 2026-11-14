@@ -46,6 +46,7 @@ func (s *Controller) installControlTools() {
 	s.registry.Add(tools.Tool{Tool: choice, Meta: tools.Metadata{Name: "ask_choice", Description: choice.Description(), ReadOnly: true, AutoApprove: true}})
 	s.installRequirementTools()
 	s.installSkillTools()
+	s.installConnectorTools()
 }
 
 type finishRequirementInput struct {

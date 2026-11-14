@@ -29,6 +29,12 @@ func (s *Controller) registerExtensionsRoutes(api *apiRouter) {
 	api.PUT("/mcp/*", s.action((*Controller).mcpController))
 	readRoute(api, "/mcp", s.action((*Controller).mcpController))
 
+	readRoute(api, "/connectors", s.action((*Controller).connectorsController))
+	readRoute(api, "/connectors/*", s.action((*Controller).connectorsController))
+	api.POST("/connectors", s.action((*Controller).connectorsController))
+	api.POST("/connectors/*", s.action((*Controller).connectorsController))
+	api.PUT("/connectors/*", s.action((*Controller).connectorsController))
+
 	// Preserve the canonical slash redirects of the existing API.
 	s.canonicalRedirect("DELETE", "/api/openapi")
 	s.canonicalRedirect("GET", "/api/openapi")

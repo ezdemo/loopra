@@ -164,6 +164,9 @@ func (s *Controller) tunnelController(w http.ResponseWriter, r *http.Request, ac
 
 func (s *Controller) Close() error {
 	var errs []error
+	if s.connectors != nil {
+		s.connectors.Close()
+	}
 	if s.mobileRelay != nil {
 		s.mobileRelay.stopAccepting()
 	}

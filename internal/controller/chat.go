@@ -41,6 +41,9 @@ type chatRequest struct {
 	MergeMode           string   `json:"mergeMode"`
 	Action              string   `json:"action"`
 	Images              []string `json:"images"`
+	// Connectors 为首条消息携带会话级连接器开关（新会话尚无
+	// .meta 可写），在构建本轮工具前并入 meta["connectors"]。
+	Connectors map[string]bool `json:"connectors,omitempty"`
 }
 
 // chatStreamHandler 实现 POST /api/chat/stream：流建立前的校验通过 HTTP 状态码返回，
@@ -227,6 +230,10 @@ func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatReque
 	if err != nil {
 		sse.sendError("会话打开失败: " + err.Error())
 		return
+	}
+	// 连接器工具通过上下文找到本轮搜索集并在接受连接后热加来源。
+	if s.turnSet != nil {
+		ctx = context.WithValue(ctx, turnSetKey{}, s.turnSet)
 	}
 	s.ensureSessionTitle(ctx, req.SessionName, req.Message)
 	ctx, finishTools := s.agent.ToolTurn(ctx, sess)

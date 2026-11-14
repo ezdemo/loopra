@@ -49,7 +49,11 @@ func (s *Set) Call(ctx agent.Context, input CallInput) (map[string]any, error) {
 		return nil, fmt.Errorf("arguments for %s do not match its parameters schema: %w", input.Name, err)
 	}
 	// Delegate to the original MCP tool so confirmation and transport metadata survive.
-	return selected.tool.Run(ctx, args)
+	result, err := selected.tool.Run(ctx, args)
+	if err != nil && selected.source.Redact != nil {
+		err = errors.New(selected.source.Redact(err.Error()))
+	}
+	return result, err
 }
 
 func (s *Set) lookup(ctx agent.Context, name, server string) (*entry, error) {

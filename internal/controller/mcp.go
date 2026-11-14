@@ -17,12 +17,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	agentpkg "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/internal/repository"
+	"github.com/ezdemo/looprax/internal/service/connector"
 )
 
 // McpServer 对应 McpServerDTO（API_CONTRACT.md §3.6）：一个已配置的
@@ -38,6 +40,8 @@ type McpServer struct {
 	Headers         map[string]string `json:"headers,omitempty"`
 	Timeout         string            `json:"timeout,omitempty"` // "30s" | "500ms" | "2m"
 	DisallowedTools []string          `json:"disallowedTools,omitempty"`
+	// OAuth 承载连接器的运行时授权处理器；仅用于传输构建，不序列化。
+	OAuth auth.OAuthHandler `json:"-"`
 }
 
 func (m *McpServer) UnmarshalJSON(data []byte) error {
@@ -327,6 +331,10 @@ func (s *Controller) mcpServers(w http.ResponseWriter, r *http.Request, action s
 		}
 		s.mcpUpsert(original, body.Server)
 		s.mcpPersist()
+		// 改名时同步迁移存储的 OAuth 凭据条目。
+		if s.connectors != nil && original != body.Server.Name {
+			_ = s.connectors.RenameCustom(connector.CustomKey(original), connector.CustomKey(body.Server.Name))
+		}
 		writeOK(w, http.StatusOK, body.Server)
 	case "remove":
 		var body struct {
@@ -342,6 +350,9 @@ func (s *Controller) mcpServers(w http.ResponseWriter, r *http.Request, action s
 		s.mcp.removeLocked(body.Name)
 		s.mcp.mu.Unlock()
 		s.mcpPersist()
+		if s.connectors != nil {
+			_ = s.connectors.ClearCustom(connector.CustomKey(body.Name))
+		}
 		writeOK(w, http.StatusOK, "服务器已删除")
 	case "toggle":
 		var body struct {

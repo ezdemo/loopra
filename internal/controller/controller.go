@@ -18,6 +18,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/adk/model/provider"
+	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	internalmodel "github.com/ezdemo/looprax/internal/model"
 	"github.com/ezdemo/looprax/internal/model/config"
@@ -28,6 +29,7 @@ import (
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/almarelay"
 	"github.com/ezdemo/looprax/internal/service/bot"
+	"github.com/ezdemo/looprax/internal/service/connector"
 	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 	"github.com/ezdemo/looprax/internal/service/memory"
@@ -37,6 +39,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service/schedule"
 	"github.com/ezdemo/looprax/internal/service/subagent"
 	"github.com/ezdemo/looprax/internal/service/tools"
+	"github.com/ezdemo/looprax/internal/service/toolsearch"
 )
 
 // Controller 围绕一个已装配的智能体串联 Loopra API 路由。
@@ -58,25 +61,28 @@ type FileService interface {
 }
 
 type Controller struct {
-	openapi            *openapiservice.Service
-	agent              *agentpkg.Agent
-	key                AccessKey
-	registry           *tools.Registry
-	cfg                *config.Loopra
-	home               string
-	inflight           *sync.Map
-	staticDir          string
-	staticFS           fs.FS
-	snapshots          *snapshotRegistry
-	reqs               *requirement.Service
-	tasks              *schedule.Service
-	mcp                *mcpStore
-	permissions        *hitl.Registry
-	elicitations       *hitl.ElicitationRegistry
-	subRunner          *subagent.Runner
-	approvalPolicy     *hitl.Policy
-	state              *runtimeState
-	turnClosers        []io.Closer
+	openapi        *openapiservice.Service
+	agent          *agentpkg.Agent
+	key            AccessKey
+	registry       *tools.Registry
+	cfg            *config.Loopra
+	home           string
+	inflight       *sync.Map
+	staticDir      string
+	staticFS       fs.FS
+	snapshots      *snapshotRegistry
+	reqs           *requirement.Service
+	tasks          *schedule.Service
+	mcp            *mcpStore
+	permissions    *hitl.Registry
+	elicitations   *hitl.ElicitationRegistry
+	subRunner      *subagent.Runner
+	approvalPolicy *hitl.Policy
+	state          *runtimeState
+	turnClosers    []io.Closer
+	// turnSet 是本轮的工具搜索集，经上下文传给工具闭包，
+	// connector_request 可向其热加新连上的源。
+	turnSet            *toolsearch.Set
 	linkedProjectRoots []string
 	petsPath           string
 	redirects          map[string]struct{}
@@ -94,6 +100,7 @@ type Controller struct {
 	remoteRelay        *almarelay.Manager
 	mobileRelay        *mobileRelayHost
 	agentStore         *customagent.Store
+	connectors         *connector.Service
 	profile            *customagent.Agent // 非 nil 表示这是一个自定义智能体的运行时视图
 }
 
@@ -110,6 +117,9 @@ type Options struct {
 	Memories      *memory.Service
 	Bots          *bot.Service
 	RemoteRelay   *almarelay.Manager
+	// Connectors 为连接器目录与凭据服务；为空时按内置目录与
+	// <home>/connectors.json 创建。
+	Connectors *connector.Service
 	// OnUITheme 在界面偏好写入成功后调用，参数为 light、dark 或 system。
 	OnUITheme func(theme string)
 	// PetDesktop 在本进程里绘制原生宠物窗口。为空时页面仍把宠物画在输入框旁。
@@ -177,6 +187,14 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 	}
 	if s.home != "" {
 		s.agentStore = customagent.New(s.home)
+	}
+	s.connectors = opts.Connectors
+	if s.connectors == nil && s.home != "" {
+		if catalog, err := connector.LoadCatalog(); err == nil {
+			s.connectors = connector.New(catalog, s.home)
+		} else {
+			logging.Warnf("server", "connector catalog invalid: %v", err)
+		}
 	}
 	s.state = newRuntimeState(s)
 	if opts.OnDesktopQuit != nil {

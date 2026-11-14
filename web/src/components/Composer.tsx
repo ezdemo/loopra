@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
-import { ArrowLeft, ArrowUp, BookOpen, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, BookOpen, Cable, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
 import { acpSlashCommands, appendPreset, attachmentViews, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
 import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
 import { contextFromUsage, contextPartPercent, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
 import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
 import { useLocalState, type Provider } from '../lib';
+import type { ConnectorSessionItem, ConnectorsList } from '../connectors';
 import type { AcpCommand, AcpSessionState, AgentEngine, LoopraClient, Workspace } from '../backend';
 import { Popup } from './Motion';
 import PetCompanion from './PetCompanion';
@@ -45,11 +46,12 @@ type Props = {
   liveSpeed?: LiveSpeed;
   onNew: () => void; onTerminal: () => void; onManage: () => void; onOpen: () => void; notify: (text: string) => void;
   onExport: () => void; onSessions: () => void;
+  onOpenConnectors?: () => void;
   onClear: () => void;
   /** Fires whenever the composer's height changes, so the chat pane can stay pinned. */
   onInputResize?: () => void;
 };
-type Menu = 'model-settings' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more' | 'mcp';
+type Menu = 'model-settings' | 'tools' | 'projects' | 'skills' | 'permission' | 'presets' | 'context' | 'more' | 'mcp' | 'connectors';
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
   return <Switch size="sm" aria-label={label} isSelected={value} onValueChange={onChange} classNames={{ label: 'sr-only' }}>{label}</Switch>;
@@ -347,6 +349,29 @@ export default function Composer(props: Props) {
       .catch((error: unknown) => notify(`常用要求同步失败：${error instanceof Error ? error.message : String(error)}`));
   }
   useEffect(() => { setRemoteUsage(null); }, [props.workspaceHash, props.sessionName, props.agentId]);
+  // 会话连接器开关：已有会话读服务端覆盖，新会话先保存在输入上下文随首条消息提交。
+  const [sessionConnectors, setSessionConnectors] = useState<ConnectorSessionItem[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setSessionConnectors([]);
+    if (external || chatMode || !props.connected) return () => controller.abort();
+    const request = props.sessionName
+      ? props.api.request<ConnectorSessionItem[]>(`/connectors/session?${new URLSearchParams({ sessionName: props.sessionName })}`, 'GET', undefined, controller.signal)
+      : props.api.request<ConnectorsList>('/connectors', 'GET', undefined, controller.signal)
+          .then(list => (list.connectors || []).filter(item => item.status === 'connected').map(item => ({ id: item.id, name: item.name, enabled: item.enabled })));
+    void request.then(list => { if (!controller.signal.aborted) setSessionConnectors(list); }).catch(() => {});
+    return () => controller.abort();
+  }, [props.api, props.sessionName, props.workspaceHash, props.connected, external, chatMode, menu]);
+  const connectorOverrides = context.connectors || {};
+  const connectorEnabled = (item: ConnectorSessionItem) => props.sessionName ? item.enabled : (connectorOverrides[item.id] ?? item.enabled);
+  const connectorEnabledCount = sessionConnectors.filter(connectorEnabled).length;
+  async function toggleConnector(id: string, enabled: boolean) {
+    if (!props.sessionName) { onContext({ ...context, connectors: { ...connectorOverrides, [id]: enabled } }); return; }
+    const previous = sessionConnectors;
+    setSessionConnectors(list => list.map(item => item.id === id ? { ...item, enabled, override: enabled } : item));
+    try { await props.api.request('/connectors/session', 'PUT', { sessionName: props.sessionName, id, enabled }); }
+    catch (cause) { setSessionConnectors(previous); notify(`连接器设置失败：${cause instanceof Error ? cause.message : String(cause)}`); }
+  }
   // Usage and composition estimates for the active session, refreshed as it grows.
   useEffect(() => {
     if (!props.workspaceHash || !props.sessionName) { setRemoteUsage(null); return; }
@@ -428,7 +453,7 @@ export default function Composer(props: Props) {
     setPresets(next); persistPresets(next);
     setEditing(null); notify('常用要求已保存');
   }
-  const menuTitles: Record<Menu, string> = { 'model-settings': '模型与推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置', mcp: 'MCP 透传' };
+  const menuTitles: Record<Menu, string> = { 'model-settings': '模型与推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置', mcp: 'MCP 透传', connectors: '连接器' };
   // Legacy ChatInput split context into image thumbnails and file chips with sizes.
   const { images: contextImages, files: contextFiles } = attachmentViews(context, pasteChars);
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
@@ -513,10 +538,10 @@ export default function Composer(props: Props) {
     </div>
     <input ref={fileInput} type="file" multiple hidden accept="image/*,.pdf,.docx,.xlsx,.txt,.md,.markdown,.json,.csv,.log,.ts,.tsx,.js,.jsx,.py,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.bat,.ps1,.sql,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.properties,.cfg,.conf,.env,.vue,.svelte" onChange={event => { addFiles(event.target.files || []); event.target.value = ''; close(); focusInput(); }} />
 
-    <Popup open={!!menu && menu !== 'model-settings'} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets', 'mcp'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
+    <Popup open={!!menu && menu !== 'model-settings'} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets', 'mcp', 'connectors'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
       {menu && <section role="dialog" aria-label={menuTitles[menu]}>
         <div className="composer-popover-header">
-          <div>{['projects', 'skills', 'permission'].includes(menu) && <Button isIconOnly size="sm" variant="light" aria-label="返回输入工具" onPress={() => open('tools')}><ArrowLeft size="1rem" /></Button>}<strong>{menuTitles[menu]}</strong></div>
+          <div>{['projects', 'skills', 'permission', 'connectors'].includes(menu) && <Button isIconOnly size="sm" variant="light" aria-label="返回输入工具" onPress={() => open('tools')}><ArrowLeft size="1rem" /></Button>}<strong>{menuTitles[menu]}</strong></div>
           <Button isIconOnly size="sm" variant="light" aria-label="关闭输入弹层" onPress={() => { close(); focusInput(); }}><X size="1rem" /></Button>
         </div>
 
@@ -525,6 +550,7 @@ export default function Composer(props: Props) {
           {!chatMode && agentPlan && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>}
           {!chatMode && <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
+          {!external && <button onClick={() => open('connectors')}><Cable size="1.125rem" /><span><strong>连接器</strong><small>选择本会话可用的服务</small></span>{!!connectorEnabledCount && <em>{connectorEnabledCount}</em>}<ChevronRight size="0.9375rem" /></button>}
           {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
             : !external && !props.agentConfig && <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{options.mode}</small></span><ChevronRight size="0.9375rem" /></button>}
           <div className="composer-menu-divider" />
@@ -553,6 +579,14 @@ export default function Composer(props: Props) {
           })}
           <p className="composer-note">选项由 {agentEngineName} 提供，作用于当前会话。</p>
         </div> : <div className="composer-selection-list">{[['完全自动', '跳过审核，直接执行工具与修改'], ['按需审批', '普通读写直接执行，其余等待人工确认'], ['自动审批', '普通读写直接执行，其余由 AI 审核']].map(([name, description]) => <button key={name} role="radio" aria-checked={options.mode === name} onClick={() => { update('mode', name); close(); }}><ShieldCheck size="1.125rem" /><span><strong>{name}</strong><small>{description}</small></span>{options.mode === name && <Check size="1rem" />}</button>)}<p className="composer-note">权限同步到 Loopra，作用于真实工具执行。</p></div>)}
+
+        {menu === 'connectors' && <>
+          <div className="composer-selection-list">
+            {sessionConnectors.map(item => <div key={item.id} className="composer-tool-plan"><Cable size="1.125rem" /><span><strong>{item.name}</strong></span><Switch size="sm" aria-label={`启用 ${item.name}`} isSelected={connectorEnabled(item)} onValueChange={value => void toggleConnector(item.id, value)} /></div>)}
+            {!sessionConnectors.length && <p className="composer-empty">还没有连接任何服务</p>}
+          </div>
+          <div className="popover-footer"><span /><Button size="sm" variant="light" onPress={() => { close(); props.onOpenConnectors?.(); }}>管理连接器</Button></div>
+        </>}
 
         {menu === 'more' && props.agentConfig && <AgentConfigControls state={props.agentConfig} options={otherAgentOptions} />}
         {menu === 'mcp' && <AgentMcpControls key={`${props.agentId || 'native'}:${props.workspaceHash}`} api={props.api} agentId={props.agentId || 'native'} workspaceHash={props.workspaceHash} connected={props.connected} />}

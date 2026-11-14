@@ -141,3 +141,52 @@
   .capability-install-panel { flex-wrap: wrap; }
   .capability-install-panel > .settings-field { flex-basis: 100%; }
 }
+
+/* 连接器目录页 */
+.connectors-page { min-width: 0; }
+.connectors-grid { margin-top: 1.25rem; }
+.capability-card.connector-card { display: flex; flex-direction: column; min-width: 0; min-height: 10rem; margin: 0; padding: 1.125rem; border: 1px solid var(--line); border-radius: .875rem; background: var(--surface); box-shadow: 0 2px 4px #00000002; }
+.connector-status { display: inline-flex; align-items: center; gap: .375rem; color: var(--secondary); font-size: .75rem; }
+.connector-status i { width: .5rem; height: .5rem; border-radius: 50%; background: var(--secondary); opacity: .45; }
+.connector-status.is-ok { color: var(--success); }
+.connector-status.is-ok i { background: var(--success); opacity: 1; }
+.connector-status.is-warn { color: var(--warning); }
+.connector-status.is-warn i { background: var(--warning); opacity: 1; }
+.connector-requirement { color: var(--warning); font-size: .75rem; }
+.connectors-empty { padding: 2rem 0; text-align: center; }
+.connectors-custom { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+.connectors-custom .settings-resource-page { padding: 0; }
+.connector-capabilities { margin: 0 0 .75rem; padding-left: 1.125rem; color: var(--secondary); font-size: .8125rem; line-height: 1.8; }
+.connector-help { font-size: .75rem; }
+.connector-waiting { display: flex; flex-direction: column; align-items: center; gap: .75rem; padding: 1.5rem 0; text-align: center; }
+.connector-waiting p { margin: 0; color: var(--secondary); font-size: .8125rem; }
+.connector-tool-list { margin: 0; padding: 0; list-style: none; }
+.connector-tool-list li { padding: .5rem 0; border-bottom: 1px solid var(--line); }
+.connector-tool-list li:last-child { border-bottom: 0; }
+.connector-tool-list strong { display: block; font-size: .8125rem; }
+.connector-tool-list small { color: var(--secondary); font-size: .75rem; }
+
+/* 聊天内连接器请求卡片（connector_request 工具） */
+.connector-request-card {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+.connector-request-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.connector-request-body { flex: 1; min-width: 0; }
+.connector-request-body p { margin: 0; font-size: 0.8125rem; color: var(--muted); }
+.connector-request-actions { display: flex; gap: 0.25rem; }

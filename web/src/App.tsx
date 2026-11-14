@@ -40,8 +40,9 @@ import { defaultAgentSettings, type AgentSettings } from './settings-data';
 import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, withoutWorkspaceContext, type ComposerContext, type ComposerOptions, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, moveQueued, nextQueued, promoteQueued, removeQueued, restoreQueuedDraft, type MessageQueue } from './message-queue';
-import { acpStopMessage, applyEvent, CHAT_WORKSPACE, DEFAULT_SERVER, historyMessages, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type CustomAgent, type HistoryMessage, type RemoteSession, type StreamEvent, type Workspace } from './backend';
+import { acpStopMessage, applyEvent, CHAT_WORKSPACE, LoopraApiError, DEFAULT_SERVER, historyMessages, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type CustomAgent, type HistoryMessage, type RemoteSession, type StreamEvent, type Workspace } from './backend';
 import { isAgentWorkspace, isChatScoped, isProjectWorkspace, validDraftAgentId } from './custom-agents';
+import { connectorRequestOf } from './connectors';
 import useLoopra from './useLoopra';
 import { AppMotion, Enter, Toast, usePresence } from './components/Motion';
 import { prepareCompletionSound, playCompletionSound } from './notifications';
@@ -59,6 +60,7 @@ import SessionsManager from './components/SessionsManager';
 import RequirementBoard from './components/RequirementBoard';
 import ChoicePopup, { type ChoiceAnswer } from './components/ChoicePopup';
 import ElicitationForm from './components/ElicitationForm';
+import ConnectorRequestCard from './components/ConnectorRequestCard';
 import type { ElicitationRequest } from './elicitation';
 import type { InteractionDraftCache } from './useInteractionDraft';
 import { chatExportText, downloadText } from './chat-export';
@@ -720,6 +722,11 @@ export default function App({ startupPending = false, initialServer }: { startup
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
   }
+  // 连接器卡片“去对话”：开一个带该连接器开关的新会话。
+  function startConnectorChat(connectorId: string) {
+    newSession();
+    setComposerContext(current => ({ ...current, connectors: { ...(current.connectors || {}), [connectorId]: true } }));
+  }
   async function forkOccupiedSession() {
     if (!session || composerConfigBusy) return;
     await createSessionBranch(session);
@@ -1088,8 +1095,13 @@ export default function App({ startupPending = false, initialServer }: { startup
   async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline', content: Record<string, unknown>) {
     if (!session) return;
     const target = session;
-    await api.request('/chat/elicitation', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name,
-      elicitationRequestId: request.elicitationRequestId, action, content });
+    try {
+      await api.request('/chat/elicitation', 'POST', { workspaceHash: target.workspaceHash, sessionName: target.name,
+        elicitationRequestId: request.elicitationRequestId, action, content });
+    } catch (cause) {
+      // 已被解决或取消的提问返回 409，卡片应随之消失而不是报错。
+      if (!(cause instanceof LoopraApiError && cause.status === 409)) throw cause;
+    }
     setPendingInputs(current => ({ ...current, [target.id]: (current[target.id] || []).filter(input => input.elicitationRequestId !== request.elicitationRequestId) }));
   }
   async function branchSession(messageId: string) {
@@ -1287,7 +1299,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         setShowScrollBtn(false);
       }
       const attachments = context.attachments || [];
-      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, customAgentId: target.customAgentId || sendCustomAgentId || undefined, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: isChatScoped(workspaces.find(item => item.hash === target?.workspaceHash)) ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash) }, event => {
+      await api.stream({ message: text, requestId, workspaceHash: target.workspaceHash!, sessionName: target.name!, agentId: sendAgentId, customAgentId: target.customAgentId || sendCustomAgentId || undefined, images: attachments.flatMap(file => file.image ? [file.image] : []), linkedProjectHashes: isChatScoped(workspaces.find(item => item.hash === target?.workspaceHash)) ? [] : projectWorkspaces.filter(project => context.projects.includes(project.name)).map(project => project.hash), connectors: context.connectors && Object.keys(context.connectors).length ? context.connectors : undefined }, event => {
         if (!runs.owns(request) || controller.signal.aborted || !sameServer()) return;
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
@@ -1507,7 +1519,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
     onSend={() => sendMessage()} onStop={() => void stopGeneration()} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
-    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onInputResize={keepChatPinned}
+    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onOpenConnectors={() => { setCapabilitiesTab('connectors'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }} onInputResize={keepChatPinned}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
@@ -1550,7 +1562,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           onExport={() => { if (!session) return; setMenu(null); downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
           onDelete={() => { if (!session) return; setDeleteSession(session); setMenu(null); }}
           onCopyTitle={() => { if (!session) return; void navigator.clipboard?.writeText(session.title); setMenu(null); notify('已复制会话标题'); }} />
-        {skillsOpen && <SkillsAndPluginsPage api={api} notify={notify} tab={capabilitiesTab} onTabChange={setCapabilitiesTab} context={pluginContext} onRefresh={backend.refreshCapabilities} onPluginsChanged={() => { setPluginNavRevision(value => value + 1); void backend.refreshCapabilities().catch(cause => notify(`刷新能力失败：${cause instanceof Error ? cause.message : String(cause)}`)); }} onBack={() => setSkillsOpen(false)} />}
+        {skillsOpen && <SkillsAndPluginsPage api={api} notify={notify} tab={capabilitiesTab} onTabChange={setCapabilitiesTab} onStartChat={startConnectorChat} context={pluginContext} onRefresh={backend.refreshCapabilities} onPluginsChanged={() => { setPluginNavRevision(value => value + 1); void backend.refreshCapabilities().catch(cause => notify(`刷新能力失败：${cause instanceof Error ? cause.message : String(cause)}`)); }} onBack={() => setSkillsOpen(false)} />}
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
         {botsOpen && <BotsPage key={server} api={api} workspaces={projectWorkspaces} english={preferences.language === 'English'} onChanged={backend.refreshWorkspaces} onManageProject={setProjectDialog} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
         {pluginPage && <section className="plugin-app-page" aria-label={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage}><PluginFrame api={api} id={pluginPage} name={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage} slot="sidebar" className="plugin-app-frame" context={pluginContext} /></section>}
@@ -1568,7 +1580,10 @@ export default function App({ startupPending = false, initialServer }: { startup
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages session={session} loading={generatingId === activeId} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
-            <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && <ElicitationForm key={elicitationDraftKey} draftKey={elicitationDraftKey} drafts={elicitationDrafts.current} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />}{composer}</div>
+            <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && (connectorRequestOf(activeInput)
+              ? <ConnectorRequestCard key={activeInput.elicitationRequestId} api={api} sessionName={session?.name || ''} request={activeInput} notify={notify}
+                onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />
+              : <ElicitationForm key={elicitationDraftKey} draftKey={elicitationDraftKey} drafts={elicitationDrafts.current} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />)}{composer}</div>
           </>}
         </div></WorkspaceTabs>
         <ShellDock api={api} workspaceHash={workspace} open={shellOpen && !!workspace} onClose={() => setShellOpen(false)} />
@@ -1594,6 +1609,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     <Settings
       pluginContext={pluginContext}
       onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }}
+      onOpenConnectors={() => { setSettingsOpen(false); setCapabilitiesTab('connectors'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); }}
       onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }}
       onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}
       pets={pets}

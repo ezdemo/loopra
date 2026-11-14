@@ -31,6 +31,9 @@ type Source struct {
 	Toolset tool.Toolset
 	Timeout time.Duration
 	Filter  tool.Predicate
+	// Redact 在进入模型可见的结果前改写错误文本；连接器用它
+	// 抹掉凭据值（原始与 URL 转义形式）。
+	Redact func(string) string
 }
 
 type SearchInput struct {
@@ -129,6 +132,30 @@ func New(sources []Source) (*Set, error) {
 	}
 	s.search, s.call = search, call
 	return s, nil
+}
+
+// AddSource 在轮次进行中补加一个工具源（例如用户刚连上某个连接器）。
+// 新源在下一次 Search 时惰性加载；Close 会连同后加入的工具集一起关闭。
+func (s *Set) AddSource(source Source) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errors.New("tool search is closed")
+	}
+	if source.Name == "" || source.Toolset == nil {
+		return errors.New("tool search requires uniquely named, non-nil sources")
+	}
+	for _, existing := range s.sources {
+		if existing.Name == source.Name {
+			return fmt.Errorf("tool search source %q already exists", source.Name)
+		}
+	}
+	if source.Timeout <= 0 {
+		source.Timeout = 15 * time.Second
+	}
+	s.sources = append(s.sources, &sourceState{Source: source})
+	sort.Slice(s.sources, func(i, j int) bool { return s.sources[i].Name < s.sources[j].Name })
+	return nil
 }
 
 func (s *Set) Name() string { return "deferred-mcp-tools" }

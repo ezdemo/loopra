@@ -68,6 +68,16 @@ func (s *Controller) sessionMetaSet(name string, kv map[string]any, dropEmpty ..
 	s.sessionMetaWrite(name, meta)
 }
 
+// sessionMetaUpdate 在同一文件锁内完成 .meta 的读-改-写，
+// 避免并发请求互相覆盖（如连接器开关合并）。
+func (s *Controller) sessionMetaUpdate(name string, update func(meta map[string]any)) {
+	s.state.files.Lock()
+	defer s.state.files.Unlock()
+	meta := s.sessionMetaRead(name)
+	update(meta)
+	s.sessionMetaWrite(name, meta)
+}
+
 // sessionsDeepController 分发 /api/sessions/{name}/... 以及
 // list/new/delete 之外的集合级端点。
 func (s *Controller) sessionsDeepController(w http.ResponseWriter, r *http.Request) {

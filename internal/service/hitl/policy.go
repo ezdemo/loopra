@@ -35,6 +35,12 @@ var ControlTools = map[string]bool{
 	"finish": true, "ask_choice": true,
 }
 
+// AlwaysConfirmTools 任何权限模式下都要求人工确认，
+// 用于凭据删除这类不可由“完全自动”跳过的操作。
+var AlwaysConfirmTools = map[string]bool{
+	"connector_disconnect": true,
+}
+
 // ReadOnlyTools 是内置只读工具名。
 var ReadOnlyTools = map[string]bool{
 	"read": true, "read_image": true, "rg": true,
@@ -74,8 +80,15 @@ func (p *Policy) Require(session, name string, args map[string]any) bool {
 			mode = NormalizeMode(raw)
 		}
 	}
-	// mode 阶段：free 跳过整条链；控制工具始终放行。
-	if mode == ModeFree || ControlTools[name] {
+	// mode 阶段：free 跳过整条链；控制工具始终放行，
+	// 但声明了必须确认的工具在任何模式下都拦截。
+	if ControlTools[name] {
+		return false
+	}
+	if AlwaysConfirmTools[name] {
+		return true
+	}
+	if mode == ModeFree {
 		return false
 	}
 	// read-only 阶段：元数据分类加覆盖项。

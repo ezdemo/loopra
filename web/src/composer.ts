@@ -6,7 +6,7 @@ export function modelLabel(model: { name: string; displayName?: string }): strin
 }
 export type ComposerOptions = { modelId: string; effort: string; mode: string; fast: boolean };
 export type ComposerAttachment = { name: string; text?: string; image?: string; size?: number };
-export type ComposerContext = { files: string[]; projects: string[]; skills: string[]; attachments?: ComposerAttachment[] };
+export type ComposerContext = { files: string[]; projects: string[]; skills: string[]; attachments?: ComposerAttachment[]; connectors?: Record<string, boolean> };
 export type QueuedMessage = { id: string; text: string; context: ComposerContext };
 export type PromptPreset = { id: string; name: string; text: string };
 export const emptyContext: ComposerContext = { files: [], projects: [], skills: [] };

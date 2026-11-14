@@ -41,6 +41,8 @@ type Props = {
   pluginContext?: PluginContext;
   onOpenSessions?: () => void;
   onOpenRequirements?: () => void;
+  /** 连接类资源统一在能力库的连接器页管理；提供时把入口跳过去。 */
+  onOpenConnectors?: () => void;
   onOpenHelp?: () => void;
   pets: PetStore;
   /** Desktop mygo shows the pet in its own window, so position reset has to reach that window. */
@@ -106,6 +108,7 @@ export default function Settings(props: Props) {
     return () => cancelAnimationFrame(frame);
   }, [open, query, tab, focusTarget]);
   function openCategory(name: string) {
+    if (name === 'MCP' && props.onOpenConnectors) { props.onOpenConnectors(); return; }
     const selection = selectedPluginMenu(name, pluginMenus);
     if (selection) { openPluginMenu(selection.menu, selection.child?.id); return; }
     setTab(normalizeSettingsSection(name)); setExpandedCategory(settingsCategoryFor(name).name); setQuery(''); setFocusTarget('');
