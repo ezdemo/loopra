@@ -24,6 +24,10 @@
   &nbsp;·&nbsp;
   <a href="#工具与扩展">工具与扩展</a>
   &nbsp;·&nbsp;
+  <a href="#协作与审批">协作与审批</a>
+  &nbsp;·&nbsp;
+  <a href="#使用">使用</a>
+  &nbsp;·&nbsp;
   <a href="#配置">配置</a>
   &nbsp;·&nbsp;
   <a href="#从源码开发">开发</a>
@@ -35,7 +39,7 @@
 
 Loopra 把一次编码任务收成一条循环：阅读项目上下文，搜索、编辑或构建，把执行结果收回来再推理，直到完成，或停在需要你决定的地方。
 
-它与 [Loopra](https://github.com/ezdemo/loopra) 读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。插件从 npm 包或 GitHub 地址安装，由 [moejs](https://github.com/MoeForge/moejs) 执行，见[插件](#插件)。
+它与旧版 Java Loopra 读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。插件从 npm 包或 GitHub 地址安装，由 [moejs](https://github.com/MoeForge/moejs) 执行，见[插件](#插件)。
 
 新建会话默认使用 Loopra Native。也可以改接 Claude Code、Codex、Pi 或 DeepSeek Harness。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
 
@@ -144,16 +148,6 @@ loopra acp        # 在标准输入输出上提供 ACP，不启动网页
 控制台会打印本地访问地址和本次启动的访问密钥。从该链接进入即完成校验；页面上的 API 请求携带 `X-Loopra-Key`。静态页面不校验密钥。未设置 `LOOPRA_ACCESS_KEY` 时，每次重启都会更换密钥。
 
 首次启动会在 `~/.loopra/config.json` 写入默认配置。目录里已有 Loopra 配置时直接沿用。`LOOPRA_HOME` 可以把数据目录改到别处。
-
-### 飞书 Bot
-
-左侧「定时任务」下方的 **Bot** 页面支持扫码添加飞书机器人、修改名称、启停、重新授权和删除。扫码确认后自动创建 `Bot-飞书-xxxxx` 项目，可以在项目列表重命名；删除 Bot 会断开连接，但保留项目和历史会话。
-
-在 Bot 管理中点击「关联项目」，使用已有的项目关联功能，让同一个 Agent 在一轮任务里访问多个代码库。每个飞书单聊或群聊分别绑定一个 Loopra 会话，持续复用上下文。当前使用 Loopra Native，模型与工具权限沿用工作台设置，需审批的工具在工作台确认。
-
-默认仅扫码用户可以使用；可在「访问权限」添加其他用户的 Open ID。群聊还需加入允许的群聊 ID，并 @Bot。当前支持文字输入，回复由飞书原生渲染 Markdown，长回复自动分段并保留代码块格式。图片和附件输入会提示改用文字；执行中再次发送消息会收到忙碌提示。需要保持本地 Loopra 运行并能连接飞书，才能接收消息。
-
-连接凭证保存在应用数据目录的 `bots.json`，不返回给浏览器。Bot 工作目录位于同目录下的 `bot-projects/{botId}`。
 
 ### 配置模型
 
@@ -271,7 +265,7 @@ flowchart TB
 `cmd/looprax` 是产品入口。依赖在 `internal/bootstrap` 集中注册，Controller 和 Service 不从全局容器查找对象。装配、配置加载和请求链路见 [架构指南](docs/ARCHITECTURE.md)。
 
 ```text
-looprax/
+loopra/
 ├── cmd/looprax/            # Web 与 ACP 入口
 ├── cmd/looprax-desktop/    # 启动 API 并打开桌面窗口
 ├── internal/               # 应用本体
@@ -517,6 +511,16 @@ Linux 托盘需要 `libayatana-appindicator3`（部分发行版包名为 `libaya
 
 在单个项目的管理弹窗中，可手动输入目录路径、选择文件夹，或点击路径框右侧的「选择已有项目」，在独立弹窗中勾选要关联的其它项目。三种入口等价：无论输入路径、选择文件夹还是勾选已有项目，都只把该目录写入副项目列表，不会在项目列表中新建项目，也不依赖项目记录。因此从项目列表删除某个项目后，其它项目的关联仍然有效，显示的是目录名与路径。主弹窗仅显示已关联目录，点击条目右侧的删除图标可解除关联。当前项目与会话保持不变，旧版本保存的项目标识关联会在下一轮按目录继续生效，并在删除该项目时自动改写为目录关联；关联或取消关联后自动保存，用于该项目的所有会话，从下一轮生效。主项目与副项目的目录会写入系统提示词，默认命令目录仍是主项目。输入框中的「关联项目」继续用于临时选择；长期关联与临时关联合计最多 8 个，并且不会递归关联副项目自己的副项目。解除关联后，开启工作区写入限制时会同步收回对应目录的写入权限。
 
+### 飞书 Bot
+
+左侧「定时任务」下方的 **Bot** 页面支持扫码添加飞书机器人、修改名称、启停、重新授权和删除。扫码确认后自动创建 `Bot-飞书-xxxxx` 项目，可以在项目列表重命名；删除 Bot 会断开连接，但保留项目和历史会话。
+
+在 Bot 管理中点击「关联项目」，使用已有的项目关联功能，让同一个 Agent 在一轮任务里访问多个代码库。每个飞书单聊或群聊分别绑定一个 Loopra 会话，持续复用上下文。当前使用 Loopra Native，模型与工具权限沿用工作台设置，需审批的工具在工作台确认。
+
+默认仅扫码用户可以使用；可在「访问权限」添加其他用户的 Open ID。群聊还需加入允许的群聊 ID，并 @Bot。当前支持文字输入，回复由飞书原生渲染 Markdown，长回复自动分段并保留代码块格式。图片和附件输入会提示改用文字；执行中再次发送消息会收到忙碌提示。需要保持本地 Loopra 运行并能连接飞书，才能接收消息。
+
+连接凭证保存在应用数据目录的 `bots.json`，不返回给浏览器。Bot 工作目录位于同目录下的 `bot-projects/{botId}`。
+
 ### ACP
 
 Loopra 可以作为 ACP Agent 供外部编辑器连接。这条命令只占用标准输入输出，不启动 HTTP 服务，日志写到 stderr：
@@ -599,8 +603,8 @@ loopra acp
 | pnpm | 8+ |
 
 ```bash
-git clone https://github.com/ezdemo/looprax.git
-cd looprax
+git clone https://github.com/ezdemo/loopra.git
+cd loopra
 cd web && pnpm install && pnpm build && cd ..
 go run ./cmd/looprax
 ```
