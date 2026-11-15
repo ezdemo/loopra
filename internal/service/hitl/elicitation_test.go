@@ -21,7 +21,7 @@ func formSchema() map[string]any {
 
 func TestElicitationValidatesForm(t *testing.T) {
 	registry := NewElicitationRegistry()
-	item := registry.Register("s1", "请确认", formSchema())
+	item := registry.Register("s1", "请确认", formSchema(), nil)
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		if err := registry.Resolve(item.ID, "s1", "accept", map[string]any{
@@ -54,16 +54,41 @@ func TestElicitationRejectsInvalidAnswers(t *testing.T) {
 		{"branch": "ok", "unknown": "field"},    // 未知字段
 	}
 	for index, content := range cases {
-		item := registry.Register("s1", "请确认", formSchema())
+		item := registry.Register("s1", "请确认", formSchema(), nil)
 		if err := registry.Resolve(item.ID, "s1", "accept", content); err == nil {
 			t.Fatalf("case %d should fail: %+v", index, content)
 		}
 	}
 }
 
+// allowOther（Devin cognition.ai/allowOther）允许 oneOf 之外的自定义答案，
+// 但类型、长度等约束仍然生效。
+func TestElicitationAllowsOtherAnswer(t *testing.T) {
+	registry := NewElicitationRegistry()
+	meta := map[string]any{"cognition.ai/allowOther": true}
+	item := registry.Register("s1", "请确认", formSchema(), meta)
+	if err := registry.Resolve(item.ID, "s1", "accept", map[string]any{
+		"branch": "feat", "mode": "custom-other",
+	}); err != nil {
+		t.Fatalf("resolve custom enum value: %v", err)
+	}
+	strict := registry.Register("s1", "请确认", formSchema(), nil)
+	if err := registry.Resolve(strict.ID, "s1", "accept", map[string]any{
+		"branch": "feat", "mode": "custom-other",
+	}); err == nil {
+		t.Fatal("strict elicitation should reject out-of-enum value")
+	}
+	other := registry.Register("s1", "请确认", formSchema(), meta)
+	if err := registry.Resolve(other.ID, "s1", "accept", map[string]any{
+		"branch": "too-long",
+	}); err == nil {
+		t.Fatal("allowOther should not bypass non-enum constraints")
+	}
+}
+
 func TestElicitationCancelReleasesWaiter(t *testing.T) {
 	registry := NewElicitationRegistry()
-	item := registry.Register("s1", "请确认", formSchema())
+	item := registry.Register("s1", "请确认", formSchema(), nil)
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		registry.Cancel("s1")

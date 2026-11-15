@@ -20,6 +20,7 @@ type Elicitation struct {
 	Session   string
 	Message   string
 	Schema    map[string]any
+	Meta      map[string]any
 	CreatedAt int64
 
 	resolved chan ElicitationAnswer
@@ -27,12 +28,16 @@ type Elicitation struct {
 
 // Event 渲染 elicitation 事件载荷。
 func (e *Elicitation) Event() map[string]any {
-	return map[string]any{
+	event := map[string]any{
 		"elicitationRequestId": e.ID,
 		"sessionId":            e.Session,
 		"message":              e.Message,
 		"schema":               e.Schema,
 	}
+	if len(e.Meta) > 0 {
+		event["meta"] = e.Meta
+	}
+	return event
 }
 
 // ElicitationRegistry 跟踪待处理的 ACP 提问
@@ -46,13 +51,14 @@ func NewElicitationRegistry() *ElicitationRegistry {
 	return &ElicitationRegistry{pends: map[string]*Elicitation{}}
 }
 
-// Register 登记一条提问，调用方随后发事件并 Wait。
-func (g *ElicitationRegistry) Register(session, message string, schema map[string]any) *Elicitation {
+// Register 登记一条提问，调用方随后发事件并 Wait。meta 是 Agent
+// 随 elicitation/create 请求携带的 _meta（如 Devin 的 allowOther）。
+func (g *ElicitationRegistry) Register(session, message string, schema, meta map[string]any) *Elicitation {
 	if message == "" {
 		message = "请回答以下问题"
 	}
 	item := &Elicitation{
-		ID: newUUID(), Session: session, Message: message, Schema: schema,
+		ID: newUUID(), Session: session, Message: message, Schema: schema, Meta: meta,
 		CreatedAt: time.Now().UnixMilli(), resolved: make(chan ElicitationAnswer, 1),
 	}
 	g.mu.Lock()
@@ -90,6 +96,15 @@ func (g *ElicitationRegistry) Pending(session string) []map[string]any {
 	return out
 }
 
+// elicitationAllowsOther 判断提问是否允许选项之外的自由文本答案。
+// Devin 的 ask_user_question 通过 _meta["cognition.ai/allowOther"] 声明。
+func elicitationAllowsOther(meta map[string]any) bool {
+	if meta["cognition.ai/allowOther"] == true {
+		return true
+	}
+	return meta["allowOther"] == true
+}
+
 // Resolve 回答一条提问，校验动作与表单内容。
 func (g *ElicitationRegistry) Resolve(id, session, action string, content map[string]any) error {
 	g.mu.Lock()
@@ -105,7 +120,7 @@ func (g *ElicitationRegistry) Resolve(id, session, action string, content map[st
 		for key, value := range content {
 			values[key] = value
 		}
-		if err := validateElicitation(item.Schema, values); err != nil {
+		if err := validateElicitation(item.Schema, values, elicitationAllowsOther(item.Meta)); err != nil {
 			return err
 		}
 		answer.Content = values
@@ -145,8 +160,9 @@ func (g *ElicitationRegistry) Cancel(session string) {
 }
 
 // validateElicitation 按 requestedSchema 校验表单答案
-// （Java AcpElicitations.validate）。
-func validateElicitation(schema map[string]any, values map[string]any) error {
+// （Java AcpElicitations.validate）。allowOther 为 true 时允许
+// enum/oneOf/anyOf 之外的自定义值（Devin 的 Other 回答）。
+func validateElicitation(schema map[string]any, values map[string]any, allowOther bool) error {
 	fields, _ := schema["properties"].(map[string]any)
 	if required, ok := schema["required"].([]any); ok {
 		for _, key := range required {
@@ -158,14 +174,14 @@ func validateElicitation(schema map[string]any, values map[string]any) error {
 	}
 	for key, value := range values {
 		field, ok := fields[key].(map[string]any)
-		if !ok || !validElicitationValue(field, value) {
+		if !ok || !validElicitationValue(field, value, allowOther) {
 			return fmt.Errorf("提问答案不符合字段要求: %s", key)
 		}
 	}
 	return nil
 }
 
-func validElicitationValue(field map[string]any, value any) bool {
+func validElicitationValue(field map[string]any, value any, allowOther bool) bool {
 	kind, _ := field["type"].(string)
 	if kind == "" {
 		kind = "string"
@@ -204,7 +220,7 @@ func validElicitationValue(field map[string]any, value any) bool {
 			}
 		}
 		for _, item := range list {
-			if !validElicitationValue(items, item) {
+			if !validElicitationValue(items, item, allowOther) {
 				return false
 			}
 		}
@@ -212,8 +228,8 @@ func validElicitationValue(field map[string]any, value any) bool {
 	default:
 		return false
 	}
-	if !valid {
-		return false
+	if !valid || allowOther {
+		return valid
 	}
 	if choices, ok := field["enum"].([]any); ok && !containsValue(choices, value, false) {
 		return false

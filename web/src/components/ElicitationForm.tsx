@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { elicitationContent, elicitationError, elicitationOptions, elicitationPages, elicitationPageError, type ElicitationRequest } from '../elicitation';
+import { elicitationAllowsOther, elicitationContent, elicitationError, elicitationOptions, elicitationPages, elicitationPageError, type ElicitationRequest } from '../elicitation';
 import { useInteractionDraft, type InteractionDraftCache } from '../useInteractionDraft';
 import '../elicitation.css';
 
@@ -38,28 +38,59 @@ export default function ElicitationForm({ request, onAnswer, draftKey = '', draf
       {(pages[current]?.fields || []).map(([name, field]) => {
         const label = field.title || name;
         const required = request.schema.required?.includes(name);
-        const options = elicitationOptions(field.type === 'array' ? field.items || {} : field);
+        const multi = field.type === 'array';
+        const otherField = multi ? field.items || {} : field;
+        const options = elicitationOptions(otherField);
         const choices = field.type === 'boolean' ? [{ const: true, title: '是' }, { const: false, title: '否' }] : options;
         const selected = answers[name];
+        // Devin allowOther：选项之外追加“其他”自由文本；自定义值以非枚举值存储。
+        const allowOther = elicitationAllowsOther(request) && options.length > 0 && (!otherField.type || otherField.type === 'string');
+        const inChoices = (value: unknown) => choices.some(option => option.const === value);
+        const otherValue = multi
+          ? (Array.isArray(selected) ? selected.find(value => !inChoices(value)) : undefined)
+          : (selected !== undefined && !inChoices(selected) ? selected : undefined);
+        const otherActive = allowOther && otherValue !== undefined;
         return <fieldset className="elicitation-field" key={name} disabled={busy}>
           <legend>{label}{required && <span className="elicitation-required" aria-label="必答"> *</span>}</legend>
           {field.description && <p className="choice-desc">{field.description}</p>}
-          {choices.length > 0 ? <div className="choice-popup-options" role={field.type === 'array' ? 'group' : 'radiogroup'} aria-label={label}>
+          {choices.length > 0 ? <div className="choice-popup-options" role={multi ? 'group' : 'radiogroup'} aria-label={label}>
             {choices.map((option, index) => {
-              const active = field.type === 'array' ? Array.isArray(selected) && selected.includes(option.const) : selected === option.const;
-              return <button type="button" role={field.type === 'array' ? 'checkbox' : 'radio'} aria-checked={active} key={index}
-                className={`choice-popup-option ${active ? 'is-selected' : ''}`} onClick={() => change(name, field.type === 'array'
+              const active = multi ? Array.isArray(selected) && selected.includes(option.const) : selected === option.const;
+              return <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={active} key={index}
+                className={`choice-popup-option ${active ? 'is-selected' : ''}`} onClick={() => change(name, multi
                   ? active ? (selected as unknown[]).filter(value => value !== option.const) : [...(Array.isArray(selected) ? selected : []), option.const]
                   : option.const)}>
                 <span className="choice-index">{index + 1}</span><span className="choice-popup-label"><strong>{option.title || String(option.const)}</strong>{'description' in option && option.description && <small>{option.description}</small>}</span>
                 {active && <span aria-hidden="true">✓</span>}
               </button>;
             })}
+            {allowOther && <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={otherActive}
+              className={`choice-popup-option ${otherActive ? 'is-selected' : ''}`} onClick={() => {
+                if (multi) {
+                  const list = Array.isArray(selected) ? selected : [];
+                  change(name, otherActive ? list.filter(inChoices) : [...list, '']);
+                } else {
+                  change(name, otherActive ? undefined : '');
+                }
+              }}>
+              <span className="choice-index">{choices.length + 1}</span><span className="choice-popup-label"><strong>其他</strong></span>
+              {otherActive && <span aria-hidden="true">✓</span>}
+            </button>}
           </div> : field.type === 'number' || field.type === 'integer' ? <input className="elicitation-input" type="number" aria-label={label} min={field.minimum} max={field.maximum}
             step={field.type === 'integer' ? 1 : 'any'} value={typeof selected === 'number' && Number.isFinite(selected) ? selected : ''} onChange={event => change(name, event.target.value === '' ? undefined : event.target.valueAsNumber)} />
             : field._meta?.codex?.isSecret ? <input className="elicitation-input" type="password" autoComplete="off" aria-label={label} value={String(selected ?? '')} onChange={event => change(name, event.target.value)} />
             : <textarea className="elicitation-input" aria-label={label} rows={2} maxLength={field.maxLength} value={Array.isArray(selected) ? selected.join('\n') : String(selected ?? '')}
-              placeholder={field.type === 'array' ? '每行填写一项' : '输入你的回答'} onChange={event => change(name, field.type === 'array' ? event.target.value.split('\n').filter(Boolean) : event.target.value)} />}
+              placeholder={multi ? '每行填写一项' : '输入你的回答'} onChange={event => change(name, multi ? event.target.value.split('\n').filter(Boolean) : event.target.value)} />}
+          {otherActive && <textarea className="elicitation-input elicitation-other" aria-label={`${label}：自定义回答`} rows={2} autoFocus
+            maxLength={otherField.maxLength} value={String(otherValue ?? '')} placeholder="输入自定义回答"
+            onChange={event => {
+              if (multi) {
+                const list = (Array.isArray(selected) ? selected : []).filter(inChoices);
+                change(name, event.target.value === '' ? [...list, ''] : [...list, event.target.value]);
+              } else {
+                change(name, event.target.value);
+              }
+            }} />}
         </fieldset>;
       })}
     </div>

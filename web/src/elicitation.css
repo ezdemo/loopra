@@ -11,6 +11,7 @@
 .elicitation-required, .elicitation-error { color: var(--danger, #c33); }
 .elicitation-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 10px 12px; background: var(--surface, white); color: inherit; font: inherit; resize: vertical; }
 .elicitation-input:focus-visible { outline: 2px solid var(--blue, #4867ff); outline-offset: 2px; }
+.elicitation-other { margin-top: 8px; }
 .elicitation-submit, .elicitation-skip, .elicitation-prev, .elicitation-next { border-radius: 8px; padding: 8px 14px; font: inherit; font-size: .8125rem; cursor: pointer; }
 .elicitation-submit, .elicitation-next { background: var(--blue, #4867ff); color: white; border: 1px solid transparent; }
 .elicitation-skip, .elicitation-prev { border: 1px solid var(--line, #ddd); background: transparent; color: inherit; }

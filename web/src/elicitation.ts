@@ -1,4 +1,4 @@
-export type ElicitationOption = { const: string | number | boolean; title?: string; description?: string };
+export type ElicitationOption = { const: string | number | boolean; title?: string; description?: string; _meta?: { 'cognition.ai/description'?: string } };
 export type ElicitationField = {
   type?: string; title?: string; description?: string; enum?: (string | number | boolean)[]; enumNames?: string[];
   oneOf?: ElicitationOption[]; anyOf?: ElicitationOption[]; items?: ElicitationField;
@@ -8,6 +8,7 @@ export type ElicitationField = {
 export type ElicitationRequest = {
   elicitationRequestId: string; sessionId?: string; message: string;
   schema: { type?: string; properties: Record<string, ElicitationField>; required?: string[] };
+  meta?: Record<string, unknown>;
 };
 export type ElicitationPage = { id: string; fields: [string, ElicitationField][] };
 
@@ -36,8 +37,15 @@ export function elicitationPageError(request: ElicitationRequest, page: Elicitat
     required: request.schema.required?.filter(name => page.fields.some(([key]) => key === name)) } }, answers);
 }
 
+/** Devin marks ask_user_question forms that accept a custom "Other" answer. */
+export function elicitationAllowsOther(request: ElicitationRequest): boolean {
+  return request.meta?.['cognition.ai/allowOther'] === true || request.meta?.allowOther === true;
+}
+
 export function elicitationOptions(field: ElicitationField): ElicitationOption[] {
-  return field.oneOf || field.anyOf || field.enum?.map((value, index) => ({ const: value, title: field.enumNames?.[index] || String(value) })) || [];
+  const options: ElicitationOption[] = field.oneOf || field.anyOf || field.enum?.map((value, index) => ({ const: value, title: field.enumNames?.[index] || String(value) })) || [];
+  // Devin puts per-option detail in _meta instead of a description key.
+  return options.map(option => option.description ? option : { ...option, description: option._meta?.['cognition.ai/description'] });
 }
 
 export function elicitationContent(request: ElicitationRequest, answers: Record<string, unknown>) {
@@ -45,6 +53,12 @@ export function elicitationContent(request: ElicitationRequest, answers: Record<
   for (const name of Object.keys(request.schema.properties)) {
     if (!Object.hasOwn(answers, name)) continue;
     const value = answers[name];
+    // 数组里的空串是 Other 输入框的占位，提交时剥掉。
+    if (Array.isArray(value)) {
+      const items = value.filter(item => item !== '');
+      if (items.length) entries.push([name, items]);
+      continue;
+    }
     if (value !== undefined && value !== '' && !(typeof value === 'number' && !Number.isFinite(value))) entries.push([name, value]);
   }
   return Object.fromEntries(entries);
@@ -57,7 +71,7 @@ export function elicitationError(request: ElicitationRequest, answers: Record<st
     const field = request.schema.properties[name];
     const title = field.title || name;
     const choices = elicitationOptions(field);
-    if (choices.length && !choices.some(option => option.const === value)) return `请选择“${title}”的有效选项`;
+    if (choices.length && !elicitationAllowsOther(request) && !choices.some(option => option.const === value)) return `请选择“${title}”的有效选项`;
     if (typeof value === 'string' && ((field.minLength != null && value.length < field.minLength) || (field.maxLength != null && value.length > field.maxLength))) return `“${title}”的长度不符合要求`;
     if (typeof value === 'number' && ((field.type === 'integer' && !Number.isInteger(value)) || (field.minimum != null && value < field.minimum) || (field.maximum != null && value > field.maximum))) return `“${title}”的数值不符合要求`;
     if (Array.isArray(value) && ((field.minItems != null && value.length < field.minItems) || (field.maxItems != null && value.length > field.maxItems))) return `“${title}”的选项数量不符合要求`;

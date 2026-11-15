@@ -230,7 +230,7 @@ export class MobileSessionStore {
             this.publish({ configs: { ...this.state.configs, [target.id]: event.configOptions } }); return;
           }
           if (event.type === 'elicitation' && event.elicitationRequestId && event.schema) {
-            const input: ElicitationRequest = { elicitationRequestId: event.elicitationRequestId, message: event.message || '请回答以下问题', schema: event.schema };
+            const input: ElicitationRequest = { elicitationRequestId: event.elicitationRequestId, message: event.message || '请回答以下问题', schema: event.schema, meta: event.meta };
             this.view(target.id, value => ({ ...value, inputs: [...(value.inputs || []).filter(item => item.elicitationRequestId !== input.elicitationRequestId), input] })); return;
           }
           if (event.type === 'elicitation_resolved') { this.view(target.id, value => ({ ...value, inputs: value.inputs?.filter(input => input.elicitationRequestId !== event.elicitationRequestId) })); return; }

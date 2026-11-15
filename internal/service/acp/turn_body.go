@@ -697,7 +697,7 @@ func (t *acpTurn) elicit(ctx context.Context, request ElicitationRequest) Elicit
 			}
 		}
 	}
-	item := t.host.Elicitations().Register(t.session, request.Message, request.RequestedSchema)
+	item := t.host.Elicitations().Register(t.session, request.Message, request.RequestedSchema, request.Meta)
 	t.sink.Send("elicitation", item.Event())
 	answer, _ := t.host.Elicitations().Wait(ctx, item)
 	// 不回显用户答案（可能包含密钥），只回报动作。

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Availability 描述某个外部 Agent 是否可用于当前机器。
@@ -28,6 +30,10 @@ type Provider struct {
 	Name    string
 	Detect  func() Availability
 	Prepare func(cwd string) (Launch, error)
+	// Credential 返回要放进 authenticate _meta 的本机凭据；
+	// 为 nil 或返回 nil 表示没有可复用的登录态（Devin ACP 不直接
+	// 读 CLI 凭据，但接受把同一个 api_key 显式传回）。
+	Credential func() map[string]any
 }
 
 // Providers 按 Java 运行时顺序列出全部外部 Agent。
@@ -36,6 +42,7 @@ var Providers = []Provider{
 	{ID: "codex", Name: "Codex", Detect: detectCodex, Prepare: prepareCodex},
 	{ID: "pi", Name: "Pi", Detect: detectPi, Prepare: preparePi},
 	{ID: "dsh", Name: "DeepSeek Harness", Detect: detectDSH, Prepare: prepareDSH},
+	{ID: "devin", Name: "Devin", Detect: detectDevin, Prepare: prepareDevin, Credential: devinCredential},
 }
 
 // Lookup 按 id 查找外部 Agent。
@@ -487,6 +494,101 @@ func prepareDSH(cwd string) (Launch, error) {
 		Command: []string{install.node, "--import", dshStdioPreload, install.adapter, "--profile", "acp"},
 		Env:     map[string]string{"PATH": prependPath(install.node)},
 	}, nil
+}
+
+// findDevin 定位 Devin CLI：它是原生二进制，`devin acp` 即 ACP 服务，
+// 不需要 Node 适配器。独立安装默认进 ~/.local/bin（已被 searchRoots
+// 覆盖）；macOS 上 Devin.app 也带一份，作为兜底候选。
+func findDevin(roots []string) string {
+	if override := envValue("LOOPRA_DEVIN_EXECUTABLE"); override != "" {
+		return executable(override)
+	}
+	names := []string{"devin"}
+	if windows() {
+		names = []string{"devin.exe", "devin.cmd", "devin.bat"}
+	}
+	for _, root := range roots {
+		for _, name := range names {
+			if found := executable(filepath.Join(root, name)); found != "" {
+				return found
+			}
+		}
+	}
+	if windows() {
+		// Windows 安装器把 devin.exe 复制到 %LOCALAPPDATA%\devin\cli\bin。
+		if local := envValue("LOCALAPPDATA"); local != "" {
+			if found := executable(filepath.Join(local, "devin", "cli", "bin", "devin.exe")); found != "" {
+				return found
+			}
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		apps := []string{"/Applications/Devin.app"}
+		if home, err := os.UserHomeDir(); err == nil {
+			apps = append(apps, filepath.Join(home, "Applications", "Devin.app"))
+		}
+		for _, app := range apps {
+			if found := executable(filepath.Join(app, "Contents/Resources/app/extensions/windsurf/devin/bin/devin")); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
+func detectDevin() Availability {
+	if findDevin(searchRoots()) == "" {
+		return Availability{Detail: "后端未找到 Devin CLI，请安装 devin 或用 LOOPRA_DEVIN_EXECUTABLE 指定路径"}
+	}
+	return Availability{Available: true, Detail: "使用本机 Devin 登录和配置（devin auth login）"}
+}
+
+func prepareDevin(cwd string) (Launch, error) {
+	binary := findDevin(searchRoots())
+	if binary == "" {
+		return Launch{}, fmt.Errorf("Devin ACP 不可用: %s", detectDevin().Detail)
+	}
+	return Launch{Command: []string{binary, "acp"}, Env: map[string]string{"PATH": prependPath(binary)}}, nil
+}
+
+// devinCredential 复用终端登录态：`devin auth login` 把
+// windsurf_api_key 存在 credentials.toml；`devin acp` 要求宿主
+// 显式 authenticate，把同一把 key 作为 _meta.api_key 传回即可，
+// WINDSURF_API_KEY 环境变量优先。
+func devinCredential() map[string]any {
+	key := envValue("WINDSURF_API_KEY")
+	if key == "" {
+		key = devinAPIKey()
+	}
+	if key == "" {
+		return nil
+	}
+	return map[string]any{"api_key": key}
+}
+
+func devinAPIKey() string {
+	var dirs []string
+	if data := envValue("XDG_DATA_HOME"); data != "" {
+		dirs = append(dirs, filepath.Join(data, "devin"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".local", "share", "devin"))
+	}
+	// Windows 的 devin 数据目录同样可能是 Roaming 或 Local。
+	for _, name := range []string{"APPDATA", "LOCALAPPDATA"} {
+		if dir := envValue(name); dir != "" {
+			dirs = append(dirs, filepath.Join(dir, "devin"))
+		}
+	}
+	for _, dir := range dirs {
+		var parsed struct {
+			Key string `toml:"windsurf_api_key"`
+		}
+		if _, err := toml.DecodeFile(filepath.Join(dir, "credentials.toml"), &parsed); err == nil && parsed.Key != "" {
+			return parsed.Key
+		}
+	}
+	return ""
 }
 
 // prependPath 把给定可执行文件所在目录放到 PATH 前面。

@@ -136,13 +136,18 @@ func (c *Conn) BindSession(id string, options []ConfigOption) {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if id != "" {
 		c.acpSession = id
 		c.live = true
 	}
 	if options != nil {
 		c.options = append([]ConfigOption(nil), options...)
+	}
+	client := c.client
+	c.mu.Unlock()
+	// 锁序保持 client.mu → conn.mu，索引放到放锁之后。
+	if id != "" && client != nil {
+		client.indexSession(id, c)
 	}
 }
 
@@ -550,6 +555,15 @@ func (m *Manager) launchClient(ctx context.Context, host SessionHost, agentID, v
 	if err := client.Initialize(ctx, version); err != nil {
 		_ = client.Close()
 		return nil, err
+	}
+	// 能复用本机登录态就先 authenticate（如 Devin 的 api_key）；
+	// 失败不致命——会话建立时还有 -32000 的认证重试兜底。
+	if provider.Credential != nil {
+		if credential := provider.Credential(); credential != nil {
+			if err := client.Authenticate(ctx, credential); err != nil {
+				logging.Warnf("acp", "credential authenticate agent=%s failed: %v", agentID, err)
+			}
+		}
 	}
 	client.SetMcpServers(client.SupportedMCP(host.MCPServers(agentID)))
 	return client, nil

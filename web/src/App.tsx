@@ -1304,7 +1304,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         if (event.type === 'complete') agentStopReason = event.stopReason;
         if (event.type === 'config_options' && event.configOptions) { setAgentConfigs(current => ({ ...current, [id]: event.configOptions! })); return; }
         if (event.type === 'elicitation' && event.elicitationRequestId && event.schema) {
-          const input: ElicitationRequest = { elicitationRequestId: event.elicitationRequestId, message: event.message || '请回答以下问题', schema: event.schema };
+          const input: ElicitationRequest = { elicitationRequestId: event.elicitationRequestId, message: event.message || '请回答以下问题', schema: event.schema, meta: event.meta };
           setPendingInputs(current => ({ ...current, [id]: [...(current[id] || []).filter(item => item.elicitationRequestId !== input.elicitationRequestId), input] }));
           return;
         }

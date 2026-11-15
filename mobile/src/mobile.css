@@ -147,6 +147,7 @@ img { max-width: 100%; }
 .thread-avatar .composer-agent-icon { width: 1.25rem; height: 1.25rem; flex: 0 0 1.25rem; color: var(--app-ink); }
 .thread-avatar .composer-agent-icon[data-agent="claude-code"] { color: #d97757; }
 .thread-avatar .composer-agent-icon[data-agent="dsh"] { color: #4d6bfe; }
+.thread-avatar .composer-agent-icon[data-agent="devin"] { color: #6d5df6; }
 .thread-copy { display: flex; flex: 1; flex-direction: column; gap: .1875rem; min-width: 0; }
 .thread-copy strong { display: block; overflow: hidden; font-size: .9375rem; font-weight: 590; line-height: 1.4; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
 .thread-copy span { display: block; overflow: hidden; color: var(--app-secondary); font-size: .75rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }

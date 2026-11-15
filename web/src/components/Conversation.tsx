@@ -103,7 +103,7 @@ export function Messages({ session, loading, scrollRef, offsetsRef, showDuration
   const actions = useMessageActions(callbacks);
   const messages = useMemo(() => getSessionMessages(session), [session.kind, session.messages]);
   const canManageHistory = !session.agentId || session.agentId === 'native';
-  const canBranch = canManageHistory || session.agentId === 'codex' || session.agentId === 'claude-code';
+  const canBranch = canManageHistory || session.agentId === 'codex' || session.agentId === 'claude-code' || session.agentId === 'devin';
   const last = messages[messages.length - 1];
   const virtualized = messages.length > VIRTUALIZATION_THRESHOLD;
   const heights = useRef(new Map<string, number>());

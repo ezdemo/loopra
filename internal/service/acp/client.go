@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -97,10 +98,16 @@ type Client struct {
 	owner *Conn
 	// accepting 为 true 时，会话建立过程中的更新不再按旧 session id 丢弃。
 	accepting bool
+	// sessionConns / toolSessions 把 ACP session 和 tool call 映射回
+	// 属主会话。共享进程时 owner 会被别的会话切走，elicitation、
+	// permission 和 session/update 必须按请求自身携带的会话身份路由。
+	sessionConns map[string]*Conn
+	toolSessions map[string]string
 
 	mu              sync.Mutex
 	disconnectErr   error
 	initialized     AgentCapabilities
+	authMethods     []string
 	sessionID       string
 	configOptions   []ConfigOption
 	nativeEvents    bool
@@ -131,7 +138,8 @@ func NewClient(launch Launch, cwd string, handler Handler, perm PermissionFunc) 
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{proc: proc, handler: handler, perm: perm, children: map[string]bool{}}
+	client := &Client{proc: proc, handler: handler, perm: perm, children: map[string]bool{},
+		sessionConns: map[string]*Conn{}, toolSessions: map[string]string{}}
 	client.conn = acpsdk.NewClientSideConnection(client, proc.stdin, proc.stdout)
 	client.conn.SetLogger(slog.New(connectionLog{Handler: logging.LibraryLogger().Handler(), client: client}))
 	return client, nil
@@ -153,6 +161,10 @@ func (c *Client) focus(owner *Conn, sessionID string) {
 	c.owner = owner
 	if sessionID != "" {
 		c.sessionID = sessionID
+		if c.sessionConns == nil {
+			c.sessionConns = map[string]*Conn{}
+		}
+		c.sessionConns[sessionID] = owner
 	}
 	c.mu.Unlock()
 }
@@ -169,6 +181,8 @@ func (c *Client) beginAccept(owner *Conn) {
 }
 
 // endAccept 结束会话建立，并记下该 Loopra 会话对应的 ACP session id。
+// sessionConns 的索引交给 BindSession：beginAccept/endAccept 之间 owner
+// 可能已被别的会话切走，这里不能用 c.owner 反推属主。
 func (c *Client) endAccept(sessionID string) {
 	if c == nil {
 		return
@@ -189,7 +203,81 @@ func (c *Client) clearOwner(owner *Conn) {
 	if c.owner == owner {
 		c.owner = nil
 	}
+	for sessionID, conn := range c.sessionConns {
+		if conn == owner {
+			delete(c.sessionConns, sessionID)
+			for tool, sid := range c.toolSessions {
+				if sid == sessionID {
+					delete(c.toolSessions, tool)
+				}
+			}
+		}
+	}
 	c.mu.Unlock()
+}
+
+// indexSession 绑定 ACP session id 到属主连接；focus、endAccept 和
+// Conn.BindSession 是各条学习到绑定的路径。
+func (c *Client) indexSession(sessionID string, conn *Conn) {
+	if c == nil || sessionID == "" || conn == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.sessionConns == nil {
+		c.sessionConns = map[string]*Conn{}
+	}
+	c.sessionConns[sessionID] = conn
+	c.mu.Unlock()
+}
+
+// indexToolSession 记录 tool call 属于哪个 ACP session。
+// elicitation/create 不带 sessionId（ACP 未稳定协议缺口），
+// 只能靠 meta 里的 toolCallId 经它找回属主。
+func (c *Client) indexToolSession(toolCallID, sessionID string) {
+	if toolCallID == "" || sessionID == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.toolSessions == nil {
+		c.toolSessions = map[string]string{}
+	}
+	if len(c.toolSessions) >= 16384 {
+		// 病态防御：索引只服务进行中的工具调用，溢出时整体重建，
+		// 代价是极个别请求退回 owner。
+		c.toolSessions = map[string]string{}
+	}
+	c.toolSessions[toolCallID] = sessionID
+	c.mu.Unlock()
+}
+
+// toolSessionOwner 经 toolCallId 找到属主连接，没有索引返回 nil。
+func (c *Client) toolSessionOwner(toolCallID string) *Conn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if session, ok := c.toolSessions[toolCallID]; ok {
+		return c.sessionConns[session]
+	}
+	return nil
+}
+
+// requestOwner 按请求自带的身份选择属主连接：toolCallId 最精确，
+// sessionId 次之，都对不上时退回当前 owner（与旧行为一致）。
+func (c *Client) requestOwner(sessionID, toolCallID string) *Conn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if toolCallID != "" {
+		if session, ok := c.toolSessions[toolCallID]; ok {
+			if conn := c.sessionConns[session]; conn != nil {
+				return conn
+			}
+		}
+	}
+	if sessionID != "" {
+		if conn := c.sessionConns[sessionID]; conn != nil {
+			return conn
+		}
+	}
+	return c.owner
 }
 
 // bindOwnerOptions 把进程上最近的配置抄到当前 Loopra 会话。
@@ -254,6 +342,7 @@ func (c *Client) Initialize(ctx context.Context, version string) error {
 	caps := localCapabilities(result.AgentCapabilities)
 	c.mu.Lock()
 	c.initialized = caps
+	c.authMethods = authMethodIDs(result.AuthMethods)
 	c.nativeEvents = caps.Meta != nil && caps.Meta["loopra.dev/workbench"] == true
 	c.childSupported = false
 	if wanted && caps.SessionCapabilities != nil {
@@ -264,6 +353,62 @@ func (c *Client) Initialize(ctx context.Context, version string) error {
 	c.mu.Unlock()
 	logging.Debugf("acp", "initialized protocol=%d loadSession=%v nativeEvents=%v agent=%q",
 		result.ProtocolVersion, caps.LoadSession, c.nativeEvents, agentTitle(result.AgentInfo))
+	return nil
+}
+
+// authMethodIDs 从 initialize 广播的认证方法里取出方法 id
+// （SDK 的 AuthMethod 是 union，常规方法在 Agent 变体里）。
+func authMethodIDs(methods []acpsdk.AuthMethod) []string {
+	var ids []string
+	for _, method := range methods {
+		switch {
+		case method.Agent != nil:
+			ids = append(ids, method.Agent.Id)
+		case method.EnvVar != nil:
+			ids = append(ids, method.EnvVar.Id)
+		case method.Terminal != nil:
+			ids = append(ids, method.Terminal.Id)
+		}
+	}
+	return ids
+}
+
+// authRetry 处理 Agent 的 -32000（要求先 authenticate）错误：
+// 用其广播的第一个认证方法完成一次 authenticate，返回 true 表示
+// 调用方应原样重试。Devin 等 Agent 在 ACP 下不复用 CLI 本地凭据，
+// 首次会拉起浏览器 PKCE，认证结果由 Agent 自行持久化。
+func (c *Client) authRetry(ctx context.Context, err error) bool {
+	var requestErr *acpsdk.RequestError
+	if !errors.As(err, &requestErr) || requestErr.Code != -32000 {
+		return false
+	}
+	c.mu.Lock()
+	methods := append([]string(nil), c.authMethods...)
+	c.mu.Unlock()
+	if len(methods) == 0 {
+		return false
+	}
+	logging.Infof("acp", "agent requires authentication, calling authenticate method=%s", methods[0])
+	if _, authErr := c.conn.Authenticate(ctx, acpsdk.AuthenticateRequest{MethodId: methods[0]}); authErr != nil {
+		logging.Warnf("acp", "authenticate method=%s failed: %v", methods[0], authErr)
+		return false
+	}
+	return true
+}
+
+// Authenticate 用 Agent 广播的第一个认证方法执行 authenticate；
+// meta 原样作为 _meta 传回（Devin 的 _meta.api_key）。
+func (c *Client) Authenticate(ctx context.Context, meta map[string]any) error {
+	c.mu.Lock()
+	methods := append([]string(nil), c.authMethods...)
+	c.mu.Unlock()
+	if len(methods) == 0 {
+		return errors.New("Agent 未提供认证方法")
+	}
+	_, err := c.conn.Authenticate(ctx, acpsdk.AuthenticateRequest{MethodId: methods[0], Meta: meta})
+	if err != nil {
+		return c.fail(err)
+	}
 	return nil
 }
 
@@ -343,9 +488,13 @@ func (c *Client) NewSession(ctx context.Context, cwd string, dirs []string) (Ses
 	if err != nil {
 		return SessionSetupResult{}, err
 	}
-	raw, err := c.conn.NewSession(ctx, acpsdk.NewSessionRequest{
+	request := acpsdk.NewSessionRequest{
 		Cwd: cwd, McpServers: servers, AdditionalDirectories: dirs,
-	})
+	}
+	raw, err := c.conn.NewSession(ctx, request)
+	if err != nil && c.authRetry(ctx, err) {
+		raw, err = c.conn.NewSession(ctx, request)
+	}
 	if err != nil {
 		return SessionSetupResult{}, c.fail(err)
 	}
@@ -369,9 +518,13 @@ func (c *Client) LoadSession(ctx context.Context, sessionID, cwd string, dirs []
 	if err != nil {
 		return SessionSetupResult{}, err
 	}
-	raw, err := c.conn.LoadSession(ctx, acpsdk.LoadSessionRequest{
+	request := acpsdk.LoadSessionRequest{
 		SessionId: acpsdk.SessionId(sessionID), Cwd: cwd, McpServers: servers, AdditionalDirectories: dirs,
-	})
+	}
+	raw, err := c.conn.LoadSession(ctx, request)
+	if err != nil && c.authRetry(ctx, err) {
+		raw, err = c.conn.LoadSession(ctx, request)
+	}
 	if err != nil {
 		return SessionSetupResult{}, c.fail(err)
 	}
@@ -392,9 +545,13 @@ func (c *Client) ResumeSession(ctx context.Context, sessionID, cwd string, dirs 
 	if err != nil {
 		return SessionSetupResult{}, err
 	}
-	raw, err := c.conn.ResumeSession(ctx, acpsdk.ResumeSessionRequest{
+	request := acpsdk.ResumeSessionRequest{
 		SessionId: acpsdk.SessionId(sessionID), Cwd: cwd, McpServers: servers, AdditionalDirectories: dirs,
-	})
+	}
+	raw, err := c.conn.ResumeSession(ctx, request)
+	if err != nil && c.authRetry(ctx, err) {
+		raw, err = c.conn.ResumeSession(ctx, request)
+	}
 	if err != nil {
 		return SessionSetupResult{}, c.fail(err)
 	}
@@ -420,10 +577,14 @@ func (c *Client) ForkSession(ctx context.Context, sourceID, cwd string, dirs []s
 	if err != nil {
 		return "", err
 	}
-	raw, err := c.conn.UnstableForkSession(ctx, acpsdk.UnstableForkSessionRequest{
+	request := acpsdk.UnstableForkSessionRequest{
 		SessionId: acpsdk.SessionId(sourceID), Cwd: cwd, AdditionalDirectories: dirs, Meta: meta,
 		McpServers: unstableMCP(servers),
-	})
+	}
+	raw, err := c.conn.UnstableForkSession(ctx, request)
+	if err != nil && c.authRetry(ctx, err) {
+		raw, err = c.conn.UnstableForkSession(ctx, request)
+	}
 	if err != nil {
 		return "", c.fail(err)
 	}

@@ -207,6 +207,45 @@ test('Claude custom answers share their original question page and keep their wi
   } finally { view.close(); }
 });
 
+test('Devin allowOther offers a free-text option and accepts custom answers', async () => {
+  const replies = [];
+  const devin = { elicitationRequestId: 'devin-1', message: '下一步？', meta: { 'cognition.ai/allowOther': true }, schema: { required: ['q0'], properties: {
+    q0: { type: 'string', title: '下一步', description: '你希望我接下来怎么协助？', oneOf: [
+      { const: '探索', title: '继续探索代码库', _meta: { 'cognition.ai/description': '先阅读相关代码并梳理现状' } },
+      { const: '修改', title: '直接开始修改' }] },
+  } } };
+  const view = render(devin, async (...answer) => replies.push(answer));
+  try {
+    assert.match(view.container.textContent, /先阅读相关代码并梳理现状/, 'option _meta description renders');
+    const other = view.container.querySelectorAll('.choice-popup-option')[2];
+    assert.match(other.textContent, /其他/);
+    await click(other);
+    const custom = view.container.querySelector('textarea.elicitation-other');
+    assert.ok(custom, 'Other shows a free-text input');
+    await input(custom, '自定义回答');
+    await submit(view);
+    assert.deepEqual(replies, [['accept', { q0: '自定义回答' }]]);
+  } finally { view.close(); }
+  assert.equal(elicitationError(devin, { q0: '非枚举值' }), '');
+  assert.match(elicitationError(request, { food: 'invalid' }), /有效选项/);
+});
+
+test('Devin allowOther on multi-select appends a custom item', async () => {
+  const replies = [];
+  const devin = { elicitationRequestId: 'devin-2', message: '选哪些？', meta: { 'cognition.ai/allowOther': true }, schema: { required: ['q0'], properties: {
+    q0: { type: 'array', title: '选项', items: { type: 'string', anyOf: [{ const: '甲', title: '甲' }, { const: '乙', title: '乙' }] } },
+  } } };
+  const view = render(devin, async (...answer) => replies.push(answer));
+  try {
+    await click(view.container.querySelector('[role="checkbox"]'));
+    const other = view.container.querySelectorAll('.choice-popup-option')[2];
+    await click(other);
+    await input(view.container.querySelector('textarea.elicitation-other'), '丙');
+    await submit(view);
+    assert.deepEqual(replies, [['accept', { q0: ['甲', '丙'] }]]);
+  } finally { view.close(); }
+});
+
 test('unrelated or orphan custom fields remain separate questions', () => {
   const questions = { ...request, schema: { properties: {
     profile: { type: 'string' }, profile_custom: { type: 'string' }, question_9_custom: { type: 'string', title: 'Other' },

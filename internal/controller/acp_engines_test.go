@@ -14,7 +14,7 @@ func TestAgentEnginesListIncludesACPProviders(t *testing.T) {
 		t.Fatalf("status = %d, body = %v", code, env)
 	}
 	list, _ := env["data"].([]any)
-	if len(list) != 5 {
+	if len(list) != 6 {
 		t.Fatalf("engines = %v", list)
 	}
 	first, _ := list[0].(map[string]any)
@@ -33,7 +33,7 @@ func TestAgentEnginesListIncludesACPProviders(t *testing.T) {
 			t.Fatalf("engine %q missing detail: %v", id, engine)
 		}
 	}
-	for _, id := range []string{"claude-code", "codex", "pi", "dsh"} {
+	for _, id := range []string{"claude-code", "codex", "pi", "dsh", "devin"} {
 		if !seen[id] {
 			t.Fatalf("engine %q missing from %v", id, list)
 		}

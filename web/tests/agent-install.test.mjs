@@ -21,6 +21,13 @@ test('DSH installation checks the ACP profile and supports a source build entry'
   assert.match(prompt, /LOOPRA_DSH_ACP_SCRIPT/);
 });
 
+test('Devin installation uses the standalone CLI and local credentials', () => {
+  const prompt = agentAcpInstallPrompt('devin');
+  assert.match(prompt, /cli\.devin\.ai\/install\.sh/);
+  assert.match(prompt, /LOOPRA_DEVIN_EXECUTABLE/);
+  assert.match(prompt, /devin auth login/);
+});
+
 test('existing engines retain their installation instructions and unknown engines omit install', () => {
   assert.match(agentAcpInstallPrompt('claude-code'), /@agentclientprotocol\/claude-agent-acp/);
   assert.match(agentAcpInstallPrompt('codex'), /@agentclientprotocol\/codex-acp/);

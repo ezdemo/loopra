@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
@@ -12,16 +13,35 @@ import (
 )
 
 func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotification) error {
+	// SDK 串行消费通知且队列只有 1024 条，这里必须保持 O(1)；
+	// 不能做 localUpdate 的 marshal/unmarshal。
+	c.indexToolSession(sdkToolCallID(params.Update), string(params.SessionId))
 	c.mu.Lock()
 	owner, direct := c.owner, c.replaying || c.accepting
+	delivery := c.sessionConns[string(params.SessionId)]
+	if delivery == nil {
+		delivery = owner
+	}
 	c.mu.Unlock()
-	if owner != nil && !direct {
-		if turn := owner.currentTurn(); turn != nil && turn.events != nil {
+	if delivery != nil && !direct {
+		if turn := delivery.currentTurn(); turn != nil && turn.events != nil {
 			turn.events.push(Event{notification: &params, source: c})
 			return nil
 		}
 	}
 	return c.sessionUpdate(params, nil)
+}
+
+// sdkToolCallID 从 SDK union 直接取 tool call id，等价于 localUpdate 里的
+// ToolCallID，但不用序列化整包。
+func sdkToolCallID(update acpsdk.SessionUpdate) string {
+	switch {
+	case update.ToolCall != nil:
+		return string(update.ToolCall.ToolCallId)
+	case update.ToolCallUpdate != nil:
+		return string(update.ToolCallUpdate.ToolCallId)
+	}
+	return ""
 }
 
 func (c *Client) sessionUpdate(params acpsdk.SessionNotification, target *acpTurn) error {
@@ -34,6 +54,7 @@ func (c *Client) sessionUpdate(params acpsdk.SessionNotification, target *acpTur
 	current := c.sessionID
 	accepting := c.accepting
 	owner := c.owner
+	routed := c.sessionConns[string(params.SessionId)]
 	c.mu.Unlock()
 	if replaying {
 		c.captureReplay(update)
@@ -41,7 +62,7 @@ func (c *Client) sessionUpdate(params acpsdk.SessionNotification, target *acpTur
 	}
 	child := ""
 	sessionID := string(params.SessionId)
-	if !accepting && current != "" && sessionID != current {
+	if !accepting && routed == nil && current != "" && sessionID != current {
 		c.mu.Lock()
 		known := c.children[sessionID]
 		c.mu.Unlock()
@@ -64,15 +85,19 @@ func (c *Client) sessionUpdate(params acpsdk.SessionNotification, target *acpTur
 	if child != "" {
 		event.SubSession = child
 	}
+	delivery := routed
+	if delivery == nil {
+		delivery = owner
+	}
 	if target != nil {
-		if owner != nil && event.Kind == EventConfig && len(event.ConfigOptions) > 0 {
-			owner.BindSession(owner.SessionID(), event.ConfigOptions)
+		if delivery != nil && event.Kind == EventConfig && len(event.ConfigOptions) > 0 {
+			delivery.BindSession(delivery.SessionID(), event.ConfigOptions)
 		}
 		target.handle(event)
 		return nil
 	}
-	if owner != nil {
-		owner.handleEvent(event)
+	if delivery != nil {
+		delivery.handleEvent(event)
 		return nil
 	}
 	if c.handler != nil {
@@ -108,8 +133,8 @@ func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPer
 	cancelled := acpsdk.RequestPermissionResponse{Outcome: acpsdk.RequestPermissionOutcome{
 		Cancelled: &acpsdk.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 	}}
+	owner := c.requestOwner(string(params.SessionId), string(params.ToolCall.ToolCallId))
 	c.mu.Lock()
-	owner := c.owner
 	perm := c.perm
 	c.mu.Unlock()
 	var option string
@@ -139,8 +164,20 @@ func (c *Client) UnstableCreateElicitation(ctx context.Context, params acpsdk.Un
 	if params.Form == nil {
 		return cancel, nil
 	}
+	// elicitation/create 不带 sessionId；Devin 把可路由的工具调用 id 放在
+	// _meta["cognition.ai/toolCallId"]，按它找回发起提问的会话。
+	toolCallID, _ := params.Form.Meta["cognition.ai/toolCallId"].(string)
+	if toolCallID != "" && c.toolSessionOwner(toolCallID) == nil {
+		// 请求和通知在不同 goroutine 分发：tool_call 更新可能还排在 SDK
+		// 通知队列里没登记索引，短暂等它；等完按最新索引和 owner 重算。
+		deadline := time.Now().Add(2 * time.Second)
+		for ctx.Err() == nil && time.Now().Before(deadline) && c.toolSessionOwner(toolCallID) == nil {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	owner := c.requestOwner("", toolCallID)
+	logging.Infof("acp", "elicitation requested tool=%q routed=%v", toolCallID, owner != nil)
 	c.mu.Lock()
-	owner := c.owner
 	handler := c.elicit
 	c.mu.Unlock()
 	schema := map[string]any{"type": "object", "properties": params.Form.RequestedSchema.Properties}
@@ -157,8 +194,10 @@ func (c *Client) UnstableCreateElicitation(ctx context.Context, params acpsdk.Un
 	case handler != nil:
 		result = handler(ctx, request)
 	default:
+		logging.Infof("acp", "elicitation cancelled tool=%q (no owner)", toolCallID)
 		return cancel, nil
 	}
+	logging.Infof("acp", "elicitation answered tool=%q action=%q", toolCallID, result.Action)
 	switch result.Action {
 	case "accept":
 		accepted := acpsdk.NewUnstableCreateElicitationResponseAccept()

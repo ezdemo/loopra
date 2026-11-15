@@ -82,6 +82,7 @@
 .composer-agent-icon[data-agent="native"] { color: var(--blue); }
 .composer-agent-icon[data-agent="claude-code"] { color: #d97757; }
 .composer-agent-icon[data-agent="dsh"] { color: #4d6bfe; }
+.composer-agent-icon[data-agent="devin"] { color: #6d5df6; }
 .composer-model-reasoning > .model-reasoning-divider { flex-shrink: 0; color: var(--muted); }
 .composer-model-reasoning > .model-reasoning-effort { flex-shrink: 0; max-width: 6rem; }
 .model-reasoning-menus { position: absolute; right: 0; bottom: calc(100% + .4375rem); z-index: 90; width: min(16rem, calc(100vw - 2.5rem), calc(100cqw - 1.5rem)); }

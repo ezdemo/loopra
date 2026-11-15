@@ -3,6 +3,7 @@ module github.com/ezdemo/looprax
 go 1.27.3
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	github.com/MoeForge/moejs v0.1.0-alpha.11
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/egoist/mygo v0.7.2
@@ -25,7 +26,6 @@ require (
 	cloud.google.com/go/auth v0.24.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clbanning/mxj/v2 v2.7.0 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect

@@ -194,7 +194,7 @@ func (s *Controller) installConnectorTools() {
 				"id": conn.ID, "name": conn.Name, "reason": in.Reason, "needs": needs,
 			},
 		}
-		item := s.elicitations.Register(session, fmt.Sprintf("需要使用 %s：%s", conn.Name, in.Reason), schema)
+		item := s.elicitations.Register(session, fmt.Sprintf("需要使用 %s：%s", conn.Name, in.Reason), schema, nil)
 		if sink := sinkFromContext(ctx); sink != nil {
 			sink.SendSub("elicitation", item.Event())
 		}
