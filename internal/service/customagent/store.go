@@ -4,6 +4,7 @@ package customagent
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -29,16 +30,24 @@ const (
 	nameMaxRunes        = 40
 	instructionMaxRunes = 20000
 	reservedName        = "纯聊天"
+	iconMaxBytes        = 128 << 10
+	iconMaxRunes        = 32
 )
 
 var idPattern = regexp.MustCompile(`^agent_[0-9a-f]{12}$`)
 
+// iconImagePattern 限定图标 data URL 的图片类型，覆盖 <img> 可渲染的常见格式；
+// 图标经 <img> 渲染，SVG 中的脚本在该上下文不会执行。
+var iconImagePattern = regexp.MustCompile(`^data:image/(?:png|jpeg|gif|webp|avif|apng|bmp|x-icon|vnd\.microsoft\.icon|svg\+xml);base64,`)
+
 // Agent 是一个自定义智能体定义。Tools 与 Skills 为 nil 表示不限制。
+// Icon 为空表示使用默认图标，否则是 Emoji/内置图标名或 data URL 图片。
 type Agent struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Instruction string   `json:"instruction"`
 	ProjectHash string   `json:"projectHash"`
+	Icon        string   `json:"icon"`
 	Tools       []string `json:"tools"`
 	Skills      []string `json:"skills"`
 	CreatedAt   int64    `json:"createdAt"`
@@ -50,6 +59,7 @@ type Input struct {
 	Name        string
 	Instruction string
 	ProjectHash string
+	Icon        string
 	Tools       []string
 	Skills      []string
 }
@@ -126,6 +136,7 @@ func (s *Store) Create(in Input, now int64, check CheckProject) (*Agent, error) 
 		Name:        strings.TrimSpace(in.Name),
 		Instruction: in.Instruction,
 		ProjectHash: strings.TrimSpace(in.ProjectHash),
+		Icon:        strings.TrimSpace(in.Icon),
 		Tools:       normalizeNames(in.Tools, true),
 		Skills:      normalizeNames(in.Skills, false),
 		CreatedAt:   now,
@@ -163,6 +174,7 @@ func (s *Store) Update(id string, in Input, now int64, check CheckProject) (*Age
 	agent.Name = strings.TrimSpace(in.Name)
 	agent.Instruction = in.Instruction
 	agent.ProjectHash = strings.TrimSpace(in.ProjectHash)
+	agent.Icon = strings.TrimSpace(in.Icon)
 	agent.Tools = normalizeNames(in.Tools, true)
 	agent.Skills = normalizeNames(in.Skills, false)
 	agent.UpdatedAt = now
@@ -221,6 +233,32 @@ func validate(in Input, agents []*Agent, selfID string, check CheckProject) erro
 		if err := check(project); err != nil {
 			return err
 		}
+	}
+	return checkIcon(strings.TrimSpace(in.Icon))
+}
+
+// checkIcon 允许空值、Emoji 或内置图标名等短文本，以及一张不超过
+// iconMaxBytes 的 data URL 图片。
+func checkIcon(icon string) error {
+	if icon == "" {
+		return nil
+	}
+	if strings.HasPrefix(icon, "data:") {
+		prefix := iconImagePattern.FindString(icon)
+		if prefix == "" {
+			return errors.New("图标仅支持 PNG / JPEG / GIF / WebP / AVIF / APNG / BMP / ICO / SVG 图片")
+		}
+		raw, err := base64.StdEncoding.DecodeString(icon[len(prefix):])
+		if err != nil {
+			return errors.New("图标图片不是有效的 base64 数据")
+		}
+		if len(raw) > iconMaxBytes {
+			return fmt.Errorf("图标图片不能超过 %dKB", iconMaxBytes>>10)
+		}
+		return nil
+	}
+	if utf8.RuneCountInString(icon) > iconMaxRunes {
+		return fmt.Errorf("图标文本最长 %d 个字符", iconMaxRunes)
 	}
 	return nil
 }

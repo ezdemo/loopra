@@ -1,3 +1,20 @@
+import { Bot } from 'lucide-react';
+import { lucideIcons } from './plugin-icons';
+import { isAgentIconImage } from '../custom-agents';
+
+/** 自定义智能体图标：data URL 图片 > 内置图标名 > Emoji 等短文本 > 默认 Bot。 */
+export function PersonaIcon({ icon, className, size = '1rem' }: { icon?: string; className?: string; size?: number | string }) {
+  const cls = `persona-icon${className ? ` ${className}` : ''}`;
+  if (icon && isAgentIconImage(icon)) {
+    return <img className={`${cls} persona-icon-image`} style={{ width: size, height: size }} src={icon} alt="" aria-hidden="true" draggable={false} />;
+  }
+  const Glyph = icon ? lucideIcons[icon] : undefined;
+  if (Glyph) return <Glyph className={cls} size={size} strokeWidth={1.8} aria-hidden="true" />;
+  // Emoji 用 <i> 而不是 <span>：.session-item > span 会给直接子级 span 加 flex:1 的标题布局。
+  if (icon) return <i className={`${cls} persona-icon-emoji`} style={{ fontSize: size }} aria-hidden="true">{icon}</i>;
+  return <Bot className={cls} size={size} aria-hidden="true" />;
+}
+
 export default function AgentIcon({ agentId = 'native' }: { agentId?: string }) {
   if (agentId === 'native') {
     return <img className="composer-agent-icon" data-agent={agentId} src={`${import.meta.env?.BASE_URL ?? '/'}favicon.svg`} width="16" height="16" alt="" aria-hidden="true" draggable={false} />;

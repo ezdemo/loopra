@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Bot, Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Popup } from '../components/Motion';
-import AgentIcon from '../components/AgentIcon';
+import AgentIcon, { PersonaIcon } from '../components/AgentIcon';
 import type { AgentEngine, CustomAgent } from '../backend';
 import { agentAcpInstallPrompt } from '../agent-install';
 import { useMenuPlacement } from './menu-placement';
@@ -78,7 +78,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
   return <div className="agent-selector menu-anchor" data-popover ref={root} data-placement={placement.side} style={placementStyle}>
     <button type="button" aria-label="选择 Agent" aria-expanded={open} disabled={disabled}
       title={disabled ? disabledReason || '任务运行中，结束后才能切换 Agent' : '选择 Agent'} onClick={toggle}>
-      {persona ? <Bot size="1rem" /> : <AgentIcon agentId={agentId || 'native'} />}
+      {persona ? <PersonaIcon icon={persona.icon} /> : <AgentIcon agentId={agentId || 'native'} />}
       {persona?.name || current?.name || (agentId === 'native' ? 'Loopra Native' : agentId)}
       <ChevronDown size="0.875rem" />
     </button>
@@ -108,7 +108,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
           const selected = agent.id === customAgentId;
           return <div key={agent.id} className="agent-option">
             <button type="button" title={agent.instruction || undefined} onClick={() => { setOpen(false); onSelectAgent(selected ? '' : agent.id); }}>
-              <Bot size="1rem" />
+              <PersonaIcon icon={agent.icon} />
               <span><strong>{agent.name}</strong></span>
               {selected && <Check size="1rem" />}
             </button>

@@ -1,8 +1,9 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react';
-import { Bot, Check, ChevronDown, FolderClosed, FolderPlus, MessageCircle } from 'lucide-react';
+import { Check, ChevronDown, FolderClosed, FolderPlus, MessageCircle } from 'lucide-react';
 import { Enter, Popup } from '../components/Motion';
 import { LoadingSkeleton, LoopraMark } from '../components/ui';
 import type { AgentEngine, CustomAgent, Workspace } from '../backend';
+import { PersonaIcon } from '../components/AgentIcon';
 import AgentSwitcher from './AgentSwitcher';
 import { useMenuPlacement } from './menu-placement';
 
@@ -47,11 +48,11 @@ export default function HomeView({ workspaces, workspacesLoading, enginesLoading
     <Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark /><span className="welcome-wordmark">Loopra</span></h1></Enter>
     <div className="welcome-switchers">
       {workspacesLoading ? <div className="welcome-selector-loading" role="status" aria-label="正在加载工作区"><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <div ref={anchorRef} className="workspace-selector menu-anchor" data-popover="workspace" data-placement={placement.side} style={placementStyle}>
-        <button type="button" aria-label="选择工作区或模式" aria-expanded={menuOpen} onClick={onToggleMenu}>{(() => { const kind = workspaces.find(item => item.hash === workspace)?.kind; return kind === 'chat' ? <MessageCircle size="1rem" /> : kind === 'agent' ? <Bot size="1rem" /> : <FolderClosed size="1rem" />; })()}{workspaceName}<ChevronDown size="0.875rem" /></button>
+        <button type="button" aria-label="选择工作区或模式" aria-expanded={menuOpen} onClick={onToggleMenu}>{(() => { const current = workspaces.find(item => item.hash === workspace); return current?.kind === 'chat' ? <MessageCircle size="1rem" /> : current?.kind === 'agent' ? <PersonaIcon icon={current.agent?.icon} /> : <FolderClosed size="1rem" />; })()}{workspaceName}<ChevronDown size="0.875rem" /></button>
         <Popup open={menuOpen} className="popup workspace-menu">
           <h3>选择工作区或模式</h3>
           <div className="workspace-menu-list">
-            {workspaces.map(item => <button key={item.hash} onClick={() => onSelect(item.hash)}>{item.kind === 'chat' ? <MessageCircle size="1rem" /> : item.kind === 'agent' ? <Bot size="1rem" /> : <FolderClosed size="1rem" />}{item.name}{workspace === item.hash && <Check size="1rem" />}</button>)}
+            {workspaces.map(item => <button key={item.hash} onClick={() => onSelect(item.hash)}>{item.kind === 'chat' ? <MessageCircle size="1rem" /> : item.kind === 'agent' ? <PersonaIcon icon={item.agent?.icon} /> : <FolderClosed size="1rem" />}{item.name}{workspace === item.hash && <Check size="1rem" />}</button>)}
             {!workspaces.length && <p className="composer-empty">暂无可用项目</p>}
           </div>
           <hr /><button onClick={onManage}><FolderPlus size="1rem" />管理项目</button>

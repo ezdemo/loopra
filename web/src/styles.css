@@ -132,6 +132,11 @@ svg { flex-shrink: 0; }
 .workspace-heading > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-heading > svg { flex-shrink: 0; width: 1rem; height: 1rem; }
 .workspace-heading > .workspace-chat-icon { width: .875rem; height: .875rem; }
+
+/* Custom-agent persona icons: uploaded image, Emoji, or built-in glyph. */
+.persona-icon { flex-shrink: 0; }
+.persona-icon-image { object-fit: cover; border-radius: 22%; }
+.persona-icon-emoji { font-style: normal; line-height: 1; }
 .workspace-heading .workspace-chevron { width: .75rem; height: .75rem; color: var(--muted); transition: transform .15s; }
 .workspace-heading[aria-expanded="true"] .workspace-chevron { transform: rotate(90deg); }
 

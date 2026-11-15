@@ -48,12 +48,17 @@ export const ModalFooter = ({ children }) => createElement('div', null, children
 export const ModalHeader = ({ children }) => createElement('div', null, children);
 `);
 const installUrl = await sourceUrl('agent-install.ts');
+const personaIconDeps = {
+  'lucide-react': iconStub,
+  './plugin-icons': dataUrl('export const lucideIcons = {};'),
+  '../custom-agents': dataUrl(`export const isAgentIconImage = icon => icon.startsWith('data:image/');`),
+};
 
 const switcherUrl = await sourceUrl('layout/AgentSwitcher.tsx', {
   'lucide-react': iconStub,
   '@nextui-org/react': nextuiStub,
   '../components/Motion': motionStub,
-  '../components/AgentIcon': await sourceUrl('components/AgentIcon.tsx'),
+  '../components/AgentIcon': await sourceUrl('components/AgentIcon.tsx', personaIconDeps),
   '../agent-install': installUrl,
   './menu-placement': placementUrl,
 });

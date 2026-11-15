@@ -30,13 +30,13 @@ func TestCustomAgentCRUDOverHTTP(t *testing.T) {
 	if list, _ := env["data"].([]any); len(list) != 0 {
 		t.Fatalf("empty list = %v", list)
 	}
-	code, env = postAgent(t, ts, key, map[string]any{"name": "译员", "instruction": "把回复翻译成英文"})
+	code, env = postAgent(t, ts, key, map[string]any{"name": "译员", "instruction": "把回复翻译成英文", "icon": "🤖"})
 	if code != http.StatusOK {
 		t.Fatalf("create = %d %v", code, env)
 	}
 	agent := env["data"].(map[string]any)
 	id := agent["id"].(string)
-	if !customagent.IsID(id) || agent["name"] != "译员" {
+	if !customagent.IsID(id) || agent["name"] != "译员" || agent["icon"] != "🤖" {
 		t.Fatalf("agent = %v", agent)
 	}
 	if agent["tools"] != nil || agent["skills"] != nil {
@@ -48,19 +48,21 @@ func TestCustomAgentCRUDOverHTTP(t *testing.T) {
 		{"name": "x", "projectHash": chatWorkspace},
 		{"name": "x", "projectHash": "agent_0123456789ab"},
 		{"name": "x", "projectHash": "deadbeefdead"},
+		{"name": "x", "icon": "data:text/html;base64,PGI+"},
+		{"name": "x", "icon": strings.Repeat("x", 33)},
 	} {
 		if code, env := postAgent(t, ts, key, body); code != http.StatusBadRequest {
 			t.Fatalf("body %v = %d %v", body, code, env)
 		}
 	}
 	code, env = call(t, ts, "PUT", "/api/custom-agents/"+id, key, map[string]any{
-		"name": "译员2", "instruction": "in2", "tools": []string{" read ", "read"}, "skills": []string{},
+		"name": "译员2", "instruction": "in2", "icon": "rocket", "tools": []string{" read ", "read"}, "skills": []string{},
 	})
 	if code != http.StatusOK {
 		t.Fatalf("update = %d %v", code, env)
 	}
 	updated := env["data"].(map[string]any)
-	if updated["name"] != "译员2" || updated["createdAt"] != agent["createdAt"] || updated["updatedAt"].(float64) < agent["createdAt"].(float64) {
+	if updated["name"] != "译员2" || updated["icon"] != "rocket" || updated["createdAt"] != agent["createdAt"] || updated["updatedAt"].(float64) < agent["createdAt"].(float64) {
 		t.Fatalf("updated = %v", updated)
 	}
 	if tools := updated["tools"].([]any); len(tools) != 1 {

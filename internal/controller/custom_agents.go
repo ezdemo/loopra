@@ -19,6 +19,7 @@ type customAgentBody struct {
 	Name        string   `json:"name"`
 	Instruction string   `json:"instruction"`
 	ProjectHash string   `json:"projectHash"`
+	Icon        string   `json:"icon"`
 	Tools       []string `json:"tools"`
 	Skills      []string `json:"skills"`
 }
@@ -26,7 +27,7 @@ type customAgentBody struct {
 func (b customAgentBody) input() customagent.Input {
 	return customagent.Input{
 		Name: b.Name, Instruction: b.Instruction, ProjectHash: b.ProjectHash,
-		Tools: b.Tools, Skills: b.Skills,
+		Icon: b.Icon, Tools: b.Tools, Skills: b.Skills,
 	}
 }
 

@@ -16,7 +16,8 @@ const backendUrl = dataUrl(backendSource);
 const moduleSource = (await transpile('custom-agents.ts')).replaceAll("'./backend'", JSON.stringify(backendUrl)).replaceAll('"./backend"', JSON.stringify(backendUrl));
 const backend = await import(backendUrl);
 const { CHAT_WORKSPACE, withChatWorkspace } = backend;
-const { isProjectWorkspace, isAgentWorkspace, isChatScoped, agentNameError, normalizeAgentName, agentPayload, draftFromAgent, toggleValue, pruneTools, pruneSkills, groupCatalogTools, catalogToolsFor, validDraftAgentId } = await import(dataUrl(moduleSource));
+const { isProjectWorkspace, isAgentWorkspace, isChatScoped, agentNameError, normalizeAgentName, agentPayload, draftFromAgent, toggleValue, pruneTools, pruneSkills, groupCatalogTools, catalogToolsFor, validDraftAgentId, emojiIconValue, isAgentIconImage } = await import(dataUrl(moduleSource));
+const { agentBuiltinIcons, agentIconDataUrl } = await import(dataUrl(await transpile('agent-icons.ts')));
 
 const projects = [
   { hash: 'looprax', name: 'looprax', path: '/code/looprax' },
@@ -67,11 +68,33 @@ test('草稿往返保持 null 与数组的区分', () => {
   const draft = draftFromAgent(agents[0]);
   assert.equal(draft.toolsMode, 'default');
   assert.equal(draft.skillsMode, 'default');
-  assert.deepEqual(agentPayload(draft), { name: '审阅助手', instruction: '', projectHash: '', tools: null, skills: null });
+  assert.deepEqual(agentPayload(draft), { name: '审阅助手', instruction: '', projectHash: '', icon: '', tools: null, skills: null });
   const custom = draftFromAgent(agents[1]);
   assert.equal(custom.toolsMode, 'custom');
   assert.deepEqual(agentPayload(custom).tools, []);
   assert.deepEqual(agentPayload(custom).skills, []);
+});
+
+test('图标字段随草稿往返', () => {
+  const draft = draftFromAgent({ ...agents[0], icon: '🤖' });
+  assert.equal(draft.icon, '🤖');
+  assert.equal(agentPayload(draft).icon, '🤖');
+  assert.equal(agentPayload(draftFromAgent(agents[0])).icon, '', '未设置时按空串提交以清除');
+});
+
+test('emojiIconValue 只保留最后一个字素簇', () => {
+  assert.equal(emojiIconValue('🤖'), '🤖');
+  assert.equal(emojiIconValue('🤖🔥'), '🔥');
+  assert.equal(emojiIconValue('👨‍💻'), '👨‍💻');
+  assert.equal(emojiIconValue('  '), '');
+});
+
+test('isAgentIconImage 只认 data:image/ URL', () => {
+  assert.equal(isAgentIconImage('data:image/png;base64,AAAA'), true);
+  assert.equal(isAgentIconImage('data:image/svg+xml;base64,AAAA'), true);
+  assert.equal(isAgentIconImage('🤖'), false);
+  assert.equal(isAgentIconImage('rocket'), false);
+  assert.equal(isAgentIconImage('data:text/html;base64,AAAA'), false);
 });
 
 test('名称校验与后端一致', () => {
@@ -115,6 +138,23 @@ test('catalogToolsFor 按是否绑定项目选择目录', () => {
   assert.equal(catalogToolsFor(catalog, '')[0].name, 'a');
   assert.equal(catalogToolsFor(catalog, 'looprax')[0].name, 'b');
   assert.deepEqual(catalogToolsFor(undefined, ''), []);
+});
+
+test('内置智能体图标：20 个、key 唯一、SVG 自包含且可经 <img> 渲染', () => {
+  assert.equal(agentBuiltinIcons.length, 20);
+  assert.equal(new Set(agentBuiltinIcons.map(icon => icon.key)).size, 20);
+  for (const icon of agentBuiltinIcons) {
+    assert.match(icon.key, /^[a-z0-9]+(?:-[a-z0-9]+)*$/, icon.key);
+    assert.ok(icon.label, `${icon.key} 需要中文名`);
+    assert.match(icon.svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 64 64">[\s\S]+<\/svg>$/, icon.key);
+    assert.ok(!/[^\x20-\x7e]/.test(icon.svg), `${icon.key} 含非 ASCII 字符`);
+    assert.ok(!/(script|currentColor|on[a-z]+=|href=|url\()/i.test(icon.svg), `${icon.key} 含脚本/外链/currentColor`);
+    assert.ok(icon.svg.length < 2048, `${icon.key} 超过 2KB`);
+    const data = agentIconDataUrl(icon.svg);
+    assert.ok(data.startsWith('data:image/svg+xml;base64,'), icon.key);
+    assert.equal(Buffer.from(data.slice('data:image/svg+xml;base64,'.length), 'base64').toString('utf8'), icon.svg, `${icon.key} data URL 往返`);
+    assert.ok(isAgentIconImage(data), icon.key);
+  }
 });
 
 test('草稿角色只在列表加载完成后按存在性校验', () => {

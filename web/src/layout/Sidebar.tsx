@@ -8,7 +8,7 @@ import { sessionDate } from '../session-order';
 import { DEFAULT_SIDEBAR_WIDTH, clampSidebarWidth, resizeSidebarWidth } from '../panel-resize';
 import { ProfileAvatar } from '../components/LocalProfile';
 import { PluginGlyph, type PluginIconRef } from '../components/plugin-icons';
-import AgentIcon from '../components/AgentIcon';
+import AgentIcon, { PersonaIcon } from '../components/AgentIcon';
 import type { LocalProfile } from '../local-profile';
 import type { LoopraClient } from '../backend';
 
@@ -209,7 +209,7 @@ export default function Sidebar(props: SidebarProps) {
           return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash, locked)}>
             <div className="workspace-heading-row">
               <button type="button" title={item.path || (agent ? (item.agent?.projectHash ? `${english ? 'Bound to' : '绑定'}：${workspaces.find(entry => entry.hash === item.agent?.projectHash)?.name || item.agent.projectHash}` : (english ? 'No project' : '不绑定工作区')) : chat ? '不绑定工作区' : item.name)} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
-                <ChevronRight className="workspace-chevron" />{agent ? <Bot className="workspace-chat-icon" aria-hidden="true" /> : chat ? <MessageSquare className="workspace-chat-icon" aria-hidden="true" /> : open ? <FolderOpen /> : <FolderClosed />}<span>{item.name}</span>
+                <ChevronRight className="workspace-chevron" />{agent ? <PersonaIcon icon={item.agent?.icon} className="workspace-chat-icon" size="0.875rem" /> : chat ? <MessageSquare className="workspace-chat-icon" aria-hidden="true" /> : open ? <FolderOpen /> : <FolderClosed />}<span>{item.name}</span>
               </button>
               <span className="workspace-tools">
                 <IconButton label={`在 ${item.name} 新建会话`} onClick={() => props.onNewSession(item.hash)}><Plus size="0.8125rem" /></IconButton>
@@ -243,7 +243,7 @@ export default function Sidebar(props: SidebarProps) {
                 <button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => props.onSelectSession(entry.id)}
                   title={entry.customAgentId ? `${entry.title} · ${workspaces.find(ws => ws.hash === entry.customAgentId)?.name || '自定义智能体'}` : entry.title}>
                   {activeId === entry.id && <SelectionIndicator />}
-                  {entry.customAgentId ? <Bot size="0.875rem" aria-hidden="true" /> : <AgentIcon agentId={entry.agentId || 'native'} />}
+                  {entry.customAgentId ? <PersonaIcon icon={workspaces.find(ws => ws.hash === entry.customAgentId)?.agent?.icon} size="0.875rem" /> : <AgentIcon agentId={entry.agentId || 'native'} />}
                   <SessionTitle text={entry.title} />
                   {props.runningIds?.has(entry.id) ? <span className="session-run-indicator running" role="img" aria-label="正在运行" title="正在运行" /> : props.unreadIds?.has(entry.id) && <span className="session-run-indicator" role="img" aria-label="有新回复" title="有新回复" />}
                   {entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}

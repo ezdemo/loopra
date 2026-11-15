@@ -268,11 +268,12 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
 - `instruction`：角色设定（附加到系统提示的角色块），≤ 20000 字符，可空。
 - `projectHash`：`""` 表示不绑定项目；非空必须是已注册项目的 hash（拒绝纯聊天与其他智能体）。
 - `tools` / `skills`：`null`（或字段缺省）= 不限制（使用默认工具/技能集）；数组 = 显式允许列表，`[]` 表示全部禁用。工具名按 `tools.ResolveName` 规范化去重，skills 存目录中的 `scope` 字符串，均不校验目录存在性。
+- `icon`：`""`（或字段缺省）= 默认图标；Emoji/内置图标名等 ≤32 字符的短文本，或 `data:image/{png|jpeg|gif|webp|avif|apng|bmp|x-icon|vnd.microsoft.icon|svg+xml};base64,` 且解码后 ≤128KB 的图片。图标随 `agents.json` 一起持久化，前端经 `<img>`/文本渲染。
 
 | 方法与路径 | 请求 | data |
 | --- | --- | --- |
 | GET / HEAD `/api/custom-agents` | — | 智能体数组，按创建顺序 |
-| POST `/api/custom-agents` | `{name,instruction?,projectHash?,tools?,skills?}` | 创建后的智能体 |
+| POST `/api/custom-agents` | `{name,instruction?,projectHash?,icon?,tools?,skills?}` | 创建后的智能体 |
 | PUT `/api/custom-agents/{id}` | 同上（全量替换可编辑字段，保留 id/createdAt，更新 updatedAt） | 更新后的智能体；id 不存在返回失败 |
 | DELETE `/api/custom-agents/{id}` | — | 删除定义及 `~/.loopra/workspace/<id>` 全部会话；有运行中会话时拒绝且不改动 |
 | GET / HEAD `/api/custom-agents/catalog` | — | `{chatTools:[{name,description,readOnly}], projectTools:[同构], skills:[{name,description,scope}]}`，按名称排序；chatTools 为纯聊天作用域注册表，projectTools 为默认项目注册表 |

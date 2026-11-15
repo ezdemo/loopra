@@ -10,25 +10,28 @@ export const isChatScoped = (workspace?: Pick<Workspace, 'kind' | 'agent' | 'has
 
 export const AGENT_NAME_MAX_RUNES = 40;
 export const AGENT_INSTRUCTION_MAX_RUNES = 20000;
+export const AGENT_ICON_MAX_BYTES = 128 << 10;
 
 /** 编辑器草稿：mode 为 'default' 时对应后端 null（不限制），'custom' 时对应显式数组。 */
 export type AgentDraft = {
   name: string;
   instruction: string;
   projectHash: string;
+  icon: string;
   toolsMode: 'default' | 'custom';
   tools: string[];
   skillsMode: 'default' | 'custom';
   skills: string[];
 };
 
-export const emptyAgentDraft: AgentDraft = { name: '', instruction: '', projectHash: '', toolsMode: 'default', tools: [], skillsMode: 'default', skills: [] };
+export const emptyAgentDraft: AgentDraft = { name: '', instruction: '', projectHash: '', icon: '', toolsMode: 'default', tools: [], skillsMode: 'default', skills: [] };
 
 export function draftFromAgent(agent: CustomAgent): AgentDraft {
   return {
     name: agent.name,
     instruction: agent.instruction,
     projectHash: agent.projectHash,
+    icon: agent.icon || '',
     toolsMode: agent.tools === null ? 'default' : 'custom',
     tools: agent.tools ?? [],
     skillsMode: agent.skills === null ? 'default' : 'custom',
@@ -57,14 +60,63 @@ export function agentNameError(name: string): string {
 }
 
 /** 请求体保持 null（默认）与数组（自定义）的区分。 */
-export function agentPayload(draft: AgentDraft): { name: string; instruction: string; projectHash: string; tools: string[] | null; skills: string[] | null } {
+export function agentPayload(draft: AgentDraft): { name: string; instruction: string; projectHash: string; icon: string; tools: string[] | null; skills: string[] | null } {
   return {
     name: normalizeAgentName(draft.name),
     instruction: draft.instruction,
     projectHash: draft.projectHash,
+    icon: draft.icon,
     tools: draft.toolsMode === 'custom' ? [...draft.tools] : null,
     skills: draft.skillsMode === 'custom' ? [...draft.skills] : null,
   };
+}
+
+/** 图标值是上传图片、Emoji 还是内置图标名，决定 PersonaIcon 的渲染方式。 */
+export const isAgentIconImage = (icon: string) => icon.startsWith('data:image/');
+
+/** Emoji 输入只保留最后一个字素簇，输入即视为一次「挑选」。 */
+export function emojiIconValue(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const parts = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(trimmed)];
+    if (parts.length) return parts[parts.length - 1].segment;
+  }
+  return [...trimmed].slice(-1).join('');
+}
+
+const ICON_RASTER_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/avif', 'image/bmp'];
+const ICON_TYPES = [...ICON_RASTER_TYPES, 'image/apng', 'image/gif', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml'];
+
+/** 不超过上限的图片按原格式保留（含动图与 SVG）；超限位图居中裁成 96×96 PNG。 */
+export async function readAgentIcon(file: File): Promise<string> {
+  if (!ICON_TYPES.includes(file.type)) throw new Error('format');
+  if (file.size <= AGENT_ICON_MAX_BYTES) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  if (!ICON_RASTER_TYPES.includes(file.type)) throw new Error('size');
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 96;
+    const context = canvas.getContext('2d');
+    if (!context || !image.naturalWidth || !image.naturalHeight) throw new Error('image');
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    context.drawImage(image, (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side, 0, 0, 96, 96);
+    const result = canvas.toDataURL('image/png');
+    if ((result.length - 'data:image/png;base64,'.length) * 3 / 4 > AGENT_ICON_MAX_BYTES) throw new Error('size');
+    return result;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function toggleValue(list: string[], value: string, on: boolean): string[] {

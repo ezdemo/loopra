@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Checkbox, CheckboxGroup, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
+import { Button, Checkbox, CheckboxGroup, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Popover, PopoverContent, PopoverTrigger } from '@nextui-org/react';
 import type { CustomAgent, CustomAgentCatalog, CustomAgentCatalogTool, LoopraClient, Workspace } from '../backend';
-import { AGENT_INSTRUCTION_MAX_RUNES, AGENT_NAME_MAX_RUNES, agentNameError, agentPayload, catalogToolsFor, draftFromAgent, emptyAgentDraft, groupCatalogTools, pruneSkills, pruneTools, type AgentDraft } from '../custom-agents';
+import { AGENT_INSTRUCTION_MAX_RUNES, AGENT_NAME_MAX_RUNES, agentNameError, agentPayload, catalogToolsFor, draftFromAgent, emojiIconValue, emptyAgentDraft, groupCatalogTools, isAgentIconImage, pruneSkills, pruneTools, readAgentIcon, type AgentDraft } from '../custom-agents';
 import { Field, SelectField, SettingSegments, TextField } from './SettingControls';
 import { ConfirmAction } from './RemoteControls';
 import { LoadingSkeleton } from './ui';
+import { PersonaIcon } from './AgentIcon';
+import { lucideIcons } from './plugin-icons';
+import { agentBuiltinIcons, agentIconDataUrl } from '../agent-icons';
+
+const builtinAgentIcons = agentBuiltinIcons.map(item => ({ ...item, dataUrl: agentIconDataUrl(item.svg) }));
 
 type CatalogState = { loading: boolean; error: string; data?: CustomAgentCatalog };
 
@@ -24,6 +29,8 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const request = useRef(0);
   const title = agent ? '编辑智能体' : '新建智能体';
 
@@ -48,6 +55,20 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
       tools: pruneTools(current.tools, catalogToolsFor(catalog.data, projectHash)),
       skills: pruneSkills(current.skills, catalog.data?.skills ?? []),
     }));
+  }
+
+  async function uploadIcon(file?: File) {
+    if (!file) return;
+    try {
+      const icon = await readAgentIcon(file);
+      setError('');
+      setDraft(current => ({ ...current, icon }));
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : '';
+      setError(reason === 'format' ? '图标仅支持 PNG / JPEG / GIF / WebP / AVIF / APNG / BMP / ICO / SVG 图片'
+        : reason === 'size' ? '图标图片不能超过 128KB'
+        : '无法读取这张图片，请换一张试试');
+    }
   }
 
   function setToolGroup(group: CustomAgentCatalogTool[], selected: string[]) {
@@ -82,6 +103,36 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
           <ModalHeader className="app-dialog-header"><h2>{title}</h2></ModalHeader>
           <ModalBody className="app-dialog-body">
             <Field label="名称" required maxLength={AGENT_NAME_MAX_RUNES} value={draft.name} disabled={busy} onChange={value => setDraft(current => ({ ...current, name: value }))} />
+            <div className="agent-icon-editor" role="group" aria-label="图标">
+              <span className="agent-icon-label">图标</span>
+              <div className="agent-icon-row">
+                <span className="agent-icon-preview" aria-hidden="true"><PersonaIcon icon={draft.icon} size="1.25rem" /></span>
+                <Popover isOpen={pickerOpen} onOpenChange={setPickerOpen} placement="bottom-start">
+                  <PopoverTrigger><Button size="sm" variant="flat" isDisabled={busy}>选择图标</Button></PopoverTrigger>
+                  <PopoverContent className="agent-icon-picker">
+                    <Input size="sm" variant="bordered" aria-label="Emoji 图标" placeholder="输入 Emoji，如 🤖" isDisabled={busy}
+                      value={draft.icon && !isAgentIconImage(draft.icon) && !lucideIcons[draft.icon] ? draft.icon : ''}
+                      onValueChange={value => setDraft(current => ({ ...current, icon: emojiIconValue(value) }))} />
+                    <div className="agent-icon-grid">{builtinAgentIcons.map(item => (
+                      <button key={item.key} type="button" className={`agent-icon-choice${draft.icon === item.dataUrl ? ' selected' : ''}`} aria-label={item.label} title={item.label}
+                        onClick={() => { setDraft(current => ({ ...current, icon: item.dataUrl })); setPickerOpen(false); }}>
+                        <img src={item.dataUrl} alt="" aria-hidden="true" />
+                      </button>))}
+                    </div>
+                    <div className="agent-icon-grid">{Object.entries(lucideIcons).map(([name, Glyph]) => (
+                      <button key={name} type="button" className={`agent-icon-choice${draft.icon === name ? ' selected' : ''}`} aria-label={name} title={name}
+                        onClick={() => { setDraft(current => ({ ...current, icon: name })); setPickerOpen(false); }}>
+                        <Glyph size="1rem" strokeWidth={1.8} aria-hidden="true" />
+                      </button>))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <Button size="sm" variant="flat" isDisabled={busy} onPress={() => fileInput.current?.click()}>上传图片</Button>
+                {draft.icon && <Button size="sm" variant="light" isDisabled={busy} onPress={() => setDraft(current => ({ ...current, icon: '' }))}>默认</Button>}
+              </div>
+              <input ref={fileInput} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/apng,image/bmp,image/x-icon,image/vnd.microsoft.icon,image/svg+xml" aria-label="图标图片"
+                onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void uploadIcon(file); }} />
+            </div>
             <TextField label="角色设定" rows={4} maxLength={AGENT_INSTRUCTION_MAX_RUNES} value={draft.instruction} disabled={busy} onChange={value => setDraft(current => ({ ...current, instruction: value }))} />
             <SelectField label="项目" value={draft.projectHash} disabled={busy}
               options={[{ value: '', label: '不绑定项目' }, ...workspaces.map(item => ({ value: item.hash, label: item.displayName || item.name }))]}

@@ -7,7 +7,7 @@ export type PluginIconRef = { name?: string; key?: string; hidden?: boolean; dat
 export type PluginMenuChild = { id: string; title: string; icon?: PluginIconRef };
 export type PluginMenu = { id: string; title: string; category?: string; icon?: PluginIconRef; page?: boolean; children?: PluginMenuChild[] };
 
-const pluginLucide: Record<string, LucideIcon> = {
+export const lucideIcons: Record<string, LucideIcon> = {
   braces: Braces, bell: Bell, 'book-open': BookOpen, bot: Bot, box: Box, calendar: Calendar, cat: Cat, 'circle-help': CircleHelp,
   clock: Clock, cloud: Cloud, code: Code, compass: Compass, database: Database, file: File, folder: Folder,
   gift: Gift, globe: Globe, heart: Heart, house: House, image: Image, inbox: Inbox, key: Key, layers: Layers,
@@ -42,7 +42,7 @@ export function PluginGlyph({ api, pluginId, icon, className, size = '1.125rem' 
   size?: string;
 }) {
   if (icon?.hidden) return null;
-  const Lucide = icon?.name ? pluginLucide[icon.name] : undefined;
+  const Lucide = icon?.name ? lucideIcons[icon.name] : undefined;
   if (Lucide) return <Lucide className={className} size={size} strokeWidth={1.8} aria-hidden="true" />;
   if (icon?.dataUrl?.startsWith('data:image/')) return <img className={className || 'plugin-file-icon'} src={icon.dataUrl} alt="" />;
   if (icon?.key) return <PluginFileIcon api={api} pluginId={pluginId} iconKey={icon.key} className={className || 'plugin-file-icon'} />;

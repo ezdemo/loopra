@@ -47,11 +47,16 @@ export const Popup = ({ open, children, className }) => open ? createElement('di
 `);
 const uiStub = dataUrl('export const LoopraMark = () => null; export const LoadingSkeleton = () => null;');
 const nextuiStub = dataUrl('export const Button = () => null, Modal = () => null, ModalBody = () => null, ModalContent = () => null, ModalFooter = () => null, ModalHeader = () => null;');
+const agentIconUrl = await sourceUrl('components/AgentIcon.tsx', {
+  'lucide-react': iconStub,
+  './plugin-icons': dataUrl('export const lucideIcons = {};'),
+  '../custom-agents': dataUrl(`export const isAgentIconImage = icon => icon.startsWith('data:image/');`),
+});
 const switcherUrl = await sourceUrl('layout/AgentSwitcher.tsx', {
   'lucide-react': iconStub,
   '@nextui-org/react': nextuiStub,
   '../components/Motion': motionStub,
-  '../components/AgentIcon': await sourceUrl('components/AgentIcon.tsx'),
+  '../components/AgentIcon': agentIconUrl,
   '../agent-install': await sourceUrl('agent-install.ts'),
   './menu-placement': placementUrl,
 });
@@ -60,6 +65,7 @@ const homeUrl = await sourceUrl('layout/HomeView.tsx', {
   'lucide-react': iconStub,
   '../components/Motion': motionStub,
   '../components/ui': uiStub,
+  '../components/AgentIcon': agentIconUrl,
   './AgentSwitcher': switcherUrl,
   './menu-placement': placementUrl,
 });

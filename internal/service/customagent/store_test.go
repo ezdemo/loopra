@@ -1,7 +1,9 @@
 package customagent
 
 import (
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +87,45 @@ func TestNameValidation(t *testing.T) {
 	}
 	if _, err := store.Create(Input{Name: "ok", Instruction: strings.Repeat("x", 20001)}, 1, nil); err == nil {
 		t.Fatal("超长 instruction 应失败")
+	}
+}
+
+func TestIconValidation(t *testing.T) {
+	store, _ := newStore(t)
+	tinyPNG := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("png-bytes"))
+	for i, icon := range []string{"", "🤖", "👨‍💻", "rocket", tinyPNG} {
+		agent, err := store.Create(Input{Name: fmt.Sprintf("icon-%d", i), Icon: icon}, 1, nil)
+		if err != nil {
+			t.Fatalf("icon %q 应通过: %v", icon, err)
+		}
+		if agent.Icon != icon {
+			t.Fatalf("icon = %q want %q", agent.Icon, icon)
+		}
+	}
+	oversized := "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, (128<<10)+1))
+	for _, icon := range []string{
+		"data:text/html;base64,PGI+",
+		"data:image/svg;base64,PHN2Zy8+",
+		"data:image/png;base64,###",
+		oversized,
+		strings.Repeat("x", 33),
+	} {
+		if _, err := store.Create(Input{Name: "bad", Icon: icon}, 1, nil); err == nil {
+			t.Fatalf("icon %.40q 应被拒绝", icon)
+		}
+	}
+	// 更新可设置与清除图标。
+	agent, err := store.Create(Input{Name: "upd"}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.Update(agent.ID, Input{Name: "upd", Icon: "🤖"}, 2, nil)
+	if err != nil || updated.Icon != "🤖" {
+		t.Fatalf("set icon = %q %v", updated.Icon, err)
+	}
+	updated, err = store.Update(agent.ID, Input{Name: "upd"}, 3, nil)
+	if err != nil || updated.Icon != "" {
+		t.Fatalf("clear icon = %q %v", updated.Icon, err)
 	}
 }
 

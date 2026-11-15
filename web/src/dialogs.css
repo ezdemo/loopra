@@ -46,6 +46,17 @@
 .agent-editor-error .settings-error { margin: 0; }
 .agent-editor-delete { margin-right: auto; }
 
+.agent-icon-editor { display: flex; flex-direction: column; gap: .375rem; }
+.agent-icon-label { color: var(--secondary); font-size: 0.75rem; }
+.agent-icon-row { display: flex; align-items: center; gap: .5rem; }
+.agent-icon-preview { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; flex-shrink: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--text); }
+.agent-icon-picker { display: flex; flex-direction: column; gap: .625rem; width: 17.5rem; padding: .75rem; }
+.agent-icon-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: .125rem; max-height: 11rem; overflow-y: auto; }
+.agent-icon-choice { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: var(--radius-sm); color: var(--secondary); }
+.agent-icon-choice:hover { background: var(--hover); color: var(--text); }
+.agent-icon-choice.selected { background: var(--selected); color: var(--blue); }
+.agent-icon-choice img { display: block; width: 1.375rem; height: 1.375rem; }
+
 .project-sessions-dialog { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; }
 .project-sessions-dialog .app-dialog-body { overflow-x: hidden; }
 .project-dialog-summary { padding: .875rem 1rem; background: var(--sidebar); border: 1px solid var(--line); border-radius: var(--radius-lg); }

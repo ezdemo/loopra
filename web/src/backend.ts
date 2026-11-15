@@ -10,8 +10,8 @@ export function acpStopMessage(reason?: string) {
   return ({ cancelled: '本次回复已停止', max_tokens: '已达到本轮输出上限，任务可能尚未完成', max_turn_requests: '已达到本轮请求次数上限，任务可能尚未完成', refusal: 'Agent 拒绝了本次请求' } as Record<string, string>)[reason || ''] || '';
 }
 export type ProjectLinks = { linkedProjectHashes: string[]; linkedProjectPaths: string[] };
-/** 自定义智能体定义，与 /api/custom-agents 的 JSON 一致。tools/skills 为 null 表示不限制。 */
-export type CustomAgent = { id: string; name: string; instruction: string; projectHash: string; tools: string[] | null; skills: string[] | null; createdAt: number; updatedAt: number };
+/** 自定义智能体定义，与 /api/custom-agents 的 JSON 一致。tools/skills 为 null 表示不限制；icon 为空使用默认图标，否则是 Emoji/内置图标名或 data:image/ URL。 */
+export type CustomAgent = { id: string; name: string; instruction: string; projectHash: string; icon?: string; tools: string[] | null; skills: string[] | null; createdAt: number; updatedAt: number };
 export type CustomAgentCatalogTool = { name: string; description: string; readOnly: boolean };
 export type CustomAgentCatalogSkill = { name: string; description: string; scope: string };
 export type CustomAgentCatalog = { chatTools: CustomAgentCatalogTool[]; projectTools: CustomAgentCatalogTool[]; skills: CustomAgentCatalogSkill[] };

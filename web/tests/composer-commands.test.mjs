@@ -38,7 +38,7 @@ async function sourceUrl(name, dependencies = {}) {
 const composerSource = await readFile(new URL('../src/components/Composer.tsx', import.meta.url), 'utf8');
 const selectorSource = await readFile(new URL('../src/components/ModelReasoningSelector.tsx', import.meta.url), 'utf8');
 const iconNames = [...new Set([...[composerSource, selectorSource].join('\n').matchAll(/import \{ ([^}]+) \} from 'lucide-react'/g)].flatMap(match => match[1].split(',').map(name => name.trim())))];
-const icons = dataUrl([...iconNames, 'Brain'].map(name => `export const ${name}=()=>null;`).join('\n'));
+const icons = dataUrl([...iconNames, 'Brain', 'Bot'].map(name => `export const ${name}=()=>null;`).join('\n'));
 const nextui = dataUrl(`
 const { createElement, forwardRef } = await import(${JSON.stringify(reactUrl)});
 export const Button = forwardRef(({children, onPress, isDisabled, isIconOnly, variant, color, size, className, ...props}, ref) =>
@@ -67,7 +67,12 @@ const selectorDependencies = {
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
 };
 const reasoning = await sourceUrl('components/ReasoningControl.tsx', selectorDependencies);
-const selector = await sourceUrl('components/ModelReasoningSelector.tsx', { ...selectorDependencies, './ReasoningControl': reasoning, './AgentIcon': await sourceUrl('components/AgentIcon.tsx') });
+const agentIcon = await sourceUrl('components/AgentIcon.tsx', {
+  'lucide-react': icons,
+  './plugin-icons': dataUrl('export const lucideIcons = {};'),
+  '../custom-agents': dataUrl(`export const isAgentIconImage = icon => icon.startsWith('data:image/');`),
+});
+const selector = await sourceUrl('components/ModelReasoningSelector.tsx', { ...selectorDependencies, './ReasoningControl': reasoning, './AgentIcon': agentIcon });
 const mcpControls = await sourceUrl('components/AgentMcpControls.tsx', {
   '@nextui-org/react': nextui, 'lucide-react': icons,
   './RemoteControls': await sourceUrl('components/RemoteControls.tsx', { '@nextui-org/react': nextui }),
