@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Loopra — 面向本地代码库的 AI 编码代理与工作台</title>
-  <meta name="description" content="Loopra 是面向本地代码库的 AI 编码代理与工作台。它持续推理、调用工具、保留会话，也可接入 Claude Code、Codex、Pi 和 DeepSeek Harness。Web 与桌面打开同一套界面。">
+  <meta name="description" content="Loopra 是面向本地代码库的 AI 编码代理与工作台。它持续推理、调用工具、保留会话，也可接入 Claude Code、Codex 和 Devin。Web 与桌面打开同一套界面。">
   <meta name="theme-color" content="#ffffff">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
   <script>
@@ -95,7 +95,7 @@
       <p class="hero-tagline" data-i18n="hero.tagline">持续推理 · 调用工具 · 保留会话 · Web 与桌面工作台</p>
       <p class="hero-desc" data-i18n="hero.desc">
         Loopra 把一次编码任务收成一条循环：阅读项目，调用受控工具，把结果收回来再推理，直到完成，或停在需要你决定的地方。
-        新建会话默认使用 Loopra Native，也可以改接 Claude Code、Codex、Pi 或 DeepSeek Harness。
+        新建会话默认使用 Loopra Native，也可以改接 Claude Code、Codex 或 Devin。
         Web 与桌面打开同一套界面，配置和会话与 Loopra 共用 <code>~/.loopra</code>。
       </p>
 
@@ -256,8 +256,7 @@
             <tr><td>Loopra Native</td><td data-i18n="agents.native">内置引擎。模型渠道、工具、技能、子代理、计划和审批都由 Loopra 提供。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">架构说明 ↗</a></td></tr>
             <tr><td>Claude Code</td><td data-i18n="agents.claude">需要本机 Node.js 与 <code>@agentclientprotocol/claude-agent-acp</code>，并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/README.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
             <tr><td>Codex</td><td data-i18n="agents.codex">需要本机 Node.js 与 <code>@agentclientprotocol/codex-acp</code>，并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/README.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
-            <tr><td>Pi</td><td data-i18n="agents.pi">需要本机 Node.js 与 <code>pi-acp</code>，并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/README.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
-            <tr><td>DeepSeek Harness</td><td data-i18n="agents.dsh">需要本机 Node.js 与 <code>@deepseek-ai/dsh</code>，并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/README.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
+            <tr><td>Devin</td><td data-i18n="agents.devin">需要本机安装的 <code>devin</code> CLI（无需 Node 适配器），并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/README.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
           </tbody>
         </table>
       </div>

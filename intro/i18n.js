@@ -2,7 +2,7 @@
 window.LOOPRA_I18N_EN = {
   /* 页面 */
   'doc.title': "Loopra — AI Coding Agent & Workbench for Local Codebases",
-  'doc.description': "Loopra is an AI coding agent and workbench for local codebases. It reasons, calls tools and keeps sessions, and can also run Claude Code, Codex, Pi and DeepSeek Harness. Web and desktop open the same interface.",
+  'doc.description': "Loopra is an AI coding agent and workbench for local codebases. It reasons, calls tools and keeps sessions, and can also run Claude Code, Codex and Devin. Web and desktop open the same interface.",
 
   /* 无障碍标签 */
   'label.themeToggle': 'Toggle theme',
@@ -21,7 +21,7 @@ window.LOOPRA_I18N_EN = {
   /* Hero */
   'hero.badge': "<span class=\"dot\"></span>AI coding agent & workbench for local codebases",
   'hero.tagline': "Continuous reasoning · Tool calls · Sessions that stay · Web & desktop",
-  'hero.desc': "Loopra turns a coding task into a loop: read the project, call controlled tools, take the result back, and reason again until the work is done or a decision is needed. New sessions start on Loopra Native, or switch to Claude Code, Codex, Pi or DeepSeek Harness. Web and desktop open the same interface, and configuration and sessions stay in <code>~/.loopra</code> alongside Loopra.",
+  'hero.desc': "Loopra turns a coding task into a loop: read the project, call controlled tools, take the result back, and reason again until the work is done or a decision is needed. New sessions start on Loopra Native, or switch to Claude Code, Codex or Devin. Web and desktop open the same interface, and configuration and sessions stay in <code>~/.loopra</code> alongside Loopra.",
   'hero.ctaQuickstart': 'Quick Start',
   'hero.ctaDownload': 'Download Desktop',
   'hero.termTitle': 'Loopra Native · Illustrative execution flow',
@@ -207,8 +207,7 @@ window.LOOPRA_I18N_EN = {
   'agents.native': "The built-in engine. Model channels, tools, skills, sub-agents, plans and approval all come from Loopra.",
   'agents.claude': "Needs local Node.js and <code>@agentclientprotocol/claude-agent-acp</code>, plus local authentication.",
   'agents.codex': "Needs local Node.js and <code>@agentclientprotocol/codex-acp</code>, plus local authentication.",
-  'agents.pi': "Needs local Node.js and <code>pi-acp</code>, plus local authentication.",
-  'agents.dsh': "Needs local Node.js and <code>@deepseek-ai/dsh</code>, plus local authentication.",
+  'agents.devin': "Needs the locally installed <code>devin</code> CLI (no Node adapter), plus local authentication.",
   'agents.note': "External engines do what their adapters can do. <code>GET /api/agent-engines</code> reports whether each one is available. Native model channels and approval do not override an external engine. Requirements and schedules run on Native. <code>loopra acp</code> also exposes Loopra itself to an external editor.",
   'common.copy': 'Copy'
 };

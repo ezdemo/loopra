@@ -41,7 +41,7 @@ Loopra 把一次编码任务收成一条循环：阅读项目上下文，搜索�
 
 它与旧版 Java Loopra 读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。插件从 npm 包或 GitHub 地址安装，由 [moejs](https://github.com/MoeForge/moejs) 执行，见[插件](#插件)。
 
-新建会话默认使用 Loopra Native。也可以改接 Claude Code、Codex、Pi 或 DeepSeek Harness。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
+新建会话默认使用 Loopra Native。也可以改接 Claude Code、Codex 或 Devin。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
 
 ```text
 任务 → 模型推理 → 工具调用 → 结果反馈 → 模型推理 → … → 完成
@@ -237,7 +237,7 @@ loopra acp        # 在标准输入输出上提供 ACP，不启动网页
     </td>
     <td width="50%" valign="top">
       <strong>外部引擎</strong><br/>
-      新建会话可以改用 Claude Code、Codex、Pi 或 DeepSeek Harness。适配器装在后端所在机器上，并完成本机认证。
+      新建会话可以改用 Claude Code、Codex 或 Devin。适配器装在后端所在机器上，并完成本机认证。
     </td>
   </tr>
 </table>
@@ -254,7 +254,7 @@ flowchart TB
   API --> Ext[外部 Agent]
   ACPsrv --> Native
   Native --> Tools["文件、rg、Shell、技能、MCP"]
-  Ext --> Adapters["Claude Code、Codex、Pi、DeepSeek"]
+  Ext --> Adapters["Claude Code、Codex、Devin"]
   Native --> Home["JSONL 会话"]
   Tools --> Repo[本机项目]
   Adapters --> Repo
@@ -531,7 +531,7 @@ loopra acp
 
 工作台里的 Loopra Native 会话不会拉起这条命令。
 
-在工作台中选择外部引擎时，本进程以 ACP v1 stdio 客户端驱动本机适配器。需要已安装的 Node.js，以及对应适配器：`@agentclientprotocol/claude-agent-acp`、`@agentclientprotocol/codex-acp`、`pi-acp`、`@deepseek-ai/dsh`。`GET /api/agent-engines` 会报告每个引擎的可用性与缺失原因。下面的环境变量可覆盖自动探测：
+在工作台中选择外部引擎时，本进程以 ACP v1 stdio 客户端驱动本机适配器。需要已安装的 Node.js，以及对应适配器：`@agentclientprotocol/claude-agent-acp`、`@agentclientprotocol/codex-acp`；Devin 使用独立安装的 `devin` CLI，无需 Node 适配器。`GET /api/agent-engines` 会报告每个引擎的可用性与缺失原因。下面的环境变量可覆盖自动探测：
 
 | 环境变量 | 作用 |
 |---|---|
@@ -539,8 +539,7 @@ loopra acp
 | `CLAUDE_CODE_EXECUTABLE` | Claude Code 可执行文件。 |
 | `LOOPRA_CLAUDE_ACP_SCRIPT` | Claude ACP 适配脚本。 |
 | `LOOPRA_CODEX_ACP_SCRIPT` | Codex ACP 适配脚本。 |
-| `LOOPRA_PI_ACP_SCRIPT` | Pi ACP 适配脚本。 |
-| `LOOPRA_DSH_ACP_SCRIPT` | DeepSeek Harness ACP 适配脚本。 |
+| `LOOPRA_DEVIN_EXECUTABLE` | Devin CLI 可执行文件。 |
 
 启动外部 Agent 时会把 `127.0.0.1`、`localhost` 和 `::1` 合并进子进程的 `NO_PROXY`，避免继承来的 `HTTP(S)_PROXY` 把发往本机推理网关的请求转走。会话通过 `.meta` 的 `agentId` 绑定引擎，ACP 转录写入同一份 `.jsonl` / `.events`。
 

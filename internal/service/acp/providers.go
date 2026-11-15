@@ -1,7 +1,6 @@
 package acp
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,8 +39,6 @@ type Provider struct {
 var Providers = []Provider{
 	{ID: "claude-code", Name: "Claude Code", Detect: detectClaude, Prepare: prepareClaude},
 	{ID: "codex", Name: "Codex", Detect: detectCodex, Prepare: prepareCodex},
-	{ID: "pi", Name: "Pi", Detect: detectPi, Prepare: preparePi},
-	{ID: "dsh", Name: "DeepSeek Harness", Detect: detectDSH, Prepare: prepareDSH},
 	{ID: "devin", Name: "Devin", Detect: detectDevin, Prepare: prepareDevin, Credential: devinCredential},
 }
 
@@ -206,54 +203,6 @@ func findAdapter(roots []string, override string, packages ...string) string {
 	return ""
 }
 
-// findNpmBin 读取包的 package.json bin 声明，定位入口脚本。
-func findNpmBin(roots []string, override, command string, packages ...string) string {
-	if override != "" {
-		if regularFile(override) {
-			return override
-		}
-		return ""
-	}
-	home, _ := os.UserHomeDir()
-	candidates := append([]string(nil), roots...)
-	candidates = append(candidates, filepath.Join(home, ".npm-global", "lib"))
-	for _, root := range candidates {
-		for _, base := range []string{root, filepath.Clean(filepath.Join(root, "..", "lib"))} {
-			for _, name := range packages {
-				pkg := filepath.Join(base, "node_modules", filepath.FromSlash(name))
-				manifest, err := os.ReadFile(filepath.Join(pkg, "package.json"))
-				if err != nil {
-					continue
-				}
-				var meta struct {
-					Bin any `json:"bin"`
-				}
-				if json.Unmarshal(manifest, &meta) != nil {
-					continue
-				}
-				entry := ""
-				switch value := meta.Bin.(type) {
-				case string:
-					entry = value
-				case map[string]any:
-					if text, ok := value[command].(string); ok {
-						entry = text
-					}
-				}
-				if entry == "" {
-					continue
-				}
-				script := filepath.Clean(filepath.Join(pkg, filepath.FromSlash(entry)))
-				if strings.HasPrefix(script, pkg) && regularFile(script) {
-					abs, _ := filepath.Abs(script)
-					return abs
-				}
-			}
-		}
-	}
-	return ""
-}
-
 // findClaude 定位 Claude Code CLI（原生可执行文件或 npm 包声明）。
 func findClaude(roots []string) string {
 	if override := envValue("CLAUDE_CODE_EXECUTABLE"); override != "" {
@@ -409,91 +358,6 @@ func prepareCodex(cwd string) (Launch, error) {
 		return Launch{}, fmt.Errorf("Codex ACP 不可用: %s", detectCodex().Detail)
 	}
 	return Launch{Command: []string{install.node, install.adapter}, Env: map[string]string{"PATH": prependPath(install.node)}}, nil
-}
-
-func detectPi() Availability {
-	roots := searchRoots()
-	node := findNode(roots)
-	roots = withNodeRoots(roots, node)
-	install := installation{node: node, adapter: findNpmBin(roots, envValue("LOOPRA_PI_ACP_SCRIPT"), "pi-acp", "pi-acp"), extra: findPiCLI(roots)}
-	switch {
-	case install.node == "":
-		return Availability{Detail: "后端未找到 Node.js，请安装 Node.js 22+"}
-	case install.extra == "":
-		return Availability{Detail: "未找到 Pi CLI，请安装 @earendil-works/pi-coding-agent，或设置 PI_ACP_PI_COMMAND"}
-	case install.adapter == "":
-		return Availability{Detail: "未找到 Pi ACP 适配器，请安装 pi-acp"}
-	}
-	return Availability{Available: true, Detail: "使用本机 Pi 登录和配置；pi-acp 暂不转发工作台 MCP"}
-}
-
-func findPiCLI(roots []string) string {
-	command := envValue("PI_ACP_PI_COMMAND")
-	if command != "" && filepath.IsAbs(command) {
-		return executable(command)
-	}
-	names := []string{"pi"}
-	if windows() {
-		names = []string{"pi.exe", "pi.cmd", "pi.bat"}
-	}
-	if command != "" {
-		names = []string{command}
-	}
-	for _, root := range roots {
-		for _, name := range names {
-			if found := executable(filepath.Join(root, name)); found != "" {
-				return found
-			}
-		}
-	}
-	return ""
-}
-
-func preparePi(cwd string) (Launch, error) {
-	roots := searchRoots()
-	node := findNode(roots)
-	roots = withNodeRoots(roots, node)
-	install := installation{node: node, adapter: findNpmBin(roots, envValue("LOOPRA_PI_ACP_SCRIPT"), "pi-acp", "pi-acp"), extra: findPiCLI(roots)}
-	if !install.available() {
-		return Launch{}, fmt.Errorf("Pi ACP 不可用: %s", detectPi().Detail)
-	}
-	return Launch{
-		Command: []string{install.node, install.adapter},
-		Env:     map[string]string{"PATH": prependPath(install.node), "PI_ACP_PI_COMMAND": install.extra},
-	}, nil
-}
-
-func detectDSH() Availability {
-	roots := searchRoots()
-	node := findNode(roots)
-	roots = withNodeRoots(roots, node)
-	install := installation{node: node, adapter: findNpmBin(roots, envValue("LOOPRA_DSH_ACP_SCRIPT"), "dsh", "@deepseek-ai/dsh")}
-	switch {
-	case install.node == "":
-		return Availability{Detail: "后端未找到 Node.js，请安装符合 DSH 版本要求的 Node.js"}
-	case install.adapter == "":
-		return Availability{Detail: "未找到 DeepSeek Harness，请安装提供 ACP profile 的 @deepseek-ai/dsh"}
-	}
-	return Availability{Available: true, Detail: "使用本机 DSH 配置；需要提供 ACP profile 的版本"}
-}
-
-// dshStdioPreload 把 console 输出改到 stderr，避免插件日志污染 ACP 的 stdout。
-var dshStdioPreload = "data:text/javascript;base64," + base64.StdEncoding.EncodeToString([]byte(
-	"import { Console } from 'node:console';\n"+
-		"globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr });\n"))
-
-func prepareDSH(cwd string) (Launch, error) {
-	roots := searchRoots()
-	node := findNode(roots)
-	roots = withNodeRoots(roots, node)
-	install := installation{node: node, adapter: findNpmBin(roots, envValue("LOOPRA_DSH_ACP_SCRIPT"), "dsh", "@deepseek-ai/dsh")}
-	if !install.available() {
-		return Launch{}, fmt.Errorf("DeepSeek Harness ACP 不可用: %s", detectDSH().Detail)
-	}
-	return Launch{
-		Command: []string{install.node, "--import", dshStdioPreload, install.adapter, "--profile", "acp"},
-		Env:     map[string]string{"PATH": prependPath(install.node)},
-	}, nil
 }
 
 // findDevin 定位 Devin CLI：它是原生二进制，`devin acp` 即 ACP 服务，

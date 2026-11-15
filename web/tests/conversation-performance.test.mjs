@@ -127,7 +127,7 @@ test('mobile consumers omit unavailable history actions while keeping the shared
   } finally { await view.close(); }
 });
 
-for (const agentId of ['pi', 'dsh']) {
+for (const agentId of ['unknown-acp']) {
   test(`${agentId} does not offer historical branching without adapter support`, async () => {
     const view = await mount({ id: `${agentId}-session`, kind: 'remote', agentId, messages: [message('answer')] });
     try {

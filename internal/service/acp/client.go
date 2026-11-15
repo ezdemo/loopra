@@ -537,7 +537,7 @@ func (c *Client) LoadSession(ctx context.Context, sessionID, cwd string, dirs []
 	return result, nil
 }
 
-// ResumeSession 恢复会话但不重放历史（DSH 等仅支持 resume 的 Agent）。
+// ResumeSession 恢复会话但不重放历史（仅支持 resume 的 Agent）。
 func (c *Client) ResumeSession(ctx context.Context, sessionID, cwd string, dirs []string) (SessionSetupResult, error) {
 	c.setReplaying(true)
 	defer c.setReplaying(false)

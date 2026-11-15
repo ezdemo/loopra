@@ -53,7 +53,7 @@ OpenAPI 来源支持带鉴权的 JSON/YAML 下载、持久化缓存、刷新/移
 
 桌面应用检测、打开工作区、原生选择器、宠物/设置、发布检查与后台更新任务均有执行实现。更新器测试使用无害的本地脚本；内嵌安装脚本仅做语法检查。
 
-外部 ACP 引擎由 Go 原生执行：`internal/service/acp` 实现了 ACP v1 的 stdio JSON-RPC 传输、`initialize/session.new/load/resume/prompt/cancel/set_mode/set_model/set_config_option`、`session/update` 归约、`session/request_permission` 审批桥接与进程树回收；`internal/controller/acp_runtime.go` 负责把更新转换为 Loopra 的 `content/reasoning/tool_call/tool_result/file_changes/acp_plan/acp_commands/config_options/usage/complete` 事件并写入同一套会话转录。探测支持 claude-code、codex、pi、dsh、devin 五个提供方。
+外部 ACP 引擎由 Go 原生执行：`internal/service/acp` 实现了 ACP v1 的 stdio JSON-RPC 传输、`initialize/session.new/load/resume/prompt/cancel/set_mode/set_model/set_config_option`、`session/update` 归约、`session/request_permission` 审批桥接与进程树回收；`internal/controller/acp_runtime.go` 负责把更新转换为 Loopra 的 `content/reasoning/tool_call/tool_result/file_changes/acp_plan/acp_commands/config_options/usage/complete` 事件并写入同一套会话转录。探测支持 claude-code、codex、devin 三个提供方。
 
 原生插件从 npm 包或 GitHub 地址安装，由 moejs 执行。配置 `LOOPRA_JAVA_BACKEND_URL` 后，完整的 `/api` 与 `/mcp` 执行上下文会一并委派，本进程不加载原生插件。`LOOPRA_JAVA_BACKEND_KEY` 提供其密钥。聊天、审批、会话、历史与引擎管理因此共享同一个后端，且 Go 调度器不会启动。鉴权与即时 SSE 转发已测试。
 

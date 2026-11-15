@@ -137,8 +137,8 @@ test('the agent list is the only scrolling part of the menu', () => {
 });
 
 for (const engine of [
-  { id: 'pi', name: 'Pi', available: false, detail: '未找到 Pi CLI', dependency: 'pi-coding-agent' },
-  { id: 'dsh', name: 'DeepSeek Harness', available: false, detail: '未找到 DeepSeek Harness', dependency: '@deepseek-ai/dsh' },
+  { id: 'codex', name: 'Codex', available: false, detail: '未找到 Codex ACP 适配器', dependency: '@agentclientprotocol/codex-acp' },
+  { id: 'devin', name: 'Devin', available: false, detail: '后端未找到 Devin CLI', dependency: 'cli.devin.ai' },
 ]) {
   test(`${engine.name} row and install button open instructions without switching Agents`, async () => {
     const view = await mount({ top: 400, bottom: 420 }, 800, {

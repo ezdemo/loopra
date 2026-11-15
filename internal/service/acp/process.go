@@ -152,7 +152,7 @@ func withLoopbackHosts(noProxy string) string {
 	return strings.Join(entries, ",")
 }
 
-// commandLine 渲染启动命令；DSH 的 --import data URL 很长，截断避免刷屏。
+// commandLine 渲染启动命令；过长的参数截断避免刷屏。
 func commandLine(command []string) string {
 	line := strings.Join(command, " ")
 	if len(line) > 240 {

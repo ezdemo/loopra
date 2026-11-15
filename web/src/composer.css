@@ -81,7 +81,6 @@
 .composer-agent-icon { flex: 0 0 1rem; width: 1rem; height: 1rem; color: var(--text); }
 .composer-agent-icon[data-agent="native"] { color: var(--blue); }
 .composer-agent-icon[data-agent="claude-code"] { color: #d97757; }
-.composer-agent-icon[data-agent="dsh"] { color: #4d6bfe; }
 .composer-agent-icon[data-agent="devin"] { color: #6d5df6; }
 .composer-model-reasoning > .model-reasoning-divider { flex-shrink: 0; color: var(--muted); }
 .composer-model-reasoning > .model-reasoning-effort { flex-shrink: 0; max-width: 6rem; }

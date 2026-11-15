@@ -32,7 +32,6 @@ export default function AgentMcpControls({ api, agentId, workspaceHash, connecte
   }
 
   return <div className="composer-mcp-controls">
-    {agentId === 'pi' && <p className="composer-note">Pi 暂不支持 MCP 透传。</p>}
     <RemoteState loading={state.loading} error={state.error} />
     {error && <p className="settings-error" role="alert">{error}</p>}
     {!connected ? <p className="composer-empty">连接服务后管理 MCP</p> : !workspaceHash ? <p className="composer-empty">请先选择项目</p> : <>
