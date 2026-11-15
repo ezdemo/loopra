@@ -151,10 +151,11 @@ test('内置智能体图标：20 个、key 唯一、SVG 自包含且可经 <img>
   for (const icon of agentBuiltinIcons) {
     assert.match(icon.key, /^[a-z0-9]+(?:-[a-z0-9]+)*$/, icon.key);
     assert.ok(icon.label, `${icon.key} 需要中文名`);
-    assert.match(icon.svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 64 64">[\s\S]+<\/svg>$/, icon.key);
+    assert.match(icon.svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 128 128"[\s\S]+<\/svg>$/, icon.key);
     assert.ok(!/[^\x20-\x7e]/.test(icon.svg), `${icon.key} 含非 ASCII 字符`);
-    assert.ok(!/(script|currentColor|on[a-z]+=|href=|url\()/i.test(icon.svg), `${icon.key} 含脚本/外链/currentColor`);
-    assert.ok(icon.svg.length < 2048, `${icon.key} 超过 2KB`);
+    // DiceBear 生成的 mask/use/clipPath 只引用内部 #id；仍禁止脚本、事件、currentColor 与外部资源。
+    assert.ok(!/(script|currentColor|on[a-z]+=|href="(?!#)|href='(?!#)|url\((?!#))/i.test(icon.svg), `${icon.key} 含脚本/外链/currentColor`);
+    assert.ok(icon.svg.length < 8192, `${icon.key} 超过 8KB`);
     const data = agentIconDataUrl(icon.svg);
     assert.ok(data.startsWith('data:image/svg+xml;base64,'), icon.key);
     assert.equal(Buffer.from(data.slice('data:image/svg+xml;base64,'.length), 'base64').toString('utf8'), icon.svg, `${icon.key} data URL 往返`);

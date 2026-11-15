@@ -11,6 +11,11 @@ import { agentBuiltinIcons, agentIconDataUrl } from '../agent-icons';
 
 const builtinAgentIcons = agentBuiltinIcons.map(item => ({ ...item, dataUrl: agentIconDataUrl(item.svg) }));
 
+/** 新建草稿随机预置一个内置头像，取值与图标选择器一致，用户仍可改选或恢复默认。 */
+function newAgentDraft(): AgentDraft {
+  return { ...emptyAgentDraft, icon: builtinAgentIcons[Math.floor(Math.random() * builtinAgentIcons.length)].dataUrl };
+}
+
 type CatalogState = { loading: boolean; error: string; data?: CustomAgentCatalog };
 
 /** 能力分组的标题行：能力名 + 生效摘要（默认=全部可用，自定义=已选数）+ 模式切换。 */
@@ -33,7 +38,7 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
   onSaved: (saved: CustomAgent) => void | Promise<void>;
   onDeleted?: (agent: CustomAgent) => void | Promise<void>;
 }) {
-  const [draft, setDraft] = useState<AgentDraft>(() => agent ? draftFromAgent(agent) : emptyAgentDraft);
+  const [draft, setDraft] = useState<AgentDraft>(() => agent ? draftFromAgent(agent) : newAgentDraft());
   const [catalog, setCatalog] = useState<CatalogState>({ loading: true, error: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
