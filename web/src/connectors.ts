@@ -23,6 +23,8 @@ export type ConnectorItem = {
   helpUrl?: string;
   requires?: string[];
   requirementsMet: boolean;
+  /** false 表示当前工作区的智能体清单不含该连接器。 */
+  allowed?: boolean;
 };
 
 export type ConnectorCategory = { id: string; name: string };
@@ -34,7 +36,7 @@ export type ConnectorsList = {
 };
 
 export type ConnectorFlowView = { status: 'pending' | 'connected' | 'failed' | 'cancelled'; error?: string };
-export type ConnectorSessionItem = { id: string; name: string; enabled: boolean; override?: boolean; custom?: boolean };
+export type ConnectorSessionItem = { id: string; name: string; enabled: boolean; override?: boolean; custom?: boolean; allowed?: boolean };
 
 // filterConnectors 按分类与搜索词（名称、说明、能力）过滤。
 export function filterConnectors(connectors: ConnectorItem[], category: string, query: string): ConnectorItem[] {
@@ -127,6 +129,7 @@ export type CustomConnector = {
   command?: string;
   disallowedTools?: number;
   authStatus?: CustomAuthStatus;
+  allowed?: boolean;
 };
 
 // installedCustomConnectors 过滤「我的内容」里的自定义卡片：

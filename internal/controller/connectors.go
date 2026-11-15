@@ -10,6 +10,8 @@ import (
 
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/service/connector"
+	"github.com/ezdemo/looprax/internal/service/customagent"
+	sessfiles "github.com/ezdemo/looprax/internal/service/session"
 )
 
 // connectorsController 分发 /api/connectors。
@@ -39,6 +41,8 @@ func (s *Controller) connectorsController(w http.ResponseWriter, r *http.Request
 // 状态；同时把用户自配的 MCP 服务列为 custom。
 func (s *Controller) connectorsList(w http.ResponseWriter, r *http.Request) {
 	catalog := s.connectors.Catalog()
+	// 带 workspaceHash 的调用（如智能体工作区的新会话）附带 allowed 标记。
+	profile := s.connectorSessionProfile(r.URL.Query().Get("workspaceHash"), nil)
 	type fieldView struct {
 		Key    string `json:"key"`
 		Label  string `json:"label"`
@@ -61,7 +65,7 @@ func (s *Controller) connectorsList(w http.ResponseWriter, r *http.Request) {
 		case !met:
 			status = "missing_requirement"
 		}
-		connectors = append(connectors, map[string]any{
+		entry := map[string]any{
 			"id": conn.ID, "name": conn.Name, "category": conn.Category,
 			"color": conn.Color, "description": conn.Description,
 			"capabilities": conn.Capabilities, "docsUrl": conn.DocsURL,
@@ -70,7 +74,11 @@ func (s *Controller) connectorsList(w http.ResponseWriter, r *http.Request) {
 			"fields": fields, "configuredFields": view.ConfiguredFields,
 			"helpUrl": conn.Auth.HelpURL, "requires": conn.Requires,
 			"requirementsMet": met,
-		})
+		}
+		if !agentConnectorAllowed(profile, conn.ID) {
+			entry["allowed"] = false
+		}
+		connectors = append(connectors, entry)
 	}
 	custom := []map[string]any{}
 	for _, server := range s.mcpView() {
@@ -86,6 +94,9 @@ func (s *Controller) connectorsList(w http.ResponseWriter, r *http.Request) {
 			entry["command"] = server.Command
 		} else {
 			entry["url"] = server.URL
+		}
+		if !agentConnectorAllowed(profile, server.Name) {
+			entry["allowed"] = false
 		}
 		custom = append(custom, entry)
 	}
@@ -218,15 +229,49 @@ func (s *Controller) connectorFlow(w http.ResponseWriter, r *http.Request, actio
 	writeOK(w, http.StatusOK, view)
 }
 
+// connectorSessionStore 返回会话所属工作区的会话文件存储；
+// workspaceHash 为空时沿用当前运行时的会话目录。
+func (s *Controller) connectorSessionStore(workspaceHash string) *sessfiles.Store {
+	if workspaceHash == "" {
+		return s.sessionFiles()
+	}
+	return sessfiles.Open(s.home, workspaceHash)
+}
+
+// connectorSessionProfile 解析会话生效的自定义智能体：智能体工作区由
+// 工作区身份决定，项目会话读 .meta 里的 customAgentId；meta 传 nil
+// 表示没有会话上下文（新会话列表只看工作区身份）。
+func (s *Controller) connectorSessionProfile(workspaceHash string, meta map[string]any) *customagent.Agent {
+	id := workspaceHash
+	if !customagent.IsID(id) {
+		if workspaceHash == "" && s.profile != nil {
+			return s.profile
+		}
+		id = strOr(meta, "customAgentId", "")
+	}
+	if !customagent.IsID(id) || s.agentStore == nil {
+		return nil
+	}
+	profile, err := s.agentStore.Get(id)
+	if err != nil {
+		return nil
+	}
+	return profile
+}
+
 // connectorSession 处理会话级连接器开关：
-// GET /api/connectors/session?sessionName=X；
-// PUT /api/connectors/session {sessionName, id, enabled|null}。
-// 覆盖保存在会话 .meta 的 connectors 键下。
+// GET /api/connectors/session?sessionName=X&workspaceHash=H；
+// PUT /api/connectors/session {sessionName, workspaceHash, id, enabled|null}。
+// 覆盖保存在会话 .meta 的 connectors 键下；allowed 为 false 表示
+// 智能体的连接器清单不含该服务，前端据此禁用开关。
 func (s *Controller) connectorSession(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
 		session := r.URL.Query().Get("sessionName")
-		overrides := s.connectorSessionOverrides(session)
+		store := s.connectorSessionStore(r.URL.Query().Get("workspaceHash"))
+		meta := store.ReadMeta(session)
+		overrides := connectorMetaOverrides(meta)
+		profile := s.connectorSessionProfile(r.URL.Query().Get("workspaceHash"), meta)
 		out := []map[string]any{}
 		for _, conn := range s.connectors.Catalog().Connectors {
 			view := s.connectors.View(conn.ID)
@@ -239,6 +284,10 @@ func (s *Controller) connectorSession(w http.ResponseWriter, r *http.Request) {
 			if override, ok := overrides[conn.ID]; ok {
 				entry["override"] = override
 				entry["enabled"] = override
+			}
+			if !agentConnectorAllowed(profile, conn.ID) {
+				entry["allowed"] = false
+				entry["enabled"] = false
 			}
 			out = append(out, entry)
 		}
@@ -259,14 +308,19 @@ func (s *Controller) connectorSession(w http.ResponseWriter, r *http.Request) {
 				entry["override"] = override
 				entry["enabled"] = override
 			}
+			if !agentConnectorAllowed(profile, server.Name) {
+				entry["allowed"] = false
+				entry["enabled"] = false
+			}
 			out = append(out, entry)
 		}
 		writeOK(w, http.StatusOK, out)
 	case http.MethodPut:
 		var body struct {
-			SessionName string `json:"sessionName"`
-			ID          string `json:"id"`
-			Enabled     *bool  `json:"enabled"`
+			SessionName   string `json:"sessionName"`
+			WorkspaceHash string `json:"workspaceHash"`
+			ID            string `json:"id"`
+			Enabled       *bool  `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionName == "" || body.ID == "" {
 			writeFail(w, http.StatusBadRequest, "请求格式不正确")
@@ -279,18 +333,29 @@ func (s *Controller) connectorSession(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s.sessionMetaUpdate(body.SessionName, func(meta map[string]any) {
-			overrides, _ := meta["connectors"].(map[string]any)
-			if overrides == nil {
-				overrides = map[string]any{}
-			}
-			if body.Enabled == nil {
-				delete(overrides, body.ID)
-			} else {
-				overrides[body.ID] = *body.Enabled
-			}
-			meta["connectors"] = overrides
-		})
+		store := s.connectorSessionStore(body.WorkspaceHash)
+		profile := s.connectorSessionProfile(body.WorkspaceHash, store.ReadMeta(body.SessionName))
+		if body.Enabled != nil && *body.Enabled && !agentConnectorAllowed(profile, body.ID) {
+			writeFail(w, http.StatusBadRequest, "该服务不在当前智能体的可用连接器内")
+			return
+		}
+		s.state.files.Lock()
+		defer s.state.files.Unlock()
+		meta := store.ReadMeta(body.SessionName)
+		overrides, _ := meta["connectors"].(map[string]any)
+		if overrides == nil {
+			overrides = map[string]any{}
+		}
+		if body.Enabled == nil {
+			delete(overrides, body.ID)
+		} else {
+			overrides[body.ID] = *body.Enabled
+		}
+		meta["connectors"] = overrides
+		if err := store.WriteMeta(body.SessionName, meta); err != nil {
+			writeFail(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		writeOK(w, http.StatusOK, map[string]any{"id": body.ID, "enabled": body.Enabled})
 	default:
 		writeFail(w, http.StatusMethodNotAllowed, "仅支持 GET 与 PUT")

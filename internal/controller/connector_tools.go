@@ -8,6 +8,7 @@ import (
 	"google.golang.org/adk/v2/tool/functiontool"
 
 	"github.com/ezdemo/looprax/internal/service/connector"
+	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/tools"
 	"github.com/ezdemo/looprax/internal/service/toolsearch"
 )
@@ -20,8 +21,26 @@ func connectorSessionName(ctx agentctx.Context) string {
 	return "default"
 }
 
-// connectorEffectiveEnabled 返回会话生效启用值：会话覆盖 ?? 全局 enabled。
+// agentConnectorAllowed 报告连接器是否在自定义智能体的允许清单内；
+// 智能体未配置清单（nil）时不限制。
+func agentConnectorAllowed(profile *customagent.Agent, id string) bool {
+	if profile == nil || profile.Connectors == nil {
+		return true
+	}
+	for _, allowed := range profile.Connectors {
+		if allowed == id {
+			return true
+		}
+	}
+	return false
+}
+
+// connectorEffectiveEnabled 返回会话生效启用值：智能体清单外一律
+// 不可用，否则为会话覆盖 ?? 全局 enabled。
 func (s *Controller) connectorEffectiveEnabled(session, id string) bool {
+	if !agentConnectorAllowed(s.turnProfile(session), id) {
+		return false
+	}
 	view := s.connectors.View(id)
 	if override, ok := s.connectorSessionOverrides(session)[id]; ok {
 		return override
@@ -93,8 +112,12 @@ func (s *Controller) installConnectorTools() {
 		Description: "列出可连接的服务（地图、文档、邮件等）及其状态。需要查找可用服务、判断服务是否已连接或本会话已启用时使用。",
 	}, func(ctx agentctx.Context, in struct{}) (map[string]any, error) {
 		session := connectorSessionName(ctx)
+		profile := s.turnProfile(session)
 		out := []map[string]any{}
 		for _, conn := range s.connectors.Catalog().Connectors {
+			if !agentConnectorAllowed(profile, conn.ID) {
+				continue
+			}
 			status := s.connectorStatusFor(conn)
 			capabilities := conn.Capabilities
 			if capabilities == nil {
@@ -110,6 +133,9 @@ func (s *Controller) installConnectorTools() {
 		overrides := s.connectorSessionOverrides(session)
 		for _, server := range s.mcpView() {
 			if _, builtin := s.connectors.Catalog().Find(server.Name); builtin {
+				continue
+			}
+			if !agentConnectorAllowed(profile, server.Name) {
 				continue
 			}
 			status := "connected"
@@ -144,6 +170,9 @@ func (s *Controller) installConnectorTools() {
 		conn, ok := s.connectors.Catalog().Find(in.ConnectorID)
 		if !ok {
 			return map[string]any{"connected": false, "error": "服务不存在"}, nil
+		}
+		if !agentConnectorAllowed(s.turnProfile(session), conn.ID) {
+			return map[string]any{"connected": false, "error": "该服务不在当前智能体的可用连接器内"}, nil
 		}
 		status := s.connectorStatusFor(conn)
 		if status == "connected" && s.connectorEffectiveEnabled(session, conn.ID) {
@@ -208,6 +237,9 @@ func (s *Controller) installConnectorTools() {
 			}
 			custom = true
 			id = server.Name
+		}
+		if !agentConnectorAllowed(s.turnProfile(connectorSessionName(ctx)), id) {
+			return nil, fmt.Errorf("该服务不在当前智能体的可用连接器内")
 		}
 		if in.Scope == "global" {
 			if custom {

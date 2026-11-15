@@ -13,6 +13,15 @@ const builtinAgentIcons = agentBuiltinIcons.map(item => ({ ...item, dataUrl: age
 
 type CatalogState = { loading: boolean; error: string; data?: CustomAgentCatalog };
 
+/** 能力分组的标题行：能力名 + 生效摘要（默认=全部可用，自定义=已选数）+ 模式切换。 */
+function CapabilityHeader({ title, mode, count, onMode }: { title: string; mode: 'default' | 'custom'; count: number; onMode: (mode: 'default' | 'custom') => void }) {
+  return <div className="agent-editor-capability">
+    <strong className="agent-editor-capability-name">{title}</strong>
+    <span className="agent-editor-capability-summary">{mode === 'custom' ? `已选 ${count} 项` : '全部可用'}</span>
+    <SettingSegments label={title} options={['默认', '自定义']} value={mode === 'custom' ? '自定义' : '默认'} onChange={value => onMode(value === '自定义' ? 'custom' : 'default')} />
+  </div>;
+}
+
 /** 新建/编辑自定义智能体。工具与技能都沿用「默认 = null，自定义 = 显式列表」语义。 */
 export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, onClose, onSaved, onDeleted }: {
   api: LoopraClient;
@@ -47,6 +56,7 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
   const tools = catalogToolsFor(catalog.data, draft.projectHash);
   const toolGroups = groupCatalogTools(tools);
   const skills = catalog.data?.skills ?? [];
+  const connectors = catalog.data?.connectors ?? [];
 
   function changeProject(projectHash: string) {
     setDraft(current => ({
@@ -138,7 +148,7 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
               options={[{ value: '', label: '不绑定项目' }, ...workspaces.map(item => ({ value: item.hash, label: item.displayName || item.name }))]}
               onChange={changeProject} />
             <div className="agent-editor-section">
-              <SettingSegments label="工具" options={['默认', '自定义']} value={draft.toolsMode === 'custom' ? '自定义' : '默认'} onChange={value => setDraft(current => ({ ...current, toolsMode: value === '自定义' ? 'custom' : 'default' }))} />
+              <CapabilityHeader title="工具" mode={draft.toolsMode} count={draft.tools.length} onMode={mode => setDraft(current => ({ ...current, toolsMode: mode }))} />
               {draft.toolsMode === 'custom' && (catalog.loading
                 ? <div className="agent-editor-loading" role="status" aria-label="正在加载工具目录"><LoadingSkeleton className="skeleton-agent-option" /><LoadingSkeleton className="skeleton-agent-option" /></div>
                 : catalog.error
@@ -153,7 +163,7 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
                   </div>)}
             </div>
             <div className="agent-editor-section">
-              <SettingSegments label="技能" options={['默认', '自定义']} value={draft.skillsMode === 'custom' ? '自定义' : '默认'} onChange={value => setDraft(current => ({ ...current, skillsMode: value === '自定义' ? 'custom' : 'default' }))} />
+              <CapabilityHeader title="技能" mode={draft.skillsMode} count={draft.skills.length} onMode={mode => setDraft(current => ({ ...current, skillsMode: mode }))} />
               {draft.skillsMode === 'custom' && (catalog.loading
                 ? <div className="agent-editor-loading" role="status" aria-label="正在加载技能目录"><LoadingSkeleton className="skeleton-agent-option" /><LoadingSkeleton className="skeleton-agent-option" /></div>
                 : catalog.error
@@ -161,6 +171,16 @@ export default function AgentEditor({ api, agent, workspaces, sessionCount = 0, 
                   : skills.length ? <CheckboxGroup label="可用技能" className="agent-editor-group" size="sm" value={draft.skills.filter(scope => skills.some(skill => skill.scope === scope))} onValueChange={selected => setDraft(current => ({ ...current, skills: selected }))}>
                     {skills.map(skill => <Checkbox key={skill.scope} value={skill.scope} classNames={{ label: 'agent-editor-option-label' }} isDisabled={busy}><strong>{skill.name}</strong>{skill.description && <small>{skill.description}</small>}</Checkbox>)}
                   </CheckboxGroup> : <p className="composer-empty">暂无可用技能</p>)}
+            </div>
+            <div className="agent-editor-section">
+              <CapabilityHeader title="连接器" mode={draft.connectorsMode} count={draft.connectors.length} onMode={mode => setDraft(current => ({ ...current, connectorsMode: mode }))} />
+              {draft.connectorsMode === 'custom' && (catalog.loading
+                ? <div className="agent-editor-loading" role="status" aria-label="正在加载连接器目录"><LoadingSkeleton className="skeleton-agent-option" /><LoadingSkeleton className="skeleton-agent-option" /></div>
+                : catalog.error
+                  ? <div className="agent-editor-error"><p role="alert" className="settings-error">{catalog.error}</p><Button size="sm" variant="flat" onPress={loadCatalog}>重试</Button></div>
+                  : connectors.length ? <CheckboxGroup label="可用连接器" className="agent-editor-group" size="sm" value={draft.connectors.filter(id => connectors.some(item => item.id === id))} onValueChange={selected => setDraft(current => ({ ...current, connectors: selected }))}>
+                    {connectors.map(item => <Checkbox key={item.id} value={item.id} classNames={{ label: 'agent-editor-option-label' }} isDisabled={busy}><strong>{item.name}</strong><small>{item.custom ? '自定义 MCP 服务' : item.status === 'needs_reauth' ? '需重新授权' : item.description}</small></Checkbox>)}
+                  </CheckboxGroup> : <p className="composer-empty">暂无已连接的连接器</p>)}
             </div>
             {error && <p role="alert" className="settings-error">{error}</p>}
           </ModalBody>

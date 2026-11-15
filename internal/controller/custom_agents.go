@@ -14,7 +14,7 @@ import (
 	"github.com/ezdemo/looprax/internal/service/customagent"
 )
 
-// customAgentBody 与 HTTP 契约一致：tools/skills 缺省或 null 表示不限制。
+// customAgentBody 与 HTTP 契约一致：tools/skills/connectors 缺省或 null 表示不限制。
 type customAgentBody struct {
 	Name        string   `json:"name"`
 	Instruction string   `json:"instruction"`
@@ -22,12 +22,13 @@ type customAgentBody struct {
 	Icon        string   `json:"icon"`
 	Tools       []string `json:"tools"`
 	Skills      []string `json:"skills"`
+	Connectors  []string `json:"connectors"`
 }
 
 func (b customAgentBody) input() customagent.Input {
 	return customagent.Input{
 		Name: b.Name, Instruction: b.Instruction, ProjectHash: b.ProjectHash,
-		Icon: b.Icon, Tools: b.Tools, Skills: b.Skills,
+		Icon: b.Icon, Tools: b.Tools, Skills: b.Skills, Connectors: b.Connectors,
 	}
 }
 
@@ -153,7 +154,34 @@ func (s *Controller) customAgentCatalog(w http.ResponseWriter, r *http.Request) 
 	sort.Slice(skills, func(i, j int) bool { return fmt.Sprint(skills[i]["name"]) < fmt.Sprint(skills[j]["name"]) })
 	writeOK(w, http.StatusOK, map[string]any{
 		"chatTools": chatTools, "projectTools": projectTools, "skills": skills,
+		"connectors": s.customAgentConnectors(),
 	})
+}
+
+// customAgentConnectors 列出智能体允许清单可选的连接器：已连接（含
+// 需重新授权）的内置条目与用户自配的 MCP 服务，同名时以内置为准。
+// 未安装的连接器勾选了运行时也不会生效，不列出。
+func (s *Controller) customAgentConnectors() []map[string]any {
+	out := []map[string]any{}
+	if s.connectors != nil {
+		for _, conn := range s.connectors.Catalog().Connectors {
+			view := s.connectors.View(conn.ID)
+			if !view.Connected {
+				continue
+			}
+			out = append(out, map[string]any{"id": conn.ID, "name": conn.Name, "description": conn.Description, "status": view.Status})
+		}
+	}
+	for _, server := range s.mcpView() {
+		if s.connectors != nil {
+			if _, builtin := s.connectors.Catalog().Find(server.Name); builtin {
+				continue
+			}
+		}
+		out = append(out, map[string]any{"id": server.Name, "name": server.Name, "custom": true})
+	}
+	sort.Slice(out, func(i, j int) bool { return fmt.Sprint(out[i]["name"]) < fmt.Sprint(out[j]["name"]) })
+	return out
 }
 
 func decodeCustomAgentBody(w http.ResponseWriter, r *http.Request) (customAgentBody, bool) {

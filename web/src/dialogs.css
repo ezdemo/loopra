@@ -34,6 +34,10 @@
 
 .agent-editor-dialog { width: min(36rem, calc(100vw - 2rem)) !important; max-width: 36rem !important; }
 .agent-editor-section { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.agent-editor-capability { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .625rem; min-width: 0; }
+.agent-editor-capability-name { font-size: .8125rem; font-weight: 500; }
+.agent-editor-capability-summary { color: var(--muted); font-size: .6875rem; }
+.agent-editor-capability .settings-next-tabs { margin-left: auto; }
 .agent-editor-groups { display: flex; flex-direction: column; gap: .75rem; max-height: 14rem; overflow-y: auto; padding: .625rem .75rem; border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .agent-editor-group { gap: .375rem; }
 .agent-editor-group [data-slot="label"] { color: var(--muted); font-size: .6875rem; }

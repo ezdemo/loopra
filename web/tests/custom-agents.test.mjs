@@ -24,8 +24,8 @@ const projects = [
   { hash: 'other', name: 'other', path: '/code/other' },
 ];
 const agents = [
-  { id: 'agent_aaaaaaaaaaaa', name: '审阅助手', instruction: '', projectHash: '', tools: null, skills: null, createdAt: 1, updatedAt: 1 },
-  { id: 'agent_bbbbbbbbbbbb', name: '绑定助手', instruction: '审查代码', projectHash: 'looprax', tools: [], skills: [], createdAt: 2, updatedAt: 2 },
+  { id: 'agent_aaaaaaaaaaaa', name: '审阅助手', instruction: '', projectHash: '', tools: null, skills: null, connectors: null, createdAt: 1, updatedAt: 1 },
+  { id: 'agent_bbbbbbbbbbbb', name: '绑定助手', instruction: '审查代码', projectHash: 'looprax', tools: [], skills: [], connectors: [], createdAt: 2, updatedAt: 2 },
 ];
 
 test('withChatWorkspace 排序：纯聊天、智能体、项目', () => {
@@ -68,11 +68,16 @@ test('草稿往返保持 null 与数组的区分', () => {
   const draft = draftFromAgent(agents[0]);
   assert.equal(draft.toolsMode, 'default');
   assert.equal(draft.skillsMode, 'default');
-  assert.deepEqual(agentPayload(draft), { name: '审阅助手', instruction: '', projectHash: '', icon: '', tools: null, skills: null });
+  assert.equal(draft.connectorsMode, 'default');
+  assert.deepEqual(agentPayload(draft), { name: '审阅助手', instruction: '', projectHash: '', icon: '', tools: null, skills: null, connectors: null });
   const custom = draftFromAgent(agents[1]);
   assert.equal(custom.toolsMode, 'custom');
+  assert.equal(custom.connectorsMode, 'custom');
   assert.deepEqual(agentPayload(custom).tools, []);
   assert.deepEqual(agentPayload(custom).skills, []);
+  assert.deepEqual(agentPayload(custom).connectors, []);
+  const picked = draftFromAgent({ ...agents[1], connectors: ['maps', 'my-mcp'] });
+  assert.deepEqual(agentPayload(picked).connectors, ['maps', 'my-mcp']);
 });
 
 test('图标字段随草稿往返', () => {

@@ -40,7 +40,7 @@ var idPattern = regexp.MustCompile(`^agent_[0-9a-f]{12}$`)
 // 图标经 <img> 渲染，SVG 中的脚本在该上下文不会执行。
 var iconImagePattern = regexp.MustCompile(`^data:image/(?:png|jpeg|gif|webp|avif|apng|bmp|x-icon|vnd\.microsoft\.icon|svg\+xml);base64,`)
 
-// Agent 是一个自定义智能体定义。Tools 与 Skills 为 nil 表示不限制。
+// Agent 是一个自定义智能体定义。Tools、Skills 与 Connectors 为 nil 表示不限制。
 // Icon 为空表示使用默认图标，否则是 Emoji/内置图标名或 data URL 图片。
 type Agent struct {
 	ID          string   `json:"id"`
@@ -50,6 +50,7 @@ type Agent struct {
 	Icon        string   `json:"icon"`
 	Tools       []string `json:"tools"`
 	Skills      []string `json:"skills"`
+	Connectors  []string `json:"connectors"`
 	CreatedAt   int64    `json:"createdAt"`
 	UpdatedAt   int64    `json:"updatedAt"`
 }
@@ -62,6 +63,7 @@ type Input struct {
 	Icon        string
 	Tools       []string
 	Skills      []string
+	Connectors  []string
 }
 
 // IsID 报告字符串是否是自定义智能体 id（同时作为工作区 hash 使用）。
@@ -139,6 +141,7 @@ func (s *Store) Create(in Input, now int64, check CheckProject) (*Agent, error) 
 		Icon:        strings.TrimSpace(in.Icon),
 		Tools:       normalizeNames(in.Tools, true),
 		Skills:      normalizeNames(in.Skills, false),
+		Connectors:  normalizeNames(in.Connectors, false),
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -177,6 +180,7 @@ func (s *Store) Update(id string, in Input, now int64, check CheckProject) (*Age
 	agent.Icon = strings.TrimSpace(in.Icon)
 	agent.Tools = normalizeNames(in.Tools, true)
 	agent.Skills = normalizeNames(in.Skills, false)
+	agent.Connectors = normalizeNames(in.Connectors, false)
 	agent.UpdatedAt = now
 	if err := repository.WriteJSON(s.path, agents); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrStorage, err)

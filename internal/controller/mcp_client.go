@@ -82,7 +82,11 @@ func (s *Controller) connectorMcpServers(session string) map[string]McpServer {
 		return out
 	}
 	overrides := s.connectorSessionOverrides(session)
+	profile := s.turnProfile(session)
 	for _, conn := range s.connectors.Catalog().Connectors {
+		if !agentConnectorAllowed(profile, conn.ID) {
+			continue
+		}
 		view := s.connectors.View(conn.ID)
 		if view.Status != connector.StatusConnected {
 			continue
@@ -109,17 +113,21 @@ func (s *Controller) connectorMcpServers(session string) map[string]McpServer {
 }
 
 // mergeRequestConnectors 把聊天请求携带的连接器开关并入会话
-// .meta（忽略目录外 id），与 PUT /connectors/session 同一存储。
+// .meta（忽略目录外与智能体清单外的 id），与 PUT /connectors/session 同一存储。
 func (s *Controller) mergeRequestConnectors(session string, connectors map[string]bool) {
 	if s.connectors == nil || session == "" {
 		return
 	}
+	profile := s.turnProfile(session)
 	s.sessionMetaUpdate(session, func(meta map[string]any) {
 		overrides, _ := meta["connectors"].(map[string]any)
 		if overrides == nil {
 			overrides = map[string]any{}
 		}
 		for id, enabled := range connectors {
+			if !agentConnectorAllowed(profile, id) {
+				continue
+			}
 			if _, ok := s.connectors.Catalog().Find(id); ok {
 				overrides[id] = enabled
 				continue
@@ -133,20 +141,25 @@ func (s *Controller) mergeRequestConnectors(session string, connectors map[strin
 	})
 }
 
-// connectorSessionOverrides 读取会话 .meta 里的连接器开关
-// （meta["connectors"]，id → bool）。
-func (s *Controller) connectorSessionOverrides(session string) map[string]bool {
+// connectorMetaOverrides 解析 .meta 里的连接器开关（connectors 键，
+// id → bool）。
+func connectorMetaOverrides(meta map[string]any) map[string]bool {
 	out := map[string]bool{}
-	if session == "" {
-		return out
-	}
-	values, _ := s.sessionMetaRead(session)["connectors"].(map[string]any)
+	values, _ := meta["connectors"].(map[string]any)
 	for id, value := range values {
 		if enabled, ok := value.(bool); ok {
 			out[id] = enabled
 		}
 	}
 	return out
+}
+
+// connectorSessionOverrides 读取会话 .meta 里的连接器开关。
+func (s *Controller) connectorSessionOverrides(session string) map[string]bool {
+	if session == "" {
+		return map[string]bool{}
+	}
+	return connectorMetaOverrides(s.sessionMetaRead(session))
 }
 
 // connectorSource 把一个连接器展开为 toolsearch 源；turnMcpSets 与
@@ -171,9 +184,13 @@ func (s *Controller) connectorSource(session string, server McpServer) (toolsear
 // 让 connector_request 能在本轮内热加刚连上的源。
 func (s *Controller) turnMcpSets(session string) (*toolsearch.Set, []io.Closer) {
 	sources := []toolsearch.Source{}
+	profile := s.turnProfile(session)
 	connectors := s.connectorMcpServers(session)
 	overrides := s.connectorSessionOverrides(session)
 	for _, server := range s.configuredMcpServers() {
+		if !agentConnectorAllowed(profile, server.Name) {
+			continue
+		}
 		// 连接器优先于同名自定义 MCP 服务。
 		if _, taken := connectors[server.Name]; taken {
 			continue

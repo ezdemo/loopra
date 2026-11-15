@@ -15,7 +15,9 @@ import (
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 
 	"github.com/ezdemo/looprax/internal/service/connector"
+	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
+	sessfiles "github.com/ezdemo/looprax/internal/service/session"
 	"github.com/ezdemo/looprax/internal/service/tools"
 	"github.com/ezdemo/looprax/internal/service/toolsearch"
 )
@@ -636,5 +638,167 @@ func TestConnectorListAndSetEnabledIncludeCustom(t *testing.T) {
 	server, _ := s.mcpFind("my-mcp")
 	if out["scope"] != "global" || server.Enabled {
 		t.Fatalf("global scope = %v enabled=%v", out, server.Enabled)
+	}
+}
+
+// ---- 智能体连接器清单 ----
+
+func TestAgentConnectorAllowlist(t *testing.T) {
+	ts := newTokenMcpServer(t, "")
+	s, _ := newConnectorTestController(t, ts.URL+"/mcp")
+	callAPI(t, s, http.MethodPost, "/api/connectors/tok/connect", `{"fields":{"token":"any"}}`)
+
+	// 清单不含 tok：运行时源、生效开关、会话列表与 PUT 都被限制。
+	s.profile = &customagent.Agent{ID: "agent_aaaaaaaaaaaa", Connectors: []string{"other"}}
+	if _, ok := s.connectorMcpServers("sess")["tok"]; ok {
+		t.Fatal("清单外连接器不应进入本轮工具源")
+	}
+	if s.connectorEffectiveEnabled("sess", "tok") {
+		t.Fatal("清单外连接器的生效启用值应为 false")
+	}
+	_, resp := callAPI(t, s, http.MethodGet, "/api/connectors/session?sessionName=sess", "")
+	entries, _ := resp.Data.([]any)
+	if len(entries) != 1 {
+		t.Fatalf("session connectors = %v", resp.Data)
+	}
+	entry := entries[0].(map[string]any)
+	if entry["allowed"] != false || entry["enabled"] != false {
+		t.Fatalf("entry = %v", entry)
+	}
+	if code, _ := callAPI(t, s, http.MethodPut, "/api/connectors/session",
+		`{"sessionName":"sess","id":"tok","enabled":true}`); code != http.StatusBadRequest {
+		t.Fatalf("清单外启用应被拒绝: %d", code)
+	}
+	if code, _ := callAPI(t, s, http.MethodPut, "/api/connectors/session",
+		`{"sessionName":"sess","id":"tok","enabled":false}`); code != http.StatusOK {
+		t.Fatalf("停用仍应允许: %d", code)
+	}
+	// 聊天请求携带的清单外开关不写入覆盖。
+	s.mergeRequestConnectors("sess", map[string]bool{"tok": true})
+	if s.connectorSessionOverrides("sess")["tok"] != false {
+		t.Fatal("清单外 id 不应被请求体合并启用")
+	}
+
+	// 清单包含 tok 时恢复常规行为。
+	s.profile.Connectors = []string{"tok"}
+	if _, ok := s.connectorMcpServers("sess")["tok"]; ok {
+		t.Fatal("会话覆盖为 false 时清单内连接器仍不应启用")
+	}
+	s.mergeRequestConnectors("sess", map[string]bool{"tok": true})
+	if _, ok := s.connectorMcpServers("sess")["tok"]; !ok {
+		t.Fatal("清单内连接器应可启用")
+	}
+
+	// 未配置清单（nil）不限制。
+	s.profile.Connectors = nil
+	s.profile = nil
+	if _, ok := s.connectorMcpServers("sess")["tok"]; !ok {
+		t.Fatal("无清单配置时不应限制")
+	}
+}
+
+func TestAgentConnectorAllowlistWorkspaceScoped(t *testing.T) {
+	ts := newTokenMcpServer(t, "")
+	s, _ := newConnectorTestController(t, ts.URL+"/mcp")
+	callAPI(t, s, http.MethodPost, "/api/connectors/tok/connect", `{"fields":{"token":"any"}}`)
+
+	// 智能体工作区：工作区身份即智能体 id。
+	store := customagent.New(s.home)
+	agent, err := store.Create(customagent.Input{Name: "n", Connectors: []string{"other"}}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.agentStore = store
+	_, resp := callAPI(t, s, http.MethodGet,
+		"/api/connectors/session?sessionName=sess&workspaceHash="+agent.ID, "")
+	entry := resp.Data.([]any)[0].(map[string]any)
+	if entry["allowed"] != false {
+		t.Fatalf("agent workspace entry = %v", entry)
+	}
+	// 开关写到智能体工作区自己的会话目录。
+	if code, _ := callAPI(t, s, http.MethodPut, "/api/connectors/session",
+		`{"sessionName":"sess","workspaceHash":"`+agent.ID+`","id":"tok","enabled":false}`); code != http.StatusOK {
+		t.Fatalf("agent workspace put = %d", code)
+	}
+	meta := sessfiles.Open(s.home, agent.ID).ReadMeta("sess")
+	if connectorMetaOverrides(meta)["tok"] != false {
+		t.Fatalf("override written to wrong workspace: %v", meta)
+	}
+
+	// 项目工作区：会话 .meta 里的 customAgentId 决定清单。
+	project := "projhash"
+	if err := sessfiles.Open(s.home, project).WriteMeta("sess", map[string]any{"customAgentId": agent.ID}); err != nil {
+		t.Fatal(err)
+	}
+	_, resp = callAPI(t, s, http.MethodGet,
+		"/api/connectors/session?sessionName=sess&workspaceHash="+project, "")
+	entry = resp.Data.([]any)[0].(map[string]any)
+	if entry["allowed"] != false {
+		t.Fatalf("project persona entry = %v", entry)
+	}
+	if code, _ := callAPI(t, s, http.MethodPut, "/api/connectors/session",
+		`{"sessionName":"sess","workspaceHash":"`+project+`","id":"tok","enabled":true}`); code != http.StatusBadRequest {
+		t.Fatalf("persona put = %d", code)
+	}
+
+	// /connectors 列表携带 workspaceHash 时同样标记 allowed。
+	_, resp = callAPI(t, s, http.MethodGet, "/api/connectors?workspaceHash="+agent.ID, "")
+	data, _ := resp.Data.(map[string]any)
+	items, _ := data["connectors"].([]any)
+	found := false
+	for _, raw := range items {
+		if item, _ := raw.(map[string]any); item["id"] == "tok" {
+			found = item["allowed"] == false
+		}
+	}
+	if !found {
+		t.Fatalf("list entry missing allowed=false: %v", items)
+	}
+}
+
+func TestAgentConnectorAllowlistFiltersTools(t *testing.T) {
+	ts := newTokenMcpServer(t, "")
+	s, _ := newConnectorTestController(t, ts.URL+"/mcp")
+	installConnectorTestTools(t, s)
+	callAPI(t, s, http.MethodPost, "/api/connectors/tok/connect", `{"fields":{"token":"any"}}`)
+	s.profile = &customagent.Agent{ID: "agent_aaaaaaaaaaaa", Connectors: []string{"other"}}
+
+	out := runConnectorTool(t, connectorTool(t, s, "connector_list"), newConnectorToolCtx("sess"), map[string]any{})
+	list, _ := out["connectors"].([]any)
+	for _, raw := range list {
+		if item, _ := raw.(map[string]any); item["id"] == "tok" {
+			t.Fatalf("清单外连接器不应出现在 connector_list: %v", item)
+		}
+	}
+	out = runConnectorTool(t, connectorTool(t, s, "connector_request"), newConnectorToolCtx("sess"),
+		map[string]any{"connectorId": "tok", "reason": "查天气"})
+	if out["connected"] != false {
+		t.Fatalf("清单外 request = %v", out)
+	}
+	if pending := s.elicitations.Pending("sess"); len(pending) > 0 {
+		t.Fatal("清单外 request 不应触发人联确认")
+	}
+}
+func TestCustomAgentCatalogListsOnlyInstalledConnectors(t *testing.T) {
+	ts := newTokenMcpServer(t, "")
+	s, _ := newConnectorTestController(t, ts.URL+"/mcp")
+	s.mcpUpsert("", McpServer{Name: "my-mcp", Type: "stdio", Command: "true", Enabled: true})
+
+	// 未连接的内置连接器不进目录；自配 MCP 服务视作已安装。
+	got := s.customAgentConnectors()
+	if len(got) != 1 || got[0]["id"] != "my-mcp" || got[0]["custom"] != true {
+		t.Fatalf("catalog = %v", got)
+	}
+	callAPI(t, s, http.MethodPost, "/api/connectors/tok/connect", `{"fields":{"token":"any"}}`)
+	got = s.customAgentConnectors()
+	if len(got) != 2 {
+		t.Fatalf("catalog = %v", got)
+	}
+	byID := map[string]map[string]any{}
+	for _, item := range got {
+		byID[item["id"].(string)] = item
+	}
+	if byID["tok"] == nil || byID["tok"]["status"] != connector.StatusConnected {
+		t.Fatalf("tok entry = %v", byID["tok"])
 	}
 }

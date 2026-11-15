@@ -356,9 +356,9 @@ export default function Composer(props: Props) {
     setSessionConnectors([]);
     if (external || chatMode || !props.connected) return () => controller.abort();
     const request = props.sessionName
-      ? props.api.request<ConnectorSessionItem[]>(`/connectors/session?${new URLSearchParams({ sessionName: props.sessionName })}`, 'GET', undefined, controller.signal)
-      : props.api.request<ConnectorsList>('/connectors', 'GET', undefined, controller.signal)
-          .then(list => (list.connectors || []).filter(item => item.status === 'connected').map(item => ({ id: item.id, name: item.name, enabled: item.enabled })));
+      ? props.api.request<ConnectorSessionItem[]>(`/connectors/session?${new URLSearchParams({ sessionName: props.sessionName, workspaceHash: props.workspaceHash })}`, 'GET', undefined, controller.signal)
+      : props.api.request<ConnectorsList>(`/connectors?${new URLSearchParams({ workspaceHash: props.workspaceHash })}`, 'GET', undefined, controller.signal)
+          .then(list => (list.connectors || []).filter(item => item.status === 'connected').map(item => ({ id: item.id, name: item.name, enabled: item.allowed === false ? false : item.enabled, allowed: item.allowed })));
     void request.then(list => { if (!controller.signal.aborted) setSessionConnectors(list); }).catch(() => {});
     return () => controller.abort();
   }, [props.api, props.sessionName, props.workspaceHash, props.connected, external, chatMode, menu]);
@@ -369,7 +369,7 @@ export default function Composer(props: Props) {
     if (!props.sessionName) { onContext({ ...context, connectors: { ...connectorOverrides, [id]: enabled } }); return; }
     const previous = sessionConnectors;
     setSessionConnectors(list => list.map(item => item.id === id ? { ...item, enabled, override: enabled } : item));
-    try { await props.api.request('/connectors/session', 'PUT', { sessionName: props.sessionName, id, enabled }); }
+    try { await props.api.request('/connectors/session', 'PUT', { sessionName: props.sessionName, workspaceHash: props.workspaceHash, id, enabled }); }
     catch (cause) { setSessionConnectors(previous); notify(`连接器设置失败：${cause instanceof Error ? cause.message : String(cause)}`); }
   }
   // Usage and composition estimates for the active session, refreshed as it grows.
@@ -582,7 +582,7 @@ export default function Composer(props: Props) {
 
         {menu === 'connectors' && <>
           <div className="composer-selection-list">
-            {sessionConnectors.map(item => <div key={item.id} className="composer-tool-plan"><Cable size="1.125rem" /><span><strong>{item.name}</strong></span><Switch size="sm" aria-label={`启用 ${item.name}`} isSelected={connectorEnabled(item)} onValueChange={value => void toggleConnector(item.id, value)} /></div>)}
+            {sessionConnectors.map(item => <div key={item.id} className="composer-tool-plan"><Cable size="1.125rem" /><span><strong>{item.name}</strong></span><Switch size="sm" aria-label={`启用 ${item.name}`} isSelected={connectorEnabled(item)} isDisabled={item.allowed === false} onValueChange={value => void toggleConnector(item.id, value)} /></div>)}
             {!sessionConnectors.length && <p className="composer-empty">还没有连接任何服务</p>}
           </div>
           <div className="popover-footer"><span /><Button size="sm" variant="light" onPress={() => { close(); props.onOpenConnectors?.(); }}>管理连接器</Button></div>

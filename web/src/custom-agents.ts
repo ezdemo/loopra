@@ -22,9 +22,11 @@ export type AgentDraft = {
   tools: string[];
   skillsMode: 'default' | 'custom';
   skills: string[];
+  connectorsMode: 'default' | 'custom';
+  connectors: string[];
 };
 
-export const emptyAgentDraft: AgentDraft = { name: '', instruction: '', projectHash: '', icon: '', toolsMode: 'default', tools: [], skillsMode: 'default', skills: [] };
+export const emptyAgentDraft: AgentDraft = { name: '', instruction: '', projectHash: '', icon: '', toolsMode: 'default', tools: [], skillsMode: 'default', skills: [], connectorsMode: 'default', connectors: [] };
 
 export function draftFromAgent(agent: CustomAgent): AgentDraft {
   return {
@@ -36,6 +38,8 @@ export function draftFromAgent(agent: CustomAgent): AgentDraft {
     tools: agent.tools ?? [],
     skillsMode: agent.skills === null ? 'default' : 'custom',
     skills: agent.skills ?? [],
+    connectorsMode: agent.connectors === null ? 'default' : 'custom',
+    connectors: agent.connectors ?? [],
   };
 }
 
@@ -60,7 +64,7 @@ export function agentNameError(name: string): string {
 }
 
 /** 请求体保持 null（默认）与数组（自定义）的区分。 */
-export function agentPayload(draft: AgentDraft): { name: string; instruction: string; projectHash: string; icon: string; tools: string[] | null; skills: string[] | null } {
+export function agentPayload(draft: AgentDraft): { name: string; instruction: string; projectHash: string; icon: string; tools: string[] | null; skills: string[] | null; connectors: string[] | null } {
   return {
     name: normalizeAgentName(draft.name),
     instruction: draft.instruction,
@@ -68,6 +72,7 @@ export function agentPayload(draft: AgentDraft): { name: string; instruction: st
     icon: draft.icon,
     tools: draft.toolsMode === 'custom' ? [...draft.tools] : null,
     skills: draft.skillsMode === 'custom' ? [...draft.skills] : null,
+    connectors: draft.connectorsMode === 'custom' ? [...draft.connectors] : null,
   };
 }
 

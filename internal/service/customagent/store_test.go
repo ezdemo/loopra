@@ -29,7 +29,7 @@ func TestCreateListUpdateDeleteRoundTrip(t *testing.T) {
 	if agent.Name != "译员" || agent.CreatedAt != 1000 || agent.UpdatedAt != 1000 {
 		t.Fatalf("agent = %+v", agent)
 	}
-	if agent.Tools != nil || agent.Skills != nil {
+	if agent.Tools != nil || agent.Skills != nil || agent.Connectors != nil {
 		t.Fatalf("默认应为不限制: %+v", agent)
 	}
 	list, err := store.List()
@@ -38,8 +38,9 @@ func TestCreateListUpdateDeleteRoundTrip(t *testing.T) {
 	}
 	updated, err := store.Update(agent.ID, Input{
 		Name: "译员2", Instruction: "in2",
-		Tools:  []string{" read ", "read", "grep", ""},
-		Skills: []string{"@loopra-skills/a", "@loopra-skills/a", " @loopra-skills/b "},
+		Tools:      []string{" read ", "read", "grep", ""},
+		Skills:     []string{"@loopra-skills/a", "@loopra-skills/a", " @loopra-skills/b "},
+		Connectors: []string{" maps ", "maps", "my-mcp"},
 	}, 2000, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +53,9 @@ func TestCreateListUpdateDeleteRoundTrip(t *testing.T) {
 	}
 	if len(updated.Skills) != 2 {
 		t.Fatalf("skills = %v", updated.Skills)
+	}
+	if len(updated.Connectors) != 2 || updated.Connectors[0] != "maps" || updated.Connectors[1] != "my-mcp" {
+		t.Fatalf("connectors = %v", updated.Connectors)
 	}
 	if err := store.Delete(agent.ID); err != nil {
 		t.Fatal(err)
@@ -139,12 +143,15 @@ func TestProjectCheckAndEmptyAllowlist(t *testing.T) {
 	if err == nil || agent != nil || checked != "abc123" {
 		t.Fatalf("check = %v %v %q", agent, err, checked)
 	}
-	agent, err = store.Create(Input{Name: "n", ProjectHash: "h", Tools: []string{}}, 1, func(string) error { return nil })
+	agent, err = store.Create(Input{Name: "n", ProjectHash: "h", Tools: []string{}, Connectors: []string{}}, 1, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if agent.Tools == nil || len(agent.Tools) != 0 {
 		t.Fatalf("空切片应保持为显式空清单: %v", agent.Tools)
+	}
+	if agent.Connectors == nil || len(agent.Connectors) != 0 {
+		t.Fatalf("空切片应保持为显式空清单: %v", agent.Connectors)
 	}
 }
 
