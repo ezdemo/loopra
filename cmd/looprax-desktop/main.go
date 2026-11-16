@@ -151,6 +151,7 @@ func main() {
 		if err := desktop.KeepInTray(win); err != nil {
 			logging.Errorf("desktop", "background tray unavailable: %v", err)
 		}
+		desktop.HandleDownloads(win)
 		win.OnClosed(func() { stop() })
 	})
 	if err := mygo.App.Run(); err != nil {
