@@ -29,7 +29,7 @@ export const ModalContent = ({ children, className }) => createElement('div', { 
 export const ModalBody = ModalContent, ModalHeader = ModalContent;`);
 const controls = dataUrl(`import { useEffect, useState } from ${JSON.stringify(reactUrl)};
 export const query = value => new URLSearchParams(value).toString(); export const RemoteState = () => null;
-export function useRemote(api, path, revision) { const [state, setState] = useState({ loading: true }); useEffect(() => { let live = true; api.request(path).then(data => { if (live) setState({ data, loading: false }); }); return () => { live = false; }; }, [api, path, revision]); return state; }`);
+export function useRemote(api, path, revision) { const [state, setState] = useState({ loading: false }); useEffect(() => { if (!path) { setState({ loading: false }); return; } let live = true; setState({ loading: true }); api.request(path).then(data => { if (live) setState({ data, loading: false }); }); return () => { live = false; }; }, [api, path, revision]); return state; }`);
 const { default: SessionDetails } = await import(await sourceUrl('components/SessionDetails.tsx', { '@nextui-org/react': nextui, 'lucide-react': import.meta.resolve('lucide-react'),
   './ui': dataUrl('export const IconButton = () => null;'), '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
   '../backend': dataUrl('export const sessionQuery = () => "workspaceHash=test&sessionName=test";'), './RemoteControls': controls, '../session-prompt': await sourceUrl('session-prompt.ts'), './Markdown': markdown, './RawSessionRecords': rawUrl }));
@@ -73,15 +73,16 @@ test('long records load in batches and changing filters resets the visible batch
     assert.equal(view.container.querySelectorAll('.record-row').length, 200);
   } finally { await view.close(); }
 });
-test('only records and prompt tabs remain, switching reuses fetched data, and prompt source/copy are exact', async () => {
+test('only records and prompt tabs remain, prompt loads on first use, and switching reuses fetched data', async () => {
   const calls = [];
   const prompt = '# Rules\n\n- Preserve this exact text.\n';
   const api = { request: async path => { calls.push(path); return path.includes('/prompt?') ? { content: prompt } : messages; } };
   const view = await mount(SessionDetails, { api, session: { name: 'test', title: 'test', workspaceHash: 'test' }, onClose() {}, notify() {} });
   try {
     assert.deepEqual([...view.container.querySelectorAll('[role="tab"]')].map(button => button.textContent), ['原始记录', '系统提示词']);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 1);
     await act(async () => { view.container.querySelector('#session-record-tab-prompt').click(); });
+    assert.equal(calls.length, 2);
     assert.equal(view.container.querySelector('.markdown').textContent, prompt);
     await act(async () => { [...view.container.querySelectorAll('button')].find(button => button.textContent === '原文').click(); });
     assert.equal(view.container.querySelector('.session-prompt-source').textContent, prompt);

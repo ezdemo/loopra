@@ -13,17 +13,19 @@ export function downloadJson(name: string, value: unknown) { const url = URL.cre
 const recordTabs = [{ id: 'events', label: '原始记录', Icon: ListTree }, { id: 'prompt', label: '系统提示词', Icon: FileText }] as const;
 export default function SessionDetails({ api, session, onClose, initialTab = 'events', notify = () => {} }: { api: LoopraClient; session: Session; onClose: () => void; initialTab?: string; notify?: (message: string) => void }) {
   const [tab, setTab] = useState(initialTab === 'prompt' ? 'prompt' : 'events');
+  const [requested, setRequested] = useState<Record<'events' | 'prompt', boolean>>(() => ({ events: initialTab !== 'prompt', prompt: initialTab === 'prompt' }));
   const [revision, setRevision] = useState({ events: 0, prompt: 0 });
   const [promptView, setPromptView] = useState('read');
   const suffix = sessionQuery(session);
-  // Keep both results cached while switching tabs; refresh only the active tab.
-  const events = useRemote<unknown[]>(api, `/agent/history/events?${suffix}`, revision.events);
-  const prompt = useRemote<{ content?: string; length?: number }>(api, `/agent/prompt?${suffix}`, revision.prompt);
+  const activate = (id: 'events' | 'prompt') => { setTab(id); setRequested(current => current[id] ? current : { ...current, [id]: true }); };
+  // Fetch each tab on first use, then keep both results cached while switching tabs.
+  const events = useRemote<unknown[]>(api, requested.events ? `/agent/history/events?${suffix}` : null, revision.events);
+  const prompt = useRemote<{ content?: string; length?: number }>(api, requested.prompt ? `/agent/prompt?${suffix}` : null, revision.prompt);
   const state = tab === 'events' ? events : prompt;
   const text = promptText(prompt.data);
   return <Modal isOpen onClose={onClose} size="4xl" placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog session-record-dialog', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="会话记录"><ModalContent>
     <ModalHeader className="app-dialog-header"><div className="session-record-title"><h2>会话记录</h2><span title={session.title}>{session.title}</span></div></ModalHeader>
-    <div className="session-record-toolbar"><div className="workbench-tabs" role="tablist" aria-label="会话记录分类">{recordTabs.map(({ id, label, Icon }) => <button key={id} id={`session-record-tab-${id}`} role="tab" aria-selected={tab === id} aria-controls="session-record-panel" onClick={() => setTab(id)}><Icon size="0.9375rem" />{label}</button>)}</div>
+    <div className="session-record-toolbar"><div className="workbench-tabs" role="tablist" aria-label="会话记录分类">{recordTabs.map(({ id, label, Icon }) => <button key={id} id={`session-record-tab-${id}`} role="tab" aria-selected={tab === id} aria-controls="session-record-panel" onClick={() => activate(id)}><Icon size="0.9375rem" />{label}</button>)}</div>
       <div className="session-record-tools">{tab === 'events' ? <Button size="sm" variant="light" isDisabled={!events.data?.length} onPress={() => downloadJson(`${session.name}-events.json`, events.data)} startContent={<Download size="0.875rem" />}>导出记录</Button> : <Button size="sm" variant="light" isDisabled={!text} onPress={() => { void copyText(text, notify); }} startContent={<Copy size="0.875rem" />}>复制提示词</Button>}<Button size="sm" variant="light" isLoading={state.loading} onPress={() => setRevision(value => ({ ...value, [tab]: value[tab as keyof typeof value] + 1 }))} startContent={<RefreshCw size="0.875rem" />}>刷新</Button></div>
     </div>
     <ModalBody className="app-dialog-body session-record-body"><div id="session-record-panel" role="tabpanel" aria-labelledby={`session-record-tab-${tab}`}>
