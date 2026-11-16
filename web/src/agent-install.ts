@@ -3,8 +3,8 @@
 // keep in sync with each provider's packaging.
 const acpAgentNames: Record<string, string> = {
   'claude-code': 'Claude Code',
-  codex: 'Codex',
-  devin: 'Devin',
+  codex: 'Codex CLI',
+  devin: 'Devin CLI',
 };
 
 export function agentAcpInstallPrompt(agentId: string): string {

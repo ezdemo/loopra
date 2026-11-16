@@ -197,8 +197,8 @@ test('missing external runtimes offer provider-specific copyable install prompts
   // Prompts stay minimal: the receiving Agent knows how to detect and install
   // its own ACP dependencies.
   assert.equal(agentAcpInstallPrompt('claude-code'), '帮我安装好 Claude Code 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
-  assert.equal(agentAcpInstallPrompt('codex'), '帮我安装好 Codex 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
-  assert.equal(agentAcpInstallPrompt('devin'), '帮我安装好 Devin 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  assert.equal(agentAcpInstallPrompt('codex'), '帮我安装好 Codex CLI 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  assert.equal(agentAcpInstallPrompt('devin'), '帮我安装好 Devin CLI 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
   assert.equal(agentAcpInstallPrompt('native'), '');
   assert.equal(agentAcpInstallPrompt('unknown'), '');
 });

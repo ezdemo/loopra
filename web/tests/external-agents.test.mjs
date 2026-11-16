@@ -137,7 +137,7 @@ test('the unavailable row opens the provider install prompt and closes it', asyn
     const dialog = view.container.querySelector('[role="dialog"]');
     assert.equal(dialog.getAttribute('aria-label'), 'Codex ACP 安装说明');
     assert.match(dialog.textContent, /当前检测：未找到 Codex ACP 适配器/);
-    assert.equal(dialog.querySelector('pre').textContent, '帮我安装好 Codex 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+    assert.equal(dialog.querySelector('pre').textContent, '帮我安装好 Codex CLI 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
     await act(async () => [...dialog.querySelectorAll('button')].find(button => button.textContent === '关闭').click());
     assert.equal(view.container.querySelector('[role="dialog"]'), null);
   } finally { await view.close(); }
