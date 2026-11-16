@@ -329,6 +329,9 @@
 .rich-settings-content .setting-label { font-size: 0.875rem; font-weight: 500; }
 .rich-settings-content .setting-row p { color: var(--secondary); font-size: 0.75rem; margin-top: 0.1875rem; }
 .settings-section-title { font-size: 0.75rem; font-weight: 500; color: var(--secondary); margin: 0 0 0.625rem 0.125rem; }
+.external-agent-info { display: flex; align-items: center; gap: .75rem; }
+.external-agent-info .composer-agent-icon { width: 1.125rem; height: 1.125rem; flex-shrink: 0; }
+.external-agent-controls { gap: .75rem; }
 .about-settings { max-width: 58rem; margin: 0 auto; }
 .about-heading { display: flex; align-items: center; gap: .875rem; margin-bottom: 1.75rem; }
 .about-heading .loopra-mark { width: 2.875rem; height: 2.875rem; flex-shrink: 0; }

@@ -19,6 +19,7 @@ import { PluginFrame, type PluginContext } from './PluginFrame';
 import { PluginGlyph, selectedPluginMenu, type PluginMenu } from './plugin-icons';
 import type { Workspace } from '../backend';
 import { AgentDefaults, PromptSettings } from './AgentSettingsPages';
+import ExternalAgentsPage from './ExternalAgentsPage';
 import { searchSettings } from '../settings-search';
 import { normalizeSettingsSection, settingsCategories, settingsCategoryFor } from '../settings-navigation';
 import { pluginSettingsCategory, settingsWithPluginMenus } from '../settings-plugin-menu';
@@ -50,6 +51,8 @@ type Props = {
   onResetPetPosition?: () => void | Promise<void>;
   /** Opens a fresh session with the petdex install command for a new pet. */
   onInitPet?: () => void;
+  /** 外部 Agent 可见性变化后让外层重新拉取引擎列表。 */
+  onEnginesChanged?: () => void;
   open: boolean; onClose: () => void; initialTab: string; server: string; workspaces: Workspace[]; onRefresh: () => Promise<void>;
   /** Launcher ids the service host reports as usable; null/absent means unknown, so don't filter. */
   availableApplications?: string[] | null;
@@ -198,6 +201,7 @@ export default function Settings(props: Props) {
         {tab === '远程访问' && <RemoteAccessSettings api={api} notify={notify} onNestedDialog={setNestedDialog} />}
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
+        {tab === '外部 Agent' && <ExternalAgentsPage api={api} notify={notify} onChanged={props.onEnginesChanged} onNestedDialog={setNestedDialog} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
         {tab === 'MCP' && <IntegrationManager api={api} kind="mcp" />}

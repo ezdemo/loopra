@@ -7,15 +7,10 @@ const source = await readFile(new URL('../src/agent-install.ts', import.meta.url
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } });
 const { agentAcpInstallPrompt } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
-test('Devin installation uses the standalone CLI and local credentials', () => {
-  const prompt = agentAcpInstallPrompt('devin');
-  assert.match(prompt, /cli\.devin\.ai\/install\.sh/);
-  assert.match(prompt, /LOOPRA_DEVIN_EXECUTABLE/);
-  assert.match(prompt, /devin auth login/);
-});
-
-test('existing engines retain their installation instructions and unknown engines omit install', () => {
-  assert.match(agentAcpInstallPrompt('claude-code'), /@agentclientprotocol\/claude-agent-acp/);
-  assert.match(agentAcpInstallPrompt('codex'), /@agentclientprotocol\/codex-acp/);
+test('install prompts stay minimal, name each provider and state the goal', () => {
+  assert.equal(agentAcpInstallPrompt('claude-code'), '帮我安装好 Claude Code 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  assert.equal(agentAcpInstallPrompt('codex'), '帮我安装好 Codex 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  assert.equal(agentAcpInstallPrompt('devin'), '帮我安装好 Devin 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  assert.equal(agentAcpInstallPrompt('native'), '');
   assert.equal(agentAcpInstallPrompt('unknown'), '');
 });

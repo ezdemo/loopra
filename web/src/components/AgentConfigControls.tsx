@@ -18,8 +18,8 @@ export default function AgentConfigControls({ state, options }: { state: AgentCo
             <span className={`composer-checkbox ${option.currentValue === true ? 'checked' : ''}`}>{option.currentValue === true && <Check size="0.75rem" />}</span>
           </button>
         : <div className="composer-selection-list" role="radiogroup" aria-label={option.name}>
-            {(option.options.some(value => value.value === configValue(option)) ? option.options
-              : [{ value: configValue(option), name: configValue(option), group: null }, ...option.options]).map(value => {
+            {((option.options || []).some(value => value.value === configValue(option)) ? option.options
+              : [{ value: configValue(option), name: configValue(option), group: null }, ...(option.options || [])]).map(value => {
               const selected = value.value === configValue(option);
               return <button key={value.value} type="button" role="radio" aria-checked={selected} disabled={state.busy}
                 onClick={() => state.onChange(option.id, value.value)}>

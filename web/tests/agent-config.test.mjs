@@ -25,7 +25,7 @@ const { default: Controls } = await import(await moduleUrl('components/AgentConf
   '../agent-config': agentConfigUrl,
   'lucide-react': import.meta.resolve('lucide-react'),
 }));
-const { agentEffortLevels, agentModelGroups, findAgentOption, isDangerousAgentMode, agentOptionLabel } = await import(agentConfigUrl);
+const { agentEffortLevels, agentModelGroups, findAgentOption, isDangerousAgentMode, agentOptionLabel, agentOptionDescription } = await import(agentConfigUrl);
 
 test('explicit ACP provider groups preserve display names containing slashes', () => {
   const groups = agentModelGroups({ options: [{ value: 'main:raw/model', name: 'Fast / 中文名', description: 'raw/model', group: 'Main' }] }, 'Native');
@@ -35,6 +35,19 @@ test('explicit ACP provider groups preserve display names containing slashes', (
   const native = agentModelGroups({ options: [{ value: 'main:raw/model', name: 'Main / Fast / 中文名' }] }, 'Native');
   assert.equal(native[0].name, 'Main');
   assert.equal(native[0].models[0].name, 'Fast / 中文名');
+});
+test('config options without an options array degrade to the current value instead of crashing', () => {
+  assert.deepEqual(agentModelGroups({ id: 'model', currentValue: 'gpt-x' }, 'Native'), []);
+  assert.equal(agentOptionLabel({ id: 'model', currentValue: 'gpt-x' }), 'gpt-x');
+  assert.equal(agentOptionDescription({ id: 'model', name: '模型', description: 'd' }), 'd');
+  const state = { busy: false, onPrepare() {}, onChange() {}, options: [
+    { id: 'model', name: '模型', type: 'select', currentValue: 'gpt-x' },
+  ] };
+  const view = render(state);
+  try {
+    assert.equal(view.container.querySelectorAll('button[role="radio"]').length, 1);
+    assert.match(view.container.textContent, /gpt-x/);
+  } finally { view.close(); }
 });
 function render(state, options = state.options) {
   const container = document.createElement('div'); document.body.append(container);
@@ -159,41 +172,33 @@ test('the agent switcher sits beside the project switcher and locks while runnin
 });
 
 test('missing external runtimes offer provider-specific copyable install prompts', async () => {
-  const [switcher, home, app] = await Promise.all([
+  const [switcher, page, dialog, home, app] = await Promise.all([
     readFile(new URL('../src/layout/AgentSwitcher.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ExternalAgentsPage.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/AgentInstallDialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/layout/HomeView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   ]);
-  // Only the unavailable external engine gets the inline action; Native stays clickable.
-  assert.match(switcher, /!engine\.available && !!agentAcpInstallPrompt\(engine\.id\)/);
-  assert.match(switcher, /className="agent-install"/);
-  assert.match(switcher, /复制提示词/);
-  assert.match(switcher, /const text = agentAcpInstallPrompt\(installing\?\.id \|\| ''\)/);
-  assert.match(switcher, /navigator\.clipboard\.writeText\(text\)/);
+  // The chooser only lists usable engines; visibility and install help live in settings.
+  assert.match(switcher, /engine\.available && !engine\.hidden/);
+  assert.match(page, /!engine\.available && !!agentAcpInstallPrompt\(engine\.id\)/);
+  assert.match(page, /hiddenAgents/);
+  assert.match(dialog, /复制提示词/);
+  assert.match(dialog, /navigator\.clipboard\.writeText\(text\)/);
   // Unfocused Electron documents reject the async clipboard API; keep the
   // selection-based fallback so the copy action still works.
-  assert.match(switcher, /document\.execCommand\('copy'\)/);
+  assert.match(dialog, /document\.execCommand\('copy'\)/);
   // The backend detects runtimes per request, so opening the menu re-checks
   // whether the just-installed dependency is visible.
   assert.match(switcher, /onRefreshEngines\?\.\(\)/);
   assert.match(home, /onRefreshEngines=\{onRefreshEngines\}/);
-  assert.match(app, /enginesRevision/);
+  assert.match(app, /onEnginesChanged=\{\(\) => setEnginesRevision/);
   const { agentAcpInstallPrompt } = await import(await moduleUrl('agent-install.ts'));
-  const prompt = agentAcpInstallPrompt('claude-code');
-  assert.match(prompt, /Node\.js 22\+/);
-  assert.match(prompt, /Claude Code/);
-  assert.match(prompt, /@agentclientprotocol\/claude-agent-acp/);
-  // Ask what is missing instead of dictating commands: the receiving Agent knows
-  // how to detect and install these packages.
-  assert.match(prompt, /检查[^\n]*是否已安装/);
-  assert.doesNotMatch(prompt, /npm install/);
-  // The adapter tracks its own releases; do not pin a version in the prompt.
-  assert.doesNotMatch(prompt, /claude-agent-acp@\d/);
-  const codex = agentAcpInstallPrompt('codex');
-  assert.match(codex, /Node\.js 22\+/);
-  assert.match(codex, /@agentclientprotocol\/codex-acp/);
-  assert.match(codex, /自带兼容的 Codex CLI/);
-  assert.doesNotMatch(codex, /Claude|@zed-industries/);
+  // Prompts stay minimal: the receiving Agent knows how to detect and install
+  // its own ACP dependencies.
+  assert.equal(agentAcpInstallPrompt('claude-code'), '帮我安装好 Claude Code 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  assert.equal(agentAcpInstallPrompt('codex'), '帮我安装好 Codex 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  assert.equal(agentAcpInstallPrompt('devin'), '帮我安装好 Devin 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
   assert.equal(agentAcpInstallPrompt('native'), '');
   assert.equal(agentAcpInstallPrompt('unknown'), '');
 });

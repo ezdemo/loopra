@@ -136,7 +136,7 @@ export default function ModelReasoningSelector(props: Props) {
         {menu === 'models' && (agentModel ? <>
           <div className="popover-search"><Input size="sm" variant="bordered" aria-label="搜索模型" placeholder="搜索模型…" value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
           <div className="model-group-list">
-            {agentModel.options.length > 0 && !agentModel.options.some(value => value.value === agentModelValue) && <div className="composer-model-row is-selected">
+            {!!agentModel.options?.length && !agentModel.options.some(value => value.value === agentModelValue) && <div className="composer-model-row is-selected">
               <button role="radio" aria-checked onClick={() => {}}><span><strong>{agentModelValue}</strong></span><Check size="1rem" /></button>
             </div>}
             {visibleModelGroups.map(group => {

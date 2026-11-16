@@ -38,16 +38,6 @@ const motionStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Popup = ({ open, children, className }) => open ? createElement('div', { className }, children) : null;
 `);
-const nextuiStub = dataUrl(`
-const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const Button = ({ children, onPress }) => createElement('button', { type: 'button', onClick: onPress }, children);
-export const Modal = ({ isOpen, children, 'aria-label': label }) => isOpen ? createElement('div', { role: 'dialog', 'aria-label': label }, children) : null;
-export const ModalBody = ({ children }) => createElement('div', null, children);
-export const ModalContent = ({ children }) => createElement('div', null, children);
-export const ModalFooter = ({ children }) => createElement('div', null, children);
-export const ModalHeader = ({ children }) => createElement('div', null, children);
-`);
-const installUrl = await sourceUrl('agent-install.ts');
 const personaIconDeps = {
   'lucide-react': iconStub,
   './plugin-icons': dataUrl('export const lucideIcons = {};'),
@@ -56,10 +46,8 @@ const personaIconDeps = {
 
 const switcherUrl = await sourceUrl('layout/AgentSwitcher.tsx', {
   'lucide-react': iconStub,
-  '@nextui-org/react': nextuiStub,
   '../components/Motion': motionStub,
   '../components/AgentIcon': await sourceUrl('components/AgentIcon.tsx', personaIconDeps),
-  '../agent-install': installUrl,
   './menu-placement': placementUrl,
 });
 const { default: AgentSwitcher } = await import(switcherUrl);
@@ -136,35 +124,40 @@ test('the agent list is the only scrolling part of the menu', () => {
   assert.doesNotMatch(styles, /^\.agent-menu > \.composer-note\s*\{/m);
 });
 
-for (const engine of [
-  { id: 'codex', name: 'Codex', available: false, detail: '未找到 Codex ACP 适配器', dependency: '@agentclientprotocol/codex-acp' },
-  { id: 'devin', name: 'Devin', available: false, detail: '后端未找到 Devin CLI', dependency: 'cli.devin.ai' },
-]) {
-  test(`${engine.name} row and install button open instructions without switching Agents`, async () => {
-    const view = await mount({ top: 400, bottom: 420 }, 800, {
-      engines: [engine], onSelect() { assert.fail('An unavailable engine must not be selected'); },
-    });
-    try {
-      const row = view.menu.querySelector('.agent-option > button:first-child');
-      assert.equal(row.disabled, false);
-      assert.equal(row.title, engine.detail);
-      assert.equal(row.textContent, engine.name);
-      assert.equal(row.querySelector('small'), null);
-      assert.equal(view.menu.querySelector('.agent-install').textContent, '安装说明');
-      await act(async () => row.click());
-      let dialog = view.container.querySelector('[role="dialog"]');
-      assert.equal(dialog.getAttribute('aria-label'), `${engine.name} ACP 安装说明`);
-      assert.ok(dialog.textContent.includes(engine.detail));
-      assert.ok(dialog.querySelector('pre').textContent.includes(engine.dependency));
-      await act(async () => [...dialog.querySelectorAll('button')].find(button => button.textContent === '关闭').click());
-      assert.equal(view.container.querySelector('[role="dialog"]'), null);
-      await act(async () => view.anchor.querySelector(':scope > button').click());
-      await act(async () => view.anchor.querySelector('.agent-install').click());
-      dialog = view.container.querySelector('[role="dialog"]');
-      assert.ok(dialog.querySelector('pre').textContent.includes(engine.dependency));
-    } finally { await view.close(); }
+// Missing or hidden engines are managed under 设置 → 外部 Agent; the chooser
+// only lists usable engines plus the current selection.
+test('unavailable or hidden engines stay out of the chooser', async () => {
+  const view = await mount({ top: 400, bottom: 420 }, 800, {
+    engines: [
+      { id: 'native', name: 'Loopra Native', available: true },
+      { id: 'codex', name: 'Codex', available: false, detail: '未找到 Codex ACP 适配器' },
+      { id: 'devin', name: 'Devin', available: true, hidden: true },
+      { id: 'claude-code', name: 'Claude Code', available: true },
+    ],
+    onSelect() { assert.fail('Only listed engines can be selected'); },
   });
-}
+  try {
+    const rows = [...view.menu.querySelectorAll('.agent-option > button')].map(button => button.textContent);
+    assert.deepEqual(rows, ['Loopra Native', 'Claude Code']);
+  } finally { await view.close(); }
+});
+
+test('the selected engine stays listed after it becomes unavailable or hidden', async () => {
+  const view = await mount({ top: 400, bottom: 420 }, 800, {
+    agentId: 'codex',
+    engines: [
+      { id: 'native', name: 'Loopra Native', available: true },
+      { id: 'codex', name: 'Codex', available: false, hidden: true, detail: '未找到 Codex ACP 适配器' },
+    ],
+    onSelect() { assert.fail('An unavailable engine must not be selected'); },
+  });
+  try {
+    const rows = [...view.menu.querySelectorAll('.agent-option > button')];
+    assert.deepEqual(rows.map(button => button.textContent), ['Loopra Native', 'Codex']);
+    assert.equal(rows[1].disabled, true);
+    assert.equal(rows[1].title, '未找到 Codex ACP 适配器');
+  } finally { await view.close(); }
+});
 
 test('available Agent rows continue to select the engine', async () => {
   const selected = [];

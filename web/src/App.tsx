@@ -1616,6 +1616,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       standalonePet={nativePet.native}
       onResetPetPosition={nativePet.native ? async () => { await pets.clearDesktop(); await nativePet.reset(); } : undefined}
       onInitPet={initPet}
+      onEnginesChanged={() => setEnginesRevision(value => value + 1)}
       updateCheck={backend.updateCheck}
       coreUpdate={coreUpdate}
       desktopUpdate={desktopUpdate.available ? desktopUpdate : undefined}

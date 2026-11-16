@@ -25,7 +25,7 @@ export const agentWorkspace = (agent: CustomAgent): Workspace => ({ hash: agent.
 export function withChatWorkspace(workspaces: Workspace[], agents: CustomAgent[] = []): Workspace[] {
   return [CHAT_WORKSPACE, ...agents.map(agentWorkspace), ...workspaces.filter(item => !isChatWorkspace(item)).map(item => ({ ...item, kind: item.kind || 'project' as const }))];
 }
-export type AgentEngine = { id: string; name: string; available: boolean; detail?: string };
+export type AgentEngine = { id: string; name: string; available: boolean; detail?: string; hidden?: boolean };
 export type AcpPlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: string };
 export type AcpCommand = { name: string; description?: string; inputHint?: string };
 export type AcpSessionState = { plan: AcpPlanEntry[]; commands: AcpCommand[] };

@@ -154,29 +154,59 @@ func (s *Controller) enginePreferencesRead() map[string]any {
 	return out
 }
 
+// hiddenAgentSet 返回用户在设置里隐藏的外部 Agent，选择器不再列出它们。
+func (s *Controller) hiddenAgentSet() map[string]bool {
+	out := map[string]bool{}
+	if list, ok := s.enginePreferencesRead()["hiddenAgents"].([]any); ok {
+		for _, item := range list {
+			if id, ok := item.(string); ok && acp.IsExternal(id) {
+				out[id] = true
+			}
+		}
+	}
+	return out
+}
+
 func (s *Controller) enginePreferences(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		writeOK(w, http.StatusOK, s.enginePreferencesRead())
 	case http.MethodPut:
 		var body struct {
-			SelectedAgent string `json:"selectedAgent"`
+			SelectedAgent *string   `json:"selectedAgent"`
+			HiddenAgents  *[]string `json:"hiddenAgents"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.SelectedAgent) == "" {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || (body.SelectedAgent == nil && body.HiddenAgents == nil) {
 			writeFail(w, http.StatusBadRequest, "selectedAgent 必填")
-			return
-		}
-		if body.SelectedAgent == "looprax" {
-			body.SelectedAgent = "native"
-		}
-		if body.SelectedAgent != "native" && !acp.IsExternal(body.SelectedAgent) {
-			writeFail(w, http.StatusBadRequest, "Agent 引擎不可用: "+body.SelectedAgent)
 			return
 		}
 		s.state.files.Lock()
 		defer s.state.files.Unlock()
 		prefs := s.enginePreferencesRead()
-		prefs["selectedAgent"] = body.SelectedAgent
+		if body.SelectedAgent != nil {
+			selected := *body.SelectedAgent
+			if strings.TrimSpace(selected) == "" {
+				writeFail(w, http.StatusBadRequest, "selectedAgent 必填")
+				return
+			}
+			if selected == "looprax" {
+				selected = "native"
+			}
+			if selected != "native" && !acp.IsExternal(selected) {
+				writeFail(w, http.StatusBadRequest, "Agent 引擎不可用: "+selected)
+				return
+			}
+			prefs["selectedAgent"] = selected
+		}
+		if body.HiddenAgents != nil {
+			for _, id := range *body.HiddenAgents {
+				if !acp.IsExternal(id) {
+					writeFail(w, http.StatusBadRequest, "Agent 引擎不可用: "+id)
+					return
+				}
+			}
+			prefs["hiddenAgents"] = *body.HiddenAgents
+		}
 		if err := repository.WriteJSON(s.enginePreferencesPath(), prefs); err != nil {
 			writeFail(w, http.StatusInternalServerError, err.Error())
 			return

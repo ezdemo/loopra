@@ -40,6 +40,48 @@ func TestAgentEnginesListIncludesACPProviders(t *testing.T) {
 	}
 }
 
+// TestAgentPreferencesHiddenAgents 验证 PUT /preferences 的 hiddenAgents
+// 持久化后反映在引擎列表的 hidden 标记上；未知或 native id 被拒绝。
+func TestAgentPreferencesHiddenAgents(t *testing.T) {
+	ts, key := newTestServer(t)
+	code, env := call(t, ts, http.MethodPut, "/api/agent-engines/preferences", key, map[string]any{
+		"hiddenAgents": []string{"codex"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, body = %v", code, env)
+	}
+	data, _ := env["data"].(map[string]any)
+	if hidden, _ := data["hiddenAgents"].([]any); len(hidden) != 1 || hidden[0] != "codex" {
+		t.Fatalf("hiddenAgents = %v", data["hiddenAgents"])
+	}
+
+	code, env = call(t, ts, http.MethodGet, "/api/agent-engines", key, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, body = %v", code, env)
+	}
+	list, _ := env["data"].([]any)
+	flags := map[string]bool{}
+	for _, entry := range list {
+		engine, _ := entry.(map[string]any)
+		id, _ := engine["id"].(string)
+		flags[id], _ = engine["hidden"].(bool)
+	}
+	if !flags["codex"] || flags["claude-code"] || flags["devin"] || flags["native"] {
+		t.Fatalf("hidden flags = %v", flags)
+	}
+
+	for _, ids := range [][]string{{"native"}, {"no-such-agent"}} {
+		code, _ = call(t, ts, http.MethodPut, "/api/agent-engines/preferences", key, map[string]any{"hiddenAgents": ids})
+		if code != http.StatusBadRequest {
+			t.Fatalf("hiddenAgents %v status = %d", ids, code)
+		}
+	}
+	code, _ = call(t, ts, http.MethodPut, "/api/agent-engines/preferences", key, map[string]any{})
+	if code != http.StatusBadRequest {
+		t.Fatalf("empty body status = %d", code)
+	}
+}
+
 // TestEnginePrepareRejectsUnknownAgent 仍然拒绝未知引擎。
 func TestEnginePrepareRejectsUnknownAgent(t *testing.T) {
 	ts, key := newTestServer(t)

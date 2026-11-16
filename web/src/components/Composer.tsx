@@ -570,7 +570,7 @@ export default function Composer(props: Props) {
         </>}
 
         {menu === 'permission' && (agentMode ? <div className="composer-selection-list">
-          {(agentMode.options.some(value => value.value === agentModeValue) ? agentMode.options : [{ value: agentModeValue, name: agentModeValue, group: null }, ...agentMode.options]).map(value => {
+          {((agentMode.options || []).some(value => value.value === agentModeValue) ? agentMode.options : [{ value: agentModeValue, name: agentModeValue, group: null }, ...(agentMode.options || [])]).map(value => {
             const selected = value.value === agentModeValue;
             const danger = /bypass|free/i.test(value.value) || /bypass|完全自动/i.test(value.name);
             return <button key={value.value} role="radio" aria-checked={selected} disabled={agentBusy} className={danger ? 'is-danger' : undefined} onClick={() => { changeAgent(agentMode.id, value.value); close(); }}>
