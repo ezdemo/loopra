@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "monday",
+  "name": "monday.com",
+  "category": "project",
+  "description": "查询和更新 monday.com 看板与条目。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#FF3D57",
+  "icon": "monday",
+  "capabilities": [
+    "查询看板",
+    "创建与更新条目"
+  ],
+  "docsUrl": "https://developer.monday.com/apps/docs/mondaycom-mcp-integration",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.monday.com/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

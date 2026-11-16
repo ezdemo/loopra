@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "flomo",
+  "name": "flomo",
+  "category": "notes",
+  "icon": "flomo",
+  "description": "社区维护的 flomo MCP，通过个人 API 地址把 AI 生成的想法、笔记直接写入 flomo。",
+  "docsUrl": "https://help.flomoapp.com/advance/mcp",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "flomo",
+      "url": "https://help.flomoapp.com/advance/mcp"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.flomoapp/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.flomoapp__mcp/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@chatmcp/mcp-server-flomo@0.0.1"
+    ],
+    "env": {
+      "FLOMO_API_URL": "{{apiUrl}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://flomoapp.com/mine/?m=api",
+    "fields": [
+      {
+        "key": "apiUrl",
+        "label": "个人 API 地址（webhook）",
+        "secret": true,
+        "type": "url"
+      }
+    ]
+  },
+  "repository": "https://github.com/chatmcp/mcp-server-flomo",
+  "license": "MIT"
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "airtable",
+  "name": "Airtable",
+  "category": "project",
+  "description": "读取和写入 Airtable 表格记录。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#18BFFF",
+  "icon": "airtable",
+  "capabilities": [
+    "查询记录",
+    "创建与更新记录",
+    "查看表结构"
+  ],
+  "docsUrl": "https://support.airtable.com/docs/using-the-airtable-mcp-server",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.airtable.com/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

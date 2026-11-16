@@ -72,8 +72,8 @@ func (s *Service) StartAuthorization(ctx context.Context, id string, fields map[
 	if conn.Auth.Type != "oauth" {
 		return "", "", fmt.Errorf("连接器 %s 不支持 OAuth 授权", id)
 	}
-	if !s.RequirementsMet(conn) {
-		return "", "", errRequirement
+	if missing := s.MissingRequirements(conn); len(missing) > 0 {
+		return "", "", requirementError(missing)
 	}
 	clean, err := validateFields(conn, fields)
 	if err != nil {

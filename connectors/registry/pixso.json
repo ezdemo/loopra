@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "pixso",
+  "name": "Pixso",
+  "category": "design",
+  "icon": "pixso",
+  "description": "Pixso 官方 MCP，支持读取设计稿图层、组件、变体、设计变量和样式并转换为代码。",
+  "docsUrl": "https://pixso.net/developer/zh/mcp/remote-mcp.html",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "Pixso",
+      "url": "https://pixso.net/developer/zh/mcp/remote-mcp.html"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.pixso/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.pixso__mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://pixso.cn/mcp",
+    "headers": {
+      "Token": "{{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://pixso.cn/",
+    "fields": [
+      {
+        "key": "token",
+        "label": "个人访问 Token",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

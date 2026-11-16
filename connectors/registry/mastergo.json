@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "mastergo",
+  "name": "MasterGo",
+  "category": "design",
+  "icon": "mastergo",
+  "description": "MasterGo 官方设计 MCP，读取设计 DSL、图层、组件和样式并辅助设计转代码；需要团队版账号。",
+  "docsUrl": "https://mastergo.com/help/ai-features/magic-mcp.html",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "MasterGo",
+      "url": "https://mastergo.com/help/ai-features/magic-mcp.html"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.mastergo/magic-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.mastergo__magic-mcp/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@mastergo/magic-mcp@0.2.15"
+    ],
+    "env": {
+      "MG_MCP_TOKEN": "{{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://mastergo.com/",
+    "fields": [
+      {
+        "key": "token",
+        "label": "个人访问 Token",
+        "secret": true
+      }
+    ]
+  },
+  "repository": "https://github.com/mastergo-design/mastergo-magic-mcp",
+  "license": "ISC"
+}

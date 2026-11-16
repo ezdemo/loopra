@@ -325,6 +325,10 @@
 .composer-tool-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .composer-tool-list > button, .composer-tool-list > .agent-option > button:first-child, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
 .composer-tool-list > button > svg:first-child, .composer-tool-list > .agent-option > button:first-child > svg:first-child:not(.composer-agent-icon), .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
+.composer-tool-plan > .connector-icon-img, .composer-tool-plan > .connector-icon-tile { flex-shrink: 0; width: 1.125rem; height: 1.125rem; }
+.composer-tool-plan > .connector-icon-img { object-fit: contain; }
+.composer-tool-plan > .connector-icon-tile { border-radius: 0.3rem; overflow: hidden; }
+.composer-tool-plan > .connector-icon-tile .connector-icon-img { width: 100%; height: 100%; padding: 0.1rem; }
 .composer-tool-list > button > span:not(.keycap), .composer-tool-list > .agent-option > button:first-child > span:not(.keycap), .composer-tool-plan > span, .composer-selection-list > button > span:not(.composer-checkbox) { flex: 1; min-width: 0; }
 .composer-tool-list strong, .composer-selection-list strong, .composer-tool-plan strong { display: block; font-weight: 500; font-size: 0.8125rem; }
 .composer-tool-list small, .composer-selection-list small, .composer-tool-plan small { display: block; font-size: 0.6875rem; color: var(--muted); margin-top: 0.1875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

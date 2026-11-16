@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "playwright",
+  "name": "Playwright",
+  "category": "developer",
+  "icon": "playwright",
+  "description": "基于 Playwright 的浏览器自动化 MCP，支持页面操作、表单填写、截图与测试。",
+  "docsUrl": "https://github.com/microsoft/playwright-mcp",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "io.github.microsoft/playwright-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/io.github.microsoft__playwright-mcp/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@playwright/mcp@0.0.83"
+    ]
+  },
+  "auth": {
+    "type": "none"
+  },
+  "repository": "https://github.com/microsoft/playwright-mcp",
+  "license": "Apache-2.0"
+}

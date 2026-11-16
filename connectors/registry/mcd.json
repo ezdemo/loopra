@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "mcd",
+  "name": "麦当劳中国",
+  "category": "life",
+  "icon": "mcd",
+  "description": "麦当劳中国官方 MCP，支持门店查询、餐品与优惠券查询、价格计算及外卖下单。",
+  "docsUrl": "https://open.mcd.cn/mcp/doc",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "麦当劳中国",
+      "url": "https://open.mcd.cn/mcp/doc"
+    },
+    {
+      "id": "dsh",
+      "entry": "cn.mcd/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/cn.mcd__mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.mcd.cn/",
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://open.mcd.cn/mcp",
+    "fields": [
+      {
+        "key": "token",
+        "label": "MCP Token",
+        "secret": true
+      }
+    ]
+  },
+  "repository": "https://github.com/M-China/mcd-mcp-server",
+  "license": "Proprietary"
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "atlassian",
+  "name": "Jira 与 Confluence",
+  "category": "project",
+  "description": "检索 Jira 工单和 Confluence 页面，创建与更新内容。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#0052CC",
+  "icon": "atlassian",
+  "capabilities": [
+    "搜索 Jira 工单",
+    "创建与更新工单",
+    "读取和编辑 Confluence 页面"
+  ],
+  "docsUrl": "https://support.atlassian.com/atlassian-rovo-mcp-server/",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.atlassian.com/v2/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

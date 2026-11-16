@@ -414,9 +414,11 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 连接器把常用服务（高德地图、Notion、Gmail、钉钉等）包装成开箱即用的 MCP 能力，不需要手写 MCP 配置。侧栏进入「技能与插件 → 连接器」，按分类或搜索找到服务后点卡片上的 `+` 连接。
 
-登录方式按服务而定：支持 OAuth 的服务（如 Notion、Gmail）一键跳转浏览器完成授权；其余服务粘贴令牌或应用凭据即可。钉钉等本地 stdio 服务需要本机安装 [Node.js](https://nodejs.org)。凭据保存在 `~/.loopra/connectors.json`，不会出现在对话或日志里。
+登录方式按服务而定：支持 OAuth 的服务（如 Notion、Gmail）一键跳转浏览器完成授权；其余服务粘贴令牌或应用凭据即可，公开服务（auth 为 none）直接连接。目录只收录可一键安装的 MCP 服务；钉钉等本地 stdio 服务需要对应运行环境（npx/uvx/python/docker），缺失时卡片会标出具体依赖。凭据保存在 `~/.loopra/connectors.json`，不会出现在对话或日志里。
 
 连接后服务即作为 MCP 来源进入 Agent 的工具搜索，工具名以 `<连接器 id>/<工具>` 限定。已连接的连接器可在卡片上全局启停，也可以在输入框 `+` 菜单的「连接器」里按会话开关。任务需要某个尚未连接的服务时，Agent 会在输入框上方弹出连接卡片，在卡片里完成连接后同一轮继续执行；也可以直接对话让 Agent 启用、停用或断开连接器。「自定义连接器」区沿用现有 MCP 管理页。接口定义见 [API 契约](docs/API_CONTRACT.md)。
+
+维护：内置目录是仓库根的 `connectors/` 数据包，编译期嵌入（不是 `~/.loopra` 的运行时凭据存储）。`catalog.json` 声明分类、参考来源（HowAI、dsh-mcp-center）和 `order` 展示顺序；`registry/<id>.json` 一个文件一个连接器，含 transport/auth 模板；`schema/connector.schema.json` 是描述符的 JSON Schema。新增连接器 = 加一个 registry 文件并把 id 插入 `order`，然后跑 `go test ./internal/service/connector` 校验全仓。完整字段规范见 [API 契约 §3.19](docs/API_CONTRACT.md)。
 
 ### Loopra Mobile
 

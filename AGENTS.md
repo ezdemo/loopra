@@ -16,6 +16,7 @@ Loopra 是面向本地代码库的 AI 编码代理与工作台。后端采用 Go
 | `cmd/looprax-desktop/` | 桌面启动入口 |
 | `internal/bootstrap/` | 应用组合根、依赖装配、启动与关闭 |
 | `internal/spring/` | 容器与生命周期基础能力 |
+| `connectors/` | 内置连接器仓库数据：catalog.json + registry/*.json，编译期嵌入 |
 | `internal/controller/` | HTTP 请求、路由、响应、SSE 与工作区上下文 |
 | `internal/service/` | 业务规则、Agent、工具、审批、插件与任务编排 |
 | `internal/repository/` | 文件持久化与原子替换 |
@@ -82,6 +83,7 @@ Loopra 是面向本地代码库的 AI 编码代理与工作台。后端采用 Go
 - JSON 配置和元数据优先复用临时文件加原子替换的写入能力；同一文件的读改写在同一同步边界完成，避免半文件和并发覆盖。
 - 新增持久字段时定义缺省值，验证旧数据可读取、新数据可往返；不自动清空损坏数据或用默认值掩盖加载失败。
 - 契约变更需同步实现、消费者、回归测试和对应文档。历史迁移文档与现有代码不一致时，先核对当前测试与调用方，再明确记录修正。
+- 连接器仓库在 `connectors/`：新增条目加一个 `registry/<id>.json` 并把 id 插入 `catalog.json` 的 `order`；`go test ./internal/service/connector` 校验全仓。只收录可直接连接的 MCP 模板，无权威传输配置的不收录、不编造端点。
 
 ## 前端
 

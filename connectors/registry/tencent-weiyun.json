@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "tencent-weiyun",
+  "name": "腾讯微云",
+  "category": "cloud",
+  "icon": "tencent-weiyun",
+  "description": "腾讯微云官方 MCP，支持网盘文件列表、上传下载、重命名、移动、删除和分享链接。",
+  "docsUrl": "https://www.weiyun.com/act/openclaw",
+  "kind": "mcp",
+  "methods": [
+    "mcp",
+    "skill"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "腾讯微云",
+      "url": "https://www.weiyun.com/act/openclaw"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.tencent/weiyun-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.tencent__weiyun-mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://www.weiyun.com/api/v3/mcpserver",
+    "headers": {
+      "WyHeader": "mcp_token={{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://www.weiyun.com/",
+    "fields": [
+      {
+        "key": "token",
+        "label": "MCP Token",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	agentctx "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool/functiontool"
@@ -123,11 +124,16 @@ func (s *Controller) installConnectorTools() {
 			if capabilities == nil {
 				capabilities = []string{}
 			}
-			out = append(out, map[string]any{
+			entry := map[string]any{
 				"id": conn.ID, "name": conn.Name, "description": conn.Description,
 				"capabilities": capabilities, "status": status,
+				"methods":           conn.Methods,
 				"enabledForSession": status == "connected" && s.connectorEffectiveEnabled(session, conn.ID),
-			})
+			}
+			if status == "missing_requirement" {
+				entry["missingRequirements"] = s.connectors.MissingRequirements(conn)
+			}
+			out = append(out, entry)
 		}
 		// 自定义 MCP 服务与内置连接器并列返回；同名时以内置为准。
 		overrides := s.connectorSessionOverrides(session)
@@ -179,7 +185,8 @@ func (s *Controller) installConnectorTools() {
 			return map[string]any{"connected": true}, nil
 		}
 		if status == "missing_requirement" {
-			return map[string]any{"connected": false, "error": "该服务需要 Node.js 运行环境"}, nil
+			missing := s.connectors.MissingRequirements(conn)
+			return map[string]any{"connected": false, "error": fmt.Sprintf("该服务缺少运行环境：%s", strings.Join(missing, "、"))}, nil
 		}
 		needs := "connect"
 		switch status {
@@ -191,7 +198,7 @@ func (s *Controller) installConnectorTools() {
 		schema := map[string]any{
 			"type": "object", "properties": map[string]any{},
 			"x-loopra-connector": map[string]any{
-				"id": conn.ID, "name": conn.Name, "reason": in.Reason, "needs": needs,
+				"id": conn.ID, "name": conn.Name, "icon": conn.Icon, "reason": in.Reason, "needs": needs,
 			},
 		}
 		item := s.elicitations.Register(session, fmt.Sprintf("需要使用 %s：%s", conn.Name, in.Reason), schema, nil)

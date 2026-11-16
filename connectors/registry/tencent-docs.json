@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "tencent-docs",
+  "name": "腾讯文档",
+  "category": "office",
+  "description": "创建、读取和整理腾讯文档存储空间中的文档。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "腾讯文档",
+      "url": "https://docs.qq.com/open/document/mcp/"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.tencent/docs-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.tencent__docs-mcp/"
+    }
+  ],
+  "color": "#1E6FFF",
+  "icon": "tencent-docs",
+  "capabilities": [
+    "创建在线文档",
+    "读取与编辑文档",
+    "管理空间节点"
+  ],
+  "docsUrl": "https://docs.qq.com/open/document/mcp/tool-introduce/",
+  "transport": {
+    "type": "streamable",
+    "url": "https://docs.qq.com/openapi/mcp",
+    "headers": {
+      "Authorization": "{{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://docs.qq.com/open/auth/mcp.html",
+    "fields": [
+      {
+        "key": "token",
+        "label": "MCP Token",
+        "secret": true
+      }
+    ]
+  }
+}

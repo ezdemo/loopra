@@ -6,6 +6,7 @@ import { connectorRequestOf, type ConnectorItem, type ConnectorsList } from '../
 import type { ElicitationRequest } from '../elicitation';
 import { errorText } from './RemoteControls';
 import { ConnectorConnectDialog } from './ConnectorConnectDialog';
+import { ConnectorIcon } from './ConnectorIcon';
 
 // connector_request 工具提出的连接请求：在聊天里以卡片呈现，
 // 用户可直接在卡片上完成连接 / 启用 / 授权，或暂时拒绝。
@@ -54,7 +55,7 @@ export default function ConnectorRequestCard({ api, sessionName, request, notify
 
   return <>
     <div className="connector-request-card" role="group" aria-label={`连接 ${marker.name}`}>
-      <span className="connector-request-avatar">{marker.name.slice(0, 1) || <Cable size="1rem" />}</span>
+      <span className="connector-request-avatar"><ConnectorIcon icon={marker.icon} fallback={marker.name.slice(0, 1) || <Cable size="1rem" />} size={16} /></span>
       <div className="connector-request-body">
         <strong>{marker.name}</strong>
         {!!marker.reason && <p>{marker.reason}</p>}

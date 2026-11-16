@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "filesystem",
+  "name": "Filesystem",
+  "category": "developer",
+  "icon": "filesystem",
+  "description": "为模型提供受控的本地文件读写、目录遍历与搜索能力。",
+  "docsUrl": "https://github.com/modelcontextprotocol/servers",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "io.github.modelcontextprotocol/filesystem",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/io.github.modelcontextprotocol__filesystem/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-filesystem@2.1.0",
+      "{{path}}"
+    ]
+  },
+  "auth": {
+    "type": "none",
+    "fields": [
+      {
+        "key": "path",
+        "label": "允许访问的目录",
+        "type": "path",
+        "placeholder": "C:\\Users\\you\\Documents"
+      }
+    ]
+  },
+  "repository": "https://github.com/modelcontextprotocol/servers",
+  "license": "MIT"
+}

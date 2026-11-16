@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "metaso",
+  "name": "秘塔AI搜索",
+  "category": "search",
+  "icon": "metaso",
+  "description": "秘塔官方搜索 MCP，提供多源网页搜索、网页阅读和基于搜索的 RAG 问答。",
+  "docsUrl": "https://metaso.cn/",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "com.metaso/search-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.metaso__search-mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://metaso.cn/api/mcp",
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://metaso.cn/",
+    "fields": [
+      {
+        "key": "token",
+        "label": "API Key",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

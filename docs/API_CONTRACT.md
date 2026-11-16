@@ -293,26 +293,57 @@ GET `/sources`；GET `/search`（keyword* 空格 AND）；POST `/sources`（`{do
 
 ### 3.19 Connectors（/api/connectors）
 
-连接器是面向非技术用户的内置服务目录：选择服务、登录（OAuth 一键授权或粘贴令牌/凭据）后，其 MCP 工具以同名 MCP 服务进入每轮 toolsearch 管线，限定名形如 `<id>/<tool>`。目录与凭据存于 `~/.loopra/connectors.json`（0600）；API 不回显字段值与令牌。
+连接器是面向非技术用户的内置服务目录：选择服务、登录（OAuth 一键授权或粘贴令牌/凭据）后，其 MCP 工具以同名 MCP 服务进入每轮 toolsearch 管线，限定名形如 `<id>/<tool>`。目录条目描述见下文「连接器仓库」；凭据存于 `~/.loopra/connectors.json`（0600）；API 不回显字段值与令牌。
 
 | 方法与路径 | 请求 | data |
 | --- | --- | --- |
-| GET / HEAD `/connectors` | q: workspaceHash? | `{categories:[{id,name}], connectors:[{id,name,category,color,description,capabilities,docsUrl,status("available"/"connected"/"needs_reauth"/"missing_requirement"),enabled,connectedAt,authType("oauth"/"token"/"credentials"),authClient(""/"user"),fields:[{key,label,secret}],configuredFields:[key],helpUrl,requires,requirementsMet,allowed?}], custom:[{name,type,enabled,allowed?}]}`；`custom` 为自配 MCP 服务；带 workspaceHash 时清单外条目标记 `allowed:false` |
-| POST `/connectors/{id}/connect` | `{fields:{key:value}}` | token/credentials：校验字段并以 15s 工具探测，成功才持久化，返回 `{status:"connected",toolCount}`；oauth：启动授权流程，返回 `{flowId,authorizationUrl}` |
+| GET / HEAD `/connectors` | q: workspaceHash? | `{categories:[{id,name}], connectors:[{id,name,category,color,icon,description,capabilities,docsUrl,status("available"/"connected"/"needs_reauth"/"missing_requirement"),enabled,connectedAt,methods:["mcp"/"skill"/"cli"],sources:[{id,entry,url}],tags?,authType("oauth"/"token"/"credentials"/"none"),authClient(""/"user"),fields:[{key,label,secret,optional,default,type,placeholder,helpUrl}],configuredFields:[key],helpUrl,requires,requirementsMet,missingRequirements:[label],allowed?}], custom:[{name,type,enabled,allowed?}]}`；`custom` 为自配 MCP 服务；带 workspaceHash 时清单外条目标记 `allowed:false` |
+| POST `/connectors/{id}/connect` | `{fields:{key:value}}` | token/credentials/none：校验字段并以 15s 工具探测，成功才持久化，返回 `{status:"connected",toolCount}`；oauth：启动授权流程，返回 `{flowId,authorizationUrl}` |
 | GET / HEAD `/connectors/flows/{flowId}` | — | `{status:"pending"/"connected"/"failed"/"cancelled",error?}` |
 | POST `/connectors/flows/{flowId}/cancel` | — | 取消流程并关闭回环回调监听 |
 | POST `/connectors/{id}/toggle` | `{enabled}` | `{enabled}` |
 | POST `/connectors/{id}/disconnect` | — | 删除字段与令牌，目录条目保留 |
 | GET / HEAD `/connectors/{id}/tools` | — | `{connected:b, tools:[{name,description}]}` |
-| GET / HEAD `/connectors/session` | q: sessionName*, workspaceHash? | 已连接连接器 `[{id,name,enabled,override?,allowed?}]`，enabled 为会话生效值；智能体清单外条目返回 `allowed:false` 且 enabled 置 false |
-| PUT `/connectors/session` | `{sessionName*,workspaceHash?,id*,enabled}` | enabled 为 null 时清除覆盖；覆盖存会话 `.meta` 的 `connectors` 键（id→bool）；启用智能体清单外的服务返回失败 |
+| GET / HEAD `/connectors/session` | q: sessionName*, workspaceHash? | 已连接连接器 `[{id,name,icon,enabled,override?,allowed?}]`，enabled 为会话生效值；智能体清单外条目返回 `allowed:false` 且 enabled 置 false |
+| PUT `/connectors/session` | `{sessionName*,workspaceHash?,id*,enabled}` | enabled 为 null 时清除覆盖；覆盖存会话 `.meta` 的 `connectors` 键（id→bool）；启用智能体清单外服务返回失败 |
 
 行为：
 
 - OAuth 经 go-sdk 授权码处理器：无 `client` 声明时动态客户端注册（client_name=Loopra），`"client":"user"` 时使用用户提交的 clientId/clientSecret；回调监听 `127.0.0.1` 随机端口，流程超时 5 分钟，完成后状态短暂保留供轮询。`excludeScopes` 在请求授权前被剔除。
 - 运行时（会话轮次）只使用已持久化的可刷新令牌源；资源返回 401/403 时不重新发起授权，连接器标记 `needs_reauth` 并被工具管线跳过，直至用户重新连接。
-- 会话生效启用值 = 会话覆盖 ?? 全局 enabled；`requires:["node"]` 时 npx 不可解析即拒绝连接。连接器与自定义 MCP 服务同名时以连接器为准。
+- 会话生效启用值 = 会话覆盖 ?? 全局 enabled；`requires` 声明的可执行文件（node→npx、uv→uvx、python→python3/python、docker→docker）不可解析即拒绝连接，`missingRequirements` 返回缺失标签。连接器与自定义 MCP 服务同名时以连接器为准。
+- 字段：`optional:true` 或声明 `default` 的字段可留空，缺省时应用默认值（默认值必须是非敏感值且同样过类型/CRLF 校验）；`type` 为 `url` 时校验完整 http(s) 地址，`path` 仅要求非空且不含 NUL/换行（相对路径按进程 cwd 解析，不做存在性/沙箱检查）；未声明字段被拒绝；仅当可选无默认字段独占一个 arg/env/header 值时，该值在缺省时整体省略，因此可选无默认占位符不得出现在 URL 查询或复合模板里。
 - `POST /chat/stream` 的 ChatRequest 可携带 `connectors:{id:bool}`，在构建该轮工具前合并进会话 `.meta` 的 `connectors` 覆盖，使尚无会话名的新会话首条消息即能携带连接器选择。
+
+#### 连接器仓库（connectors/）
+
+内置目录由仓库根 `connectors/` 提供，编译期嵌入、启动时严格校验。目录加载本身无网络请求（连接探测、OAuth 与 stdio 包下载仍按用户发起时联网）。仓库只收录可直接连接的 MCP 模板（`kind:"mcp"`），仅提供 Skill/CLI 或需服务商自建接入的服务不收录。
+
+- `connectors/catalog.json`：`{version:1, categories:[{id,name}], sources:[{id,name,url}], order:[<id>...]}`；`order` 必须无重复地覆盖全部描述符，决定展示顺序。
+- `connectors/registry/<id>.json`：每个文件一个描述符，`{schemaVersion:1,id,name,category,description,kind:"mcp",methods,docsUrl?,color?,icon?,capabilities?,requires?,transport,auth,sources:[{id,entry,url}],repository?,license?,tags?}`；`icon` 是前端图标键（对应 `web/src/assets/connectors` 资源或 Lucide 图标），缺省时前端回退首字母占位；文件名必须等于 `<id>.json`。`transport` 是 stdio/sse/streamable 模板，`{{field}}` 占位符引用 `auth.fields`；`methods` 记录来源支持的接入方式（仅作溯源，UI 不安装 Skill/CLI）。
+- `connectors/schema/connector.schema.json`：描述符的 JSON Schema（draft 2020-12），供编辑器与外部校验；权威校验在 `internal/service/connector` 的 `LoadCatalogFS`。
+- `sources[].id` 必须引用 `catalog.json` 声明的来源；`entry` 是来源里的原始条目名（HowAI 为服务名，dsh-mcp-center 为 `<owner>/<name>` 规范名），用于合并跨来源的同一服务与覆盖性测试。
+- 校验要点：OAuth 仅允许 streamable 传输，`client`/`excludeScopes` 仅 oauth 可用；`auth.type:"none"` 不得声明 secret 字段；占位符只能出现在 URL 查询值、arg 或 env/header 值里（整体 `{{endpoint}}` URL 例外，要求必填 url 字段）；env/header 键与命令不得含占位符；header 名须为合法 HTTP token。
+- 维护：新增连接器 = 加一个 `registry/<id>.json` 并把 id 插入 `order`；`go test ./internal/service/connector` 校验全仓（含 schema 一致性、来源覆盖与原有连接器断言）。示例：
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example",
+  "name": "示例服务",
+  "category": "developer",
+  "description": "示例 MCP 服务",
+  "kind": "mcp",
+  "methods": ["mcp"],
+  "docsUrl": "https://example.com/docs",
+  "requires": ["node"],
+  "transport": { "type": "stdio", "command": "npx", "args": ["-y", "example-mcp@1.0.0"], "env": { "EXAMPLE_TOKEN": "{{token}}" } },
+  "auth": { "type": "token", "fields": [{ "key": "token", "label": "Token", "secret": true }] },
+  "sources": [{ "id": "dsh", "entry": "com.example/mcp", "url": "https://github.com/Bai-2008/dsh-mcp-center" }]
+}
+```
+
+- 上游传输配置按来源事实收录（`sources` 提供出处链接），不代表已做线上连通性验证；本地可配置不等于端点当前可用。dsh-mcp-center 原始数据以 MIT License 发布（https://github.com/Bai-2008/dsh-mcp-center）。
 
 ## 4. 静态资源与 /config.json
 

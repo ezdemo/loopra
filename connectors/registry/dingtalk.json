@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "dingtalk",
+  "name": "钉钉",
+  "category": "office",
+  "description": "以企业内部应用身份查询通讯录、管理日程与待办、发送机器人消息。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "钉钉",
+      "url": "https://open.dingtalk.com/document/ai-dev/dingtalk-server-api-mcp-overview"
+    }
+  ],
+  "color": "#0089FF",
+  "icon": "dingtalk",
+  "capabilities": [
+    "搜索通讯录成员",
+    "创建与查询日程",
+    "管理待办",
+    "机器人发送消息"
+  ],
+  "docsUrl": "https://open.dingtalk.com/document/ai-dev/second-level-node-1.md",
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "dingtalk-mcp@1.1.21"
+    ],
+    "env": {
+      "DINGTALK_Client_ID": "{{clientId}}",
+      "DINGTALK_Client_Secret": "{{clientSecret}}",
+      "ACTIVE_PROFILES": "dingtalk-contacts,dingtalk-calendar,dingtalk-tasks,dingtalk-robot-send-message"
+    }
+  },
+  "auth": {
+    "type": "credentials",
+    "helpUrl": "https://open.dingtalk.com/document/ai-dev/second-level-node-1.md",
+    "fields": [
+      {
+        "key": "clientId",
+        "label": "Client ID（AppKey）"
+      },
+      {
+        "key": "clientSecret",
+        "label": "Client Secret（AppSecret）",
+        "secret": true
+      }
+    ]
+  }
+}

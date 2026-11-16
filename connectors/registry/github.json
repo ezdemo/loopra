@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "github",
+  "name": "GitHub",
+  "category": "developer",
+  "description": "管理仓库、Issue 与 Pull Request。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "io.github.github/github-mcp-server",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/io.github.github__github-mcp-server/"
+    }
+  ],
+  "color": "#181717",
+  "icon": "github",
+  "capabilities": [
+    "搜索代码与仓库",
+    "处理 Issue",
+    "审阅 Pull Request"
+  ],
+  "docsUrl": "https://github.com/github/github-mcp-server",
+  "transport": {
+    "type": "streamable",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://github.com/settings/personal-access-tokens",
+    "fields": [
+      {
+        "key": "token",
+        "label": "Personal Access Token",
+        "secret": true
+      }
+    ]
+  },
+  "repository": "https://github.com/github/github-mcp-server",
+  "license": "MIT"
+}

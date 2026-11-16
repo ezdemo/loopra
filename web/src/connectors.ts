@@ -1,15 +1,28 @@
 // 连接器目录与会话开关的纯逻辑：协议类型、筛选、状态展示与
 // 授权流程轮询归约。UI 无关，供 ConnectorsPage 与 Composer 复用。
 
-export type ConnectorField = { key: string; label: string; secret?: boolean };
+export type ConnectorField = {
+  key: string;
+  label: string;
+  secret?: boolean;
+  optional?: boolean;
+  default?: string;
+  type?: 'text' | 'url' | 'path';
+  placeholder?: string;
+  helpUrl?: string;
+};
 export type ConnectorStatus = 'available' | 'connected' | 'needs_reauth' | 'missing_requirement';
-export type ConnectorAuthType = 'oauth' | 'token' | 'credentials';
+export type ConnectorAuthType = 'oauth' | 'token' | 'credentials' | 'none';
+export type ConnectorMethod = 'mcp' | 'skill' | 'cli';
+export type ConnectorSourceRef = { id: string; entry: string; url: string };
 
 export type ConnectorItem = {
   id: string;
   name: string;
   category: string;
   color?: string;
+  /** 图标键：对应 ConnectorIcon 的内置资源，缺省回退首字母。 */
+  icon?: string;
   description?: string;
   capabilities?: string[];
   docsUrl?: string;
@@ -23,6 +36,10 @@ export type ConnectorItem = {
   helpUrl?: string;
   requires?: string[];
   requirementsMet: boolean;
+  missingRequirements?: string[];
+  methods?: ConnectorMethod[];
+  sources?: ConnectorSourceRef[];
+  tags?: string[];
   /** false 表示当前工作区的智能体清单不含该连接器。 */
   allowed?: boolean;
 };
@@ -36,15 +53,15 @@ export type ConnectorsList = {
 };
 
 export type ConnectorFlowView = { status: 'pending' | 'connected' | 'failed' | 'cancelled'; error?: string };
-export type ConnectorSessionItem = { id: string; name: string; enabled: boolean; override?: boolean; custom?: boolean; allowed?: boolean };
+export type ConnectorSessionItem = { id: string; name: string; icon?: string; enabled: boolean; override?: boolean; custom?: boolean; allowed?: boolean };
 
-// filterConnectors 按分类与搜索词（名称、说明、能力）过滤。
+// filterConnectors 按分类与搜索词（名称、说明、能力、标签）过滤。
 export function filterConnectors(connectors: ConnectorItem[], category: string, query: string): ConnectorItem[] {
   const needle = query.trim().toLowerCase();
   return connectors.filter(item => {
     if (category && category !== 'all' && item.category !== category) return false;
     if (!needle) return true;
-    return [item.name, item.description || '', ...(item.capabilities || [])].join(' ').toLowerCase().includes(needle);
+    return [item.id, item.name, item.description || '', ...(item.capabilities || []), ...(item.tags || []), ...(item.methods || [])].join(' ').toLowerCase().includes(needle);
   });
 }
 
@@ -76,9 +93,17 @@ export function connectPayload(fields: Record<string, string>): { fields: Record
   return { fields: clean };
 }
 
+export function fieldDefaults(item: ConnectorItem): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const field of item.fields) {
+    if (field.default) out[field.key] = field.default;
+  }
+  return out;
+}
+
 // missingFields 返回尚未填写的必填字段 key。
 export function missingFields(item: ConnectorItem, fields: Record<string, string>): string[] {
-  return item.fields.filter(field => !(fields[field.key] || '').trim()).map(field => field.key);
+  return item.fields.filter(field => !field.optional && !field.default && !(fields[field.key] || '').trim()).map(field => field.key);
 }
 
 // FlowPhase 是授权对话框的阶段：表单 → 等待授权 → 结果。
@@ -97,17 +122,23 @@ export function reduceFlow(phase: FlowPhase, view: ConnectorFlowView): FlowPhase
 // connectorRequestOf 识别 connector_request 工具挂到 schema 上的连接器
 // 标记；命中时返回卡片所需的信息，否则返回 undefined。
 export type ConnectorRequestNeed = 'connect' | 'enable' | 'reauth';
-export type ConnectorRequest = { id: string; name: string; reason: string; needs: ConnectorRequestNeed };
+export type ConnectorRequest = { id: string; name: string; icon?: string; reason: string; needs: ConnectorRequestNeed };
 
 export function connectorRequestOf(elicitation: { schema?: unknown } | null | undefined): ConnectorRequest | undefined {
   const schema = elicitation?.schema;
   if (!schema || typeof schema !== 'object') return undefined;
   const marker = (schema as Record<string, unknown>)['x-loopra-connector'];
   if (!marker || typeof marker !== 'object') return undefined;
-  const { id, name, reason, needs } = marker as Record<string, unknown>;
+  const { id, name, icon, reason, needs } = marker as Record<string, unknown>;
   if (typeof id !== 'string' || !id) return undefined;
   if (needs !== 'connect' && needs !== 'enable' && needs !== 'reauth') return undefined;
-  return { id, name: typeof name === 'string' && name ? name : id, reason: typeof reason === 'string' ? reason : '', needs };
+  const request: ConnectorRequest = {
+    id, needs,
+    name: typeof name === 'string' && name ? name : id,
+    reason: typeof reason === 'string' ? reason : '',
+  };
+  if (typeof icon === 'string' && icon) request.icon = icon;
+  return request;
 }
 
 // connectorsForView 按「我的内容 / 发现」视图拆分内置连接器：

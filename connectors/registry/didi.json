@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "didi",
+  "name": "滴滴",
+  "category": "life",
+  "icon": "didi",
+  "description": "滴滴官方 MCP，提供打车估价、下单、行程状态、取消订单和地图相关能力。",
+  "docsUrl": "https://mcp.didichuxing.com/",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "滴滴",
+      "url": "https://mcp.didichuxing.com/"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.didi/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.didi__mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.didichuxing.com/mcp-servers?key={{key}}"
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://mcp.didichuxing.com/claw",
+    "fields": [
+      {
+        "key": "key",
+        "label": "MCP Key",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

@@ -8,6 +8,7 @@ import {
 } from '../connectors';
 import { CapabilityCard, CapabilityControls, CapabilitySelect } from './CapabilityUI';
 import { ConnectorConnectDialog } from './ConnectorConnectDialog';
+import { ConnectorIcon } from './ConnectorIcon';
 import { CustomConnectorDialog } from './CustomConnectorDialog';
 import { OAuthWaiting, useOAuthFlow } from './OAuthFlow';
 import { ConfirmAction, errorText, query, RemoteState, useRemote } from './RemoteControls';
@@ -93,9 +94,9 @@ export default function ConnectorsPage({ api, notify, onStartChat, view = 'insta
         const missing = item.status === 'missing_requirement';
         return <CapabilityCard key={item.id} className={`connector-card is-${item.status}`}
           title={item.name} description={item.description}
-          icon={item.name.slice(0, 1)} iconStyle={item.color ? { background: item.color, color: '#fff', borderColor: 'transparent' } : undefined}
+          icon={<ConnectorIcon icon={item.icon} fallback={item.name.slice(0, 1)} />}
           badge={<span className={`connector-status is-${display.tone}`}><i />{display.label}</span>}
-          meta={missing ? <a className="connector-requirement" href="https://nodejs.org" target="_blank" rel="noreferrer">需要 Node.js</a> : undefined}
+          meta={missing ? <span className="connector-requirement">需要 {(item.missingRequirements || []).join('、') || '运行环境'}</span> : undefined}
           actions={<>
             {connected && <Switch size="sm" aria-label={`启用 ${item.name}`} isSelected={item.enabled} onValueChange={value => void toggle(item, value)} />}
             {connected && onStartChat && <Button size="sm" variant="flat" color="primary" startContent={<MessageSquarePlus size="0.9375rem" />} onPress={() => onStartChat(item.id)}>去对话</Button>}

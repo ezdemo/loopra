@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "amap",
+  "name": "高德地图",
+  "category": "life",
+  "description": "地点搜索、路线规划与天气查询。",
+  "kind": "mcp",
+  "methods": [
+    "mcp",
+    "skill"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "高德地图",
+      "url": "https://developer.amap.com/api/mcp-server/summary"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.amap/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.amap__mcp/"
+    }
+  ],
+  "color": "#2F7BFF",
+  "icon": "amap",
+  "capabilities": [
+    "搜索地点与周边",
+    "驾车/公交/步行/骑行路线规划",
+    "天气查询"
+  ],
+  "docsUrl": "https://developer.amap.com/api/mcp-server/gettingstarted",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.amap.com/mcp?key={{key}}"
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://developer.amap.com/api/mcp-server/gettingstarted",
+    "fields": [
+      {
+        "key": "key",
+        "label": "Web 服务 Key",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

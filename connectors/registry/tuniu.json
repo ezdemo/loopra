@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "tuniu",
+  "name": "途牛",
+  "category": "life",
+  "icon": "tuniu",
+  "description": "途牛官方酒店 MCP，提供酒店搜索、详情、房型与预订相关能力；机票和火车票使用途牛其他 MCP 端点。",
+  "docsUrl": "https://openapi.tuniu.cn/",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "com.tuniu/travel",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.tuniu__travel/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://openapi.tuniu.cn/mcp/hotel",
+    "headers": {
+      "apiKey": "{{apiKey}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://openapi.tuniu.cn/",
+    "fields": [
+      {
+        "key": "apiKey",
+        "label": "API Key",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

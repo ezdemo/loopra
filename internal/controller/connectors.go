@@ -44,18 +44,28 @@ func (s *Controller) connectorsList(w http.ResponseWriter, r *http.Request) {
 	// 带 workspaceHash 的调用（如智能体工作区的新会话）附带 allowed 标记。
 	profile := s.connectorSessionProfile(r.URL.Query().Get("workspaceHash"), nil)
 	type fieldView struct {
-		Key    string `json:"key"`
-		Label  string `json:"label"`
-		Secret bool   `json:"secret,omitempty"`
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Secret      bool   `json:"secret,omitempty"`
+		Optional    bool   `json:"optional,omitempty"`
+		Default     string `json:"default,omitempty"`
+		Type        string `json:"type,omitempty"`
+		Placeholder string `json:"placeholder,omitempty"`
+		HelpURL     string `json:"helpUrl,omitempty"`
 	}
 	connectors := []map[string]any{}
 	for _, conn := range catalog.Connectors {
 		view := s.connectors.View(conn.ID)
 		fields := []fieldView{}
 		for _, f := range conn.Auth.Fields {
-			fields = append(fields, fieldView{Key: f.Key, Label: f.Label, Secret: f.Secret})
+			fields = append(fields, fieldView{
+				Key: f.Key, Label: f.Label, Secret: f.Secret,
+				Optional: f.IsOptional(), Default: f.Default,
+				Type: f.Type, Placeholder: f.Placeholder, HelpURL: f.HelpURL,
+			})
 		}
-		met := s.connectors.RequirementsMet(conn)
+		missing := s.connectors.MissingRequirements(conn)
+		met := len(missing) == 0
 		status := "available"
 		switch {
 		case view.Status == connector.StatusConnected:
@@ -67,13 +77,15 @@ func (s *Controller) connectorsList(w http.ResponseWriter, r *http.Request) {
 		}
 		entry := map[string]any{
 			"id": conn.ID, "name": conn.Name, "category": conn.Category,
-			"color": conn.Color, "description": conn.Description,
+			"color": conn.Color, "icon": conn.Icon, "description": conn.Description,
 			"capabilities": conn.Capabilities, "docsUrl": conn.DocsURL,
 			"status": status, "enabled": view.Enabled, "connectedAt": view.ConnectedAt,
 			"authType": conn.Auth.Type, "authClient": conn.Auth.Client,
 			"fields": fields, "configuredFields": view.ConfiguredFields,
 			"helpUrl": conn.Auth.HelpURL, "requires": conn.Requires,
-			"requirementsMet": met,
+			"requirementsMet": met, "missingRequirements": missing,
+			"methods": conn.Methods,
+			"sources": conn.Sources, "tags": conn.Tags,
 		}
 		if !agentConnectorAllowed(profile, conn.ID) {
 			entry["allowed"] = false
@@ -279,7 +291,7 @@ func (s *Controller) connectorSession(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			entry := map[string]any{
-				"id": conn.ID, "name": conn.Name, "enabled": view.Enabled,
+				"id": conn.ID, "name": conn.Name, "icon": conn.Icon, "enabled": view.Enabled,
 			}
 			if override, ok := overrides[conn.ID]; ok {
 				entry["override"] = override

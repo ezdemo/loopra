@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:loopra:connector:v1",
+  "title": "Loopra Connector Descriptor",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "category", "description", "kind", "methods", "transport", "auth", "sources"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "category": { "type": "string", "minLength": 1 },
+    "color": { "type": "string" },
+    "icon": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "description": { "type": "string", "minLength": 1 },
+    "capabilities": { "type": "array", "items": { "type": "string" } },
+    "docsUrl": { "type": "string", "format": "uri" },
+    "kind": { "const": "mcp" },
+    "methods": {
+      "type": "array",
+      "minItems": 1,
+      "contains": { "const": "mcp" },
+      "items": { "enum": ["mcp", "skill", "cli"] },
+      "uniqueItems": true
+    },
+    "requires": {
+      "type": "array",
+      "items": { "enum": ["node", "uv", "python", "docker"] },
+      "uniqueItems": true
+    },
+    "transport": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["stdio", "sse", "streamable"] },
+        "url": { "type": "string" },
+        "command": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "stdio" } } },
+          "then": {
+            "required": ["command"],
+            "properties": { "url": false, "headers": false }
+          },
+          "else": {
+            "required": ["url"],
+            "properties": { "command": false, "args": false, "env": false }
+          }
+        }
+      ]
+    },
+    "auth": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["none", "oauth", "token", "credentials"] },
+        "client": { "enum": ["user"] },
+        "helpUrl": { "type": "string", "format": "uri" },
+        "excludeScopes": { "type": "array", "items": { "type": "string" } },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "label"],
+            "additionalProperties": false,
+            "properties": {
+              "key": { "type": "string", "pattern": "^[a-zA-Z0-9_]+$" },
+              "label": { "type": "string", "minLength": 1 },
+              "secret": { "type": "boolean" },
+              "optional": { "type": "boolean" },
+              "default": { "type": "string" },
+              "type": { "enum": ["text", "url", "path"] },
+              "placeholder": { "type": "string" },
+              "helpUrl": { "type": "string", "format": "uri" }
+            },
+            "allOf": [
+              {
+                "if": { "required": ["default"] },
+                "then": {
+                  "required": ["optional"],
+                  "properties": { "secret": { "const": false }, "optional": { "const": true } }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "enum": ["token", "credentials"] } } },
+          "then": {
+            "required": ["fields"],
+            "properties": {
+              "client": false,
+              "excludeScopes": false,
+              "fields": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "none" } } },
+          "then": {
+            "properties": {
+              "client": false,
+              "excludeScopes": false,
+              "fields": { "items": { "properties": { "secret": { "const": false } } } }
+            }
+          }
+        }
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "entry", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+          "entry": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "format": "uri" }
+        }
+      }
+    },
+    "repository": { "type": "string", "format": "uri" },
+    "license": { "type": "string" },
+    "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "auth": { "properties": { "type": { "const": "oauth" } } } }
+      },
+      "then": {
+        "properties": { "transport": { "properties": { "type": { "const": "streamable" } } } }
+      }
+    }
+  ]
+}

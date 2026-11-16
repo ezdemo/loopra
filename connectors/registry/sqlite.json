@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "sqlite",
+  "name": "SQLite",
+  "category": "developer",
+  "icon": "sqlite",
+  "description": "查询和管理本地 SQLite 数据库，支持建表、读写、汇总与数据分析。",
+  "docsUrl": "https://github.com/modelcontextprotocol/servers-archived",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "io.github.modelcontextprotocol/sqlite",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/io.github.modelcontextprotocol__sqlite/"
+    }
+  ],
+  "requires": [
+    "uv"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "uvx",
+    "args": [
+      "mcp-server-sqlite==2025.4.25",
+      "--db-path",
+      "{{dbPath}}"
+    ]
+  },
+  "auth": {
+    "type": "none",
+    "fields": [
+      {
+        "key": "dbPath",
+        "label": "数据库文件路径",
+        "type": "path",
+        "placeholder": "./data.db"
+      }
+    ]
+  },
+  "repository": "https://github.com/modelcontextprotocol/servers-archived",
+  "license": "MIT"
+}

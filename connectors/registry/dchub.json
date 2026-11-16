@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "dchub",
+  "name": "DC Hub",
+  "category": "developer",
+  "icon": "dchub",
+  "description": "DC Hub 是数据中心选址的实时数据层。其数据中心电力指数（DCPI）每日评估 300 多个市场中数据中心可以获得电网电力的位置。免费开始使用。",
+  "docsUrl": "https://dchub.cloud/connect",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "cloud.dchub/mcp-server",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/cloud.dchub__mcp-server/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://dchub.cloud/mcp"
+  },
+  "auth": {
+    "type": "none"
+  },
+  "repository": "https://github.com/azmartone67/dchub-mcp-server",
+  "license": "MIT"
+}

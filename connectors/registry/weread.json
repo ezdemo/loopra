@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "weread",
+  "name": "微信读书",
+  "category": "notes",
+  "icon": "weread",
+  "description": "社区维护的微信读书 MCP，支持书架、书籍搜索、笔记划线、热门书评和阅读进度。",
+  "docsUrl": "https://weread.qq.com/r/weread-skills",
+  "kind": "mcp",
+  "methods": [
+    "mcp",
+    "skill"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "微信读书",
+      "url": "https://weread.qq.com/r/weread-skills"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.tencent/weread-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.tencent__weread-mcp/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "mcp-server-weread@0.2.2"
+    ],
+    "env": {
+      "WEREAD_COOKIE": "{{cookie}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://weread.qq.com/",
+    "fields": [
+      {
+        "key": "cookie",
+        "label": "网页版 Cookie",
+        "secret": true
+      }
+    ]
+  },
+  "repository": "https://github.com/freestylefly/mcp-server-weread",
+  "license": "MIT"
+}

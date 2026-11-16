@@ -3,6 +3,7 @@ bin/
 *.test
 coverage.out
 bin/looprax.exe
+looprax.exe
 # Editors
 .idea/
 .vscode/

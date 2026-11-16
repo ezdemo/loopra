@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import type { LoopraClient } from '../backend';
-import { connectPayload, missingFields, type ConnectorItem } from '../connectors';
+import { connectPayload, fieldDefaults, missingFields, type ConnectorItem } from '../connectors';
 import { OAuthWaiting, useOAuthFlow } from './OAuthFlow';
 import { errorText } from './RemoteControls';
 import { Field } from './SettingControls';
@@ -12,7 +12,7 @@ export function ConnectorConnectDialog({ api, item, notify, onClose, onDone }: {
   api: LoopraClient; item: ConnectorItem; notify: (message: string) => void;
   onClose: () => void; onDone: () => void;
 }) {
-  const [fields, setFields] = useState<Record<string, string>>({});
+  const [fields, setFields] = useState<Record<string, string>>(() => fieldDefaults(item));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const { phase, setPhase, authURL, blocked, preopen, start, fail, cancel } =
@@ -56,10 +56,14 @@ export function ConnectorConnectDialog({ api, item, notify, onClose, onDone }: {
         {phase === 'waiting' && <OAuthWaiting name={item.name} authURL={authURL} blocked={blocked} />}
         {phase === 'failed' && <p role="alert" className="settings-error">授权失败，请重试。</p>}
         {phase === 'form' && <>
-          {item.fields.map(field => <Field key={field.key} label={field.label} required
-            type={field.secret ? 'password' : 'text'} autoComplete="off"
+          {item.fields.map(field => <Field key={field.key} label={field.optional ? `${field.label}（可选）` : field.label}
+            required={!field.optional && !field.default}
+            type={field.secret ? 'password' : field.type === 'url' ? 'url' : 'text'} autoComplete="off"
+            placeholder={field.placeholder}
             value={fields[field.key] || ''} onChange={value => setFields(current => ({ ...current, [field.key]: value }))} />)}
-          {!!item.helpUrl && <a className="connector-help" href={item.helpUrl} target="_blank" rel="noreferrer">获取方式</a>}
+          {(item.helpUrl || item.fields.some(field => field.helpUrl)) &&
+            <a className="connector-help" href={item.helpUrl || item.fields.find(field => field.helpUrl)?.helpUrl} target="_blank" rel="noreferrer">获取方式</a>}
+          {!!item.docsUrl && <a className="connector-help" href={item.docsUrl} target="_blank" rel="noreferrer">官方文档</a>}
           {!!error && <p role="alert" className="settings-error">{error}</p>}
         </>}
       </ModalBody>

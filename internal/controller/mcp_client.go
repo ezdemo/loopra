@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 
+	"github.com/ezdemo/looprax/internal/infrastructure/mcpcommand"
 	"github.com/ezdemo/looprax/internal/service/connector"
 	"github.com/ezdemo/looprax/internal/service/toolsearch"
 )
@@ -41,7 +41,7 @@ func mcpClientConfig(server McpServer) mcptoolset.Config {
 	client := &http.Client{Transport: headerTransport{Headers: server.Headers}}
 	switch server.Type {
 	case "stdio":
-		cmd := exec.Command(server.Command, server.Args...)
+		cmd := mcpcommand.Command(server.Command, server.Args...)
 		hideProcess(cmd)
 		if len(server.Env) > 0 {
 			cmd.Env = append(os.Environ(), envPairs(server.Env)...)

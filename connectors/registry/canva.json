@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "canva",
+  "name": "Canva 可画",
+  "category": "design",
+  "description": "搜索和生成 Canva 设计。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#00C4CC",
+  "icon": "canva",
+  "capabilities": [
+    "搜索设计",
+    "生成设计",
+    "导出设计"
+  ],
+  "docsUrl": "https://www.canva.dev/docs/mcp/",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.canva.com/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

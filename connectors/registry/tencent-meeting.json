@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "tencent-meeting",
+  "name": "腾讯会议",
+  "category": "office",
+  "icon": "tencent-meeting",
+  "description": "腾讯会议官方 MCP，支持预约会议、查询参会人、录制和会议纪要等个人会议操作。",
+  "docsUrl": "https://cloud.tencent.com/document/product/1095/133826",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "腾讯会议",
+      "url": "https://cloud.tencent.com/document/product/1095/133826"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.tencent/meeting-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.tencent__meeting-mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.meeting.tencent.com/mcp/wemeet-open/v1",
+    "headers": {
+      "X-Tencent-Meeting-Token": "{{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://meeting.tencent.com/support/articles/14/index.html",
+    "fields": [
+      {
+        "key": "token",
+        "label": "个人 Token",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

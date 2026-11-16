@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "yinxiang",
+  "name": "印象笔记",
+  "category": "notes",
+  "icon": "yinxiang",
+  "description": "社区维护的印象笔记 MCP，支持连接测试和把 AI 生成的 Markdown 笔记保存到印象笔记。",
+  "docsUrl": "https://skillhub.cn/skills/yinxiangskill",
+  "kind": "mcp",
+  "methods": [
+    "mcp",
+    "skill"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "印象笔记",
+      "url": "https://skillhub.cn/skills/yinxiangskill"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.yinxiang/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.yinxiang__mcp/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "yxbj-mcp@1.0.1"
+    ],
+    "env": {
+      "YINXIANG_AUTH_TOKEN": "{{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://www.yinxiang.com/",
+    "fields": [
+      {
+        "key": "token",
+        "label": "授权 Token",
+        "secret": true
+      }
+    ]
+  },
+  "repository": "https://github.com/yinxiang-team/YXBJ-MCP",
+  "license": "ISC"
+}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/ezdemo/looprax/internal/infrastructure/hideconsole"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	"github.com/ezdemo/looprax/internal/infrastructure/mcpcommand"
 )
 
 // Service 管理连接器目录、凭据存储与 OAuth 流程。
@@ -125,23 +126,51 @@ func (s *Service) View(id string) EntryView {
 	return view
 }
 
-// RequirementsMet 检查 requires 声明：目前仅 "node"，要求 npx 可解析。
-func (s *Service) RequirementsMet(conn Connector) bool {
-	for _, req := range conn.Requires {
-		switch req {
-		case "node":
-			if _, err := s.lookPath("npx"); err != nil {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
+var requirementBinaries = map[string][]string{
+	"node":   {"npx"},
+	"uv":     {"uvx"},
+	"python": {"python3", "python"},
+	"docker": {"docker"},
 }
 
-// errRequirement 是连接因环境不满足被拒的错误。
-var errRequirement = errors.New("运行环境不满足连接器要求（需要 Node.js，未找到 npx）")
+var requirementLabels = map[string]string{
+	"node":   "npx",
+	"uv":     "uvx",
+	"python": "python3 / python",
+	"docker": "docker",
+}
+
+func (s *Service) MissingRequirements(conn Connector) []string {
+	var missing []string
+	for _, req := range conn.Requires {
+		binaries, ok := requirementBinaries[req]
+		if !ok {
+			missing = append(missing, req)
+			continue
+		}
+		found := false
+		for _, binary := range binaries {
+			if _, err := s.lookPath(binary); err == nil {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, requirementLabels[req])
+		}
+	}
+	return missing
+}
+
+// RequirementsMet 检查 requires 声明要求的工具都可解析。
+func (s *Service) RequirementsMet(conn Connector) bool {
+	return len(s.MissingRequirements(conn)) == 0
+}
+
+// requirementError 是连接因环境不满足被拒的错误。
+func requirementError(missing []string) error {
+	return fmt.Errorf("运行环境不满足连接器要求（缺少 %s）", strings.Join(missing, "、"))
+}
 
 // errConnectFailed 是凭据探测失败时对外的稳定文案；细节只进日志。
 var errConnectFailed = errors.New("连接失败，请检查凭据")
@@ -150,6 +179,10 @@ var errConnectFailed = errors.New("连接失败，请检查凭据")
 // OAuth 令牌）替换为 *** 的函数，用于进入响应或模型上下文的
 // 错误文本。
 func (s *Service) Redactor(id string) func(string) string {
+	return s.redactorWith(id, nil)
+}
+
+func (s *Service) redactorWith(id string, extra []string) func(string) string {
 	s.mu.Lock()
 	_ = s.loadLocked()
 	var secrets []string
@@ -175,6 +208,11 @@ func (s *Service) Redactor(id string) func(string) string {
 		}
 	}
 	s.mu.Unlock()
+	for _, value := range extra {
+		if value != "" {
+			secrets = append(secrets, value)
+		}
+	}
 	return func(text string) string {
 		for _, secret := range secrets {
 			text = strings.ReplaceAll(text, secret, "***")
@@ -217,8 +255,8 @@ func (s *Service) ConnectCredentials(ctx context.Context, id string, fields map[
 	if conn.Auth.Type == "oauth" {
 		return 0, fmt.Errorf("连接器 %s 需要通过 OAuth 授权", id)
 	}
-	if !s.RequirementsMet(conn) {
-		return 0, errRequirement
+	if missing := s.MissingRequirements(conn); len(missing) > 0 {
+		return 0, requirementError(missing)
 	}
 	clean, err := validateFields(conn, fields)
 	if err != nil {
@@ -228,9 +266,15 @@ func (s *Service) ConnectCredentials(ctx context.Context, id string, fields map[
 	if err != nil {
 		return 0, err
 	}
+	submitted := make([]string, 0, len(clean))
+	for _, field := range conn.Auth.Fields {
+		if field.Secret {
+			submitted = append(submitted, clean[field.Key])
+		}
+	}
 	tools, err := s.listTools(ctx, spec, nil)
 	if err != nil {
-		logging.Debugf("connector", "connect probe %s failed: %s", id, s.Redactor(id)(err.Error()))
+		logging.Debugf("connector", "connect probe %s failed: %s", id, s.redactorWith(id, submitted)(err.Error()))
 		return 0, errConnectFailed
 	}
 	err = s.mutate(func() error {
@@ -326,8 +370,8 @@ func (s *Service) runtime(id string) (Connector, Spec, OAuthRuntime, error) {
 	if !ok {
 		return Connector{}, Spec{}, nil, fmt.Errorf("连接器不存在: %s", id)
 	}
-	if !s.RequirementsMet(conn) {
-		return conn, Spec{}, nil, errRequirement
+	if missing := s.MissingRequirements(conn); len(missing) > 0 {
+		return conn, Spec{}, nil, requirementError(missing)
 	}
 	view := s.View(id)
 	if view.Status == StatusNeedsReauth {
@@ -396,7 +440,7 @@ func envPairs(env map[string]string) []string {
 func specTransport(spec Spec, handler OAuthRuntime) (mcp.Transport, error) {
 	switch spec.Type {
 	case "stdio":
-		cmd := exec.Command(spec.Command, spec.Args...)
+		cmd := mcpcommand.Command(spec.Command, spec.Args...)
 		hideconsole.Apply(cmd)
 		if len(spec.Env) > 0 {
 			cmd.Env = append(os.Environ(), envPairs(spec.Env)...)

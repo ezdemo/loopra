@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "dida365",
+  "name": "滴答清单",
+  "category": "office",
+  "icon": "dida365",
+  "description": "滴答清单官方 MCP，支持任务、清单、习惯、专注记录、日历和纪念日管理。",
+  "docsUrl": "https://help.dida365.com/articles/7438132116019216384",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "com.dida365/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.dida365__mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.dida365.com",
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://help.dida365.com/articles/7438132116019216384",
+    "fields": [
+      {
+        "key": "token",
+        "label": "API 口令",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

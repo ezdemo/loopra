@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "sentry",
+  "name": "Sentry",
+  "category": "developer",
+  "description": "查询错误与性能问题。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#362D59",
+  "icon": "sentry",
+  "capabilities": [
+    "搜索问题",
+    "查看错误详情"
+  ],
+  "docsUrl": "https://docs.sentry.io/product/sentry-mcp/",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.sentry.dev/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

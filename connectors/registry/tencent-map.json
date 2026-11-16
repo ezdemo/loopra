@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "tencent-map",
+  "name": "腾讯地图",
+  "category": "life",
+  "icon": "tencent-map",
+  "description": "腾讯位置服务官方 MCP，提供地址解析、POI 搜索、路线规划、天气和行政区划查询。",
+  "docsUrl": "https://lbs.qq.com/service/MCPServer/MCPServerGuide/overview",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "腾讯地图",
+      "url": "https://lbs.qq.com/service/MCPServer/MCPServerGuide/overview"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.tencent/map-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.tencent__map-mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.map.qq.com/mcp?key={{key}}"
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://lbs.qq.com/dev/console/application/mine",
+    "fields": [
+      {
+        "key": "key",
+        "label": "WebService API Key",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary",
+  "tags": [
+    "地图",
+    "POI",
+    "路线规划",
+    "位置服务"
+  ]
+}

@@ -18,6 +18,7 @@ import AgentMcpControls from './AgentMcpControls';
 import { agentOptionDescription, agentOptionLabel, configValue, findAgentOption, isDangerousAgentMode, type AgentConfigState } from '../agent-config';
 import { useMenuPlacement } from '../layout/menu-placement';
 import ComposerQueue from './ComposerQueue';
+import { ConnectorIcon } from './ConnectorIcon';
 import { clampComposerHeight, composerHeight, composerHeightCeiling, composerSessionKey, COMPOSER_HEIGHT_STEP_REM, FALLBACK_COMPOSER_FLOOR_REM, nudgeComposerHeight, resizeComposerHeight, storeComposerHeight } from '../composer-resize';
 
 type Props = {
@@ -358,7 +359,7 @@ export default function Composer(props: Props) {
     const request = props.sessionName
       ? props.api.request<ConnectorSessionItem[]>(`/connectors/session?${new URLSearchParams({ sessionName: props.sessionName, workspaceHash: props.workspaceHash })}`, 'GET', undefined, controller.signal)
       : props.api.request<ConnectorsList>(`/connectors?${new URLSearchParams({ workspaceHash: props.workspaceHash })}`, 'GET', undefined, controller.signal)
-          .then(list => (list.connectors || []).filter(item => item.status === 'connected').map(item => ({ id: item.id, name: item.name, enabled: item.allowed === false ? false : item.enabled, allowed: item.allowed })));
+          .then(list => (list.connectors || []).filter(item => item.status === 'connected').map(item => ({ id: item.id, name: item.name, icon: item.icon, enabled: item.allowed === false ? false : item.enabled, allowed: item.allowed })));
     void request.then(list => { if (!controller.signal.aborted) setSessionConnectors(list); }).catch(() => {});
     return () => controller.abort();
   }, [props.api, props.sessionName, props.workspaceHash, props.connected, external, chatMode, menu]);
@@ -582,7 +583,7 @@ export default function Composer(props: Props) {
 
         {menu === 'connectors' && <>
           <div className="composer-selection-list">
-            {sessionConnectors.map(item => <div key={item.id} className="composer-tool-plan"><Cable size="1.125rem" /><span><strong>{item.name}</strong></span><Switch size="sm" aria-label={`启用 ${item.name}`} isSelected={connectorEnabled(item)} isDisabled={item.allowed === false} onValueChange={value => void toggleConnector(item.id, value)} /></div>)}
+            {sessionConnectors.map(item => <div key={item.id} className="composer-tool-plan"><ConnectorIcon icon={item.icon} fallback={<Cable size="1.125rem" />} size={18} /><span><strong>{item.name}</strong></span><Switch size="sm" aria-label={`启用 ${item.name}`} isSelected={connectorEnabled(item)} isDisabled={item.allowed === false} onValueChange={value => void toggleConnector(item.id, value)} /></div>)}
             {!sessionConnectors.length && <p className="composer-empty">还没有连接任何服务</p>}
           </div>
           <div className="popover-footer"><span /><Button size="sm" variant="light" onPress={() => { close(); props.onOpenConnectors?.(); }}>管理连接器</Button></div>

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "lkcoffee",
+  "name": "瑞幸",
+  "category": "life",
+  "icon": "lkcoffee",
+  "description": "瑞幸咖啡官方点单 MCP，支持门店查询、菜单浏览、下单、取餐码与订单管理。",
+  "docsUrl": "https://open.lkcoffee.com/docs",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "瑞幸",
+      "url": "https://open.lkcoffee.com/docs"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.lkcoffee/order-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.lkcoffee__order-mcp/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://gwmcp.lkcoffee.com/order/user/mcp",
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://open.lkcoffee.com/mcp",
+    "fields": [
+      {
+        "key": "token",
+        "label": "MCP Token",
+        "secret": true
+      }
+    ]
+  },
+  "license": "Proprietary"
+}

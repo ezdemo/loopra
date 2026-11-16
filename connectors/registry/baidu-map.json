@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "baidu-map",
+  "name": "百度地图",
+  "category": "life",
+  "icon": "baidu-map",
+  "description": "百度地图官方 MCP，提供地理编码、POI 搜索、路径规划、天气、IP 定位和路况查询。",
+  "docsUrl": "https://lbs.baidu.com/docs/ai?title=mcpserver%2Fbase",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "百度地图",
+      "url": "https://lbs.baidu.com/docs/ai?title=mcpserver%2Fbase"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.baidu/map-mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.baidu__map-mcp/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@baidumap/mcp-server-baidu-map@1.0.5"
+    ],
+    "env": {
+      "BAIDU_MAP_API_KEY": "{{apiKey}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://lbsyun.baidu.com/apiconsole/key",
+    "fields": [
+      {
+        "key": "apiKey",
+        "label": "服务端 AK（需开启 MCP 服务）",
+        "secret": true
+      }
+    ]
+  },
+  "repository": "https://github.com/baidu-maps/mcp",
+  "license": "MIT",
+  "tags": [
+    "地图",
+    "POI",
+    "路线规划",
+    "天气"
+  ]
+}

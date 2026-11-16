@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "notion",
+  "name": "Notion",
+  "category": "office",
+  "description": "搜索、读取和编辑 Notion 页面与数据库。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "com.notion/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.notion__mcp/"
+    }
+  ],
+  "color": "#000000",
+  "icon": "notion",
+  "capabilities": [
+    "搜索页面",
+    "创建与更新页面",
+    "查询数据库"
+  ],
+  "docsUrl": "https://developers.notion.com/docs/mcp",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.notion.com/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  },
+  "license": "Proprietary"
+}

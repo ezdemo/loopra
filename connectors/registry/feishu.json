@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "feishu",
+  "name": "飞书",
+  "category": "office",
+  "description": "读写飞书云文档，收发消息与群聊。",
+  "kind": "mcp",
+  "methods": [
+    "mcp",
+    "cli",
+    "skill"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "飞书",
+      "url": "https://github.com/larksuite/cli"
+    }
+  ],
+  "color": "#3370FF",
+  "icon": "feishu",
+  "capabilities": [
+    "搜索与读取云文档",
+    "创建和编辑文档",
+    "发送消息与管理群聊"
+  ],
+  "docsUrl": "https://open.larkoffice.com/document/mcp_open_tools/end-user-use-remote-mcp-server?lang=en-US",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.feishu.cn/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "google-calendar",
+  "name": "Google 日历",
+  "category": "office",
+  "description": "查询日程与空闲时间，安排会议。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#4285F4",
+  "icon": "google-calendar",
+  "capabilities": [
+    "查询日程",
+    "查看空闲时间",
+    "创建日程"
+  ],
+  "docsUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+  "transport": {
+    "type": "streamable",
+    "url": "https://calendarmcp.googleapis.com/mcp/v1"
+  },
+  "auth": {
+    "type": "oauth",
+    "client": "user",
+    "helpUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+    "fields": [
+      {
+        "key": "clientId",
+        "label": "OAuth Client ID"
+      },
+      {
+        "key": "clientSecret",
+        "label": "OAuth Client Secret",
+        "secret": true
+      }
+    ]
+  }
+}

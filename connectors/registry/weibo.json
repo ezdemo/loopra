@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "weibo",
+  "name": "微博",
+  "category": "media",
+  "icon": "weibo",
+  "description": "社区维护的微博 MCP，支持用户、微博、热搜、评论、话题和关注关系查询。",
+  "docsUrl": "https://github.com/qinyuanpei/mcp-server-weibo",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "com.weibo/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.weibo__mcp/"
+    }
+  ],
+  "requires": [
+    "uv"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "uvx",
+    "args": [
+      "mcp-server-weibo==1.3.4"
+    ]
+  },
+  "auth": {
+    "type": "none"
+  },
+  "repository": "https://github.com/qinyuanpei/mcp-server-weibo",
+  "license": "MIT"
+}

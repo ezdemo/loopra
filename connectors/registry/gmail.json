@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "gmail",
+  "name": "Gmail",
+  "category": "office",
+  "description": "搜索和阅读邮件，撰写邮件草稿。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#EA4335",
+  "icon": "gmail",
+  "capabilities": [
+    "搜索邮件",
+    "阅读邮件线程",
+    "撰写草稿"
+  ],
+  "docsUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+  "transport": {
+    "type": "streamable",
+    "url": "https://gmailmcp.googleapis.com/mcp/v1"
+  },
+  "auth": {
+    "type": "oauth",
+    "client": "user",
+    "excludeScopes": [
+      "https://www.googleapis.com/auth/gmail.metadata"
+    ],
+    "helpUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+    "fields": [
+      {
+        "key": "clientId",
+        "label": "OAuth Client ID"
+      },
+      {
+        "key": "clientSecret",
+        "label": "OAuth Client Secret",
+        "secret": true
+      }
+    ]
+  }
+}

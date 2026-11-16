@@ -87,6 +87,7 @@ const Composer = (await import(await sourceUrl('components/Composer.tsx', {
     export const attachmentLimitReached=()=>false, fileKind=()=>null, extractDocumentText=()=>'', formatFileSize=()=>'';
   `),
   './PetCompanion': placeholder, './ModelReasoningSelector': selector, './AgentConfigControls': placeholder, './AgentMcpControls': mcpControls, './ComposerQueue': placeholder,
+  './ConnectorIcon': dataUrl('export const ConnectorIcon = () => null;'),
   '../pets': dataUrl('export const petScale=()=>1;'),
   '../composer-resize': await sourceUrl('composer-resize.ts'),
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),

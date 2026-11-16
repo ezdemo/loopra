@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "yuque",
+  "name": "语雀",
+  "category": "office",
+  "icon": "yuque",
+  "description": "语雀官方 MCP，支持搜索知识库、读取和创建文档、维护目录及小记。",
+  "docsUrl": "https://github.com/yuque/yuque-mcp-server",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "entry": "语雀",
+      "url": "https://github.com/yuque/yuque-mcp-server"
+    },
+    {
+      "id": "dsh",
+      "entry": "com.yuque/mcp",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.yuque__mcp/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "yuque-mcp@1.0.0"
+    ],
+    "env": {
+      "YUQUE_TOKEN": "{{token}}",
+      "YUQUE_HOST": "{{host}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://www.yuque.com/settings/tokens",
+    "fields": [
+      {
+        "key": "token",
+        "label": "API Token",
+        "secret": true
+      },
+      {
+        "key": "host",
+        "label": "团队空间地址",
+        "optional": true,
+        "type": "url"
+      }
+    ]
+  },
+  "repository": "https://github.com/yuque/yuque-mcp-server",
+  "license": "MIT"
+}

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "context7",
+  "name": "Context7",
+  "category": "developer",
+  "icon": "context7",
+  "description": "为模型提供最新、版本感知的官方代码文档、API 参考与示例。",
+  "docsUrl": "https://context7.com",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "io.github.upstash/context7",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/io.github.upstash__context7/"
+    }
+  ],
+  "requires": [
+    "node"
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "-y",
+      "@upstash/context7-mcp@4.4.4"
+    ],
+    "env": {
+      "CONTEXT7_API_KEY": "{{apiKey}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://context7.com/dashboard",
+    "fields": [
+      {
+        "key": "apiKey",
+        "label": "API Key（可选，用于提高配额）",
+        "secret": true,
+        "optional": true
+      }
+    ]
+  },
+  "repository": "https://github.com/upstash/context7",
+  "license": "MIT"
+}

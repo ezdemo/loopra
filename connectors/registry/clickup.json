@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "clickup",
+  "name": "ClickUp",
+  "category": "project",
+  "description": "管理 ClickUp 任务、列表与文档。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#7B68EE",
+  "icon": "clickup",
+  "capabilities": [
+    "搜索任务",
+    "创建与更新任务",
+    "读取文档"
+  ],
+  "docsUrl": "https://help.clickup.com/hc/en-us/articles/33335772678423",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.clickup.com/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

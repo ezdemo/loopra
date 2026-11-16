@@ -20,7 +20,11 @@
 .capability-card:nth-child(n+4) { animation-delay: 100ms; }
 .capability-card-header { display: flex; align-items: center; gap: .75rem; min-width: 0; }
 .capability-card-header-actions { align-self: flex-start; margin-top: .125rem; }
-.capability-card .capability-card-icon { display: grid; place-items: center; flex: 0 0 2.5rem; width: 2.5rem; height: 2.5rem; border: 1px solid var(--line); border-radius: .625rem; background: var(--sidebar); color: var(--secondary); font-size: .75rem; font-weight: 600; }
+.capability-card .capability-card-icon { display: grid; place-items: center; flex: 0 0 2.5rem; width: 2.5rem; height: 2.5rem; border: 1px solid var(--line); border-radius: .625rem; background: var(--sidebar); color: var(--secondary); font-size: .75rem; font-weight: 600; overflow: hidden; }
+.connector-icon-img { object-fit: contain; }
+.capability-card-icon .connector-icon-img { width: 100%; height: 100%; padding: .3rem; }
+.connector-icon-tile { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: .45rem; }
+.connector-icon-tile .connector-icon-img { padding: .22rem; }
 .capability-card-title { flex: 1; min-width: 0; }
 .capability-card-title h2 { margin: 0; color: var(--text); font-size: .875rem; line-height: 1.5; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .capability-card-title strong { font-weight: inherit; }
@@ -186,7 +190,11 @@
   border-radius: 0.5rem;
   background: var(--accent-soft);
   font-weight: 600;
+  overflow: hidden;
 }
+.connector-request-avatar .connector-icon-img { width: 1.125rem; height: 1.125rem; padding: 0; }
+.connector-request-avatar .connector-icon-tile { width: 1.75rem; height: 1.75rem; border-radius: 0.5rem; }
+.connector-request-avatar .connector-icon-tile .connector-icon-img { width: 100%; height: 100%; padding: 0.2rem; }
 .connector-request-body { flex: 1; min-width: 0; }
 .connector-request-body p { margin: 0; font-size: 0.8125rem; color: var(--muted); }
 .connector-request-actions { display: flex; gap: 0.25rem; }

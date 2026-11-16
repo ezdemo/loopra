@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "variflight",
+  "name": "飞常准",
+  "category": "life",
+  "icon": "variflight",
+  "description": "飞常准官方航空 MCP，提供航班搜索、航班动态、中转方案、机舱舒适度和机场天气。",
+  "docsUrl": "https://ai.variflight.com/docs/aviation",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [
+    {
+      "id": "dsh",
+      "entry": "com.variflight/aviation",
+      "url": "https://bai-2008.github.io/dsh-mcp-center/servers/com.variflight__aviation/"
+    }
+  ],
+  "transport": {
+    "type": "streamable",
+    "url": "https://ai.variflight.com/servers/aviation/mcp",
+    "headers": {
+      "X-API-Key": "{{apiKey}}"
+    }
+  },
+  "auth": {
+    "type": "token",
+    "helpUrl": "https://ai.variflight.com/",
+    "fields": [
+      {
+        "key": "apiKey",
+        "label": "API Key",
+        "secret": true
+      }
+    ]
+  },
+  "repository": "https://github.com/variflight/variflight-mcp",
+  "license": "ISC"
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "google-drive",
+  "name": "Google 云端硬盘",
+  "category": "office",
+  "description": "搜索、读取和创建云端硬盘文件。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#34A853",
+  "icon": "google-drive",
+  "capabilities": [
+    "搜索文件",
+    "读取文件内容",
+    "创建文件"
+  ],
+  "docsUrl": "https://developers.google.com/workspace/drive/api/guides/configure-mcp-server",
+  "transport": {
+    "type": "streamable",
+    "url": "https://drivemcp.googleapis.com/mcp/v1"
+  },
+  "auth": {
+    "type": "oauth",
+    "client": "user",
+    "helpUrl": "https://developers.google.com/workspace/guides/configure-mcp-servers",
+    "fields": [
+      {
+        "key": "clientId",
+        "label": "OAuth Client ID"
+      },
+      {
+        "key": "clientSecret",
+        "label": "OAuth Client Secret",
+        "secret": true
+      }
+    ]
+  }
+}

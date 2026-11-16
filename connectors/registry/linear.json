@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "linear",
+  "name": "Linear",
+  "category": "project",
+  "description": "查询和管理 Linear 中的议题、项目与周期。",
+  "kind": "mcp",
+  "methods": [
+    "mcp"
+  ],
+  "sources": [],
+  "color": "#5E6AD2",
+  "icon": "linear",
+  "capabilities": [
+    "搜索议题",
+    "创建与更新议题",
+    "查看项目进度"
+  ],
+  "docsUrl": "https://linear.app/docs/mcp",
+  "transport": {
+    "type": "streamable",
+    "url": "https://mcp.linear.app/mcp"
+  },
+  "auth": {
+    "type": "oauth"
+  }
+}

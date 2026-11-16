@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "office",
+      "name": "办公协作"
+    },
+    {
+      "id": "project",
+      "name": "项目管理"
+    },
+    {
+      "id": "design",
+      "name": "设计创作"
+    },
+    {
+      "id": "life",
+      "name": "生活出行"
+    },
+    {
+      "id": "notes",
+      "name": "笔记效率"
+    },
+    {
+      "id": "search",
+      "name": "搜索查询"
+    },
+    {
+      "id": "finance",
+      "name": "金融支付"
+    },
+    {
+      "id": "cloud",
+      "name": "云服务"
+    },
+    {
+      "id": "media",
+      "name": "内容媒体"
+    },
+    {
+      "id": "developer",
+      "name": "开发者"
+    }
+  ],
+  "sources": [
+    {
+      "id": "howai",
+      "name": "HowAI",
+      "url": "https://howai.build/china-mcp-skills"
+    },
+    {
+      "id": "dsh",
+      "name": "dsh-mcp-center",
+      "url": "https://github.com/Bai-2008/dsh-mcp-center"
+    }
+  ],
+  "order": [
+    "feishu",
+    "dingtalk",
+    "tencent-docs",
+    "notion",
+    "gmail",
+    "google-calendar",
+    "google-drive",
+    "linear",
+    "atlassian",
+    "clickup",
+    "monday",
+    "airtable",
+    "canva",
+    "amap",
+    "github",
+    "sentry",
+    "baidu-map",
+    "dida365",
+    "didi",
+    "variflight",
+    "mcd",
+    "metaso",
+    "lkcoffee",
+    "tencent-map",
+    "tencent-meeting",
+    "tencent-weiyun",
+    "tuniu",
+    "yuque",
+    "context7",
+    "dchub",
+    "fetch",
+    "filesystem",
+    "mastergo",
+    "pixso",
+    "playwright",
+    "sqlite",
+    "12306",
+    "weibo",
+    "weread",
+    "yinxiang",
+    "flomo"
+  ]
+}

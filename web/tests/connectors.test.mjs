@@ -57,8 +57,8 @@ test('reduceFlow 只在等待阶段推进', () => {
 });
 
 test('connectorRequestOf 识别连接器提问标记', () => {
-  const request = connectorRequestOf({ schema: { type: 'object', properties: {}, 'x-loopra-connector': { id: 'amap', name: '高德地图', reason: '查天气', needs: 'connect' } } });
-  assert.deepEqual(request, { id: 'amap', name: '高德地图', reason: '查天气', needs: 'connect' });
+  const request = connectorRequestOf({ schema: { type: 'object', properties: {}, 'x-loopra-connector': { id: 'amap', name: '高德地图', icon: 'amap', reason: '查天气', needs: 'connect' } } });
+  assert.deepEqual(request, { id: 'amap', name: '高德地图', icon: 'amap', reason: '查天气', needs: 'connect' });
 });
 
 test('connectorRequestOf 对普通提问或非法标记返回 undefined', () => {
@@ -130,4 +130,45 @@ test('customDraftPayload for stdio strips remote fields; validation catches bad 
   assert.equal(payload.url, undefined);
   assert.equal(customDraftError({ ...draft, name: 'bad name' }, [], ''), '名称只能包含字母、数字、下划线和连字符');
   assert.equal(customDraftError(draft, []), '');
+});
+
+const { fieldDefaults } = await import(await compile('../src/connectors.ts'));
+
+test('connectorsForView 拆分我的内容与发现页', () => {
+  const all = [
+    { ...base, id: 'n', name: 'N', category: 'office', status: 'available' },
+    { ...base, id: 'c', name: 'C', category: 'office', status: 'connected' },
+  ];
+  assert.deepEqual(connectorsForView(all, 'discover').map(i => i.id), ['n']);
+  assert.deepEqual(connectorsForView(all, 'installed').map(i => i.id), ['c']);
+});
+
+test('filterConnectors 支持分类与扩展搜索', () => {
+  const all = [
+    { ...base, id: 'a', name: 'A', category: 'office', status: 'available', methods: ['mcp'] },
+    { ...base, id: 'b', name: 'B', category: 'life', status: 'available', methods: ['mcp', 'skill'] },
+    { ...base, id: 'c', name: 'C', category: 'office', status: 'available', methods: ['mcp'], tags: ['地图'] },
+  ];
+  assert.deepEqual(filterConnectors(all, 'life', '').map(i => i.id), ['b']);
+  assert.deepEqual(filterConnectors(all, 'all', '地图').map(i => i.id), ['c']);
+  assert.deepEqual(filterConnectors(all, 'all', 'skill').map(i => i.id), ['b']);
+  assert.deepEqual(filterConnectors(all, 'all', 'a').map(i => i.id), ['a']);
+});
+
+test('missingFields 跳过可选与带默认值字段', () => {
+  const item = {
+    ...base,
+    fields: [
+      { key: 'token', label: 'Token' },
+      { key: 'opt', label: 'Opt', optional: true },
+      { key: 'region', label: 'Region', optional: true, default: 'cn' },
+    ],
+  };
+  assert.deepEqual(missingFields(item, { token: 'x' }), []);
+  assert.deepEqual(missingFields(item, {}), ['token']);
+});
+
+test('fieldDefaults 提取默认值表', () => {
+  const item = { ...base, fields: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B', default: 'cn' }] };
+  assert.deepEqual(fieldDefaults(item), { b: 'cn' });
 });
