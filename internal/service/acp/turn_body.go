@@ -111,14 +111,14 @@ func (t *acpTurn) handle(event Event) {
 		t.handleTool(event.Tool)
 	case EventPlan:
 		t.sink.Send("acp_plan", map[string]any{"entries": event.Plan})
-		t.host.SetMeta(t.session, map[string]any{"acpPlan": event.Plan})
+		_ = t.host.SetMeta(t.session, map[string]any{"acpPlan": event.Plan})
 	case EventCommands:
 		commands := commandPayload(event.Commands)
 		t.sink.Send("acp_commands", map[string]any{"commands": commands})
-		t.host.SetMeta(t.session, map[string]any{"acpCommands": commands})
+		_ = t.host.SetMeta(t.session, map[string]any{"acpCommands": commands})
 	case EventConfig:
 		t.sink.Send("config_options", map[string]any{"configOptions": event.ConfigOptions})
-		t.host.SetMeta(t.session, map[string]any{"agentConfig": configValues(event.ConfigOptions)})
+		_ = t.host.SetMeta(t.session, map[string]any{"agentConfig": configValues(event.ConfigOptions)})
 	case EventMode:
 		if event.Mode != "" {
 			t.sink.Send("mode_changed", map[string]any{"mode": event.Mode})
@@ -149,7 +149,7 @@ func (t *acpTurn) handle(event Event) {
 		t.usage = payload
 		t.mu.Unlock()
 		t.sink.Send("usage", payload)
-		t.host.SetMeta(t.session, map[string]any{"acpUsage": payload})
+		_ = t.host.SetMeta(t.session, map[string]any{"acpUsage": payload})
 	case EventNative:
 		t.sendNative(event.NativeType, event.NativeData)
 	}

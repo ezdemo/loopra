@@ -173,11 +173,16 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 | POST `/{name}` | q: workspaceHash* | `{workspaceHash, sessionName, switched:b}`（惰性切换，允许尚未落盘的会话名） |
 | DELETE `` \| `/cleanup`(before:l*) \| `/{name}` | — | `{message, workspaceHash, sessionName}` |
 | POST `/evict-all` | — | s `"已清除所有 Agent 缓存"` |
-| POST `/{name}/branch` | q: messageCount:i*(>0，**按 `/api/agent/history` 返回的可见行计数**，即前端 `historyCount`；一个 ADK 事件可能占多行，切点取整事件) | `{message:"已分支到新会话",...}` |
-| POST `/{name}/fork` | — | `{message:"已创建会话分叉",...}` |
+| POST `/{name}/branch` | q: messageCount:i*(>0，**按 `/api/agent/history` 返回的可见行计数**，即前端 `historyCount`；一个 ADK 事件可能占多行，切点取整事件), agentId?:s | `{message:"已分支到新会话", workspaceHash, sessionName, agentId, customAgentId?}` |
+| POST `/{name}/fork` | q: messageCount?:i(>0，行计数与边界规则同 `/branch`；缺省为整段历史), agentId?:s | `{message:s("已分叉到新会话"/"已分支到新会话"), workspaceHash, sessionName, agentId, customAgentId?}` |
 | GET `/stats` | — | `{cacheSize:i, maxCacheSize:i=50}` |
 | GET `/{name}/checklist` \| `/{name}/goal` | q: workspaceHash* | null 或清单/目标结构（见契约代理原始输出） |
 | POST `/file-changes/revert` | body `{workspaceHash*, changes:[{path,additions,deletions,created,diff}]}` | `{message:"已撤销本次 AI 的文件修改", revertedFiles:i}` |
+
+`/branch` 与 `/fork` 共用可选 `agentId` 目标引擎参数：省略或为空沿用源会话绑定，`looprax` 归一化为 `native`，未知 id 在创建新会话前返回 400。纯聊天工作区与智能体工作区（`workspaceHash` 为 `__loopra_chat__` 或自定义智能体 id）不允许显式指定外部引擎，返回 400；项目工作区里绑定了角色的会话可以转到外部引擎，但新会话不再携带 `customAgentId`。响应 `message` 远端分叉路径为「已分叉到新会话」，本地复刻路径为「已分支到新会话」。
+
+- 同引擎：`/branch` 对 `native` 沿用事件级复制（`messageCount` 按整 ADK 事件取整）；外部引擎两个端点都沿用 ACP `session/fork` 远端分叉，源会话没有 `acpSessionId` 时返回 400。`/fork` 对 `native` 源返回 400「当前会话不支持 ACP 分叉」，不做本地克隆。例外：`.meta` 带 `acpHistorySeed` 的外部会话同引擎也走下面的本地复刻路径——注入的历史回复只存在于提示词里，远端按指纹分叉定位不到它们；此时 `.meta` 保留模型与 `agentConfig` 并继续带 `acpHistorySeed`，但不沿用远端身份。
+- 跨引擎：只复制本地可见转录，两侧适配器都不参与——外部源没有远端记录或不在线也能转换，外部目标在首次发送时才把这段历史注入远端会话（见存储契约 `acpHistorySeed`）。`/branch` 复制 `messageCount` 行的可见前缀（必须落在完整回复边界上，否则返回 400「请选择一条完整回复作为分叉位置」），`/fork` 缺省复制整段历史、带 `messageCount` 时按同一规则截前缀；附件与工具记录原样保留，`.jsonl` 与 `.events` 同步写入且不超出所选前缀。新会话是独立 UUID，`.meta` 剥离源引擎的模型、执行状态与角色绑定，保留未列出的键。
 
 ### 3.8 Plugins（/api/plugins）
 GET `` 与 GET `/external` → `[{id,displayName,description,remark,version,source,sourceUrl,enabled,state,error,tools:[s],hooks:[s],entry,settings?:b,builtin?:b,requests?:b,icon?:{name?:s,key?:s,dataUrl?:s,hidden?:b},sidebar?:{title,icon?},panel?:{title,icon?},menu?:{title,category?:s,icon?,page?:b,children?:[{id,title,icon?}]}}]`。`hooks` 是已加载的钩子名：`turnBefore`、`systemPrompt`、`llmRequest`、`llmRequestSent`、`llmResponse`、`toolBefore`、`toolAfter`、`compact`、`turnAfter`。`settings` 为真表示声明了设置页，`requests` 为真表示已加载页面后端 `onRequest`。`builtin` 为真表示 `plugins/` 目录里的内置插件，可以停用，不能卸载或单独更新。`sidebar` 出现时表示侧栏有入口，`panel` 表示右侧面板有页签。`menu` 出现时表示设置导航有插件菜单。`icon.hidden:true` 表示插件显式隐藏图标；`icon.name` 是 Lucide 图标名，`icon.key` 要用访问密钥取 `GET /{id}/icons/{key}`。

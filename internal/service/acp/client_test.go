@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -75,6 +76,39 @@ func (a *fakeSDKAgent) NewSession(context.Context, acpsdk.NewSessionRequest) (ac
 }
 
 func (a *fakeSDKAgent) Prompt(ctx context.Context, req acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
+	// LOOPRA_ACP_FAKE_PROMPT_LOG 记录每次提示词的用户文本块（不含展示约定），
+	// 供历史注入测试断言实际发送内容；LOOPRA_ACP_FAKE_FAIL 指向的文件存在时
+	// 注入一次可重试的发送失败。
+	if log := os.Getenv("LOOPRA_ACP_FAKE_PROMPT_LOG"); log != "" {
+		var text strings.Builder
+		for _, block := range req.Prompt {
+			if block.Text != nil && !strings.HasPrefix(block.Text.Text, "[Loopra 回复展示约定]") {
+				text.WriteString(block.Text.Text)
+			}
+		}
+		text.WriteString("\n---\n")
+		file, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err == nil {
+			_, err = file.WriteString(text.String())
+			if closeErr := file.Close(); err == nil {
+				err = closeErr
+			}
+		}
+		if err != nil {
+			return acpsdk.PromptResponse{}, err
+		}
+	}
+	if fail := os.Getenv("LOOPRA_ACP_FAKE_FAIL"); fail != "" {
+		if _, err := os.Stat(fail); err == nil {
+			return acpsdk.PromptResponse{}, errors.New("injected prompt failure")
+		}
+	}
+	// LOOPRA_ACP_FAKE_WAIT_CANCEL 让提示词停在已记录状态直到请求取消，
+	// 供种子标记的取消路径测试使用。
+	if os.Getenv("LOOPRA_ACP_FAKE_WAIT_CANCEL") != "" {
+		<-ctx.Done()
+		return acpsdk.PromptResponse{}, ctx.Err()
+	}
 	sid := acpsdk.SessionId("fake-session")
 	send := func(update acpsdk.SessionUpdate) {
 		_ = a.conn.SessionUpdate(ctx, acpsdk.SessionNotification{SessionId: sid, Update: update})
@@ -121,10 +155,18 @@ func (a *fakeSDKAgent) SetSessionMode(context.Context, acpsdk.SetSessionModeRequ
 }
 
 func fakeClient(t *testing.T, handler Handler) *Client {
+	return fakeClientEnv(t, handler, nil)
+}
+
+func fakeClientEnv(t *testing.T, handler Handler, env map[string]string) *Client {
 	t.Helper()
+	vars := map[string]string{"LOOPRA_ACP_FAKE": "1"}
+	for key, value := range env {
+		vars[key] = value
+	}
 	client, err := NewClient(Launch{
 		Command: []string{os.Args[0], "-test.run=TestMain"},
-		Env:     map[string]string{"LOOPRA_ACP_FAKE": "1"},
+		Env:     vars,
 	}, t.TempDir(), handler, nil)
 	if err != nil {
 		t.Fatal(err)

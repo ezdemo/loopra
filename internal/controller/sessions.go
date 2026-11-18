@@ -17,6 +17,7 @@ import (
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
 	"github.com/ezdemo/looprax/internal/service/acp"
+	"github.com/ezdemo/looprax/internal/service/customagent"
 	sessfiles "github.com/ezdemo/looprax/internal/service/session"
 )
 
@@ -349,13 +350,19 @@ func (s *Controller) sessionBranch(w http.ResponseWriter, r *http.Request, name 
 		writeFail(w, http.StatusBadRequest, "messageCount 必须为正整数")
 		return
 	}
+	source, target, ok := s.branchAgents(w, r, name)
+	if !ok {
+		return
+	}
+	if target != source {
+		// 跨引擎分支只复制本地可见转录，不接触两侧适配器：
+		// 外部源没有远端 id 或不在线也能分支。
+		s.sessionConvert(w, r, name, target, count)
+		return
+	}
 	// 外部 Agent 的「从此回复继续到新会话」必须走 ACP 分叉，
 	// 才能带上原来的 agent、远端会话和模型配置。
-	agentID := s.migrateRetiredAgent(name)
-	if agentID == "" {
-		agentID = "native"
-	}
-	if agentID != "native" && acp.IsExternal(agentID) {
+	if source != "native" && acp.IsExternal(source) {
 		s.sessionFork(w, r, name)
 		return
 	}
@@ -399,10 +406,102 @@ func (s *Controller) sessionBranch(w http.ResponseWriter, r *http.Request, name 
 	} else {
 		newMeta["title"] = "[复刻]" + name
 	}
-	s.sessionMetaWrite(newName, newMeta)
+	if err := s.sessionMetaWrite(newName, newMeta); err != nil {
+		writeFail(w, http.StatusInternalServerError, "保存会话配置失败: "+err.Error())
+		return
+	}
+	out := map[string]any{
+		"message": "已分支到新会话", "workspaceHash": s.agent.App(),
+		"sessionName": newName, "agentId": "native",
+	}
+	if persona := strOr(newMeta, "customAgentId", ""); persona != "" {
+		out["customAgentId"] = persona
+	}
+	writeOK(w, http.StatusOK, out)
+}
+
+// branchAgents 解析 branch/fork 的目标引擎。省略或为空时沿用源会话
+// 绑定；looprax 归一化为 native，未知 id 在建新会话前拒绝。纯聊天与
+// 智能体工作区不允许把会话转换到外部引擎。
+func (s *Controller) branchAgents(w http.ResponseWriter, r *http.Request, name string) (source, target string, ok bool) {
+	source = s.migrateRetiredAgent(name)
+	if source == "" {
+		source = "native"
+	}
+	target = strings.TrimSpace(r.URL.Query().Get("agentId"))
+	if target == "looprax" {
+		target = "native"
+	}
+	if target == "" {
+		return source, source, true
+	}
+	if target != "native" && !acp.IsExternal(target) {
+		writeFail(w, http.StatusBadRequest, "Agent 引擎不可用: "+target)
+		return "", "", false
+	}
+	app := ""
+	if s.agent != nil {
+		app = s.agent.App()
+	}
+	if acp.IsExternal(target) && (app == chatWorkspace || customagent.IsID(app)) {
+		writeFail(w, http.StatusBadRequest, "当前工作区不支持外部 Agent")
+		return "", "", false
+	}
+	return source, target, true
+}
+
+// sessionConvert 把源会话的可见转录前缀复制到绑定其他引擎的新会话。
+// 复制的是 /api/agent/history 的同一批行（附件与工具记录原样保留），
+// 两侧适配器都不参与：外部源没有远端记录也能分支；外部目标在第一条
+// 用户消息发出时才接收这段历史（.meta acpHistorySeed）。
+func (s *Controller) sessionConvert(w http.ResponseWriter, r *http.Request, name, targetID string, count int) {
+	if _, err := s.agent.Sessions.Get(r.Context(), getSessionRequest(s.agent, name)); err != nil {
+		writeFail(w, http.StatusBadRequest, "会话不存在: "+name)
+		return
+	}
+	rows, err := s.sessionFiles().ReadMessages(name)
+	if err != nil {
+		writeFail(w, http.StatusInternalServerError, "读取会话历史失败: "+err.Error())
+		return
+	}
+	point, err := acpForkPointAt(rows, count)
+	if err != nil {
+		writeFail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	newName := "loopra-" + newUUIDv4()
+	if _, err := s.agent.Sessions.Create(r.Context(), createReq(s.agent, newName)); err != nil {
+		writeFail(w, http.StatusInternalServerError, "新会话创建失败: "+err.Error())
+		return
+	}
+	if err := s.agent.Sessions.AppendTranscript(s.agent.App(), newName, point.lines); err != nil {
+		writeFail(w, http.StatusInternalServerError, "复制消息失败: "+err.Error())
+		return
+	}
+	meta := s.sessionMetaRead(name)
+	title := strOr(meta, "title", "")
+	if title == "" {
+		title = name
+	}
+	prefix := "[分支]"
+	if count > 0 {
+		prefix = "[复刻]"
+	}
+	newMeta := sessfiles.ConvertedBranchMeta(meta, targetID, prefix+title)
+	sourceID := strOr(meta, "agentId", "native")
+	if sourceID == targetID {
+		// 待注入历史的回复只存在于本地转录，远端按指纹分叉找不到它们；
+		// 同引擎复刻保留模型与配置，但绝不沿用源远端身份。
+		newMeta = inheritedSessionMeta(meta, targetID, "", s.workspaceRoot(), prefix+title)
+		newMeta["worktreeMode"] = false
+	}
+	if err := s.sessionMetaWrite(newName, newMeta); err != nil {
+		writeFail(w, http.StatusInternalServerError, "保存会话配置失败: "+err.Error())
+		return
+	}
 	writeOK(w, http.StatusOK, map[string]any{
 		"message": "已分支到新会话", "workspaceHash": s.agent.App(),
-		"sessionName": newName,
+		"sessionName": newName, "agentId": targetID,
 	})
 }
 

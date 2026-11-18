@@ -52,6 +52,7 @@ import { useNativePet } from './pet-desktop';
 import SessionDetails, { SessionProgress } from './components/SessionDetails';
 import { ConfirmAction } from './components/RemoteControls';
 import RollbackMessageDialog from './components/RollbackMessageDialog';
+import SessionBranchDialog from './components/SessionBranchDialog';
 import ProjectSessions from './components/ProjectSessions';
 import ProjectManager from './components/ProjectManager';
 import AgentEditor from './components/AgentEditor';
@@ -215,6 +216,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [occupiedSessions, setOccupiedSessions] = useState<Set<string>>(() => new Set());
   const forkRequest = useRef<string>();
   const [forkBusy, setForkBusy] = useState<string>();
+  const [branchTarget, setBranchTarget] = useState<{ source: Session; messageCount: number; server: string }>();
   const occupiedSessionsRef = useRef(occupiedSessions);
   const composerViewRef = useRef({ server, activeId, draft, draftKey: '' });
   const runs = useMemo(() => new SessionRuns(), []);
@@ -367,6 +369,10 @@ export default function App({ startupPending = false, initialServer }: { startup
     sessionId: session?.id, filePath: editorTabs.files.find(file => file.path === editorTabs.active)?.path,
   }), [currentWorkspace?.hash, currentWorkspace?.path, session?.id, editorTabs.files, editorTabs.active]);
   const projectWorkspaces = useMemo(() => workspaces.filter(isProjectWorkspace), [workspaces]);
+  // 分支对话框的引擎候选项按源会话所在工作区判定：纯聊天与智能体
+  // 工作区只允许 Loopra Native。
+  const branchWorkspace = branchTarget ? workspaces.find(item => item.hash === branchTarget.source.workspaceHash) : undefined;
+  const branchEngines = branchWorkspace && !isProjectWorkspace(branchWorkspace) ? engines.filter(engine => engine.id === 'native') : engines;
   const workspaceName = currentWorkspace?.name || '选择工作区';
   useEffect(() => {
     setTerminal(false);
@@ -731,20 +737,24 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (!session || composerConfigBusy) return;
     await createSessionBranch(session);
   }
-  async function createSessionBranch(source: Session, messageCount?: number) {
-    if (forkRequest.current || backend.status !== 'connected' || !backend.ready) return;
+  async function createSessionBranch(source: Session, messageCount?: number, targetAgentId?: string): Promise<boolean> {
+    if (forkRequest.current || backend.status !== 'connected' || !backend.ready) return false;
     const label = messageCount === undefined ? '分叉' : '分支';
     const key = `${server}::${source.id}`;
     forkRequest.current = key;
     setForkBusy(key);
     try {
-      const route = messageCount === undefined ? sessionRoute(source, '/fork')
-        : `${sessionRoute(source, '/branch')}&messageCount=${messageCount}`;
-      const result = await api.request<{ sessionName: string }>(route, 'POST', undefined, AbortSignal.timeout(65000));
+      const query = targetAgentId ? `&agentId=${encodeURIComponent(targetAgentId)}` : '';
+      const route = messageCount === undefined ? `${sessionRoute(source, '/fork')}${query}`
+        : `${sessionRoute(source, '/branch')}&messageCount=${messageCount}${query}`;
+      const result = await api.request<{ sessionName: string; agentId?: string; customAgentId?: string }>(route, 'POST', undefined, AbortSignal.timeout(65000));
       if (!result.sessionName || result.sessionName === source.name) throw new Error('未能创建独立的分叉会话');
-      if (composerViewRef.current.server !== server) return;
+      if (composerViewRef.current.server !== server) return true;
+      const branchAgentId = result.agentId || targetAgentId || source.agentId || 'native';
       const next: Session = { ...source, id: `${source.workspaceHash}/${result.sessionName}`, name: result.sessionName,
-        title: `[复刻]${source.title}`, worktreeMode: false, mtime: Date.now(),
+        title: `${messageCount === undefined ? '[分支]' : '[复刻]'}${source.title}`, worktreeMode: false, mtime: Date.now(),
+        agentId: branchAgentId,
+        customAgentId: result.customAgentId ?? (branchAgentId === 'native' && (source.agentId || 'native') === 'native' ? source.customAgentId : undefined),
         messages: messageCount === undefined ? source.messages
           : source.messages.filter(message => message.historyCount !== undefined && message.historyCount <= messageCount) };
       // The fork already exists. Keep it visible even if the history refresh fails.
@@ -753,11 +763,11 @@ export default function App({ startupPending = false, initialServer }: { startup
       let historyError = false;
       try {
         const history = await api.request<HistoryMessage[]>(`/agent/history?${sessionQuery(next)}`);
-        if (composerViewRef.current.server !== server) return;
+        if (composerViewRef.current.server !== server) return true;
         setSessions(current => current.map(item => item.id === next.id ? { ...item, messages: historyMessages(history) } : item));
       } catch { historyError = true; }
       const view = composerViewRef.current;
-      if (view.server !== server || view.activeId !== source.id) return;
+      if (view.server !== server || view.activeId !== source.id) return true;
       historyRequest.current?.abort();
       selectMainTab(null, next.workspaceHash || '');
       setActiveId(next.id); setWorkspace(next.workspaceHash || '');
@@ -765,11 +775,13 @@ export default function App({ startupPending = false, initialServer }: { startup
       userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
       notify(historyError ? `${label}已创建，历史刷新失败，可重新打开此会话加载`
         : messageCount === undefined ? '已保留历史并创建独立会话' : '已从所选回复创建独立分支会话');
+      return true;
     } catch (error) {
       const view = composerViewRef.current;
       if (view.server === server && view.activeId === source.id) {
         notify(`创建${label}失败：${error instanceof Error ? error.message : String(error)}`);
       }
+      return false;
     } finally {
       forkRequest.current = undefined;
       setForkBusy(undefined);
@@ -1104,15 +1116,19 @@ export default function App({ startupPending = false, initialServer }: { startup
     }
     setPendingInputs(current => ({ ...current, [target.id]: (current[target.id] || []).filter(input => input.elicitationRequestId !== request.elicitationRequestId) }));
   }
-  async function branchSession(messageId: string) {
+  function branchSession(messageId: string) {
     if (!session || generatingId) return;
     const messages = getSessionMessages(session);
     const index = messages.findIndex(message => message.id === messageId);
     if (index < 0) return;
     const count = messages[index].historyCount;
     if (!count) { notify('请重新打开会话后再创建分支'); return; }
-    await createSessionBranch(session, count);
+    setBranchTarget({ source: session, messageCount: count, server });
   }
+  // 切换后端、工作区或会话后，未确认的分支选择不能带进新上下文。
+  useEffect(() => {
+    if (branchTarget && (branchTarget.server !== server || branchTarget.source.id !== session?.id)) setBranchTarget(undefined);
+  }, [branchTarget, server, session?.id]);
 
   // Legacy Chat.vue queued messages per session: sending while a reply is
   // streaming appends to the session queue instead of being dropped.
@@ -1605,6 +1621,15 @@ export default function App({ startupPending = false, initialServer }: { startup
       if (!result.success) throw new Error(result.message);
       await refreshCurrentSession(result.rollbackUserText);
     }} />}
+    {branchTarget && <SessionBranchDialog sourceAgentId={branchTarget.source.agentId || 'native'} engines={branchEngines} busy={!!forkBusy}
+      onClose={() => setBranchTarget(undefined)} onConfirm={async target => {
+        const captured = branchTarget;
+        if (composerViewRef.current.server !== captured.server || session?.id !== captured.source.id) {
+          setBranchTarget(undefined);
+          throw new Error('会话已切换，请重新创建分支');
+        }
+        if (!await createSessionBranch(captured.source, captured.messageCount, target)) throw new Error('创建分支失败');
+      }} />}
     <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={sessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
     <Settings
       pluginContext={pluginContext}

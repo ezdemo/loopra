@@ -104,7 +104,27 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 		writeFail(w, http.StatusNotFound, "未找到路径")
 		return
 	}
+	count := 0
+	if raw := r.URL.Query().Get("messageCount"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			writeFail(w, http.StatusBadRequest, "messageCount 必须为正整数")
+			return
+		}
+		count = value
+	}
+	source, target, ok := s.branchAgents(w, r, name)
+	if !ok {
+		return
+	}
 	meta := s.sessionMetaRead(name)
+	if target != source || meta["acpHistorySeed"] == true {
+		// 跨引擎转换复制本地可见转录，源不需要远端记录，
+		// 目标也不需要立即建立远端会话。带注入历史的会话同引擎也走
+		// 本地复刻：注入的回复只在提示词里存在，远端按指纹找不到它们。
+		s.sessionConvert(w, r, name, target, count)
+		return
+	}
 	agentID := strOr(meta, "agentId", "native")
 	remote := strOr(meta, "acpSessionId", "")
 	if agentID == "native" || !acp.IsExternal(agentID) {
@@ -114,15 +134,6 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 	if remote == "" {
 		writeFail(w, http.StatusBadRequest, "源会话尚未建立远端记录，无法创建分叉")
 		return
-	}
-	count := 0
-	if raw := r.URL.Query().Get("messageCount"); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value <= 0 {
-			writeFail(w, http.StatusBadRequest, "messageCount 必须为正整数")
-			return
-		}
-		count = value
 	}
 	point, err := acpForkPointAt(s.sessionMessages(r.Context(), name), count)
 	if err != nil {
@@ -176,18 +187,29 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 		prefix = "[复刻]"
 	}
 	newMeta := inheritedSessionMeta(meta, agentID, forked, conn.Dir(), prefix+title)
-	s.sessionMetaWrite(newName, newMeta)
-	writeOK(w, http.StatusOK, map[string]any{
-		"message": "已分叉到新会话", "workspaceHash": s.agent.App(), "sessionName": newName,
-	})
+	if err := s.sessionMetaWrite(newName, newMeta); err != nil {
+		s.acp.Drop(s.acpKey(newName))
+		writeFail(w, http.StatusInternalServerError, "保存会话配置失败: "+err.Error())
+		return
+	}
+	out := map[string]any{
+		"message": "已分叉到新会话", "workspaceHash": s.agent.App(),
+		"sessionName": newName, "agentId": agentID,
+	}
+	if persona := strOr(newMeta, "customAgentId", ""); persona != "" {
+		out["customAgentId"] = persona
+	}
+	writeOK(w, http.StatusOK, out)
 }
 
 // inheritedSessionMeta 复制源会话的 Agent、模型和 ACP 配置。
 // forked 为空表示远端没有分叉成功，不能沿用源会话的 acpSessionId。
+// acpHistorySeededSessionId 记录的是源远端已接收的历史，新远端从未
+// 收到过，一律不带；acpHistorySeed 表达新远端首条提示词要补种历史。
 func inheritedSessionMeta(source map[string]any, agentID, forked, cwd, title string) map[string]any {
 	meta := map[string]any{}
 	for key, value := range source {
-		if key == "acpSessionId" || key == "title" {
+		if key == "acpSessionId" || key == "title" || key == "acpHistorySeededSessionId" {
 			continue
 		}
 		meta[key] = value
@@ -197,6 +219,16 @@ func inheritedSessionMeta(source map[string]any, agentID, forked, cwd, title str
 	meta["title"] = title
 	if forked != "" {
 		meta["acpSessionId"] = forked
+	}
+	// 远端分叉失败时会话下次发送才新建远端，本地历史需要注入；源会话
+	// 挂着 acpHistorySeed 但尚未注进源远端时，远端分叉也拿不到这段
+	// 历史，同样要补种。已注进源远端的分叉自带历史，不重复注入。
+	pending := meta["acpHistorySeed"] == true &&
+		strOr(source, "acpHistorySeededSessionId", "") != strOr(source, "acpSessionId", "")
+	if forked == "" || pending {
+		meta["acpHistorySeed"] = true
+	} else {
+		delete(meta, "acpHistorySeed")
 	}
 	return meta
 }

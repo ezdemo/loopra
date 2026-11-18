@@ -59,6 +59,10 @@ func writerTestConflict(id string) error {
 	})
 }
 
+func (a *writerTestAgent) NewSession(context.Context, acpsdk.NewSessionRequest) (acpsdk.NewSessionResponse, error) {
+	return acpsdk.NewSessionResponse{SessionId: acpsdk.SessionId("remote-" + newUUIDv4())}, nil
+}
+
 func (a *writerTestAgent) LoadSession(_ context.Context, req acpsdk.LoadSessionRequest) (acpsdk.LoadSessionResponse, error) {
 	return acpsdk.LoadSessionResponse{}, writerTestConflict(string(req.SessionId))
 }
@@ -80,6 +84,21 @@ func (a *writerTestAgent) SetSessionConfigOption(context.Context, acpsdk.SetSess
 }
 
 func (a *writerTestAgent) Prompt(ctx context.Context, req acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
+	// LOOPRA_TEST_ACP_PROMPT_LOG 记录每次提示词的用户文本块，供
+	// 历史注入测试断言远端实际收到的内容。
+	if log := os.Getenv("LOOPRA_TEST_ACP_PROMPT_LOG"); log != "" {
+		var text strings.Builder
+		for _, block := range req.Prompt {
+			if block.Text != nil && !strings.HasPrefix(block.Text.Text, "[Loopra 回复展示约定]") {
+				text.WriteString(block.Text.Text)
+			}
+		}
+		text.WriteString("\n---\n")
+		if file, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+			_, _ = file.WriteString(text.String())
+			_ = file.Close()
+		}
+	}
 	if err := writerTestConflict(string(req.SessionId)); err != nil {
 		return acpsdk.PromptResponse{}, err
 	}

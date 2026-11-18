@@ -79,6 +79,23 @@ func (s *Store) WriteMeta(name string, meta map[string]any) error {
 // Messages 以 {role, content} 行的形式读取会话历史，并去掉 adk_ 前缀字段。
 func (s *Store) Messages(name string) []map[string]any {
 	raw, _ := os.ReadFile(s.LogPath(name))
+	return visibleRows(raw)
+}
+
+// ReadMessages 与 Messages 读取同一份可见历史，但把读取错误透给调用方：
+// 转录复制、历史注入这类依赖完整历史的写路径不能在读取失败时按空历史继续。
+func (s *Store) ReadMessages(name string) ([]map[string]any, error) {
+	raw, err := os.ReadFile(s.LogPath(name))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []map[string]any{}, nil
+		}
+		return nil, err
+	}
+	return visibleRows(raw), nil
+}
+
+func visibleRows(raw []byte) []map[string]any {
 	out := []map[string]any{}
 	for _, row := range decodeJSONLines(raw) {
 		if row["web_hidden"] == true {

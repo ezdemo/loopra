@@ -32,8 +32,10 @@ type SessionHost interface {
 	Workspace() string
 	LinkedDirs() []string
 	Meta(session string) map[string]any
-	SetMeta(session string, kv map[string]any)
+	SetMeta(session string, kv map[string]any) error
 	HasHistory(session string) (bool, error)
+	// History 读取会话的可见转录行；缺失日志按空历史返回。
+	History(session string) ([]map[string]any, error)
 	AppendTranscript(session string, lines []map[string]any) error
 	SubSessionsDir(session string) string
 	MCPServers(agentID string) []any
@@ -313,6 +315,20 @@ func (m *Manager) decref(rtKey string, client *Client) {
 	m.mu.Unlock()
 	if closeClient {
 		_ = client.Close()
+	}
+}
+
+// unbindSession 在绑定信息没能落盘时撤销会话绑定：建会话期间的
+// session/update 可能已经经 owner 通道把远端 id 记到连接上，没有
+// 持久化 .meta 的绑定不能让后续轮次当成活会话继续用。
+func (c *Conn) unbindSession() {
+	c.mu.Lock()
+	c.acpSession = ""
+	c.live = false
+	client := c.client
+	c.mu.Unlock()
+	if client != nil {
+		client.clearOwner(c)
 	}
 }
 
@@ -790,7 +806,10 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 			patch["acpCommands"] = payload
 		}
 	}
-	host.SetMeta(name, patch)
+	if err := host.SetMeta(name, patch); err != nil {
+		conn.unbindSession()
+		return nil, err
+	}
 	conn.BindSession(result.SessionID, options)
 	conn.mu.Lock()
 	conn.linkedDirs = linkedDirsKey(dirs)
@@ -957,6 +976,13 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		return
 	}
 	host.EnsureTitle(ctx, name, in.Message)
+	// 跨引擎转换来的会话把待移植历史注进第一条提示词，只在真正发送时
+	// 进行：配置准备（prepare/config）建立远端但不消耗这个标记。
+	message, seeding, err := historySeedPrompt(host, name, conn.SessionID(), in.Message)
+	if err != nil {
+		sendFailure(sink, err)
+		return
+	}
 	runCtx, cancelTurn := context.WithCancelCause(ctx)
 	defer cancelTurn(nil)
 	turn := &acpTurn{
@@ -971,7 +997,7 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 	defer conn.bindTurn(nil)
 
 	conn.Use()
-	blocks := promptBlocks(in.Message, in.Images)
+	blocks := promptBlocks(message, in.Images)
 	result, promptErr := conn.client.Prompt(runCtx, blocks)
 	if queueErr := turn.events.finish(); queueErr != nil {
 		promptErr = queueErr
@@ -979,6 +1005,14 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		_ = conn.client.Close()
 	}
 	turn.finish()
+	// 提示词真正送达且事件队列排空后才标记已注入；失败或取消的轮次
+	// 保留种子状态，重试时仍携带历史。
+	if seeding && promptErr == nil && ctx.Err() == nil && context.Cause(runCtx) == nil {
+		if err := host.SetMeta(name, map[string]any{"acpHistorySeededSessionId": conn.SessionID()}); err != nil {
+			sendFailure(sink, err)
+			return
+		}
+	}
 	elapsed := time.Since(started).Round(time.Millisecond)
 	if promptErr != nil {
 		turn.endActiveSubAgents("aborted")

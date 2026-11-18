@@ -27,7 +27,7 @@ func (h *reuseHost) Meta(name string) map[string]any {
 	}
 	return h.meta[name]
 }
-func (h *reuseHost) SetMeta(name string, kv map[string]any) {
+func (h *reuseHost) SetMeta(name string, kv map[string]any) error {
 	if h.meta == nil {
 		h.meta = map[string]map[string]any{}
 	}
@@ -39,7 +39,9 @@ func (h *reuseHost) SetMeta(name string, kv map[string]any) {
 		current[key] = value
 	}
 	h.meta[name] = current
+	return nil
 }
+func (h *reuseHost) History(string) ([]map[string]any, error)        { return nil, nil }
 func (h *reuseHost) AppendTranscript(string, []map[string]any) error { return nil }
 func (h *reuseHost) SubSessionsDir(string) string                    { return "" }
 func (h *reuseHost) MCPServers(string) []any                         { return nil }

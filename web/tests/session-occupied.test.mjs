@@ -197,6 +197,7 @@ function forkEnvironment() {
     composerConfigBusy: false, forkRequest: { current: undefined }, sessionRoute, sessionQuery, historyMessages,
     composerViewRef: { current: { server: env.server, activeId: target.id, draft: state.draft } },
     historyRequest: { current: undefined }, userScrolledAway: { current: true }, lastScrollTop: { current: 10 },
+    setBranchTarget: value => { state.branchTarget = value; },
     setForkBusy: value => { state.forkBusy = value; },
     setSessions: update => { state.sessions = update(state.sessions); },
     setActiveId: value => { state.activeId = value; }, setWorkspace() {}, selectMainTab() {}, pinNewSession() {},
@@ -281,21 +282,71 @@ test('a history refresh failure keeps the created fork visible without retrying 
   assert.equal(state.sessions.length, 2);
 });
 
-test('the history branch action sends the selected prefix to the shared branch endpoint for each engine', async () => {
-  for (const agentId of ['native', 'codex', 'claude-code']) {
+test('the history branch action opens the engine dialog for every provider without network access', () => {
+  for (const agentId of ['native', 'codex', 'claude-code', 'devin']) {
     const { env, state } = forkEnvironment();
-    env.session = { ...target, agentId, messages: [
+    const source = { ...target, agentId, messages: [
       { id: 'first', role: 'assistant', text: 'first', historyCount: 2 },
       { id: 'second', role: 'assistant', text: 'second', historyCount: 4 },
     ] };
+    env.session = source;
     env.generatingId = null;
     env.getSessionMessages = session => session.messages;
-    await callback('branchSession', env)('first');
-    assert.equal(state.requests[0].route, '/sessions/chat/branch?workspaceHash=project&messageCount=2');
-    assert.equal(state.sessions[0].agentId, agentId);
-    assert.equal(state.activeId, 'project/fork');
-    assert.equal(state.notice, '已从所选回复创建独立分支会话');
+    callback('branchSession', env)('first');
+    assert.deepEqual(state.branchTarget, { source, messageCount: 2, server: env.server });
+    assert.equal(state.requests, undefined);
   }
+});
+
+test('a missing reply position keeps the dialog closed with the usual notice', () => {
+  const { env, state } = forkEnvironment();
+  env.session = { ...target, messages: [{ id: 'first', role: 'assistant', text: 'first' }] };
+  env.generatingId = null;
+  env.getSessionMessages = session => session.messages;
+  callback('branchSession', env)('first');
+  assert.equal(state.branchTarget, undefined);
+  assert.equal(state.notice, '请重新打开会话后再创建分支');
+  assert.equal(state.requests, undefined);
+});
+
+test('cross-engine branch sends agentId and drops the custom agent role', async () => {
+  const { env, state } = forkEnvironment();
+  env.api.request = async (route, method) => {
+    state.requests ||= []; state.requests.push({ route, method });
+    if (method === 'POST') return { sessionName: 'fork', agentId: 'codex' };
+    return [{ role: 'user', content: 'existing history' }];
+  };
+  const source = { ...target, agentId: 'native', customAgentId: 'agent-x', messages: [
+    { id: 'first', role: 'assistant', text: 'first', historyCount: 2 },
+  ] };
+  assert.equal(await env.createSessionBranch(source, 2, 'codex'), true);
+  assert.equal(state.requests[0].route, '/sessions/chat/branch?workspaceHash=project&messageCount=2&agentId=codex');
+  assert.equal(state.sessions[0].agentId, 'codex');
+  assert.equal(state.sessions[0].customAgentId, undefined);
+  assert.equal(state.activeId, 'project/fork');
+});
+
+test('native target sends agentId and clears the role unless the response retains it', async () => {
+  const { env, state } = forkEnvironment();
+  env.api.request = async (route, method) => {
+    state.requests ||= []; state.requests.push({ route, method });
+    if (method === 'POST') return { sessionName: 'fork', agentId: 'native' };
+    return [];
+  };
+  const source = { ...target, agentId: 'codex', customAgentId: 'agent-x', messages: [] };
+  assert.equal(await env.createSessionBranch(source, undefined, 'native'), true);
+  assert.equal(state.requests[0].route, '/sessions/chat/fork?workspaceHash=project&agentId=native');
+  assert.equal(state.sessions[0].agentId, 'native');
+  assert.equal(state.sessions[0].customAgentId, undefined);
+
+  const retained = forkEnvironment();
+  retained.env.api.request = async (route, method) => {
+    if (method === 'POST') return { sessionName: 'fork', agentId: 'native', customAgentId: 'agent-x' };
+    return [];
+  };
+  const own = { ...target, agentId: 'native', customAgentId: 'agent-x', messages: [] };
+  assert.equal(await retained.env.createSessionBranch(own, 1, 'native'), true);
+  assert.equal(retained.state.sessions[0].customAgentId, 'agent-x');
 });
 
 test('failed history refresh never displays messages beyond the selected branch position', async () => {

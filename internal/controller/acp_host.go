@@ -26,10 +26,24 @@ func (h acpHost) LinkedDirs() []string {
 
 func (h acpHost) Meta(session string) map[string]any { return h.s.sessionMetaRead(session) }
 
-func (h acpHost) SetMeta(session string, kv map[string]any) { h.s.sessionMetaSet(session, kv) }
+// SetMeta 在同一文件锁内完成 .meta 的读-改-写，与 sessionMetaSet
+// 共用一份锁；写入失败要返回给调用方而不是继续按成功处理。
+func (h acpHost) SetMeta(session string, kv map[string]any) error {
+	h.s.state.files.Lock()
+	defer h.s.state.files.Unlock()
+	meta := h.s.sessionMetaRead(session)
+	for key, value := range kv {
+		meta[key] = value
+	}
+	return h.s.sessionMetaWrite(session, meta)
+}
 
 func (h acpHost) HasHistory(session string) (bool, error) {
 	return h.s.sessionFiles().HasHistory(session)
+}
+
+func (h acpHost) History(session string) ([]map[string]any, error) {
+	return h.s.sessionFiles().ReadMessages(session)
 }
 
 func (h acpHost) AppendTranscript(session string, lines []map[string]any) error {
