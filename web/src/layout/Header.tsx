@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Copy, Download, FileCode2, FolderClosed, GitBranch, MessageCirclePlus, MoreHorizontal, PanelLeft, PanelRight, ScrollText, SquareTerminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Copy, Download, FileCode2, FolderClosed, GitBranch, MessageCirclePlus, MoreHorizontal, PanelLeft, PanelRight, ScrollText, SquareTerminal, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton } from '../components/ui';
 import { Popup } from '../components/Motion';
 import type { Session } from '../lib';
@@ -12,6 +12,7 @@ export type HeaderProps = {
   isHome: boolean;
   chatMode?: boolean;
   panelAvailable?: boolean;
+  returnToChat?: { label: string; onClick: () => void };
   workspaceName: string;
   session?: Session;
   menu: string | null;
@@ -69,7 +70,10 @@ export default function Header(p: HeaderProps) {
     : hasNewVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`;
   return <header className={`conversation-header ${p.isHome ? 'home-header' : ''}`}>
     <div className="header-leading">
-    {!p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
+    {p.returnToChat ? <>
+      <IconButton label={p.returnToChat.label} onClick={p.returnToChat.onClick}><ArrowLeft size="1rem" /></IconButton>
+      <span className="surface-header-brand">Loopra</span>
+    </> : !p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
     {!p.isHome && session && <div className="breadcrumb">
       <span>{p.workspaceName}</span><span className="breadcrumb-divider">/</span><strong title={session.title}>{session.title}</strong>
       <div data-popover="session" className="menu-anchor">

@@ -67,6 +67,7 @@ import type { InteractionDraftCache } from './useInteractionDraft';
 import { chatExportText, downloadText } from './chat-export';
 import ChatLogs, { useChatLogs } from './components/ChatLogs';
 import DesktopTitleBar from './components/DesktopTitleBar';
+import ActivityRail from './layout/ActivityRail';
 import { desktopPlatform, isDesktopWindow, syncDesktopTheme, usesNativeWindowControls } from './desktop-shell';
 import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
 import { notifyWorkspaceChanged, watchWorkspaceChanges } from './workspace-events';
@@ -846,7 +847,6 @@ export default function App({ startupPending = false, initialServer }: { startup
     const capabilities = capabilitiesTabForSection(tab);
     if (capabilities) {
       setCapabilitiesTab(capabilities); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setSettingsOpen(false); setMenu(null);
-      if (narrow) setSidebar(false);
       return;
     }
     setSettingsTab(tab); setSettingsOpen(true); setMenu(null);
@@ -1494,11 +1494,11 @@ export default function App({ startupPending = false, initialServer }: { startup
       if (owner !== menu) setMenu(null);
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') { setMenu(null); if (!event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"]')) { setChanges(false); if (narrow) setSidebar(false); } return; }
+      if (event.key === 'Escape') { setMenu(null); if (!surfaceOpen && !event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"]')) { setChanges(false); if (narrow) setSidebar(false); } return; }
       if (event.ctrlKey || event.metaKey) {
         if (event.key.toLowerCase() === 'k') { event.preventDefault(); setSearchOpen(true); setMenu(null); }
         if (event.key.toLowerCase() === 'n') { event.preventDefault(); newSession(); }
-        if (event.key.toLowerCase() === 'b') { event.preventDefault(); setSidebar(value => !value); }
+        if (event.key.toLowerCase() === 'b') { event.preventDefault(); if (!surfaceOpen) setSidebar(value => !value); }
         if (event.key === ',') { event.preventDefault(); openSettings(); }
       }
     }
@@ -1535,7 +1535,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
     onSend={() => sendMessage()} onStop={() => void stopGeneration()} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
-    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onOpenConnectors={() => { setCapabilitiesTab('connectors'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }} onInputResize={keepChatPinned}
+    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onOpenConnectors={() => { setCapabilitiesTab('connectors'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); }} onInputResize={keepChatPinned}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
@@ -1544,21 +1544,32 @@ export default function App({ startupPending = false, initialServer }: { startup
     liveSpeed={liveSpeed}
     onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} />}</BackgroundTasks>;
 
-  // The window controls float over the first row (sidebar brand and conversation
-  // header), so the shell has no empty title-bar strip of its own.
+  const english = preferences.language === 'English';
+  const homeVisible = !surfaceOpen && isHome && !editorTabs.active;
+  const closeSurface = () => { setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); };
+  const showHome = () => {
+    if (!isHome) { newSession(); return; }
+    closeSurface();
+    if (editorTabs.active) selectMainTab(null);
+    if (narrow && !surfaceOpen) setSidebar(false);
+  };
+  const openSearch = () => { setSearchOpen(true); setMenu(null); if (narrow && !surfaceOpen) setSidebar(false); };
   const desktopShell = isDesktopWindow();
   const nativeWindowControls = desktopShell && usesNativeWindowControls(desktopPlatform());
-  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
+  return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar && !surfaceOpen ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
     {desktopShell && <DesktopTitleBar />}
-    <div className="app-body">
+    <div className="workbench-body">
+    <ActivityRail english={english} home={homeVisible} utilityOpen={schedulesOpen || botsOpen || !!pluginPage} skillsOpen={skillsOpen} profile={profile} api={api} plugins={pluginNav}
+      onHome={showHome} onSearch={openSearch}
+      onSkills={() => { setCapabilitiesTab('plugins'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); }}
+      onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); }}
+      onBots={() => { setBotsOpen(true); setSkillsOpen(false); setSchedulesOpen(false); setPluginPage(''); setMenu(null); }}
+      onPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setMenu(null); }}
+      onHelp={() => setHelpOpen(true)} onSettings={() => openSettings()} onProfile={() => setProfileOpen(true)} />
+    <div className="app-body" data-surface={surfaceOpen ? 'utility' : undefined}>
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebarMounted && <Sidebar api={api} open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={preferences.language === 'English'} workspaces={workspaces} sessions={sessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
-        profile={profile}
-        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)} onSearch={() => { setSearchOpen(true); setMenu(null); }} onSettings={() => openSettings()}
-        skillsOpen={skillsOpen} onSkills={() => { setCapabilitiesTab('plugins'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
-        schedulesOpen={schedulesOpen} onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
-        botsOpen={botsOpen} onBots={() => { setBotsOpen(true); setSkillsOpen(false); setSchedulesOpen(false); setPluginPage(''); setMenu(null); if (narrow) setSidebar(false); }}
-        plugins={pluginNav} pluginPage={pluginPage} onOpenPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setMenu(null); if (narrow) setSidebar(false); }}
+      {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={english} workspaces={workspaces} sessions={sessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
+        onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onManageProjects={() => { setMenu(null); setProjectsOpen(true); if (narrow) setSidebar(false); }}
         onSelectSession={selectSession} onDeleteSession={setDeleteSession} onReorder={reorderWorkspaces} onReorderSessions={reorderSessions}
@@ -1566,6 +1577,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={surfaceOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           chatMode={chatMode} panelAvailable={!surfaceOpen}
+          returnToChat={surfaceOpen ? { label: english ? 'Back to chat' : '返回会话', onClick: closeSurface } : undefined}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
@@ -1607,6 +1619,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       </main>
       {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
       {changesMounted && <ChangesPanel open={changes} chatMode={chatMode} plugins={pluginPanels} context={pluginContext} api={api} workspaceHash={workspace} key={`${server}/${session?.id || `draft:${workspace}`}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+    </div>
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
     {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}

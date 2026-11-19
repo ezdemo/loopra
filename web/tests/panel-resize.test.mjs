@@ -14,13 +14,14 @@ const panelResizeSource = await readFile(new URL('../src/panel-resize.ts', impor
 const { outputText } = ts.transpileModule(panelResizeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 const { clampPanelWidth, clampSidebarWidth, resizePanelWidth, resizeSidebarWidth } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
-test('skills and plugins open in the main area from one sidebar entry', async () => {
+test('skills and plugins open in the main area from one rail entry', async () => {
   const settings = await readFile(new URL('../src/components/Settings.tsx', import.meta.url), 'utf8');
+  const rail = await readFile(new URL('../src/layout/ActivityRail.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(settings, /SkillManager/);
   assert.doesNotMatch(settings, /ExtensionManager/);
-  assert.match(sidebar, /Skills & Plugins.*技能与插件/);
-  assert.match(sidebar, /onClick=\{props.onSkills\}/);
-  assert.ok(sidebar.indexOf('onClick={props.onSearch}') < sidebar.indexOf('onClick={props.onSkills}'));
+  assert.match(rail, /Skills & Plugins.*技能与插件/);
+  assert.match(rail, /onClick=\{p\.onSkills\}/);
+  assert.ok(rail.indexOf('onClick={p.onSearch}') < rail.indexOf('onClick={p.onSkills}'));
   assert.match(app, /skillsOpen && <SkillsAndPluginsPage/);
   assert.match(app, /const surfaceOpen = skillsOpen \|\| schedulesOpen \|\| botsOpen \|\| !!pluginPage/);
   assert.match(app, /className="app-chat-workspace" hidden=\{surfaceOpen\}/);

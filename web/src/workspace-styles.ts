@@ -23,3 +23,4 @@ import './project-manager.css';
 import './focus.css';
 import './loading.css';
 import './bots.css';
+import './activity-rail.css';

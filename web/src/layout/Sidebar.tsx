@@ -1,23 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Bot, CalendarClock, ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Plus, RefreshCw, Search as SearchIcon, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
-import { IconButton, LoadingSkeleton, LoopraMark } from '../components/ui';
+import { ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { IconButton, LoadingSkeleton } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
 import type { Workspace } from '../backend';
 import { sessionDate } from '../session-order';
 import { DEFAULT_SIDEBAR_WIDTH, clampSidebarWidth, resizeSidebarWidth } from '../panel-resize';
-import { ProfileAvatar } from '../components/LocalProfile';
-import { PluginGlyph, type PluginIconRef } from '../components/plugin-icons';
 import AgentIcon, { PersonaIcon } from '../components/AgentIcon';
-import type { LocalProfile } from '../local-profile';
-import type { LoopraClient } from '../backend';
-
-const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
-function pluginTone(id: string) {
-  let n = 0;
-  for (const ch of id) n = (n + ch.charCodeAt(0)) % pluginTones.length;
-  return pluginTones[n];
-}
 
 /** Sessions a project shows before the list folds behind "展开显示". */
 const SESSION_GROUP_LIMIT = 6;
@@ -44,19 +33,6 @@ export type SidebarProps = {
   onExpanded: (next: string[] | ((current: string[]) => string[])) => void;
   onClose: () => void;
   onNewSession: (workspaceHash?: string) => void;
-  onSearch: () => void;
-  onSkills: () => void;
-  skillsOpen?: boolean;
-  onSchedules: () => void;
-  schedulesOpen?: boolean;
-  onBots?: () => void;
-  botsOpen?: boolean;
-  api: LoopraClient;
-  plugins?: { id: string; title: string; icon?: PluginIconRef }[];
-  pluginPage?: string;
-  onOpenPlugin?: (id: string) => void;
-  onSettings: () => void;
-  profile: LocalProfile;
   onRefreshAll: () => void;
   onRefreshProject: (hash: string) => void;
   onRefreshSession: (session: Session) => void;
@@ -163,23 +139,11 @@ export default function Sidebar(props: SidebarProps) {
     <div className={`sidebar-resize-handle${resizing ? ' resizing' : ''}`} role="separator" aria-orientation="vertical"
       aria-label="拖动调整侧边栏宽度" title="拖动调整侧边栏宽度" onMouseDown={startResize} />
     <div className="sidebar-brand">
-      <span className="app-icon"><LoopraMark small /></span><span>Loopra</span>
+      <span>Loopra</span>
       <IconButton label="收起侧边栏" onClick={props.onClose}><PanelLeft size="1rem" /></IconButton>
     </div>
     <div className="sidebar-actions">
       <button onClick={() => props.onNewSession()}><MessageCirclePlus />{english ? 'New chat' : '新建会话'}</button>
-      <button onClick={props.onSearch}><SearchIcon />{english ? 'Search' : '搜索'}</button>
-      <button className={props.skillsOpen ? 'selected' : undefined} aria-current={props.skillsOpen ? 'page' : undefined} onClick={props.onSkills}><Sparkles />{english ? 'Skills & Plugins' : '技能与插件'}</button>
-      <button className={props.schedulesOpen ? 'selected' : undefined} aria-current={props.schedulesOpen ? 'page' : undefined} onClick={props.onSchedules}><CalendarClock />{english ? 'Scheduled tasks' : '定时任务'}</button>
-      <button className={props.botsOpen ? 'selected' : undefined} aria-current={props.botsOpen ? 'page' : undefined} onClick={props.onBots}><Bot />Bot</button>
-      {props.plugins?.map(item => {
-        const selected = props.pluginPage === item.id;
-        const glyph = <PluginGlyph api={props.api} pluginId={item.id} icon={item.icon} className="sidebar-plugin-icon" size="1rem" />;
-        return <button className={selected ? 'selected sidebar-plugin' : 'sidebar-plugin'} aria-current={selected ? 'page' : undefined} key={item.id} onClick={() => props.onOpenPlugin?.(item.id)}>
-          {item.icon ? glyph : <span className="sidebar-plugin-mark" style={{ background: pluginTone(item.id) }} aria-hidden="true">{[...item.title.trim()][0] || '?'}</span>}
-          <span>{item.title}</span>
-        </button>;
-      })}
     </div>
     <div className="session-section">
       {sections.map(section => <section key={section.id} className="sidebar-section" aria-label={section.title}>
@@ -264,13 +228,5 @@ export default function Sidebar(props: SidebarProps) {
         </Collapse>
       </section>)}
     </div>
-    <footer className={`sidebar-footer${props.profile.nickname ? ' has-profile' : ''}`}>
-      {props.profile.nickname ?
-        <button type="button" className="sidebar-profile" onClick={props.onSettings} aria-label={english ? 'Settings' : '设置'} title={english ? 'Settings' : '设置'}>
-          <ProfileAvatar profile={props.profile} /><span className="sidebar-profile-name">{props.profile.nickname}</span>
-          <SettingsIcon className="sidebar-profile-settings" size="1.125rem" aria-hidden="true" />
-        </button>
-        : <button type="button" className="sidebar-settings" aria-label={english ? 'Settings' : '设置'} onClick={props.onSettings}><SettingsIcon /><span>{english ? 'Settings' : '设置'}</span></button>}
-    </footer>
   </SidebarSurface>;
 }

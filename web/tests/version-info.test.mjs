@@ -117,6 +117,25 @@ test('pure chat exposes the capabilities toggle while full-page surfaces hide it
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
+test('utility header offers return to chat rather than reopening the hidden sidebar', async () => {
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  let returned = 0;
+  const props = { sidebarOpen: false, isHome: true, panelAvailable: false, backend: { status: 'connected', ready: true, version: '1.0.0', error: '' }, server: 'local', returnToChat: { label: '返回会话', onClick: () => returned++ } };
+  try {
+    await act(async () => root.render(createElement(Header, props)));
+    assert.equal(container.querySelector('[aria-label="展开侧边栏"]'), null);
+    assert.ok(container.querySelector('.backend-status'));
+    const back = container.querySelector('[aria-label="返回会话"]');
+    assert.ok(back);
+    await act(async () => back.click());
+    assert.equal(returned, 1);
+    await act(async () => root.render(createElement(Header, { ...props, panelAvailable: true, returnToChat: undefined })));
+    assert.ok(container.querySelector('[aria-label="展开侧边栏"]'));
+    assert.equal(container.querySelector('[aria-label="返回会话"]'), null);
+  } finally { await act(async () => root.unmount()); container.remove(); }
+});
+
 async function mount(initialCheck, Component = VersionInfo, scenario = {}) {
   globalThis.__calls = []; globalThis.__notify = []; globalThis.__copied = null;
   globalThis.__loadWebReleaseNotes = scenario.loadReleaseNotes || (async (currentVersion, latestVersion) => ({ currentVersion, latestVersion, releases: [], complete: true }));
