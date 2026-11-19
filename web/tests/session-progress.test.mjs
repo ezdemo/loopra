@@ -110,8 +110,9 @@ async function mount({ responses = { goal, checklist }, session = { id: 'aaa/one
   };
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
-  await act(async () => root.render(createElement(SessionProgress, { api, session, revision: 0, externalPlan })));
-  return { container, root, async close() { await act(async () => root.unmount()); container.remove(); } };
+  const render = next => act(async () => root.render(createElement(SessionProgress, { api, session, revision: 0, externalPlan, ...next })));
+  await render({});
+  return { container, root, async rerender(next) { await render(next); }, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 
 test('polls both endpoints for the active session', async () => {
@@ -127,10 +128,12 @@ test('polls both endpoints for the active session', async () => {
 test('external plans render reported progress, restore saved state and accept empty replacements', async () => {
   const plan = [{ content: '读取项目', status: 'completed' }, { content: '修复问题', status: 'in_progress' }];
   for (const externalPlan of [undefined, [], [{ content: '新计划', status: 'pending' }]]) {
-    const view = await mount({ session: { id: 'aaa/one', name: 'one', workspaceHash: 'aaa', agentId: 'codex' }, responses: { acp: { plan, commands: [] } }, externalPlan });
+    const externalMessages = [{ role: 'assistant', id: 'x', blocks: [{ id: 'pl', type: 'checklist', title: '待办清单', steps: [{ description: '外部会话清单', status: 'active' }] }] }];
+    const view = await mount({ session: { id: 'aaa/one', name: 'one', workspaceHash: 'aaa', agentId: 'codex', messages: externalMessages }, responses: { acp: { plan, commands: [] } }, externalPlan });
     try {
       assert.equal(globalThis.__calls.length, 1, 'External sessions must not query Native Goal/checklist endpoints');
       assert.match(globalThis.__calls[0].path, /\/agent\/acp-state\?/);
+      assert.equal(view.container.querySelector('.is-checklist'), null, 'native message checklists must not leak into ACP progress');
       if (externalPlan?.length === 0) assert.equal(view.container.querySelector('.session-progress'), null);
       else assert.match(view.container.textContent, externalPlan ? /新计划/ : /1\/2/);
     } finally { await view.close(); }
@@ -259,6 +262,60 @@ test('status maps match the legacy GoalSteps / ChecklistSteps tables', async () 
   assert.equal(module.progressStepStatusText('DONE'), '已完成');
   // Checklist stores RUNNING while Goal stores IN_PROGRESS for the same state.
   assert.equal(module.progressStepStatusText('RUNNING'), '进行中');
+});
+
+test('native messages surface the latest checklist in the todo button, keeping the open card', async () => {
+  const session = { id: 'aaa/one', title: 'one', name: 'one', workspaceHash: 'aaa', messages: [] };
+  const requestImpl = path => {
+    if (path.includes('/checklist?')) return Promise.resolve(path.includes('/sessions/one/') ? checklist : null);
+    return Promise.resolve(null);
+  };
+  const view = await mount({ session, requestImpl });
+  try {
+    // 先展示服务端清单接口的旧数据：原生消息还没有清单时它是回退。
+    const card = view.container.querySelector('.is-checklist');
+    assert.ok(card);
+    const trigger = card.querySelector('.progress-trigger');
+    await act(async () => trigger.click());
+    assert.equal(card.dataset.open, 'true');
+    assert.equal(card.querySelector('.progress-panel-title').textContent, '发布检查');
+    assert.ok(card.querySelector('[aria-label="刷新清单"]'));
+
+    const planEarlier = { id: 'pe', type: 'checklist', title: '待办清单', steps: [{ description: '不应该显示的清单', status: 'done' }] };
+    const planLatest = { id: 'pl', type: 'checklist', title: '待办清单', steps: [
+      { description: '实现改动', owner: 'sidekick', status: 'active' },
+      { description: '检查结果', status: 'pending' },
+    ] };
+    await view.rerender({ session: { ...session, messages: [
+      { role: 'assistant', id: 'm1', blocks: [planEarlier] },
+      { role: 'assistant', id: 'm2', blocks: [planLatest] },
+      { role: 'assistant', id: 'm3', text: '纯文本回合' },
+    ] }, streaming: true });
+    const live = view.container.querySelector('.is-checklist');
+    assert.equal(view.container.querySelectorAll('.is-checklist').length, 1);
+    assert.equal(live, card, 'same card keeps the open panel');
+    assert.equal(live.dataset.open, 'true');
+    assert.equal(live.querySelector('.progress-count').textContent, '0/2');
+    const active = live.querySelector('li[aria-current="step"]');
+    assert.match(active.textContent, /实现改动/);
+    assert.match(active.textContent, /Sidekick/);
+    assert.ok(!live.textContent.includes('发布检查'));
+    assert.ok(!live.textContent.includes('不应该显示的清单'));
+    assert.equal(live.querySelector('[aria-label="刷新清单"]'), null);
+
+    await view.rerender({ session: { ...session, messages: [
+      { role: 'assistant', id: 'm2', blocks: [{ ...planLatest, steps: planLatest.steps.map(step => ({ ...step, status: 'done' })) }] },
+    ] } });
+    const done = view.container.querySelector('.is-checklist');
+    assert.equal(done, card);
+    assert.equal(done.dataset.open, 'true');
+    assert.equal(done.querySelector('.progress-count').textContent, '2/2');
+    assert.equal(done.querySelector('li[aria-current="step"]'), null);
+
+    await view.rerender({ session: { id: 'aaa/two', title: 'two', name: 'two', workspaceHash: 'aaa', messages: [] } });
+    assert.equal(view.container.querySelector('.is-checklist'), null);
+    assert.equal(view.container.querySelector('.progress-trigger'), null);
+  } finally { await view.close(); }
 });
 
 test('goal steps mark the running step, or the first pending one when nothing runs', async () => {

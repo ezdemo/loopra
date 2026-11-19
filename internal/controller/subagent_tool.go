@@ -39,10 +39,10 @@ const subAgentToolDescription = `派生一个带预设角色的隔离子代理�
 // 原生项目轮次注册，且子代理的硬性拒绝列表会挡住它被下级看到。
 const fusionDelegateName = "fusion_delegate"
 
-const fusionDelegateDescription = `把明确的实现、测试或评审反馈同步交给当前会话的 Fusion 执行代理。先调用 checklist_update，把本次 Sidekick 步骤标为 active；每次只交接这一步。参数：profile（implement 或 test）、task（任务）、instructions（可选约束）。它会延续此前成功交接的上下文；本调用等待最终结果，期间实时显示进度。`
+const fusionDelegateDescription = `把调查、实现或验证同步交给当前会话的 Fusion 执行代理。需要查代码、追调用链或收集证据时先用 explore（只读，不执行通用终端命令）；方案确定后用 implement 落实，或用 test 做专项验证。先调用 checklist_update，把本次 Sidekick 步骤标为 active；每次只交接这一步。task 写清范围、要交付的证据或验收条件，instructions 为可选约束。每次交接共享此前成功的上下文；本调用等待最终结果，期间实时显示进度。`
 
 type fusionDelegateArgs struct {
-	Profile      string `json:"profile" jsonschema:"执行角色：implement 或 test"`
+	Profile      string `json:"profile" jsonschema:"执行角色：explore（只读调查）、implement（实现）、test（验证）"`
 	Task         string `json:"task" jsonschema:"本次任务及验收条件"`
 	Instructions string `json:"instructions,omitempty" jsonschema:"可选补充指示"`
 }

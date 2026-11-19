@@ -19,6 +19,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/adk/model/echo"
+	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	"github.com/ezdemo/looprax/internal/model/config"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/tools"
@@ -146,14 +147,15 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 		bodies = append(bodies, string(raw))
 		idx := len(bodies)
 		mu.Unlock()
-		texts := map[int]string{1: "first-fusion-result", 2: "review-fusion-result", 3: "followup-fusion-result", 4: "other-fusion-result"}
+		texts := map[int]string{1: "explore-fusion-result", 2: "first-fusion-result", 3: "review-fusion-result", 4: "followup-fusion-result", 5: "other-fusion-result"}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, sseText(texts[idx]))
 	}))
 	defer upstream.Close()
 
 	scripted := fusionTestLead("fusion-lead",
-		// 同一轮内的连续两次委派：实现 → 反馈评审。
+		// 同一轮内的连续三次委派：只读调查 → 实现 → 反馈评审。
+		echo.Script{ToolCalls: fusionDelegateCall("explore", "explore-fusion-brief", "explore-fusion-constraint")},
 		echo.Script{ToolCalls: fusionDelegateCall("implement", "first-fusion-brief", "")},
 		echo.Script{ToolCalls: fusionDelegateCall("test", "review-fusion-brief", "review-fusion-constraint")},
 		echo.Script{Text: "第一轮完成"},
@@ -185,7 +187,7 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(bodies) != 4 {
+	if len(bodies) != 5 {
 		t.Fatalf("sidekick requests = %d", len(bodies))
 	}
 	for i, body := range bodies {
@@ -197,16 +199,36 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 			t.Fatalf("request %d model = %v", i, payload["model"])
 		}
 	}
-	// 同一轮里的反馈委派带着上一次成功交接的上下文。
-	review := bodies[1]
-	for _, want := range []string{"first-fusion-brief", "first-fusion-result", "review-fusion-brief", "review-fusion-constraint"} {
+	// explore 委派只拿只读工具：rg/read 在，写工具、终端、委派与
+	// 清单工具都不出现在执行代理的工具声明里。
+	exploreBody := bodies[0]
+	for _, want := range []string{`"name":"rg"`, `"name":"read"`} {
+		if !strings.Contains(exploreBody, want) {
+			t.Fatalf("explore handoff missing read-only tool %q\nbody: %s", want, exploreBody)
+		}
+	}
+	for _, notWant := range []string{`"name":"edit"`, `"name":"write"`, fmt.Sprintf(`"name":"%s"`, shellenv.Current.Name), `"name":"fusion_delegate"`, `"name":"checklist_update"`} {
+		if strings.Contains(exploreBody, notWant) {
+			t.Fatalf("explore handoff leaked writable/meta tool %q", notWant)
+		}
+	}
+	// 同轮实现委派看到调查结论，并拿回写工具。
+	implement := bodies[1]
+	for _, want := range []string{"explore-fusion-brief", "explore-fusion-result", "first-fusion-brief", `"name":"edit"`} {
+		if !strings.Contains(implement, want) {
+			t.Fatalf("same-turn implement handoff missing %q\nbody: %s", want, implement)
+		}
+	}
+	// 同一轮里的反馈委派带着前两次成功交接的上下文。
+	review := bodies[2]
+	for _, want := range []string{"explore-fusion-brief", "explore-fusion-result", "first-fusion-brief", "first-fusion-result", "review-fusion-brief", "review-fusion-constraint"} {
 		if !strings.Contains(review, want) {
 			t.Fatalf("same-turn review handoff missing %q\nbody: %s", want, review)
 		}
 	}
 	// 下一轮委派看到全部此前成功交接，但不含父会话用户消息。
-	followup := bodies[2]
-	for _, want := range []string{"first-fusion-brief", "first-fusion-result", "review-fusion-brief", "review-fusion-result", "followup-fusion-brief", "followup-fusion-constraint"} {
+	followup := bodies[3]
+	for _, want := range []string{"explore-fusion-brief", "explore-fusion-result", "first-fusion-brief", "first-fusion-result", "review-fusion-brief", "review-fusion-result", "followup-fusion-brief", "followup-fusion-constraint"} {
 		if !strings.Contains(followup, want) {
 			t.Fatalf("next-turn handoff missing %q\nbody: %s", want, followup)
 		}
@@ -216,17 +238,34 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 			t.Fatalf("next-turn handoff leaked parent user text %q", notWant)
 		}
 	}
-	other := bodies[3]
+	other := bodies[4]
 	if !strings.Contains(other, "other-fusion-brief") {
 		t.Fatalf("other session handoff missing its task\nbody: %s", other)
 	}
-	for _, notWant := range []string{"first-fusion-brief", "first-fusion-result", "review-fusion-brief", "followup-fusion-brief"} {
+	for _, notWant := range []string{"explore-fusion-brief", "explore-fusion-result", "first-fusion-brief", "first-fusion-result", "review-fusion-brief", "followup-fusion-brief"} {
 		if strings.Contains(other, notWant) {
 			t.Fatalf("other session leaked earlier context %q", notWant)
 		}
 	}
-	if got := len(subStartIDs(turn1)); got != 2 {
-		t.Fatalf("turn 1 subStart count = %d, want 2", got)
+	if got := len(subStartIDs(turn1)); got != 3 {
+		t.Fatalf("turn 1 subStart count = %d, want 3", got)
+	}
+	// 首个委派（explore）的最终结果先于第二次子会话开始。
+	exploreResultIndex, secondSubStart := -1, -1
+	subStarts := 0
+	for i, e := range turn1 {
+		if e["type"] == "sub_start" {
+			subStarts++
+			if subStarts == 2 {
+				secondSubStart = i
+			}
+		}
+		if e["type"] == "tool_result" && e["name"] == fusionDelegateName && strings.Contains(fmt.Sprint(e["result"]), "explore-fusion-result") {
+			exploreResultIndex = i
+		}
+	}
+	if exploreResultIndex < 0 || secondSubStart < 0 || exploreResultIndex > secondSubStart {
+		t.Fatalf("want explore result before second sub_start; events=%v", turn1)
 	}
 	ids := map[string]bool{}
 	for _, evs := range [][]map[string]any{turn1, turn2, turn3} {
@@ -234,7 +273,7 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 			ids[id] = true
 		}
 	}
-	if len(ids) != 4 {
+	if len(ids) != 5 {
 		t.Fatalf("subSessionIds not distinct: %v", ids)
 	}
 }

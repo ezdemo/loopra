@@ -157,11 +157,13 @@ func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, 
 	return r.run(ctx, parentSession, name, profileID, task, instructions, sink, false)
 }
 
-// RunFusion 是 fusion_delegate 的入口：只接受 implement/test 角色，
-// 强制使用配置的执行模型与持久上下文，同步等待最终结果。
+// RunFusion 是 fusion_delegate 的入口：只接受 explore/implement/test
+// 角色，强制使用配置的执行模型与持久上下文，同步等待最终结果。
 func (r *Runner) RunFusion(ctx context.Context, parentSession, profileID, task, instructions string, sink Sink) (Result, error) {
-	if profileID != "implement" && profileID != "test" {
-		return Result{}, fmt.Errorf("Fusion 仅支持 implement 或 test 角色")
+	switch profileID {
+	case "explore", "implement", "test":
+	default:
+		return Result{}, fmt.Errorf("Fusion 仅支持 explore、implement 或 test 角色")
 	}
 	return r.run(ctx, parentSession, "Fusion", profileID, task, instructions, sink, true)
 }
@@ -175,6 +177,9 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 		// 委派路径的角色模型来自会话的 Fusion 设置，用户输入不可选。
 		profile.ModelChannel, profile.Model = r.FusionModelChannel, r.FusionModel
 		profile.StrictModel = true
+		if profileID == "explore" {
+			profile.ReadOnly = true
+		}
 	}
 	if strings.TrimSpace(name) == "" {
 		return Result{}, fmt.Errorf("INVALID_SUB_AGENT_NAME: name 必填")
@@ -479,6 +484,11 @@ func (r *Runner) subTools(profile Profile, approvalSession string) []tool.Tool {
 			continue
 		}
 		if profile.StrictModel {
+			// Fusion 只读角色不获得任何可写工具，角色自己的
+			// 允许清单也不能放宽这一约束。
+			if profile.ReadOnly && !e.Meta.ReadOnly {
+				continue
+			}
 			// Fusion 执行模型同时遵守会话允许清单，
 			// 不能恢复被自定义角色收窄的工具。
 			if !r.Registry.Available(e.Meta.Name) {

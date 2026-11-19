@@ -13,6 +13,8 @@ import (
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 func fusionEvent(t *testing.T, author, role, text string) *session.Event {
@@ -162,5 +164,20 @@ func TestFusionCheckpointRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(before, after) {
 		t.Fatal("cancelled save modified the checkpoint")
+	}
+}
+
+// TestFusionReadOnlyCannotUseWritableAllowlistedTool Fusion 只读角色
+// （explore）即使角色允许清单点名可写工具，也只拿到只读条目。
+func TestFusionReadOnlyCannotUseWritableAllowlistedTool(t *testing.T) {
+	reg := tools.NewRegistry(tools.FileTools(t.TempDir())...)
+	r := Runner{Registry: reg}
+	profile := Profile{StrictModel: true, ReadOnly: true, AllowedTools: []string{"read", "edit"}}
+	var names []string
+	for _, item := range r.subTools(profile, "test") {
+		names = append(names, item.Name())
+	}
+	if !slices.Equal(names, []string{"read"}) {
+		t.Fatalf("read-only Fusion tools = %v", names)
 	}
 }

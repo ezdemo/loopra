@@ -30,6 +30,13 @@ test('last nonempty content is the response boundary without finish', () => {
   });
 });
 
+test('checklist data is excluded from both parts of the transcript', () => {
+  const checklist = { id: 'plan', type: 'checklist', title: '待办清单', steps: [{ description: '检查入口', status: 'active' }] };
+  const answer = { id: 'body', type: 'content', content: '最终正文' };
+  assert.deepEqual(splitAssistantBlocks([reasoning, checklist, answer]), { process: [reasoning], final: [answer] });
+  assert.deepEqual(splitAssistantBlocks([checklist]), { process: [], final: [] });
+});
+
 test('unfinished streaming process remains visible until a response exists', () => {
   assert.deepEqual(splitAssistantBlocks([reasoning, bash]), { process: [], final: [reasoning, bash] });
   assert.deepEqual(splitAssistantBlocks([]), { process: [], final: [] });

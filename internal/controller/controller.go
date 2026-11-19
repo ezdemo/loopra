@@ -374,7 +374,7 @@ func (s *Controller) installSubRunner() {
 }
 
 // installTurnSubRunner 装配单轮子代理运行时。非空 sidekick 是
-// "channel:model" 目录值：implement/test 改用该模型（StrictModel，
+// "channel:model" 目录值：Fusion 委派使用该模型（StrictModel，
 // 无父模型回退），审批沿用父会话覆盖而不是匿名的 "sub"；scope 是
 // 执行上下文指纹，同一指纹的委派共享持久上下文。
 func (s *Controller) installTurnSubRunner(sidekick, scope string) {

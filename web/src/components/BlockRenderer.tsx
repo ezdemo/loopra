@@ -1,7 +1,7 @@
 import { Collapse, Disclosure, useCollapseAll } from './Motion';
 import { memo, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { Brain, Check, ChevronDown, Circle, FileDiff, FileSymlink, ListTree, LoaderCircle, Undo2, X } from 'lucide-react';
+import { Brain, Check, ChevronDown, FileDiff, FileSymlink, ListTree, LoaderCircle, Undo2, X } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
 import { chainBlocks } from '../chat';
 import { imageToolSources, toolParam } from '../tool-params';
@@ -158,16 +158,6 @@ export default function BlockRenderer({ blocks, streaming = false, ...actions }:
     // Choice cards (HITL approval / ask_choice) render nothing in the transcript:
     // the composer popup owns the question and its options, so an approval never
     // interrupts the run's flow.
-    // 待办清单是常驻的紧凑清单（不进折叠、可反复更新）；描述里已含
-    // "sidekick" 的步骤不再重复负责人标记。
-    if (block.type === 'checklist') return <section key={block.id} className="block-tool block-checklist" aria-label={block.title}>
-      <div className="tool-head checklist-heading"><ListTree size="0.875rem" aria-hidden="true" /><span className="tool-name">{block.title}</span></div>
-      <ul className="checklist-detail">{block.steps.map((step, index) => <li key={index} className={`checklist-row ${step.status}`} aria-current={step.status === 'active' ? 'step' : undefined}>
-        <span className="sr-only">{step.status === 'done' ? '已完成：' : step.status === 'active' ? '进行中：' : '待处理：'}</span>
-        {step.status === 'done' ? <Check size="0.875rem" aria-hidden="true" /> : step.status === 'active' ? <LoaderCircle size="0.875rem" className={streaming ? 'spin' : undefined} aria-hidden="true" /> : <Circle size="0.875rem" aria-hidden="true" />}
-        <span className="checklist-step-text">{step.description}{step.owner === 'sidekick' && !/\bsidekick\b/i.test(step.description) && <span className="checklist-step-owner"> · Sidekick</span>}{step.result && <small>{step.result}</small>}</span>
-      </li>)}</ul>
-    </section>;
     return null;
   })}</div>;
 }

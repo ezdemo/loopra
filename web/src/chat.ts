@@ -39,8 +39,7 @@ export function splitUserContext(text: string) {
 // Same final-response boundary as the reference WEB ChatMessage.vue.
 // File changes remain visible alongside the answer, outside the folded process.
 export function splitAssistantBlocks(blocks: ChatBlock[]) {
-  // 待办清单像最终答复一样常驻可见，不随过程折叠；回放与实时共用此归约。
-  const plans = blocks.filter(block => block.type === 'checklist');
+  // Checklist blocks are consumed by the composer progress button, not the transcript.
   const body = blocks.filter(block => block.type !== 'file_changes' && block.type !== 'checklist');
   let start = -1;
   for (let index = body.length - 1; index >= 0; index--) {
@@ -52,7 +51,7 @@ export function splitAssistantBlocks(blocks: ChatBlock[]) {
   }
   return {
     process: start > 0 ? body.slice(0, start) : [],
-    final: [...plans, ...(start >= 0 ? body.slice(start) : body), ...blocks.filter(block => block.type === 'file_changes')],
+    final: [...(start >= 0 ? body.slice(start) : body), ...blocks.filter(block => block.type === 'file_changes')],
   };
 }
 

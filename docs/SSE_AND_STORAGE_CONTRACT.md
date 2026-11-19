@@ -84,6 +84,8 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
          | checklist{title,steps:[{description,status:'done'|'active'|'pending',result?,owner?:'lead'|'sidekick'}]}
          | sub_agent{name,status,blocks:ChatBlock[]} | choice{question,description?,subId?,permissionRequestId?,options:[{title,value?,description?}],selected?}
 ```
+
+新待办只在输入框上方的「待办」按钮中展示；同一会话有新待办时优先显示最新一份，旧版清单仍可作为回退。
 - content/reasoning 追加末尾同类型块；tool_call 按 toolCallId 建块（args JSON.parse）；tool_result 回填（status failed 或 result 前缀 `/^(错误|Error|Exception|\[failed\])/i` 判失败）。
 - sub_* 剥前缀后**递归**归约进 sub_agent 块。
 - `finish`、`ask_choice` 视为最终答复边界。

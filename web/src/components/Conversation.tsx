@@ -85,7 +85,7 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
   // A pending choice keeps the turn's "用时" summary on screen even when nothing
   // has folded into it yet; on approval the same bubble simply keeps streaming.
   const pending = blocks.some(block => block.type === 'choice' && !block.selected);
-  if (!blocks.length && !streaming) return null;
+  if (!streaming && !process.length && !final.length && !blocks.some(block => block.type === 'choice')) return null;
   return <Enter as="article" className="msg assistant" aria-label="助手消息" data-message-id={message.id}><div className="msg-body assistant-body">
     {(process.length > 0 || streaming || pending) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
       <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><TurnDuration startedAt={message.startedAt} finishedAt={message.finishedAt} streaming={streaming} showDuration={showDuration} /><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>

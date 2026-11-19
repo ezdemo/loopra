@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Button, Modal, ModalBody, ModalContent, ModalHeader } from '@nextui-org/react';
 import { Check, CircleAlert, Copy, Download, FileText, ListChecks, ListTree, LoaderCircle, Minus, RefreshCw, Square, X } from 'lucide-react';
 import { IconButton } from './ui';
 import { useMenuPlacement } from '../layout/menu-placement';
 import { sessionQuery, type AcpPlanEntry, type AcpSessionState, type LoopraClient } from '../backend';
 import type { Session } from '../lib';
+import type { Message } from '../chat';
 import { query, RemoteState, useRemote } from './RemoteControls';
 import { promptText } from '../session-prompt';
 import Markdown, { copyText } from './Markdown';
@@ -39,7 +40,7 @@ export default function SessionDetails({ api, session, onClose, initialTab = 'ev
     </div></ModalBody>
   </ModalContent></Modal>;
 }
-type ProgressStep = { id?: string; index?: number; description: string; status: string; kind?: string; result?: string; evidence?: string };
+type ProgressStep = { id?: string; index?: number; description: string; status: string; kind?: string; result?: string; evidence?: string; owner?: 'lead' | 'sidekick' };
 type Progress = { title: string; status: string; progress?: string; totalSteps?: number; doneSteps?: number; currentStepIndex?: number; blockedReason?: string; completionSummary?: string; verifyCommand?: string; steps?: ProgressStep[] };
 
 // Legacy GoalSteps.vue / ChecklistSteps.vue status maps.
@@ -54,7 +55,7 @@ export function progressStepStatusText(status: string) {
   return STEP_STATUS[status] || status || '';
 }
 
-function ProgressCard({ item, checklist, onRefresh, refreshing }: { item: Progress; checklist: boolean; onRefresh: () => void; refreshing: boolean }) {
+function ProgressCard({ item, checklist, onRefresh, refreshing, animate = true }: { item: Progress; checklist: boolean; onRefresh?: () => void; refreshing: boolean; animate?: boolean }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -95,18 +96,18 @@ function ProgressCard({ item, checklist, onRefresh, refreshing }: { item: Progre
     <div id={panelId} className="progress-body" role="region" aria-label={item.title || '清单步骤'} hidden={!open}>
       <header className="progress-panel-heading"><span className="progress-panel-label"><ListChecks size="1.0625rem" aria-hidden="true" />{checklist ? '待办清单' : '任务清单'}</span>
         <small className="progress-panel-summary">已完成 {done}/{total} 项{!running && !!status && <> · <span className="progress-state">{progressStatusText(item.status, checklist)}</span></>}</small>
-        <IconButton label="刷新清单" onClick={() => { if (!refreshing) onRefresh(); }}><RefreshCw size="1rem" className={refreshing ? 'progress-spinner' : undefined} /></IconButton>
+        {onRefresh && <IconButton label="刷新清单" onClick={() => { if (!refreshing) onRefresh(); }}><RefreshCw size="1rem" className={refreshing ? 'progress-spinner' : undefined} /></IconButton>}
         <IconButton label="关闭清单" onClick={close}><X size="1.0625rem" /></IconButton></header>
       <div className="progress-panel-content">
-      <p className="progress-panel-title">{item.title || (checklist ? '待办清单' : '任务清单')}</p>
+      {item.title && item.title !== (checklist ? '待办清单' : '任务清单') && <p className="progress-panel-title">{item.title}</p>}
       {item.blockedReason && <p className="progress-blocked">{item.blockedReason}</p>}
       <ol className="progress-steps">{steps.map((step, index) => {
         const active = isCurrent(step, index);
         const failed = step.status === 'FAILED' || step.status === 'BLOCKED';
         const StepIcon = failed ? CircleAlert : step.status === 'DONE' ? Check : step.status === 'SKIPPED' ? Minus : active && running ? LoaderCircle : Square;
         return <li key={step.id || step.index || index} aria-current={active ? 'step' : undefined} className={`progress-step ${step.status?.toLowerCase()}${active ? ' current' : ''}`}>
-          <span className="progress-step-mark" role="img" aria-label={progressStepStatusText(step.status)}><StepIcon size="0.875rem" className={active && running && !failed ? 'progress-spinner' : undefined} /></span>
-          <div><span className="progress-step-text">{step.description}</span>{step.kind === 'HITL' && <em>人工审批</em>}{step.kind === 'FORK' && <em>分支</em>}{(step.result || step.evidence) && <small>{step.result || step.evidence}</small>}</div>
+          <span className="progress-step-mark" role="img" aria-label={progressStepStatusText(step.status)}><StepIcon size="0.875rem" className={animate && active && running && !failed ? 'progress-spinner' : undefined} /></span>
+          <div><span className="progress-step-text">{step.description}</span>{step.owner === 'sidekick' && !/\bsidekick\b/i.test(step.description) && <em>Sidekick</em>}{step.kind === 'HITL' && <em>人工审批</em>}{step.kind === 'FORK' && <em>分支</em>}{(step.result || step.evidence) && <small>{step.result || step.evidence}</small>}</div>
         </li>;
       })}</ol>
       {item.verifyCommand && <p className="progress-verify">验证命令: {item.verifyCommand}</p>}
@@ -114,6 +115,27 @@ function ProgressCard({ item, checklist, onRefresh, refreshing }: { item: Progre
       </div>
     </div>
   </div>;
+}
+
+// 归约保证每轮最多一份合并清单；取最后一个带清单块的助手消息即可
+// 覆盖"最新待办"语义（普通轮与 Fusion 共用同一数据通道）。
+function latestChecklistProgress(messages: readonly Message[] = []): Progress | null {
+  const statuses = { pending: 'PENDING', active: 'IN_PROGRESS', done: 'DONE' };
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== 'assistant') continue;
+    const block = message.blocks?.find(candidate => candidate.type === 'checklist');
+    if (block?.type !== 'checklist' || !block.steps.length) continue;
+    const doneSteps = block.steps.filter(step => step.status === 'done').length;
+    return {
+      title: block.title,
+      status: doneSteps === block.steps.length ? 'COMPLETED' : 'ACTIVE',
+      doneSteps,
+      currentStepIndex: block.steps.findIndex(step => step.status === 'active') + 1,
+      steps: block.steps.map(step => ({ ...step, status: statuses[step.status] })),
+    };
+  }
+  return null;
 }
 
 export function acpPlanProgress(entries: AcpPlanEntry[]): Progress | null {
@@ -124,12 +146,13 @@ export function acpPlanProgress(entries: AcpPlanEntry[]): Progress | null {
     steps: entries.map((entry, index) => ({ id: String(index), description: entry.content, status: status[entry.status] || 'PENDING' })) };
 }
 
-export function SessionProgress({ api, session, revision, externalPlan }: { api: LoopraClient; session: Session; revision: number; externalPlan?: AcpPlanEntry[] }) {
+export function SessionProgress({ api, session, revision, externalPlan, streaming = false }: { api: LoopraClient; session: Session; revision: number; externalPlan?: AcpPlanEntry[]; streaming?: boolean }) {
   const [refreshRevision, setRefreshRevision] = useState(0);
   const refresh = () => setRefreshRevision(value => value + 1);
   const dataRevision = revision + refreshRevision;
   const suffix = query({ workspaceHash: session.workspaceHash });
   const external = !!session.agentId && session.agentId !== 'native';
+  const liveChecklist = useMemo(() => external ? null : latestChecklistProgress(session.messages), [external, session.messages]);
   const goal = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/goal?${suffix}`, dataRevision);
   const checklist = useRemote<Progress | null>(api, external ? null : `/sessions/${encodeURIComponent(session.name || '')}/checklist?${suffix}`, dataRevision);
   const acp = useRemote<AcpSessionState>(api, external ? `/agent/acp-state?${sessionQuery(session)}` : null, dataRevision);
@@ -140,7 +163,7 @@ export function SessionProgress({ api, session, revision, externalPlan }: { api:
   if (goal.data !== undefined) snapshot.current.goal = goal.data;
   if (checklist.data !== undefined) snapshot.current.checklist = checklist.data;
   if (acp.data !== undefined) snapshot.current.acp = acp.data;
-  const goalData = snapshot.current.goal, checklistData = snapshot.current.checklist;
+  const goalData = snapshot.current.goal, checklistData = liveChecklist ?? snapshot.current.checklist;
   const refreshing = goal.loading || checklist.loading || acp.loading;
   if (external) {
     const plan = acpPlanProgress(externalPlan ?? snapshot.current.acp?.plan ?? []);
@@ -148,5 +171,5 @@ export function SessionProgress({ api, session, revision, externalPlan }: { api:
   }
   const items = [goalData, checklistData].filter((item): item is Progress => !!item?.title);
   if (!items.length) return null;
-  return <div className="session-progress">{goalData?.title && <ProgressCard item={goalData} checklist={false} onRefresh={refresh} refreshing={refreshing} />}{checklistData?.title && <ProgressCard item={checklistData} checklist onRefresh={refresh} refreshing={refreshing} />}</div>;
+  return <div className="session-progress">{goalData?.title && <ProgressCard item={goalData} checklist={false} onRefresh={refresh} refreshing={refreshing} />}{checklistData?.title && <ProgressCard item={checklistData} checklist onRefresh={liveChecklist ? undefined : refresh} refreshing={refreshing} animate={liveChecklist ? streaming : true} />}</div>;
 }
