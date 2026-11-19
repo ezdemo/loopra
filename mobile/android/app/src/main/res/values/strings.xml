@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Loopra Native</string>
+    <string name="relay_connection_channel">桌面连接</string>
+    <string name="relay_connection_notification">正在保持桌面连接</string>
+    <string name="loopra_mark_desc">Loopra 标志</string>
+</resources>

@@ -1,5 +1,7 @@
 # Loopra Mobile Android 打包
 
+> 本文针对 Tauri 版（`app.loopra.mobile`）。原生 Compose 客户端（`app.loopra.android`）为纯 Kotlin 构建，见 [android/README.md](android/README.md)，`cd android && ./gradlew.bat :app:assembleDebug`。
+
 本文记录在 Windows 上生成 ARM64 调试 APK 的实际步骤，包括当前机器的备用工具链和常见报错。命令默认从 `mobile/` 执行；最终 APK 写入仓库的 `bin/`。
 
 > 当前产物是 Debug 包，使用 Android Debug 证书签名，不用于正式发布。

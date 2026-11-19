@@ -60,6 +60,8 @@ loopra://connect?e2e=1&v=1&k=<32-byte-base64url-secret>&u=<https-origin>
 
 ## 移动应用
 
+> `mobile/android/` 另有一个原生 Compose 客户端（`app.loopra.android`），以纯 Kotlin（OkHttp WebSocket + JCA）实现本文描述的 `loopra-relay` 隧道与现有 HTTP / SSE 协议；原生界面支持的功能和构建方式见 [原生 Android 客户端](../mobile/android/README.md)。
+
 构建和系统依赖见 [mobile/README.md](../mobile/README.md)。Tauri 的 Rust `loopra-relay` 核心拥有 WebSocket、双向认证、加解密与计数器、HTTP 请求分发、取消、响应缓冲和自动重连。TLS 使用 rustls / WebPKI 验证证书，不开放任意原生网络请求入口。TS 的 `relay/native.ts` 只将原生请求适配成 `Response` / `ReadableStream`，继续复用 `LoopraClient`、SSE 解析和聊天渲染。连接状态通过 Tauri Channel 通知；响应正文通过原始二进制 IPC 按需读取，每块最多 64 KiB，原生端所有请求的未读取正文合计最多 8 MiB，前端流预取最多 64 KiB。超限只取消对应读取，避免 WebView 暂停时无限积压。
 
 Android 扫码走随包内置的 ZXing 扫描 Activity，iOS 使用原生扫码插件。浏览器预览保留 TS 加密传输和浏览器 WebSocket，并提供粘贴链接。配对保存在原生应用私有目录，Unix 权限 0600；浏览器预览使用自身 localStorage。不会保存桌面 Web 访问密钥或中继注册密钥。

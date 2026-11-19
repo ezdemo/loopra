@@ -1,5 +1,7 @@
 # Loopra Mobile
 
+> **原生 Android 客户端**：`android/` 目录另有一个基于 Jetpack Compose + Backdrop 液态玻璃的纯原生应用（包名 `app.loopra.android`，无 WebView，传输层为纯 Kotlin OkHttp/JCA 实现，与 `relay-core` 协议互通）。构建与范围见 [android/README.md](android/README.md)。本目录其余部分是原有的 Tauri 客户端，未受影响。
+
 基于 Tauri v2 的 Android / iOS 客户端。手机布局、导航与会话状态在 `mobile/src` 独立实现，正文、Markdown、思考、工具和文件差异复用 Loopra 的 `Conversation` / `BlockRenderer`。桌面与手机通过自建 alma-relay 交换端到端加密的原生 HTTP / SSE 接口。无需 Alma 客户端。
 
 界面采用液态玻璃风格的移动应用面板：中性底图、磨砂分组、悬浮导航和聊天输入面板，沿用 React / NextUI / Framer Motion。默认界面比例为 93.5%（原大小的 110%），字号有 15 / 16 / 18px 三档，不支持双指缩放。支持项目筛选（选中项目标签自动滚动居中）、会话搜索、新建和切换、流式回复、停止、审批和 Agent 提问；会话列表图标与桌面端一致，按 `agentId` 展示对应 Agent 图标。思考、工具详情默认折叠。回复运行中仍可继续发送，消息按会话排队，可撤回、编辑或引导优先发送，当前回复结束并确认后台空闲后自动按顺序发送下一条。回复设置读取当前会话的真实模型、思考强度以及 Agent 暴露的全部 `configOptions`，包括第三方 ACP 的模型、权限模式、布尔项和自定义选项；模型较多时使用带搜索和滚动列表的独立选择浮层。长按选择只在会话正文和输入框中启用；减少动态效果、减少透明效果和不支持背景模糊的系统有对应回退。
