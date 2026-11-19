@@ -109,7 +109,10 @@ func (s *Controller) customAgentController(w http.ResponseWriter, r *http.Reques
 		delete(st.permissions, id)
 		delete(st.schedules, id)
 		st.mu.Unlock()
-		if err := os.RemoveAll(filepath.Join(s.home, "workspace", id)); err != nil {
+		st.files.Lock()
+		err := os.RemoveAll(filepath.Join(s.home, "workspace", id))
+		st.files.Unlock()
+		if err != nil {
 			writeFail(w, http.StatusInternalServerError, "智能体已删除，但会话目录清理失败: "+err.Error())
 			return
 		}

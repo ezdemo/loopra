@@ -326,7 +326,10 @@ func (s *Controller) sessionTitle(w http.ResponseWriter, r *http.Request, name s
 		writeFail(w, http.StatusBadRequest, "标题不能为空且不超过 100 字符")
 		return
 	}
-	s.sessionMetaSet(name, map[string]any{"title": title})
+	if err := s.renameSessionTitle(name, title); err != nil {
+		writeFail(w, http.StatusInternalServerError, "保存会话标题失败")
+		return
+	}
 	writeOK(w, http.StatusOK, title)
 }
 
@@ -574,6 +577,9 @@ func (s *Controller) sessionsCleanup(w http.ResponseWriter, r *http.Request) {
 // removeSessionSidecars 删除已删除会话日志旁边的
 // .meta/.events/.usage/.model_usage 文件。
 func (s *Controller) removeSessionSidecars(name string) {
+	s.state.files.Lock()
+	defer s.state.files.Unlock()
+	s.state.cancelSessionTitleLocked(s.sessionMetaPath(name))
 	dir := filepath.Dir(s.sessionMetaPath(name))
 	base := jsonl.SanitizeName(name)
 	for _, ext := range []string{".meta", ".events", ".usage", ".model_usage", ".sub"} {

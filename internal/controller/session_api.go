@@ -61,6 +61,7 @@ func (s *Controller) sessionsClearController(w http.ResponseWriter, r *http.Requ
 	}
 	// 运行被中断后可能残留孤立的元数据/子会话目录。
 	directory := filepath.Join(s.home, "workspace", jsonl.SanitizeName(s.agent.App()), "sessions")
+	s.state.files.Lock()
 	entries, _ := os.ReadDir(directory)
 	for _, entry := range entries {
 		target, err := fsutil.SafeJoin(directory, entry.Name())
@@ -68,10 +69,12 @@ func (s *Controller) sessionsClearController(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 		if err := os.RemoveAll(target); err != nil {
+			s.state.files.Unlock()
 			writeFail(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
+	s.state.files.Unlock()
 	s.state.mu.Lock()
 	delete(s.state.runtimes, s.agent.App())
 	delete(s.state.current, s.agent.App())

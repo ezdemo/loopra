@@ -30,6 +30,11 @@ type runtimeState struct {
 	mu            sync.Mutex
 	configUpdates sync.Mutex
 	files         sync.Mutex
+	// 标题任务与元数据共用 files 锁，使标题发布与失效判定原子完成。
+	titleCtx      context.Context
+	cancelTitles  context.CancelFunc
+	titleJobs     map[string]*sessionTitleJob // guarded by files
+	titleJobsWG   sync.WaitGroup
 	root          *Controller
 	configuration ConfigService
 	runtimes      map[string]*ProjectRuntime
@@ -50,6 +55,8 @@ type runtimeContextKey struct{}
 
 func newRuntimeState(s *Controller) *runtimeState {
 	st := &runtimeState{root: s, configuration: s.configuration, runtimes: map[string]*ProjectRuntime{}, current: map[string]string{}, jobs: map[string]*chatJob{}, pendingAborts: map[string]pendingChatAbort{}, admitted: make(chan struct{}, 80), workers: make(chan struct{}, 16), export: &mcpEndpoint{}, tunnel: &tunnelState{}}
+	st.titleCtx, st.cancelTitles = context.WithCancel(context.Background())
+	st.titleJobs = make(map[string]*sessionTitleJob)
 	st.metadata = &modelMetadataCache{}
 	st.updater = &updateJob{}
 	if s.agent != nil {

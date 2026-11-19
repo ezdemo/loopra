@@ -3,11 +3,16 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ezdemo/looprax/adk/model/echo"
 	"github.com/ezdemo/looprax/internal/model/config"
@@ -127,12 +132,13 @@ func TestSessionTitleFallbacks(t *testing.T) {
 }
 
 func TestSessionTitleToolModel(t *testing.T) {
-	for _, mode := range []string{"success", "error", "empty", "rename"} {
+	for _, mode := range []string{"success", "error", "empty", "rename", "delete", "close"} {
 		t.Run(mode, func(t *testing.T) {
-			var s *Controller
-			requests := 0
+			const name, fallback = "loopra-test", "调整模型配置"
+			var requests atomic.Int32
+			started, release, canceled := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requests++
+				count := requests.Add(1)
 				var body map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Error(err)
@@ -144,12 +150,20 @@ func TestSessionTitleToolModel(t *testing.T) {
 				if strings.Contains(string(raw), "chat-model") {
 					t.Error("title request used chat configuration")
 				}
+				if count == 1 {
+					close(started)
+				}
+				select {
+				case <-r.Context().Done():
+					if count == 1 {
+						close(canceled)
+					}
+					return
+				case <-release:
+				}
 				if mode == "error" {
 					http.Error(w, "offline", http.StatusServiceUnavailable)
 					return
-				}
-				if mode == "rename" {
-					s.sessionMetaSet("loopra-test", map[string]any{"title": "用户命名"})
 				}
 				text := " “整理模型设置” "
 				if mode == "empty" {
@@ -169,31 +183,119 @@ func TestSessionTitleToolModel(t *testing.T) {
 				ID: "title-channel", BaseURL: provider.URL + "/v1", APIKey: "test",
 				Models: []config.ModelEntry{{Name: "title-model"}},
 			})
-			a, err := agentpkg.New(t.TempDir(), "workspace", &cfg, agentpkg.Options{Model: echo.New("chat-model")})
+			a, err := agentpkg.New(t.TempDir(), "workspace", &cfg, agentpkg.Options{Model: echo.New("chat-model", echo.Script{Text: "main response"})})
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, _, err = New(a, Options{})
+			s, key, err := New(a, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer s.Close()
-			s.sessionMetaSet("loopra-test", map[string]any{"unknownSetting": true})
-			s.ensureSessionTitle(context.Background(), "loopra-test", "调整模型配置")
+			ts := httptest.NewServer(s.Handler())
+			defer ts.Close()
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			s.sessionMetaSet(name, map[string]any{"unknownSetting": true})
+			send := func(message string) {
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				payload, err := json.Marshal(map[string]any{"message": message, "sessionName": name})
+				if err != nil {
+					t.Fatal(err)
+				}
+				req, err := http.NewRequestWithContext(ctx, "POST", ts.URL+"/api/chat/stream", strings.NewReader(string(payload)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				req.Header.Set("X-Loopra-Key", key)
+				response, err := ts.Client().Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, err := io.ReadAll(response.Body)
+				response.Body.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				events := parseSSE(t, string(raw))
+				content, complete := false, false
+				for _, event := range events {
+					switch event["type"] {
+					case "content":
+						content = true
+					case "complete":
+						complete = true
+					case "error":
+						t.Fatalf("chat failed: %v", event)
+					}
+				}
+				if !content || !complete || !strings.Contains(string(raw), "main response") {
+					t.Fatalf("chat events = %v, body = %s", eventTypes(events), raw)
+				}
+			}
+			assertStatus := func(want string) {
+				_, status := call(t, ts, "GET", "/api/agent/session-status?sessionName="+name, key, nil)
+				data, _ := status["data"].(map[string]any)
+				if data["running"] != false || data["title"] != want {
+					t.Fatalf("status = %v, want title %q", status, want)
+				}
+			}
+			send(fallback)
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("title request did not reach the provider")
+			}
+			// 生成请求还压在 provider 闸门口，首轮标题已是首条消息摘要。
+			assertStatus(fallback)
+			if mode == "success" {
+				// 后续轮次不等待也不重新调度标题任务。
+				send("后续消息")
+			}
 			want := "整理模型设置"
 			switch mode {
-			case "error", "empty":
-				want = "调整模型配置"
-			case "rename":
-				want = "用户命名"
+			case "error", "empty", "rename", "close":
+				want = fallback
 			}
-			meta := s.sessionMetaRead("loopra-test")
+			switch mode {
+			case "rename":
+				code, _ := call(t, ts, "PUT", "/api/sessions/"+name+"/title", key, map[string]any{"title": fallback})
+				if code != http.StatusOK {
+					t.Fatalf("rename status = %d", code)
+				}
+			case "delete":
+				code, _ := call(t, ts, "DELETE", "/api/sessions/"+name, key, nil)
+				if code != http.StatusOK {
+					t.Fatalf("delete status = %d", code)
+				}
+			case "close":
+				if err := s.Close(); err != nil {
+					t.Fatalf("close = %v", err)
+				}
+			}
+			if mode == "rename" || mode == "delete" || mode == "close" {
+				select {
+				case <-canceled:
+				case <-time.After(5 * time.Second):
+					t.Fatal("title request context was not canceled")
+				}
+			}
+			unblock()
+			s.state.titleJobsWG.Wait()
+			if got := requests.Load(); got != 1 {
+				t.Fatalf("requests = %d, want 1", got)
+			}
+			if mode == "delete" {
+				if _, err := os.Stat(s.sessionMetaPath(name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("metadata after delete: %v", err)
+				}
+				return
+			}
+			assertStatus(want)
+			meta := s.sessionMetaRead(name)
 			if meta["title"] != want || meta["unknownSetting"] != true {
 				t.Fatalf("metadata = %v, want title %q", meta, want)
-			}
-			s.ensureSessionTitle(context.Background(), "loopra-test", "后续消息")
-			if requests != 1 || s.agent.Model.Name() != "chat-model" {
-				t.Fatalf("requests = %d, chat model = %s", requests, s.agent.Model.Name())
 			}
 		})
 	}

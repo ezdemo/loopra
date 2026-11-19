@@ -163,6 +163,7 @@ func (s *Controller) tunnelController(w http.ResponseWriter, r *http.Request, ac
 }
 
 func (s *Controller) Close() error {
+	s.state.stopSessionTitleJobs()
 	var errs []error
 	if s.connectors != nil {
 		s.connectors.Close()

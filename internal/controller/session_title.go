@@ -10,6 +10,8 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/adk/model/provider"
+	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	"github.com/ezdemo/looprax/internal/model/config"
 )
 
 var leadingTitleContext = regexp.MustCompile("^```折叠块[ \\t]*\\r?\\n[\\s\\S]*?\\r?\\n```(?:\\r?\\n)*")
@@ -66,6 +68,25 @@ func (s *Controller) sessionDisplayTitle(name string, messages []map[string]any)
 	return name
 }
 
+type sessionTitleJob struct {
+	cancel context.CancelFunc
+}
+
+func (st *runtimeState) stopSessionTitleJobs() {
+	st.files.Lock()
+	st.cancelTitles()
+	st.files.Unlock()
+	st.titleJobsWG.Wait()
+}
+
+// cancelSessionTitleLocked requires the metadata lock.
+func (st *runtimeState) cancelSessionTitleLocked(path string) {
+	if job := st.titleJobs[path]; job != nil {
+		delete(st.titleJobs, path)
+		job.cancel()
+	}
+}
+
 func (s *Controller) ensureSessionTitle(ctx context.Context, name, message string) {
 	if strings.TrimSpace(strOr(s.sessionMetaRead(name), "title", "")) != "" {
 		return
@@ -74,22 +95,73 @@ func (s *Controller) ensureSessionTitle(ctx context.Context, name, message strin
 	if !found {
 		source = titleSource(message)
 	}
-	title := abbreviateTitle(source)
-	if generated := s.generateSessionTitle(ctx, source); generated != "" {
-		title = generated
+	fallback := abbreviateTitle(source)
+	cfg := s.cfg
+	store, st := s.sessionFiles(), s.state
+	path := store.MetaPath(name)
+	st.files.Lock()
+	defer st.files.Unlock()
+	if st.titleCtx.Err() != nil {
+		return
 	}
-	// Recheck under the metadata lock so a manual rename during generation wins.
-	s.state.files.Lock()
-	defer s.state.files.Unlock()
-	meta := s.sessionMetaRead(name)
-	if strings.TrimSpace(strOr(meta, "title", "")) == "" {
-		meta["title"] = title
-		_ = s.sessionMetaWrite(name, meta)
+	meta := store.ReadMeta(name)
+	if strings.TrimSpace(strOr(meta, "title", "")) != "" {
+		return
 	}
+	meta["title"] = fallback
+	if err := store.WriteMeta(name, meta); err != nil {
+		logging.Errorf("chat", "save fallback session title: %v", err)
+		return
+	}
+	if source == "" || strings.TrimSpace(cfg.ToolModel) == "" {
+		return
+	}
+	st.cancelSessionTitleLocked(path)
+	titleCtx, cancel := context.WithCancel(st.titleCtx)
+	job := &sessionTitleJob{cancel: cancel}
+	st.titleJobs[path] = job
+	st.titleJobsWG.Add(1)
+	// The title can finish after the turn and its stream have closed.
+	go func() {
+		defer st.titleJobsWG.Done()
+		defer cancel()
+		generated := generateSessionTitle(titleCtx, cfg, source)
+		st.files.Lock()
+		defer st.files.Unlock()
+		if st.titleJobs[path] != job {
+			return
+		}
+		delete(st.titleJobs, path)
+		if titleCtx.Err() != nil || generated == "" || generated == fallback {
+			return
+		}
+		meta := store.ReadMeta(name)
+		if strOr(meta, "title", "") != fallback {
+			return
+		}
+		meta["title"] = generated
+		if err := store.WriteMeta(name, meta); err != nil {
+			logging.Errorf("chat", "save generated session title: %v", err)
+		}
+	}()
 }
 
-func (s *Controller) generateSessionTitle(ctx context.Context, source string) string {
-	cfg := s.cfg
+func (s *Controller) renameSessionTitle(name, title string) error {
+	st := s.state
+	st.files.Lock()
+	defer st.files.Unlock()
+	meta := s.sessionMetaRead(name)
+	meta["title"] = title
+	if err := s.sessionMetaWrite(name, meta); err != nil {
+		logging.Errorf("chat", "save manual session title: %v", err)
+		return err
+	}
+	// A rename to the fallback text still expresses the user's choice.
+	st.cancelSessionTitleLocked(s.sessionMetaPath(name))
+	return nil
+}
+
+func generateSessionTitle(ctx context.Context, cfg *config.Loopra, source string) string {
 	modelName := strings.TrimSpace(cfg.ToolModel)
 	if source == "" || modelName == "" {
 		return ""
