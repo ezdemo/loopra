@@ -12,6 +12,7 @@ type Props = {
   open: boolean; onOpenChange: () => void; onClose: () => void; onSelected: () => void;
   models: ModelOption[]; options: ComposerOptions; onOptions: (value: ComposerOptions) => void | Promise<void>;
   agentConfig?: AgentConfigState; agentId?: string; external: boolean; agentEngineName: string; busy: boolean; connected: boolean;
+  chatMode?: boolean;
   defaultModel: string; onDefaultModel: (id: string) => void; onManage: () => void; notify: (text: string) => void;
 };
 
@@ -21,13 +22,14 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 
 export default function ModelReasoningSelector(props: Props) {
   const { models, options, external, agentEngineName, notify } = props;
-  const [menu, setMenu] = useState<'summary' | 'models' | 'effort'>('summary');
+  const [menu, setMenu] = useState<'summary' | 'models' | 'effort' | 'fusion'>('summary');
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const anchor = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const modelRow = useRef<HTMLButtonElement>(null);
   const effortRow = useRef<HTMLButtonElement>(null);
+  const fusionRow = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const flyout = useRef<HTMLDivElement>(null);
   const hoverClose = useRef<ReturnType<typeof setTimeout>>();
@@ -36,10 +38,19 @@ export default function ModelReasoningSelector(props: Props) {
   const agentModel = findAgentOption(props.agentConfig?.options, 'model', 'model');
   const agentEffort = findAgentOption(props.agentConfig?.options, 'effort', 'thought_level');
   const agentFast = findAgentOption(props.agentConfig?.options, 'fast', 'model_config');
+  const fusion = !external && !props.chatMode ? findAgentOption(props.agentConfig?.options, 'fusionSidekick') : undefined;
+  const fusionValue = fusion ? configValue(fusion) : 'off';
+  const fusionActive = !!fusion && fusionValue !== 'off';
+  const fusionLabel = fusion?.options.find(option => option.value === fusionValue)?.name ?? '模型不可用';
   const agentBusy = !!props.agentConfig?.busy;
   const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const modelGroupsForAgent = useMemo(() => agentModel ? groupAgentModels(agentModel, agentEngineName) : [], [agentModel, agentEngineName]);
+  const fusionGroups = useMemo(() => fusion ? groupAgentModels({ ...fusion, options: fusion.options.filter(option => option.value !== 'off') }, agentEngineName) : [], [fusion, agentEngineName]);
+  const pickerOption = menu === 'fusion' ? fusion : agentModel;
+  const pickerValue = pickerOption ? configValue(pickerOption) : '';
+  const pickerGroups = menu === 'fusion' ? fusionGroups : modelGroupsForAgent;
+  const pickerTitle = menu === 'models' ? '选择模型' : menu === 'fusion' ? 'Fusion 执行模型' : '推理设置';
   const agentModelValue = agentModel ? configValue(agentModel) : '';
   const agentEffortValue = agentEffort ? configValue(agentEffort) : '';
   const native = !external && !props.agentConfig;
@@ -53,7 +64,7 @@ export default function ModelReasoningSelector(props: Props) {
     ? [...new Set([agentOptionLabel(agentModel), agentOptionDescription(agentModel)])].filter(Boolean).join('\n')
     : selected ? `${selected.provider} / ${modelLabel(selected)}${modelLabel(selected) !== selected.name ? `\n${selected.name}` : ''}` : '选择模型';
   const modelQuery = query.trim().toLowerCase();
-  const visibleModelGroups = modelGroupsForAgent
+  const visibleModelGroups = pickerGroups
     .map(group => ({ ...group, models: group.models.filter(model => !modelQuery || `${group.name} ${model.name} ${model.value} ${model.description || ''}`.toLowerCase().includes(modelQuery)) }))
     .filter(group => group.models.length);
 
@@ -62,23 +73,27 @@ export default function ModelReasoningSelector(props: Props) {
   const reasoningName = reasoningValue === 'none' ? '无' : reasoningValue === 'xhigh' ? 'XHigh'
     : /^(minimal|low|medium|high|max|default)$/.test(reasoningValue) ? reasoningValue[0].toUpperCase() + reasoningValue.slice(1)
     : agentEffort ? agentOptionLabel(agentEffort) : reasoningValue;
-  const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : ''].filter(Boolean).join('\n');
+  const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : '', fusionActive ? `Fusion：${fusionLabel}` : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
   const close = props.onClose;
   const focusInput = props.onSelected;
-  const back = () => { const previous = menu; setMenu('summary'); requestAnimationFrame(() => (previous === 'models' ? modelRow : effortRow).current?.focus()); };
+  const back = () => { const previous = menu; setMenu('summary'); requestAnimationFrame(() => (previous === 'models' ? modelRow : previous === 'fusion' ? fusionRow : effortRow).current?.focus()); };
   function cancelHoverClose() { clearTimeout(hoverClose.current); }
-  function openPage(page: 'models' | 'effort', focus = false) {
-    if (agentBusy) return;
+  function openPage(page: 'models' | 'effort' | 'fusion', focus = false) {
+    if (agentBusy || (page === 'fusion' && props.busy)) return;
     cancelHoverClose();
     if (focus) requestAnimationFrame(() => (flyout.current?.querySelector<HTMLInputElement>('input') || flyout.current?.querySelector<HTMLButtonElement>('button'))?.focus());
     if (menu === page) return;
     setQuery('');
-    if (page === 'models') {
-      if (agentModel) {
-        const activeGroup = modelGroupsForAgent.find(group => group.models.some(model => model.value === agentModelValue));
-        setCollapsed(modelGroupsForAgent.map(group => group.id).filter(id => id !== activeGroup?.id));
+    if (page === 'models' || page === 'fusion') {
+      const option = page === 'fusion' ? fusion : agentModel;
+      const groups = page === 'fusion' ? fusionGroups : modelGroupsForAgent;
+      const value = page === 'fusion' ? fusionValue : agentModelValue;
+      if (option) {
+        const activeGroup = groups.find(group => group.models.some(model => model.value === value));
+        const openGroup = activeGroup || (page === 'fusion' ? groups[0] : undefined);
+        setCollapsed(groups.map(group => group.id).filter(id => id !== openGroup?.id));
       } else setCollapsed([...new Set(models.map(model => model.providerId))].filter(id => id !== selected?.providerId));
     }
     setMenu(page);
@@ -96,17 +111,22 @@ export default function ModelReasoningSelector(props: Props) {
   return <div ref={anchor} className="model-reasoning-selector" data-placement={placement.side}
     style={{ '--composer-popover-max-height': `${placement.maxHeight}px` } as CSSProperties}
     onKeyDown={event => {
+      const rows = [modelRow, effortRow, fusionRow].map(ref => ref.current).filter((el): el is HTMLButtonElement => !!el && !el.disabled);
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (menu !== 'summary') back(); else { close(); trigger.current?.focus(); } }
-      if (event.key === 'ArrowLeft' && (event.target === modelRow.current || event.target === effortRow.current)) { event.preventDefault(); openPage(event.target === modelRow.current ? 'models' : 'effort', true); }
+      if (event.key === 'ArrowLeft' && rows.includes(event.target as HTMLButtonElement)) { event.preventDefault(); openPage(event.target === modelRow.current ? 'models' : event.target === fusionRow.current ? 'fusion' : 'effort', true); }
       if (event.key === 'ArrowRight' && flyout.current?.contains(event.target as Node)) { event.preventDefault(); back(); }
-      if ((event.target === modelRow.current || event.target === effortRow.current) && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); (document.activeElement === modelRow.current ? effortRow.current || modelRow.current : modelRow.current || effortRow.current)?.focus(); }
+      if (rows.includes(event.target as HTMLButtonElement) && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+        event.preventDefault();
+        const index = rows.indexOf(event.target as HTMLButtonElement);
+        rows[(index + (event.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length]?.focus();
+      }
     }}>
     <Tooltip content={title} classNames={{ content: 'model-name-tooltip' }} delay={600}>
       <Button ref={trigger} isDisabled={agentBusy} variant="light" className={`composer-model composer-model-reasoning ${props.open ? 'is-active' : ''}`}
-        title={title} aria-label={`模型与推理设置：${[agentEngineName, hasModel ? modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ')}`}
+        title={title} aria-label={`模型与推理设置：${[agentEngineName, hasModel ? (fusionActive ? 'Fusion · ' : '') + modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ')}`}
         aria-haspopup="dialog" aria-expanded={props.open} aria-controls={props.open ? panelId : undefined} onPress={props.onOpenChange}>
         <AgentIcon agentId={props.agentId} />
-        {hasModel && <span className="model-reasoning-name">{modelName}</span>}
+        {hasModel && <span className="model-reasoning-name">{fusionActive ? 'Fusion · ' : ''}{modelName}</span>}
         {hasModel && hasReasoning && <span className="model-reasoning-divider" aria-hidden="true">·</span>}
         {hasReasoning && <span className="model-reasoning-effort">{reasoningName || '快速'}</span>}
       </Button>
@@ -118,26 +138,35 @@ export default function ModelReasoningSelector(props: Props) {
           <div className="model-reasoning-rows">
             {hasModel && <button ref={modelRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('models'); }} onClick={() => openPage('models', true)} disabled={agentBusy}
               aria-haspopup="dialog" aria-expanded={menu === 'models'} aria-controls={menu === 'models' ? `${panelId}-models` : undefined}>
-              <span>模型</span><span className="model-reasoning-value" title={modelName}>{modelName}</span>
+              <span>{fusionActive ? '主模型' : '模型'}</span><span className="model-reasoning-value" title={modelName}>{modelName}</span>
             </button>}
             {hasReasoning && <button ref={effortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('effort'); }} onClick={() => openPage('effort', true)} disabled={agentBusy}
               aria-haspopup="dialog" aria-expanded={menu === 'effort'} aria-controls={menu === 'effort' ? `${panelId}-effort` : undefined}>
               <span>推理</span><span className="model-reasoning-value">{reasoningName || '快速模式'}{fast && reasoningName && <Zap size="0.875rem" aria-label="快速模式已开启" />}</span>
             </button>}
+            {!!fusion && <button ref={fusionRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion'); }} onClick={() => openPage('fusion', true)} disabled={agentBusy || props.busy}
+              aria-haspopup="dialog" aria-expanded={menu === 'fusion'} aria-controls={menu === 'fusion' ? `${panelId}-fusion` : undefined}>
+              <span>Fusion</span><span className="model-reasoning-value" title={fusionLabel}>{fusionLabel}</span>
+            </button>}
           </div>
         </section>
       </div>
       {menu !== 'summary' && <div ref={flyout} className="composer-popover model-reasoning-flyout" onPointerEnter={cancelHoverClose}>
-        <section id={`${panelId}-${menu}`} role="dialog" aria-label={menu === 'models' ? '选择模型' : '推理设置'}>
+        <section id={`${panelId}-${menu}`} role="dialog" aria-label={pickerTitle}>
           <div className="composer-popover-header">
-            <div><strong>{menu === 'models' ? '选择模型' : '推理设置'}</strong>{menu === 'models' && <span className="demo-badge">{props.connected ? '在线' : '离线'}</span>}</div>
+            <div><strong>{pickerTitle}</strong>{menu === 'models' && <span className="demo-badge">{props.connected ? '在线' : '离线'}</span>}</div>
             <Button isIconOnly size="sm" variant="light" aria-label="收起设置面板" onPress={back}><X size="1rem" /></Button>
           </div>
-        {menu === 'models' && (agentModel ? <>
+        {(menu === 'models' || (menu === 'fusion' && !!fusion)) && (pickerOption ? <>
           <div className="popover-search"><Input size="sm" variant="bordered" aria-label="搜索模型" placeholder="搜索模型…" value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
           <div className="model-group-list">
-            {!!agentModel.options?.length && !agentModel.options.some(value => value.value === agentModelValue) && <div className="composer-model-row is-selected">
-              <button role="radio" aria-checked onClick={() => {}}><span><strong>{agentModelValue}</strong></span><Check size="1rem" /></button>
+            {menu === 'fusion' && fusion && <div className={`composer-model-row agent-model-row ${fusionValue === 'off' ? 'is-selected' : ''}`}>
+              <button role="radio" aria-checked={fusionValue === 'off'} disabled={agentBusy || props.busy} aria-label={fusion.options.find(option => option.value === 'off')?.name || '关闭'} onClick={() => { changeAgent(fusion.id, 'off'); close(); focusInput(); }}>
+                <span><strong>{fusion.options.find(option => option.value === 'off')?.name || '关闭'}</strong></span>{fusionValue === 'off' && <Check size="1rem" />}
+              </button>
+            </div>}
+            {!!pickerOption.options?.length && !pickerOption.options.some(value => value.value === pickerValue) && <div className="composer-model-row is-selected">
+              <button role="radio" aria-checked onClick={() => {}}><span><strong>{pickerValue}</strong></span><Check size="1rem" /></button>
             </div>}
             {visibleModelGroups.map(group => {
               const openGroup = !!modelQuery || !collapsed.includes(group.id);
@@ -146,12 +175,12 @@ export default function ModelReasoningSelector(props: Props) {
                   <span className="provider-dot" style={{ background: '#9298a1' }} /><span>{group.name}</span><small>{group.models.length}</small><ChevronDown size="0.875rem" className={openGroup ? 'rotated' : ''} />
                 </button>
                 <Collapse open={openGroup}>{group.models.map(model => {
-                  const selected = model.value === agentModelValue;
+                  const selected = model.value === pickerValue;
                   return <div className={`composer-model-row agent-model-row ${selected ? 'is-selected' : ''}`} key={model.value}>
-                    <button role="radio" aria-checked={selected} disabled={agentBusy || props.busy} aria-label={`${group.name} / ${model.name}`} title={[model.name, model.description].filter(Boolean).join('\n')} onClick={() => { changeAgent(agentModel.id, model.value); close(); focusInput(); }}>
+                    <button role="radio" aria-checked={selected} disabled={agentBusy || props.busy} aria-label={`${group.name} / ${model.name}`} title={[model.name, model.description].filter(Boolean).join('\n')} onClick={() => { changeAgent(pickerOption.id, model.value); close(); focusInput(); }}>
                       <span><strong>{model.name}</strong>{model.description && <small>{model.description}</small>}</span>{selected && <Check size="1rem" />}
                     </button>
-                    {!external && <Tooltip content={model.value === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${group.name} / ${model.name}`} aria-pressed={model.value === props.defaultModel} onPress={() => { props.onDefaultModel(model.value); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.value === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>}
+                    {!external && menu !== 'fusion' && <Tooltip content={model.value === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${group.name} / ${model.name}`} aria-pressed={model.value === props.defaultModel} onPress={() => { props.onDefaultModel(model.value); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.value === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>}
                   </div>;
                 })}</Collapse>
               </div>;

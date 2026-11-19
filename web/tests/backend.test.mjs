@@ -671,3 +671,83 @@ test('an async buffered callback failure cancels the reader and rejects the owni
     assert.equal(cancelled, true);
   } finally { globalThis.fetch = original; }
 });
+
+test('checklist updates collapse into one shared checklist; failures keep the last plan', () => {
+  const steps = (...rows) => ({ steps: rows });
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  const events = [
+    { type: 'tool_call', toolCallId: 'p1', name: 'checklist_update', args: steps(
+      { description: '梳理现状', status: 'done' },
+      { description: '实现改动', status: 'active' }) },
+    { type: 'tool_result', toolCallId: 'p1', name: 'checklist_update', result: '待办清单已更新', status: 'completed' },
+    { type: 'tool_call', toolCallId: 'p2', name: 'checklist_update', args: steps(
+      { description: '梳理现状', status: 'done' },
+      { description: '实现改动', owner: 'sidekick', status: 'done' },
+      { description: '审查并交付', owner: '', status: 'active' }) },
+    // 工具调用与结果之间可能夹带其他调用；收敛删除中间行后新块 id 仍须唯一。
+    { type: 'tool_call', toolCallId: 'batched-read', name: 'read', args: { path: 'a.ts' } },
+    { type: 'tool_result', toolCallId: 'p2', name: 'checklist_update', result: '待办清单已更新', status: 'completed' },
+    { type: 'content', content: '收尾' },
+  ];
+  for (const event of events) message = applyEvent(message, event);
+  assert.equal(new Set(message.blocks.map(block => block.id)).size, message.blocks.length);
+  const plans = message.blocks.filter(block => block.type === 'checklist');
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].title, '待办清单');
+  assert.deepEqual(plans[0].steps, [
+    { description: '梳理现状', status: 'done' },
+    { description: '实现改动', owner: 'sidekick', status: 'done' },
+    { description: '审查并交付', status: 'active' },
+  ]);
+  assert.equal(message.blocks.filter(block => block.type === 'tool_call' && block.name === 'checklist_update').length, 0);
+
+  // 失败的更新保持普通工具行，不覆盖上一份清单。
+  message = applyEvent(message, { type: 'tool_call', toolCallId: 'p3', name: 'checklist_update', args: steps({ description: 'x', owner: 'sidekick', status: 'active' }) });
+  message = applyEvent(message, { type: 'tool_result', toolCallId: 'p3', name: 'checklist_update', result: '待办清单需要 1 到 12 个步骤', status: 'failed' });
+  const surviving = message.blocks.filter(block => block.type === 'checklist');
+  assert.equal(surviving.length, 1);
+  assert.equal(surviving[0].steps.length, 3);
+  const failedRow = message.blocks.find(block => block.type === 'tool_call' && block.toolCallId === 'p3');
+  assert.equal(failedRow?.status, '失败');
+
+  // JSONL 回放走同一归约：旧 fusion_plan 记录与新 checklist_update 顺序出现，
+  // 最新一份清单胜出。
+  const history = historyMessages([
+    { role: 'user', content: '干活' },
+    { role: 'assistant', tool_calls: [{ id: 'p1', name: 'fusion_plan', arguments: JSON.stringify(steps(
+      { description: '梳理现状', owner: 'lead', status: 'done' },
+      { description: '实现改动', owner: 'sidekick', status: 'active' })) }] },
+    { role: 'tool', tool_call_id: 'p1', content: 'Fusion 计划已更新', tool_status: 'completed' },
+    { role: 'assistant', tool_calls: [{ id: 'p2', name: 'checklist_update', arguments: steps(
+      { description: '梳理现状', status: 'done' },
+      { description: '实现改动', owner: 'sidekick', status: 'done' }) }] },
+    { role: 'tool', tool_call_id: 'p2', content: '待办清单已更新', tool_status: 'completed' },
+    { role: 'assistant', content: 'done' },
+  ]);
+  const restored = history[1].blocks.filter(block => block.type === 'checklist');
+  assert.equal(restored.length, 1);
+  assert.deepEqual(restored[0].steps.map(step => [step.owner, step.status]), [[undefined, 'done'], ['sidekick', 'done']]);
+  assert.equal(history[1].blocks.filter(block => block.type === 'tool_call').length, 0);
+
+  // 只有旧 fusion_plan 记录的历史会话也还原成清单。
+  const legacy = historyMessages([
+    { role: 'user', content: '干活' },
+    { role: 'assistant', tool_calls: [{ id: 'p1', name: 'fusion_plan', arguments: steps(
+      { description: '实现改动', owner: 'sidekick', status: 'active' }) }] },
+    { role: 'tool', tool_call_id: 'p1', content: 'Fusion 计划已更新', tool_status: 'completed' },
+    { role: 'assistant', content: 'done' },
+  ]);
+  const legacyPlan = legacy[1].blocks.filter(block => block.type === 'checklist');
+  assert.equal(legacyPlan.length, 1);
+  assert.deepEqual(legacyPlan[0].steps, [{ description: '实现改动', owner: 'sidekick', status: 'active' }]);
+
+  // 没有清单调用的消息保持原样。
+  const plain = historyMessages([
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', tool_calls: [{ id: 't1', name: 'shell', arguments: {} }] },
+    { role: 'tool', tool_call_id: 't1', content: 'ok', tool_status: 'completed' },
+    { role: 'assistant', content: 'done' },
+  ]);
+  assert.equal(plain[1].blocks.filter(block => block.type === 'checklist').length, 0);
+  assert.equal(plain[1].blocks[0].type, 'tool_call');
+});

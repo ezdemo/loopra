@@ -1,6 +1,6 @@
 # 半异步工具执行
 
-半异步是服务端声明的执行能力，不按工具名判断。原生工具通过 `tools.Metadata.Async` 声明，插件通过 `tools()` 条目的 `async: true` 声明；注册表统一包装执行。当前启用一次性 shell、`rg`、`sub_agent` 和内置 `web`。未声明的工具保持同步，原生主会话（Web、桌面与 Loopra ACP 服务端）提供执行运行时；外部 ACP 引擎不受此机制控制。
+半异步是服务端声明的执行能力，不按工具名判断。原生工具通过 `tools.Metadata.Async` 声明，插件通过 `tools()` 条目的 `async: true` 声明；注册表统一包装执行。当前启用一次性 shell、`rg`、`sub_agent` 和内置 `web`。未声明的工具保持同步，原生主会话（Web、桌面与 Loopra ACP 服务端）提供执行运行时；外部 ACP 引擎不受此机制控制。Fusion 会话专用的 `fusion_delegate` 刻意不声明 `Async`：委派同步等待最终结果（仍实时转发 `sub_*` 进度并支持取消），主代理拿到结果后才继续，不产生 `running`/`call_id` 占位结果。
 
 `yield_after_ms` 是包装器保留参数：注册时注入模型参数定义，执行前校验并剥离，再把原业务参数交给工具。业务 schema 不应重复声明它。`/api/tools` 返回 `async` 能力及包含此参数的 `params`，不增加用户配置项。声明本身不改变读写分类或审批；审批在包装器之外完成，插件 `toolBefore` 仍先执行，`toolAfter` 仅处理真实最终结果一次。
 

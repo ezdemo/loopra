@@ -56,8 +56,8 @@ func builtinProfiles() []SubAgentProfile {
 // （SubAgent.SUB_AGENT_DENY，已排序）。
 var subAgentDeniedTools = []string{
 	"ask_choice", "checklist_start", "checklist_status", "checklist_step",
-	"goal_block", "goal_complete", "goal_create", "goal_resume",
-	"goal_status", "goal_update_step", "sub_agent",
+	"checklist_update", "fusion_delegate", "goal_block", "goal_complete",
+	"goal_create", "goal_resume", "goal_status", "goal_update_step", "sub_agent",
 }
 
 // subAgentConfigFile 是 ~/.loopra/sub-agents.json 中的 {profiles: [...]}。

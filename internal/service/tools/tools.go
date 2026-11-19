@@ -165,6 +165,18 @@ func (r *Registry) Disabled(name string) bool {
 	return r.disabled[name]
 }
 
+// Available 报告某个工具对调用方可见：已注册、未禁用且未被允许清单排除。
+func (r *Registry) Available(name string) bool {
+	r.mu <- struct{}{}
+	defer func() { <-r.mu }()
+	for _, e := range r.entries {
+		if e.Meta.Name == name {
+			return !r.disabled[name] && (r.allowed == nil || r.allowed[name])
+		}
+	}
+	return false
+}
+
 // GateOne 用 ADK 确认门禁包装单个工具。
 func GateOne(t tool.Tool, require func(name string, args any) bool) tool.Tool {
 	set := tool.WithConfirmation(singleToolset{t}, false, require)

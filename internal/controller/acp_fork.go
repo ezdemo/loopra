@@ -209,7 +209,7 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 func inheritedSessionMeta(source map[string]any, agentID, forked, cwd, title string) map[string]any {
 	meta := map[string]any{}
 	for key, value := range source {
-		if key == "acpSessionId" || key == "title" || key == "acpHistorySeededSessionId" {
+		if key == "acpSessionId" || key == "title" || key == "acpHistorySeededSessionId" || key == fusionEpochKey {
 			continue
 		}
 		meta[key] = value

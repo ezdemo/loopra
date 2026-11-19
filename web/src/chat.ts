@@ -6,7 +6,7 @@ export type ChatBlock =
   | { id: string; type: 'content' | 'reasoning' | 'reasoning_started'; content: string }
   | { id: string; type: 'tool_call'; toolCallId?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; result?: string; duration?: string }
   | { id: string; type: 'file_changes'; changes: FileChange[] }
-  | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string }[] }
+  | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string; owner?: 'lead' | 'sidekick' }[] }
   | { id: string; type: 'sub_agent'; name: string; status: ToolStatus; blocks: ChatBlock[] }
   | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
 export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number; rollbackId?: string; snapshotId?: string; rollbackTimestamp?: number; images?: string[] };
@@ -39,7 +39,9 @@ export function splitUserContext(text: string) {
 // Same final-response boundary as the reference WEB ChatMessage.vue.
 // File changes remain visible alongside the answer, outside the folded process.
 export function splitAssistantBlocks(blocks: ChatBlock[]) {
-  const body = blocks.filter(block => block.type !== 'file_changes');
+  // 待办清单像最终答复一样常驻可见，不随过程折叠；回放与实时共用此归约。
+  const plans = blocks.filter(block => block.type === 'checklist');
+  const body = blocks.filter(block => block.type !== 'file_changes' && block.type !== 'checklist');
   let start = -1;
   for (let index = body.length - 1; index >= 0; index--) {
     const block = body[index];
@@ -50,7 +52,7 @@ export function splitAssistantBlocks(blocks: ChatBlock[]) {
   }
   return {
     process: start > 0 ? body.slice(0, start) : [],
-    final: [...(start >= 0 ? body.slice(start) : body), ...blocks.filter(block => block.type === 'file_changes')],
+    final: [...plans, ...(start >= 0 ? body.slice(start) : body), ...blocks.filter(block => block.type === 'file_changes')],
   };
 }
 

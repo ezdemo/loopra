@@ -68,6 +68,9 @@ func subSessionInfo(id string, events []subEvent) map[string]any {
 			info[key] = v
 		}
 	}
+	if resumable, ok := start["resumable"].(bool); ok {
+		info["resumable"] = resumable
+	}
 	if v, ok := start["startedAt"].(float64); ok {
 		info["startedAt"] = int64(v)
 	}

@@ -88,7 +88,8 @@ func (s *Controller) mcpExportHandler(cfg McpExportConfig) (http.Handler, error)
 	if s.registry != nil {
 		for _, entry := range s.registry.Entries() {
 			name := entry.Meta.Name
-			if s.registry.Disabled(name) || (cfg.AllowedTools != nil && !allowed[name]) {
+			// checklist_update 只影响本轮聊天视图，对 MCP 导出无意义。
+			if name == checklistUpdateName || s.registry.Disabled(name) || (cfg.AllowedTools != nil && !allowed[name]) {
 				continue
 			}
 			declarer, ok := entry.Tool.(interface {

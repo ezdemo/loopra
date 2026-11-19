@@ -158,10 +158,16 @@ export default function BlockRenderer({ blocks, streaming = false, ...actions }:
     // Choice cards (HITL approval / ask_choice) render nothing in the transcript:
     // the composer popup owns the question and its options, so an approval never
     // interrupts the run's flow.
-    if (block.type === 'checklist') {
-      const completed = block.steps.filter(step => step.status === 'done').length;
-      return <Disclosure key={block.id} className="block-tool block-checklist" headingClass="tool-head" heading={<><StatusIcon status={completed === block.steps.length ? '成功' : '执行中'} /><code className="tool-name">checklist</code><span className="tool-param">{block.title}</span><span className="tool-duration">{completed}/{block.steps.length}</span><ChevronDown size="0.875rem" /></>}><div className="checklist-detail"><div className="checklist-track"><span style={{ width: `${block.steps.length ? completed / block.steps.length * 100 : 0}%` }} /></div>{block.steps.map((step, index) => <div key={index} className={`checklist-row ${step.status}`}>{step.status === 'done' ? <Check size="0.875rem" /> : step.status === 'active' ? <LoaderCircle size="0.875rem" className="spin" /> : <Circle size="0.875rem" />}<div>{step.description}{step.result && <small>{step.result}</small>}</div></div>)}</div></Disclosure>;
-    }
+    // 待办清单是常驻的紧凑清单（不进折叠、可反复更新）；描述里已含
+    // "sidekick" 的步骤不再重复负责人标记。
+    if (block.type === 'checklist') return <section key={block.id} className="block-tool block-checklist" aria-label={block.title}>
+      <div className="tool-head checklist-heading"><ListTree size="0.875rem" aria-hidden="true" /><span className="tool-name">{block.title}</span></div>
+      <ul className="checklist-detail">{block.steps.map((step, index) => <li key={index} className={`checklist-row ${step.status}`} aria-current={step.status === 'active' ? 'step' : undefined}>
+        <span className="sr-only">{step.status === 'done' ? '已完成：' : step.status === 'active' ? '进行中：' : '待处理：'}</span>
+        {step.status === 'done' ? <Check size="0.875rem" aria-hidden="true" /> : step.status === 'active' ? <LoaderCircle size="0.875rem" className={streaming ? 'spin' : undefined} aria-hidden="true" /> : <Circle size="0.875rem" aria-hidden="true" />}
+        <span className="checklist-step-text">{step.description}{step.owner === 'sidekick' && !/\bsidekick\b/i.test(step.description) && <span className="checklist-step-owner"> · Sidekick</span>}{step.result && <small>{step.result}</small>}</span>
+      </li>)}</ul>
+    </section>;
     return null;
   })}</div>;
 }

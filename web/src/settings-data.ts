@@ -21,6 +21,7 @@ export const defaultTools: ToolConfig[] = [
   { name: 'bash', description: '执行终端命令', category: '终端', readOnly: false, enabled: true },
   { name: 'ask_choice', description: '请求用户选择', category: '协作', readOnly: true, enabled: true },
   { name: 'sub_agent', description: '委派任务给子代理', category: '协作', readOnly: false, enabled: true },
+  { name: 'checklist_update', description: '更新本轮待办清单', category: '协作', readOnly: true, enabled: true },
   { name: 'finish', description: '返回最终结果', category: '协作', readOnly: true, enabled: true },
 ];
 export const defaultAgentSettings: AgentSettings = {

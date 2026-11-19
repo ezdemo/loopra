@@ -638,6 +638,25 @@ func TestMcpExportServesRealTools(t *testing.T) {
 	if result.IsError || !bytes.Contains(raw, []byte("exported file content")) {
 		t.Fatalf("call = %s", raw)
 	}
+	// 放开 allowlist 后 checklist_update 仍不参与导出：它只影响
+	// 本轮聊天视图，对 MCP 客户端没有意义。
+	if _, env := call(t, ts, "PUT", "/api/mcp/export", key, map[string]any{"enabled": true, "channel": "streamable_stateless"}); env["success"] != true {
+		t.Fatalf("re-enable = %v", env)
+	}
+	all, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp", HTTPClient: &http.Client{Transport: headerTransport{Headers: map[string]string{"X-Loopra-Key": key}}}, DisableStandaloneSSE: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer all.Close()
+	full, err := all.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exported := range full.Tools {
+		if exported.Name == "checklist_update" {
+			t.Fatalf("checklist_update leaked into MCP export: %v", full.Tools)
+		}
+	}
 	req, _ := http.NewRequest("POST", ts.URL+"/mcp", strings.NewReader(`{}`))
 	resp, err := ts.Client().Do(req)
 	if err != nil {

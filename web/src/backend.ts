@@ -224,13 +224,28 @@ export class SseParser {
 
 const stringify = (value: unknown) => typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value, null, 2);
 const argsObject = (value: unknown): Record<string, unknown> => { try { const parsed = typeof value === 'string' ? JSON.parse(value) : value; return parsed && typeof parsed === 'object' ? parsed : { value }; } catch { return { value }; } };
+// checklist_update 成功的工具结果没有 SSE 专有事件：把调用参数里的
+// steps 收敛成 checklist 块，失败的调用仍按普通工具行展示。
+const checklistSteps = (value: unknown): Extract<ChatBlock, { type: 'checklist' }>['steps'] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((step: unknown) => {
+    const { description, owner: rawOwner, status } = argsObject(step);
+    const owner = rawOwner === '' ? undefined : rawOwner;
+    if (typeof description !== 'string' || !description.trim() || (owner !== undefined && owner !== 'lead' && owner !== 'sidekick') || (status !== 'pending' && status !== 'active' && status !== 'done')) return [];
+    return [{ description: description.trim(), ...(owner !== undefined ? { owner } : {}), status }];
+  });
+};
 export function applyEvent(message: Message, event: StreamEvent): Message {
   // Preserve completed tools/Markdown by identity. A delta must not copy all of
   // the (potentially megabytes of) tool output accumulated earlier in this turn.
   const previous = message.blocks || [];
   const blocks: ChatBlock[] = [...previous];
   const edit = <T extends ChatBlock>(block: T): T => { const copy = { ...block }; blocks[blocks.indexOf(block)] = copy; return copy; };
-  const id = `${message.id}-${blocks.length}`;
+  // 清单收敛会删除中段的普通工具行，blocks.length 可能与保留的尾部
+  // 块 id 冲突；向后找第一个未占用的序号。
+  let sequence = blocks.length;
+  while (blocks.some(block => block.id === `${message.id}-${sequence}`)) sequence++;
+  const id = `${message.id}-${sequence}`;
   const content = event.content ?? event.token ?? '';
   if (event.type === 'sub_choice') {
     blocks.push({ id, type: 'choice', subId: String(event.subId), ...(event.permissionRequestId ? { permissionRequestId: event.permissionRequestId } : {}), question: event.title || '子代理工具调用需要审批', description: event.description, options: (event.options || []).map(option => ({ title: option.title, value: option.value, description: option.summary })) });
@@ -278,7 +293,17 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
   }
   else if (event.type === 'tool_result') {
     const found = [...blocks].reverse().find(block => block.type === 'tool_call' && (event.toolCallId ? block.toolCallId === event.toolCallId : block.status === '执行中' && (!event.name || block.name === event.name)));
-    if (found?.type === 'tool_call') { const target = edit(found); target.result = stringify(event.result ?? content); target.status = event.status === 'running' ? '执行中' : event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception|\[failed\])/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
+    const result = stringify(event.result ?? content);
+    // fusion_plan 已退役，仅在回放旧会话时命中；当前工具是 checklist_update。
+    const isChecklistUpdate = (found?.type === 'tool_call' && ((found.name === 'checklist_update' && result === '待办清单已更新') || (found.name === 'fusion_plan' && result === 'Fusion 计划已更新')) && event.status !== 'failed' && event.status !== 'running');
+    const steps = isChecklistUpdate ? checklistSteps(found.args?.steps) : [];
+    if (found?.type === 'tool_call' && steps.length) {
+      // 成功的清单更新只以 checklist 呈现；再次更新替换原位块，调用行不在聊天中重复显示。
+      const plan: ChatBlock = { id: message.id + '-checklist', type: 'checklist', title: '待办清单', steps };
+      const previousPlan = blocks.findIndex(block => block.id === plan.id);
+      const callIndex = blocks.indexOf(found);
+      if (previousPlan < 0) { blocks[callIndex] = plan; } else { blocks[previousPlan] = plan; blocks.splice(callIndex, 1); }
+    } else if (found?.type === 'tool_call') { const target = edit(found); target.result = result; target.status = event.status === 'running' ? '执行中' : event.status ? (event.status === 'failed' ? '失败' : '成功') : /^(错误|Error|Exception|\[failed\])/i.test(target.result) ? '失败' : '成功'; if (event.duration) target.duration = `${event.duration}ms`; }
   } else if (event.type === 'file_changes' && event.changes?.length) {
     let summary = blocks.find(block => block.type === 'file_changes');
     if (!summary || summary.type !== 'file_changes') { summary = { id, type: 'file_changes', changes: [] }; blocks.push(summary); }

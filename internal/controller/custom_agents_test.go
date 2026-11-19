@@ -197,7 +197,7 @@ func TestUnboundAgentRunsLikePureChat(t *testing.T) {
 		t.Fatalf("instruction = %s", text)
 	}
 	names := toolNames(view.registry)
-	if !names["skillread"] || names["read"] || names["sub_agent"] {
+	if !names["skillread"] || names["read"] || names["sub_agent"] || names["checklist_update"] {
 		t.Fatalf("tools = %v", names)
 	}
 	if resolved, err := s.resolveProject(id); err != nil || filepath.Clean(resolved) != filepath.Clean(filepath.Join(home, "chat-workspace")) {

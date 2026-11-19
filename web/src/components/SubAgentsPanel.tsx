@@ -66,7 +66,7 @@ export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify
   }
   async function send() {
     const text = message.trim();
-    if (!selected || !text || busy) return;
+    if (!selected || selected.resumable === false || !text || busy) return;
     setBusy(true); setError(''); setMessage('');
     setEvents(current => [...current, { type: 'sub_user', content: text }]);
     try {
@@ -105,10 +105,10 @@ export default function SubAgentsPanel({ api, workspaceHash, sessionName, notify
       {error && <p className="settings-error" role="alert">{error}</p>}
       <RemoteState loading={stored.loading} error="" />
       {replay.blocks.length ? <div className="subagent-replay-body"><BlockRenderer blocks={replay.blocks} notify={notify} onOpenFile={onOpenFile} onDiff={onDiff} /></div> : !stored.loading && <p className="panel-empty">没有可回放的内容</p>}
-      <footer className="subagent-continue">
+      {selected.resumable !== false && <footer className="subagent-continue">
         <input aria-label="继续子代理对话" placeholder="继续对话（仅活跃会话可用）…" value={message} disabled={busy} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} />
         <Button size="sm" color="primary" isLoading={busy} isDisabled={!message.trim()} onPress={() => void send()}>发送</Button>
-      </footer>
+      </footer>}
     </section>}
     {deleting && <ConfirmAction title="删除子代理会话" onClose={() => setDeleting(undefined)} action={() => remove(deleting)}>
       <p>“{subSessionLabel(deleting)}”将被永久删除，无法恢复。</p>

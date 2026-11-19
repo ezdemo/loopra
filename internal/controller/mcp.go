@@ -513,6 +513,9 @@ func (s *Controller) mcpExportView(cfg McpExportConfig) map[string]any {
 	if s.registry != nil {
 		for _, entry := range s.registry.List() {
 			name := entry["name"].(string)
+			if name == checklistUpdateName {
+				continue
+			}
 			exposed := entry["enabled"] == true && (cfg.AllowedTools == nil || containsString(cfg.AllowedTools, name))
 			entries = append(entries, map[string]any{"name": name, "description": entry["description"], "readOnly": entry["readOnly"], "enabled": entry["enabled"], "exposed": exposed})
 		}

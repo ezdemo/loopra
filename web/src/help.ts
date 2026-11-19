@@ -57,6 +57,7 @@ export const helpTools = [
   { name: 'grep', desc: '递归搜索内容', params: 'pattern, path, include?', readonly: true },
   { name: 'ls', desc: '列出目录内容', params: 'path, recursive?, show_hidden?', readonly: true },
   { name: 'sub_agent', desc: '创建预设角色子代理', params: 'profile, task, instructions?', readonly: false },
+  { name: 'checklist_update', desc: '更新本轮待办清单', params: 'steps', readonly: true },
   { name: 'goal_create / goal_update_step / goal_complete', desc: '创建、推进和验证会话 Goal', params: 'objective / stepIndex, status, evidence / summary', readonly: false },
 ];
 

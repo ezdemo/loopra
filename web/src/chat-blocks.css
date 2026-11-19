@@ -212,13 +212,15 @@
 .loopra-conversation .file-changes-expand { width: 100%; display: flex; align-items: center; gap: .375rem; padding: .5rem .75rem; border-top: 1px solid var(--chat-border); background: transparent; color: var(--chat-fg-3); font-size: .75rem; }
 .loopra-conversation .undone .file-changes-icon { opacity: .5; }
 .loopra-conversation .checklist-detail { padding: 0.625rem 0.75rem; border-top: 1px solid var(--chat-border-soft); }
-.loopra-conversation .checklist-track { height: 0.1875rem; background: var(--chat-muted); border-radius: 6.1875rem; margin-bottom: 0.75rem; overflow: hidden; }
-.loopra-conversation .checklist-track > span { display: block; height: 100%; background: var(--chat-green); }
 .loopra-conversation .checklist-row { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.3125rem 0; font-size: 0.75rem; color: var(--chat-fg-2); }
 .loopra-conversation .checklist-row > svg { margin-top: 0.1875rem; color: var(--chat-fg-4); }
 .loopra-conversation .checklist-row.done > svg { color: var(--chat-green); }
 .loopra-conversation .checklist-row.active > svg { color: var(--chat-yellow); }
 .loopra-conversation .checklist-row small { display: block; color: var(--chat-fg-4); font-size: 0.6875rem; }
+.loopra-conversation .checklist-step-text { min-width: 0; overflow-wrap: anywhere; }
+.loopra-conversation .checklist-step-owner { color: var(--chat-fg-4); }
+.loopra-conversation .checklist-heading { cursor: default; }
+.loopra-conversation .block-checklist .checklist-row > svg { flex-shrink: 0; }
 .loopra-conversation .thinking { margin: .25rem 0 .5rem; }
 .loopra-conversation .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }

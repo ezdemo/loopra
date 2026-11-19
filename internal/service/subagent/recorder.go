@@ -64,7 +64,7 @@ func nowMillis() int64 { return time.Now().UnixMilli() }
 // sub_choice 上；Java broker 在 5 分钟后超时并自动拒绝。
 const subHitlTimeout = 5 * time.Minute
 
-func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Session, parentSession, message string, subID int, subSessionID string, rec *recorder, sink Sink) string {
+func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Session, parentSession, message string, subID int, subSessionID string, rec *recorder, sink Sink) (string, error) {
 	ctx = loopraagent.WithParentSession(ctx, parentSession)
 	if sink != nil {
 		// 让 runner 的 AfterToolCallback 能逐个工具上报 sub_tool_result。
@@ -75,9 +75,12 @@ func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Ses
 		Role: genai.RoleUser, Parts: []*genai.Part{{Text: message}},
 	}
 	for {
-		pendings, last := r.onePass(ctx, run, sess, parentSession, content, subID, subSessionID, rec, sink, &reply)
+		pendings, last, err := r.onePass(ctx, run, sess, parentSession, content, subID, subSessionID, rec, sink, &reply)
+		if err != nil {
+			return last, err
+		}
 		if len(pendings) == 0 {
-			return last
+			return last, nil
 		}
 		responses := make([]*genai.Part, 0, len(pendings))
 		for _, p := range pendings {
@@ -100,8 +103,8 @@ func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Ses
 }
 
 // onePass 消费一次 ADK 运行，返回其暂停等待的审批请求
-// 与最新的助手文本。
-func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.Session, parentSession string, content *genai.Content, subID int, subSessionID string, rec *recorder, sink Sink, reply *string) ([]*hitl.Request, string) {
+// 与最新的助手文本；迭代错误在照常上报 sub_error 后向上传递。
+func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.Session, parentSession string, content *genai.Content, subID int, subSessionID string, rec *recorder, sink Sink, reply *string) ([]*hitl.Request, string, error) {
 	var pendings []*hitl.Request
 	it := run.Run(loopraagent.WithContextTurn(ctx), "default", sess.ID(), content, agentpkg.RunConfig{StreamingMode: agentpkg.StreamingModeSSE})
 	for ev, err := range it {
@@ -113,7 +116,12 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 					"error": err.Error(),
 				})
 			}
-			continue
+			// 已登记但尚未作为 sub_choice 发出的审批不能残留在
+			// 注册表里，否则 /chat/permissions 会列出永不可达项。
+			for _, pending := range pendings {
+				r.Permissions.CancelOne(pending.ID)
+			}
+			return nil, *reply, err
 		}
 		if ev.Content == nil {
 			continue
@@ -224,7 +232,7 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 			})
 		}
 	}
-	return pendings, *reply
+	return pendings, *reply, nil
 }
 
 func responseText(fr *genai.FunctionResponse) string {

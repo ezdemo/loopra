@@ -6,6 +6,7 @@ import type { ChatBlock, FileChange, ToolStatus } from './chat';
 export type SubSession = {
   subSessionId: string; task?: string; name?: string; title?: string; profile?: string;
   status: string; startedAt: number; endedAt: number; eventCount: number; mtime?: number;
+  resumable?: boolean;
 };
 
 export type SubSessionEvent = {

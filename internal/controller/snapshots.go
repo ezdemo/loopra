@@ -203,7 +203,15 @@ func (s *Controller) snapshotRollback(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.agent.Sessions.Get(r.Context(), getSessionRequest(s.agent, name)); err != nil {
 			return "", nil
 		}
-		return s.agent.Sessions.Truncate(r.Context(), hash, s.agent.User(), name, body.MsgID, number(body.RollbackTimestamp))
+		text, err := s.agent.Sessions.Truncate(r.Context(), hash, s.agent.User(), name, body.MsgID, number(body.RollbackTimestamp))
+		if err != nil {
+			return "", err
+		}
+		// 撤回掉的历史不应再被 Fusion 执行代理续用。
+		if err := s.resetFusionContext(name); err != nil {
+			return "", fmt.Errorf("会话历史已撤回，但重置 Fusion 上下文失败: %w", err)
+		}
+		return text, nil
 	}
 	if !restoreCode {
 		text, err := truncate()

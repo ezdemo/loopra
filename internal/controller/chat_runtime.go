@@ -14,6 +14,7 @@ import (
 
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
+	"github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/service/acp"
 	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/tools"
@@ -151,15 +152,41 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	if chat {
 		req.LinkedProjectHashes = nil
 	}
+	// Fusion 是原生项目会话的开关：非空选择必须能解析回目录中的
+	// 渠道模型，失效值直接报错而不是静默退回父模型。
+	sidekick := ""
+	var fusionChannel config.Channel
+	if !chat {
+		sidekick = strOr(meta, fusionSidekickOption, "")
+		if sidekick == fusionOff {
+			sidekick = ""
+		}
+		if sidekick != "" {
+			ch, _, ok := fusionModel(cfg, sidekick)
+			if !ok {
+				return nil, fmt.Errorf("Fusion 执行模型已不可用，请重新选择或关闭 Fusion")
+			}
+			fusionChannel = ch
+		}
+	}
 	projects, err := s.linkedProjects(s.agent.App(), req.LinkedProjectHashes)
 	if err != nil {
 		return nil, err
 	}
 	linkedRoots := projectRoots(projects)
+	// 作用域指纹绑定所选模型、epoch、运行时工作区与关联项目根；
+	// 任一变化都让下一次委派从零开始而不是误续旧上下文。
+	scope := ""
+	if sidekick != "" {
+		scope = s.fusionScope(req.SessionName, sidekick, strOr(meta, fusionEpochKey, ""), fusionChannel, linkedRoots)
+	}
 	instruction := s.withMemoryInstruction(s.systemInstructionFor(s.workspaceRoot(), s.agent.App(), projects))
+	if sidekick != "" {
+		instruction += "\n\n" + fusionLeadInstruction
+	}
 	// 会话级角色不体现在工作区缓存 Agent 的指令与工具清单里，必须重建。
 	sessionPersona := s.agent != nil && s.profile != nil && !customagent.IsID(s.agent.App())
-	changed := sessionPersona || model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
+	changed := sessionPersona || sidekick != "" || model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
 	var turnSet *toolsearch.Set
 	var closers []io.Closer
 	if !chat {
@@ -207,7 +234,19 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	view.agent = a
 	view.installApprovalPolicy()
 	if !chat {
-		view.installSubRunner()
+		view.installTurnSubRunner(sidekick, scope)
+		if sidekick != "" {
+			// 自定义智能体限定工具清单时，允许 sub_agent 的角色
+			// 同样获得同步委派能力；不允许的角色不会因此放宽。
+			if view.registry != nil && view.profile != nil && view.profile.Tools != nil &&
+				view.registry.Available("sub_agent") {
+				view.registry.SetAllowed(append(append([]string(nil), view.profile.Tools...), fusionDelegateName, checklistUpdateName))
+			}
+			if view.registry == nil || !view.registry.Available("sub_agent") || !view.registry.Available(fusionDelegateName) || !view.registry.Available(checklistUpdateName) {
+				view.closeTurnTools()
+				return nil, fmt.Errorf("Fusion 需要启用子代理、待办清单和委派工具，请启用工具或关闭 Fusion")
+			}
+		}
 		view.installControlTools()
 	}
 	return &view, nil

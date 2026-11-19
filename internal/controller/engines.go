@@ -66,6 +66,9 @@ func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 	if len(models) > 0 {
 		out = append(out, selectOption("model", "模型", "model", strOr(meta, "modelChannelId", s.cfg.ModelChannelID)+":"+strOr(meta, "model", s.cfg.Model), models))
 	}
+	if !s.chatScoped() {
+		out = append(out, selectOption(fusionSidekickOption, "Fusion", "fusion", strOr(meta, fusionSidekickOption, fusionOff), append([]map[string]any{option(fusionOff, "关闭", "")}, models...)))
+	}
 	current := hitl.NormalizeMode(strOr(values, "mode", strOr(meta, "hitl", s.cfg.Hitl)))
 	out = append(out, selectOption("mode", "权限模式", "mode", current, []map[string]any{
 		option("approval", "按需审批", "需要授权的工具操作由用户审批"),
@@ -113,6 +116,8 @@ func (s *Controller) setNativeConfigOption(name, id string, value any) error {
 		}
 	case "effort":
 		patch["reasoningEffort"] = text
+	case fusionSidekickOption:
+		return s.setFusionSidekick(name, text)
 	default:
 		values, _ := s.sessionMetaRead(name)["agentConfig"].(map[string]any)
 		if values == nil {
@@ -359,13 +364,13 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 			writeFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if body.ConfigID != "plan" {
+		if body.ConfigID != "plan" && body.ConfigID != fusionSidekickOption {
 			s.state.files.Lock()
 			prefs := s.enginePreferencesRead()
 			agents, _ := prefs["agents"].(map[string]any)
 			values := map[string]any{}
 			for _, option := range s.nativeConfigOptions(body.SessionName) {
-				if option["id"] != "plan" {
+				if option["id"] != "plan" && option["id"] != fusionSidekickOption {
 					values[option["id"].(string)] = option["currentValue"]
 				}
 			}

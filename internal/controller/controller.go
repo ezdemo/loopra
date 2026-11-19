@@ -370,8 +370,23 @@ func ptr[T any](v T) *T { return &v }
 // 配置档、父级工具注册表、基于渠道的模型覆盖，以及
 // 与父级工具相同的审批闸门。
 func (s *Controller) installSubRunner() {
+	s.installTurnSubRunner("", "")
+}
+
+// installTurnSubRunner 装配单轮子代理运行时。非空 sidekick 是
+// "channel:model" 目录值：implement/test 改用该模型（StrictModel，
+// 无父模型回退），审批沿用父会话覆盖而不是匿名的 "sub"；scope 是
+// 执行上下文指纹，同一指纹的委派共享持久上下文。
+func (s *Controller) installTurnSubRunner(sidekick, scope string) {
 	if s.agent == nil || s.registry == nil {
 		return
+	}
+	var sidekickChannel config.Channel
+	sidekickModel, fusion := "", false
+	if sidekick != "" {
+		if ch, name, ok := fusionModel(s.cfg, sidekick); ok {
+			sidekickChannel, sidekickModel, fusion = ch, name, true
+		}
 	}
 	s.subRunner = &subagent.Runner{
 		ParentModel: s.agent.Model,
@@ -386,29 +401,19 @@ func (s *Controller) installSubRunner() {
 			if !ok {
 				return nil, fmt.Errorf("渠道不存在: %s", channelID)
 			}
-			models := make([]provider.ModelEntry, 0, len(ch.Models))
-			for _, entry := range ch.Models {
-				models = append(models, provider.ModelEntry{
-					Name: entry.Name, ContextTokens: entry.ContextTokens,
-					MaxTokens: entry.MaxTokens, ImageInput: entry.ImageInput,
-				})
-			}
-			return provider.NewLLM(provider.Channel{
-				ID: ch.ID, Name: ch.Name, BaseURL: ch.BaseURL, APIKey: ch.APIKey,
-				APIProtocol: ch.APIProtocol, SpecialCompatibility: ch.SpecialCompatibility,
-				Models: models,
-			}, &provider.Options{Model: modelName})
+			return provider.NewLLM(providerChannel(ch), &provider.Options{Model: modelName})
 		},
 		Profiles: func(id string) (subagent.Profile, bool) {
 			for _, p := range s.subAgentProfiles() {
 				if p.ID == id {
-					return subagent.Profile{
+					profile := subagent.Profile{
 						ID: p.ID, Name: p.Name, Description: p.Description,
 						Enable:   p.Enable == nil || *p.Enable,
 						ReadOnly: p.ReadOnly, Instructions: p.Instructions,
 						AllowedTools: p.AllowedTools, ModelChannel: p.ModelChannel,
 						Model: p.Model,
-					}, true
+					}
+					return profile, true
 				}
 			}
 			return subagent.Profile{}, false
@@ -417,14 +422,18 @@ func (s *Controller) installSubRunner() {
 		SubDir:      s.subSessionsDir,
 		TimeoutSec:  s.cfg.SubAgentTimeoutSec,
 		Permissions: s.permissions,
-		Gate: func(t tool.Tool) tool.Tool {
+		FusionScope: scope, FusionInstruction: fusionWorkerInstruction,
+		// 执行模型仅由 fusion_delegate 专用入口路由；sub_agent
+		// 的角色定义保持原样。
+		FusionModelChannel: sidekickChannel.ID, FusionModel: sidekickModel,
+		Gate: func(approvalSession string, t tool.Tool) tool.Tool {
 			policy := s.approvalPolicy
 			if policy == nil {
 				return t
 			}
 			return tools.GateOne(t, func(name string, args any) bool {
 				m, _ := args.(map[string]any)
-				return policy.Require("sub", name, m)
+				return policy.Require(approvalSession, name, m)
 			})
 		},
 	}
@@ -434,6 +443,26 @@ func (s *Controller) installSubRunner() {
 		Tool: s.newSubAgentTool(),
 		Meta: tools.Metadata{Name: "sub_agent", Description: subAgentToolDescription, Async: true},
 	})
+	var gate *fusionDelegationState
+	if fusion {
+		gate = &fusionDelegationState{}
+	}
+	// checklist_update 是只读的轮内待办快照，纯聊天作用域无意义；
+	// Fusion 轮次共享同一个委派门卫，普通轮次传入 nil 仅落历史。
+	if !s.chatScoped() {
+		s.registry.Add(tools.Tool{
+			Tool: newChecklistUpdateTool(gate),
+			Meta: tools.Metadata{Name: checklistUpdateName, Description: checklistUpdateDescription, ReadOnly: true},
+		})
+	}
+	if gate != nil {
+		// 同步委派工具：无 Async 元数据，主代理拿到最终结果
+		// 后才继续；仅本轮注册，不进全局工具目录。
+		s.registry.Add(tools.Tool{
+			Tool: s.newFusionDelegateTool(gate),
+			Meta: tools.Metadata{Name: fusionDelegateName, Description: fusionDelegateDescription},
+		})
+	}
 }
 
 func createReq(a *agentpkg.Agent, name string) *session.CreateRequest {
