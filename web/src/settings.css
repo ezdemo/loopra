@@ -8,7 +8,7 @@
 .rich-settings-nav button { height: 2.375rem; font-size: 0.875rem; border-radius: var(--radius-md); gap: 0.625rem; margin-bottom: 0.125rem; justify-content: flex-start; min-width: 0; }
 .settings-nav-empty { font-size: 0.75rem; color: var(--muted); padding: 1.875rem 0.625rem; text-align: center; }
 .settings-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-.settings-content-header { display: flex; align-items: center; flex-shrink: 0; min-height: 3.5rem; padding: .875rem 4.5rem .875rem 2rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+.settings-content-header { display: flex; align-items: center; flex-shrink: 0; min-height: 3.5rem; padding: .875rem 2rem; background: var(--surface); border-bottom: 1px solid var(--line); }
 .rich-settings-content { flex: 1; min-height: 0; scrollbar-width: thin; }
 .rich-settings-content > h2 { margin-top: 0; }
 .rich-settings-card { padding: 1.25rem; margin-bottom: 1.5625rem; }
@@ -289,7 +289,7 @@
 .font-scale-control [data-slot="tab"] { flex: 1; min-width: 0; }
 .setting-label, .setting-row p { line-height: 1.6; }
 
-.rich-settings-modal { width: min(64rem, calc(100vw - 3rem)) !important; height: min(46rem, calc(100dvh - 4rem)); }
+.settings-page { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; background: var(--surface); }
 .rich-settings-nav { background: var(--sidebar); padding: 1.25rem 0.75rem; }
 .settings-nav-top { background: var(--sidebar); top: -1.25rem; padding-bottom: .75rem; }
 .settings-category-list { display: grid; gap: .125rem; }
@@ -418,10 +418,8 @@
   .provider-editor-form .settings-model-editor[data-pricing="true"] { contain-intrinsic-block-size: auto 40rem; }
 }
 @media (max-width: 760px) {
-  .rich-settings-modal { width: calc(100vw - 1.25rem) !important; height: calc(100dvh - 1.75rem); }
-  .rich-settings-modal .settings-layout { grid-template-columns: minmax(0, 1fr); }
-  .rich-settings-modal::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6.25rem; background: var(--surface); border-bottom: 1px solid var(--line); z-index: 1; pointer-events: none; }
-  .rich-settings-modal .settings-close { z-index: 4; }
+  .settings-page .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-page::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6.25rem; background: var(--surface); border-bottom: 1px solid var(--line); z-index: 1; pointer-events: none; }
   .rich-settings-nav { position: absolute; inset: 0 0 auto; padding: 0; border: 0; overflow: visible; }
   .settings-nav-top { position: static; padding: 0; }
   .rich-settings-nav .settings-nav-top h1 { display: block; position: absolute; left: 1rem; top: .875rem; margin: 0; font-size: 1.125rem; text-align: left; z-index: 2; }
@@ -465,5 +463,5 @@
   .settings-activity-row > strong { grid-column: 2; }
 }
 
-.rich-settings-modal .settings-outlined-action { border: 1px solid var(--line); }
-.rich-settings-modal .settings-outlined-action:hover:not(:disabled) { border-color: color-mix(in srgb, var(--secondary) 40%, var(--line)); }
+.settings-page .settings-outlined-action { border: 1px solid var(--line); }
+.settings-page .settings-outlined-action:hover:not(:disabled) { border-color: color-mix(in srgb, var(--secondary) 40%, var(--line)); }

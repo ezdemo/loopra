@@ -267,7 +267,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   // 自定义智能体只支持内置引擎，绑定项目的也一样。
   const agentLocked = isAgentWorkspace(workspaceEntry) || isAgentWorkspace(sessionWorkspaceEntry);
   const [panelOpen, setChanges, changesTab, setChangesTab] = useSessionPanel(server, session?.id, workspace);
-  const surfaceOpen = skillsOpen || schedulesOpen || botsOpen || !!pluginPage;
+  const surfaceOpen = skillsOpen || schedulesOpen || botsOpen || !!pluginPage || settingsOpen;
   const changes = panelOpen && !surfaceOpen;
   const changesMounted = usePresence(changes);
   const requestedAgentId = session?.agentId || (session ? 'native' : newAgentId);
@@ -711,10 +711,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     finally { setAgentSelectionBusy(false); }
   }
   function newSession(nextWorkspace = workspace || workspaces[0]?.hash || '') {
-    setBotsOpen(false);
-    setSkillsOpen(false);
-    setSchedulesOpen(false);
-    setPluginPage('');
+    closeSurface();
     agentConfigRequest.current++;
     setAgentDraftRevision(value => value + 1);
     preparedNewSession.current = null;
@@ -725,7 +722,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (getModelCatalog(providers).some(model => model.id === defaultModel))
       setComposerOptions(value => ({ ...value, modelId: defaultModel }));
     setActiveId(null); setWorkspace(nextWorkspace); setDraft('');
-    setComposerContext(emptyContext); setMenu(null);
+    setComposerContext(emptyContext);
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
   }
@@ -796,15 +793,12 @@ export default function App({ startupPending = false, initialServer }: { startup
   // Legacy Chat.vue 清空按钮：后端 /new 命令已移除，改为在当前工作区新建空白会话。
   function clearChat() { if (generatingId) { notify('生成中无法清空，请先停止生成'); return; } newSession(workspace || workspaces[0]?.hash || ''); notify('已新建空白会话'); }
   async function selectSession(id: string, provided?: Session) {
-    setBotsOpen(false);
-    setSkillsOpen(false);
-    setSchedulesOpen(false);
-    setPluginPage('');
+    closeSurface();
     const selected = provided || sessions.find(item => item.id === id); if (!selected) return;
     selectMainTab(null, selected.workspaceHash || '');
     if (narrow) setSidebar(false);
     historyRequest.current?.abort(); const controller = new AbortController(); historyRequest.current = controller;
-    setActiveId(id); setWorkspace(selected.workspaceHash || ''); setMenu(null); setDraft(''); setComposerContext(emptyContext);
+    setActiveId(id); setWorkspace(selected.workspaceHash || ''); setDraft(''); setComposerContext(emptyContext);
     // Opening a session always jumps to the newest message.
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setHistoryState(undefined);
@@ -843,13 +837,17 @@ export default function App({ startupPending = false, initialServer }: { startup
     await selectSession(target.id, target);
   }
   function toggleMenu(name: string) { setMenu(current => current === name ? null : name); }
+  function closeSurface() {
+    setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setSettingsOpen(false); setMenu(null);
+  }
   function openSettings(tab = '通用') {
+    closeSurface();
     const capabilities = capabilitiesTabForSection(tab);
     if (capabilities) {
-      setCapabilitiesTab(capabilities); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setSettingsOpen(false); setMenu(null);
+      setCapabilitiesTab(capabilities); setSkillsOpen(true);
       return;
     }
-    setSettingsTab(tab); setSettingsOpen(true); setMenu(null);
+    setSettingsTab(tab); setSettingsOpen(true);
   }
   function openCoreUpdate() {
     if (isDesktopWindow()) { desktopUpdate.show(); return; }
@@ -1528,14 +1526,14 @@ export default function App({ startupPending = false, initialServer }: { startup
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} agentName={agentPersonaId ? backend.agents.find(item => item.id === agentPersonaId)?.name : undefined} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
-    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !surfaceOpen && !changes && !settingsOpen && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} desktopPet={nativePet.native} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
+    providers={providers} api={api} workspaceHash={workspace} chatMode={chatMode} sessionName={session?.name || (externalAgent && preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined)} workspaces={projectWorkspaces} connected={backend.status === 'connected'} skillOptions={agentSettings.skills.filter(skill => skill.enabled)} systemPrompt={agentSettings.systemPrompt} petEnabled={agentSettings.petEnabled && !surfaceOpen && !changes && !searchOpen && !helpOpen && !sessionsOpen && !requirementsOpen} desktopPet={nativePet.native} pets={pets} petReply={petReply} latestPetReply={petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1))} onPetClose={() => { void saveAgentSettings({ ...agentSettings, petEnabled: false }); }} petActivity={petActivity(!!generatingId && generatingId === activeId, session?.messages.at(-1)?.blocks)} defaultModel={defaultModel} onDefaultModel={saveDefaultModel}
     history={composerHistory}
     busy={!!generatingId || backend.status !== 'connected' || !backend.ready} generating={!!generatingId}
     // Legacy `continueChat` sent the literal `/continue` command so the backend
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
     onSend={() => sendMessage()} onStop={() => void stopGeneration()} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
-    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onOpenConnectors={() => { setCapabilitiesTab('connectors'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); }} onInputResize={keepChatPinned}
+    onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onOpenConnectors={() => openSettings('连接器')} onInputResize={keepChatPinned}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
@@ -1545,8 +1543,6 @@ export default function App({ startupPending = false, initialServer }: { startup
     onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} />}</BackgroundTasks>;
 
   const english = preferences.language === 'English';
-  const homeVisible = !surfaceOpen && isHome && !editorTabs.active;
-  const closeSurface = () => { setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); };
   const showHome = () => {
     if (!isHome) { newSession(); return; }
     closeSurface();
@@ -1559,12 +1555,12 @@ export default function App({ startupPending = false, initialServer }: { startup
   return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar && !surfaceOpen ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
     {desktopShell && <DesktopTitleBar />}
     <div className="workbench-body">
-    <ActivityRail english={english} home={homeVisible} utilityOpen={schedulesOpen || botsOpen || !!pluginPage} skillsOpen={skillsOpen} profile={profile} api={api} plugins={pluginNav}
+    <ActivityRail english={english} home={!surfaceOpen} utilityOpen={schedulesOpen || botsOpen || !!pluginPage} skillsOpen={skillsOpen} settingsOpen={settingsOpen} profile={profile} api={api} plugins={pluginNav}
       onHome={showHome} onSearch={openSearch}
-      onSkills={() => { setCapabilitiesTab('plugins'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); }}
-      onSchedules={() => { setSchedulesOpen(true); setSkillsOpen(false); setBotsOpen(false); setPluginPage(''); setMenu(null); }}
-      onBots={() => { setBotsOpen(true); setSkillsOpen(false); setSchedulesOpen(false); setPluginPage(''); setMenu(null); }}
-      onPlugin={id => { setPluginPage(id); setSkillsOpen(false); setSchedulesOpen(false); setBotsOpen(false); setMenu(null); }}
+      onSkills={() => openSettings('技能与插件')}
+      onSchedules={() => { closeSurface(); setSchedulesOpen(true); }}
+      onBots={() => { closeSurface(); setBotsOpen(true); }}
+      onPlugin={id => { closeSurface(); setPluginPage(id); }}
       onHelp={() => setHelpOpen(true)} onSettings={() => openSettings()} onProfile={() => setProfileOpen(true)} />
     <div className="app-body" data-surface={surfaceOpen ? 'utility' : undefined}>
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
@@ -1594,6 +1590,40 @@ export default function App({ startupPending = false, initialServer }: { startup
         {schedulesOpen && <SchedulesPage api={api} workspaces={projectWorkspaces} sessions={sessions} onBack={() => setSchedulesOpen(false)} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
         {botsOpen && <BotsPage key={server} api={api} workspaces={projectWorkspaces} english={preferences.language === 'English'} onChanged={backend.refreshWorkspaces} onManageProject={setProjectDialog} onOpenSession={(hash, name) => void openScheduledSession(hash, name).catch(cause => notify(`打开会话失败：${cause instanceof Error ? cause.message : String(cause)}`))} />}
         {pluginPage && <section className="plugin-app-page" aria-label={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage}><PluginFrame api={api} id={pluginPage} name={pluginNav.find(item => item.id === pluginPage)?.title || pluginPage} slot="sidebar" className="plugin-app-frame" context={pluginContext} /></section>}
+        {settingsOpen && <Settings
+          pluginContext={pluginContext}
+          onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }}
+          onOpenConnectors={() => openSettings('连接器')}
+          onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }}
+          onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}
+          pets={pets}
+          standalonePet={nativePet.native}
+          onResetPetPosition={nativePet.native ? async () => { await pets.clearDesktop(); await nativePet.reset(); } : undefined}
+          onInitPet={initPet}
+          onEnginesChanged={() => setEnginesRevision(value => value + 1)}
+          updateCheck={backend.updateCheck}
+          coreUpdate={coreUpdate}
+          desktopUpdate={desktopUpdate.available ? desktopUpdate : undefined}
+          onRefresh={() => backend.refresh()}
+          workspaces={projectWorkspaces}
+          server={server}
+          availableApplications={availableApplications}
+          config={agentSettings}
+          onConfig={saveAgentSettings}
+          options={composerOptions}
+          onOptions={saveOptions}
+          defaultModel={defaultModel}
+          onDefaultModel={saveDefaultModel}
+          initialTab={settingsTab}
+          preferences={preferences}
+          onPreferences={savePreferences}
+          profileReady={profileReady}
+          onEditProfile={() => setProfileOpen(true)}
+          providers={providers}
+          onProviders={saveProviders}
+          sessions={sessions}
+          notify={notify}
+        />}
         <div className="app-chat-workspace" hidden={surfaceOpen}>
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
@@ -1644,42 +1674,6 @@ export default function App({ startupPending = false, initialServer }: { startup
         if (!await createSessionBranch(captured.source, captured.messageCount, target)) throw new Error('创建分支失败');
       }} />}
     <Search workspaces={workspaces} open={searchOpen} onClose={() => setSearchOpen(false)} sessions={sessions} activeId={activeId} onSession={selectSession} onWorkspace={hash => newSession(hash)} />
-    <Settings
-      pluginContext={pluginContext}
-      onOpenSessions={() => { setSettingsOpen(false); openSessionsManager(); }}
-      onOpenConnectors={() => { setSettingsOpen(false); setCapabilitiesTab('connectors'); setSkillsOpen(true); setSchedulesOpen(false); setBotsOpen(false); setPluginPage(''); }}
-      onOpenRequirements={() => { setSettingsOpen(false); setRequirementsOpen(true); }}
-      onOpenHelp={() => { setSettingsOpen(false); setHelpOpen(true); }}
-      pets={pets}
-      standalonePet={nativePet.native}
-      onResetPetPosition={nativePet.native ? async () => { await pets.clearDesktop(); await nativePet.reset(); } : undefined}
-      onInitPet={initPet}
-      onEnginesChanged={() => setEnginesRevision(value => value + 1)}
-      updateCheck={backend.updateCheck}
-      coreUpdate={coreUpdate}
-      desktopUpdate={desktopUpdate.available ? desktopUpdate : undefined}
-      onRefresh={() => backend.refresh()}
-      workspaces={projectWorkspaces}
-      server={server}
-      availableApplications={availableApplications}
-      config={agentSettings}
-      onConfig={saveAgentSettings}
-      options={composerOptions}
-      onOptions={saveOptions}
-      defaultModel={defaultModel}
-      onDefaultModel={saveDefaultModel}
-      open={settingsOpen}
-      onClose={() => setSettingsOpen(false)}
-      initialTab={settingsTab}
-      preferences={preferences}
-      onPreferences={savePreferences}
-      profileReady={profileReady}
-      onEditProfile={() => setProfileOpen(true)}
-      providers={providers}
-      onProviders={saveProviders}
-      sessions={sessions}
-      notify={notify}
-    />
     {profileOpen && <ProfileEditor profile={profile} english={preferences.language === 'English'} onSave={saveProfile} onClose={() => setProfileOpen(false)} />}
     {!isDesktopWindow() && <CoreServiceUpdateDialog controller={coreUpdate} notify={notify} />}
     <DesktopUpdateDialog controller={desktopUpdate} />
@@ -1687,4 +1681,3 @@ export default function App({ startupPending = false, initialServer }: { startup
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>
   </div></AppMotion>;
 }
-

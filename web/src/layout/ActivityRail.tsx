@@ -7,7 +7,7 @@ import type { LoopraClient } from '../backend';
 import type { LocalProfile } from '../local-profile';
 
 type ActivityRailProps = {
-  english: boolean; home: boolean; utilityOpen: boolean; skillsOpen: boolean; profile: LocalProfile; api: LoopraClient;
+  english: boolean; home: boolean; utilityOpen: boolean; skillsOpen: boolean; settingsOpen: boolean; profile: LocalProfile; api: LoopraClient;
   plugins: { id: string; title: string; icon?: PluginIconRef }[];
   onHome: () => void; onSearch: () => void; onSkills: () => void; onSchedules: () => void; onBots: () => void;
   onPlugin: (id: string) => void; onHelp: () => void; onSettings: () => void; onProfile: () => void;
@@ -35,7 +35,7 @@ export default function ActivityRail(p: ActivityRailProps) {
     <div className="activity-group">
       <IconButton label={english ? 'Help' : '帮助'} onClick={p.onHelp}><CircleHelp size="1rem" /></IconButton>
       <IconButton label={english ? 'Skills & Plugins' : '技能与插件'} active={p.skillsOpen} onClick={p.onSkills}><Sparkles size="1rem" /></IconButton>
-      <IconButton label={english ? 'Settings' : '设置'} onClick={p.onSettings}><Settings size="1rem" /></IconButton>
+      <IconButton label={english ? 'Settings' : '设置'} active={p.settingsOpen} onClick={p.onSettings}><Settings size="1rem" /></IconButton>
       <IconButton label={p.profile.nickname || (english ? 'Profile' : '个人资料')} onClick={p.onProfile}><ProfileAvatar profile={p.profile} /></IconButton>
     </div>
   </nav>;

@@ -23,7 +23,7 @@ test('skills and plugins open in the main area from one rail entry', async () =>
   assert.match(rail, /onClick=\{p\.onSkills\}/);
   assert.ok(rail.indexOf('onClick={p.onSearch}') < rail.indexOf('onClick={p.onSkills}'));
   assert.match(app, /skillsOpen && <SkillsAndPluginsPage/);
-  assert.match(app, /const surfaceOpen = skillsOpen \|\| schedulesOpen \|\| botsOpen \|\| !!pluginPage/);
+  assert.match(app, /const surfaceOpen = skillsOpen \|\| schedulesOpen \|\| botsOpen \|\| !!pluginPage \|\| settingsOpen/);
   assert.match(app, /className="app-chat-workspace" hidden=\{surfaceOpen\}/);
 });
 

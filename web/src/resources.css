@@ -1,5 +1,4 @@
 /* Classic settings structure, using the current theme and NextUI controls. */
-.rich-settings-modal { width: min(68.75rem, calc(100vw - 3rem)) !important; }
 .settings-resource-page { min-width: 0; }
 .resource-page-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem .75rem; min-height: 2rem; margin-bottom: .875rem; }
 .rich-settings-content h2 { font-size: .8125rem; line-height: 1.5; font-weight: 600; margin-bottom: .875rem; }
@@ -170,7 +169,4 @@
   .resource-selection-heading > div { flex-basis: 100%; margin-bottom: .375rem; }
   .settings-resource-page .mcp-export-tool > span:last-child { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
   .settings-resource-page .resource-panel { padding: 1rem; }
-}
-@media (max-width: 760px) {
-  .rich-settings-modal { width: calc(100vw - 1.25rem) !important; }
 }

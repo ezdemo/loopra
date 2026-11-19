@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, Modal, ModalContent } from '@nextui-org/react';
-import { AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, BookOpen, Bot, ChevronDown, ChevronRight, Database, FolderClosed, Monitor, Plug, Search, Server, SlidersHorizontal, X, Zap } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Input } from '@nextui-org/react';
+import { ArrowUpRight, BookOpen, Bot, ChevronDown, ChevronRight, Database, FolderClosed, Monitor, Plug, Search, Server, SlidersHorizontal, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Enter, SelectionIndicator } from './Motion';
 import { normalizeUiScale, UI_SCALE_LEVELS, type Provider, type Session } from '../lib';
 import type { AgentSettings } from '../settings-data';
 import type { ComposerOptions } from '../composer';
-import { IconButton, LoopraMark } from './ui';
+import { LoopraMark } from './ui';
 import { PageActions, SettingRow, SettingSwitch, SelectField, SettingSegments } from './SettingControls';
 import ModelProviderSettings from './ModelProviderSettings';
 import ModelUsageSettings from './ModelUsageSettings';
@@ -53,7 +52,7 @@ type Props = {
   onInitPet?: () => void;
   /** 外部 Agent 可见性变化后让外层重新拉取引擎列表。 */
   onEnginesChanged?: () => void;
-  open: boolean; onClose: () => void; initialTab: string; server: string; workspaces: Workspace[]; onRefresh: () => Promise<void>;
+  initialTab: string; server: string; workspaces: Workspace[]; onRefresh: () => Promise<void>;
   /** Launcher ids the service host reports as usable; null/absent means unknown, so don't filter. */
   availableApplications?: string[] | null;
   preferences: Preferences; onPreferences: (value: Preferences) => void;
@@ -70,21 +69,17 @@ type Props = {
 
 export default function Settings(props: Props) {
   const api = useMemo(() => new LoopraClient(props.server), [props.server]);
-  const { open, onClose, preferences: prefs, onPreferences, providers, onProviders, sessions, notify, config, onConfig: saveConfig, coreUpdate } = props;
+  const { preferences: prefs, onPreferences, providers, onProviders, sessions, notify, config, onConfig: saveConfig, coreUpdate } = props;
   const onConfig = (next: AgentSettings) => Promise.resolve(saveConfig(next)).catch(error => notify(error instanceof Error ? error.message : '保存配置失败'));
   const [tab, setTab] = useState(() => normalizeSettingsSection(props.initialTab));
   const [expandedCategory, setExpandedCategory] = useState(() => settingsCategoryFor(props.initialTab).name);
   const [pluginMenus, setPluginMenus] = useState<PluginMenu[]>([]);
   const [query, setQuery] = useState('');
   const [focusTarget, setFocusTarget] = useState('');
-  const [dialogLock, setDialogLock] = useState(0);
-  const dialogLockRef = useRef(0);
-  dialogLockRef.current = dialogLock;
-  const closeSettings = useCallback(() => { if (dialogLockRef.current === 0) onClose(); }, [onClose]);
-  const setNestedDialog = useCallback((open: boolean) => setDialogLock(count => Math.max(0, count + (open ? 1 : -1))), []);
-  useEffect(() => { if (open) { setTab(normalizeSettingsSection(props.initialTab)); setExpandedCategory(settingsCategoryFor(props.initialTab).name); setQuery(''); setFocusTarget(''); } else setDialogLock(0); }, [open, props.initialTab]);
+  const page = useRef<HTMLElement>(null);
+  useEffect(() => { page.current?.focus({ preventScroll: true }); }, []);
+  useEffect(() => { setTab(normalizeSettingsSection(props.initialTab)); setExpandedCategory(settingsCategoryFor(props.initialTab).name); setQuery(''); setFocusTarget(''); }, [props.initialTab]);
   useEffect(() => {
-    if (!open) return;
     const controller = new AbortController();
     void api.request<{ id: string; menu?: PluginMenu }[]>('/plugins', 'GET', undefined, controller.signal)
       .then(items => {
@@ -93,14 +88,14 @@ export default function Settings(props: Props) {
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [open, api]);
+  }, [api]);
   useEffect(() => {
     if (!tab.startsWith('plugin:') || selectedPluginMenu(tab, pluginMenus)) return;
     setTab('通用');
     setExpandedCategory('偏好设置');
   }, [tab, pluginMenus]);
   useEffect(() => {
-    if (!open || query.trim() || !focusTarget) return;
+    if (query.trim() || !focusTarget) return;
     const frame = requestAnimationFrame(() => {
       const row = Array.from(document.querySelectorAll<HTMLElement>('.settings-content [data-setting-title], .settings-content label, .settings-content h2, .settings-content h3'))
         .find(element => (element.dataset.settingTitle || element.textContent?.trim()) === focusTarget);
@@ -109,7 +104,7 @@ export default function Settings(props: Props) {
       (control || row)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, query, tab, focusTarget]);
+  }, [query, tab, focusTarget]);
   function openCategory(name: string) {
     if (name === 'MCP' && props.onOpenConnectors) { props.onOpenConnectors(); return; }
     const selection = selectedPluginMenu(name, pluginMenus);
@@ -139,11 +134,7 @@ export default function Settings(props: Props) {
     setQuery('');
     setFocusTarget('');
   }
-  return <Modal isOpen={open} onClose={closeSettings} isDismissable={dialogLock === 0} isKeyboardDismissDisabled={dialogLock > 0} hideCloseButton backdrop="opaque" placement="center" classNames={{ wrapper: 'settings-wrapper', base: 'settings-modal rich-settings-modal', backdrop: 'modal-backdrop' }} aria-label="设置">
-    <ModalContent>
-      {/* Keep nested NextUI layout animations isolated from the modal's exit
-          boundary so category changes cannot retain its portal after closing. */}
-      <AnimatePresence initial={false} propagate={false}><div key="settings-layout" className="settings-layout">
+  return <section className="settings-page" aria-label="设置" tabIndex={-1} ref={page}><div className="settings-layout">
       <nav className="settings-nav rich-settings-nav" aria-label="设置分类"><div className="settings-nav-top"><h1>设置</h1><Input size="sm" aria-label="搜索设置" placeholder="搜索设置…" value={query} onValueChange={setQuery} startContent={<Search size="0.875rem" />} variant="bordered" /></div>
         <div className="settings-category-list">{filtered.map(({ name, sections }) => {
           const Icon = categoryIcons[name]; const active = category.name === name && !query.trim(); const expanded = active && expandedCategory === name;
@@ -172,7 +163,6 @@ export default function Settings(props: Props) {
         </div>
         {!filtered.length && !visibleMenus.length && <p className="settings-nav-empty">没有匹配的设置</p>}
       </nav>
-      <IconButton label="关闭设置" onClick={onClose} className="settings-close"><X size="1.25rem" /></IconButton>
       <div className="settings-main">
       <header className="settings-content-header">
         <div className="settings-breadcrumb" aria-label="当前位置">{query.trim() ? <span>搜索设置</span> : <><span>{category.name}</span>{category.name !== currentSection.label && <><ChevronRight size="0.875rem" /><span>{currentSection.label}</span></>}</>}</div>
@@ -192,21 +182,21 @@ export default function Settings(props: Props) {
           <h3 className="settings-section-title">使用体验</h3><div className="settings-card"><SettingRow title="默认打开应用" description="顶栏文件夹按钮在项目目录启动的系统应用"><SelectField compact label="默认打开应用" value={prefs.openWith} onChange={value => update('openWith', value)} options={openWithOptions} startContent={<FolderClosed size="1.0625rem" />} /></SettingRow><SettingRow title="界面动画" description="弹窗与控件的过渡效果"><SettingSwitch label="界面动画" value={prefs.animations} onChange={value => update('animations', value)} /></SettingRow></div>
         </>}
         {tab === '宠物' && <PetSettings pets={props.pets} enabled={config.petEnabled} standalone={props.standalonePet} onResetPosition={props.onResetPetPosition} onEnabled={petEnabled => onConfig({ ...config, petEnabled })} onInitPet={props.onInitPet} notify={notify} />}
-        {tab === '模型供应商' && <ModelProviderSettings providers={providers} server={props.server} onProviders={onProviders} onNestedDialog={setNestedDialog} />}
+        {tab === '模型供应商' && <ModelProviderSettings providers={providers} server={props.server} onProviders={onProviders} />}
         {tab === '模型用途' && <ModelUsageSettings {...pageProps} defaultModel={props.defaultModel} onDefaultModel={props.onDefaultModel} onManageModels={() => openCategory('模型供应商')} />}
         {tab === '智能体与会话' && <><PageActions title="会话默认" /><AgentDefaults {...pageProps} /><h2>会话上下文</h2><div className="settings-card"><SettingRow title="自动工作区上下文" description="在新消息中包含当前工作区信息"><SettingSwitch label="自动工作区上下文" value={prefs.autoContext} onChange={value => update('autoContext', value)} /></SettingRow></div></>}
         {tab === '项目' && <><BackendProjects server={props.server} workspaces={props.workspaces} sessions={sessions} onRefresh={props.onRefresh} /><h3 className="settings-section-title">会话与需求</h3><div className="settings-card"><SettingRow title="会话管理" description="查找、整理和管理工作区会话"><Button size="sm" variant="flat" onPress={props.onOpenSessions}>打开会话管理</Button></SettingRow><SettingRow title="需求池" description="查看和管理项目需求"><Button size="sm" variant="flat" onPress={props.onOpenRequirements}>打开需求池</Button></SettingRow></div></>}
         {tab === '服务器' && <BackendServer server={props.server} onSave={serverUrl => { void Promise.resolve(onConfig({ ...config, serverUrl })).catch(error => notify(String(error))); }} />}
         {tab === '网络代理' && <ProxySettings api={api} notify={notify} />}
-        {tab === '远程访问' && <RemoteAccessSettings api={api} notify={notify} onNestedDialog={setNestedDialog} />}
+        {tab === '远程访问' && <RemoteAccessSettings api={api} notify={notify} />}
         {tab === '工具' && <ToolManager api={api} onRefresh={props.onRefresh} />}
         {tab === '子代理' && <SubAgentManager api={api} />}
-        {tab === '外部 Agent' && <ExternalAgentsPage api={api} notify={notify} onChanged={props.onEnginesChanged} onNestedDialog={setNestedDialog} />}
+        {tab === '外部 Agent' && <ExternalAgentsPage api={api} notify={notify} onChanged={props.onEnginesChanged} />}
         {tab === '数据面板' && <UsageDashboard api={api} />}
         {tab === 'MCP 服务器' && <McpPublishingSettings api={api} />}
         {tab === 'MCP' && <IntegrationManager api={api} kind="mcp" />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}
-        {tab === '记忆' && <MemorySettings api={api} workspaces={props.workspaces} initialWorkspaceHash={props.pluginContext?.workspaceHash} onNestedDialog={setNestedDialog} />}
+        {tab === '记忆' && <MemorySettings api={api} workspaces={props.workspaces} initialWorkspaceHash={props.pluginContext?.workspaceHash} />}
         {tab === '快捷键' && <><PageActions title="快捷键" /><div className="settings-card">{[['新建会话', 'Ctrl / ⌘ + N'], ['搜索会话或工作区', 'Ctrl / ⌘ + K'], ['打开设置', 'Ctrl / ⌘ + ,'], ['切换侧边栏', 'Ctrl / ⌘ + B'], ['发送消息', 'Enter'], ['消息换行', 'Shift + Enter'], ['输入指令 / 文件引用', '/ 或 @'], ['选择建议', '↑ ↓ / Tab / Enter'], ['关闭弹窗', 'Esc']].map(([name, key]) => <SettingRow key={name} title={name}><kbd>{key}</kbd></SettingRow>)}</div></>}
         {tab === '关于' && <div className="about-settings">
           <header className="about-heading"><LoopraMark /><div><h2>关于 Loopra</h2><p>版本、更新与数据存储</p></div></header>
@@ -226,6 +216,5 @@ export default function Settings(props: Props) {
         </>}
       </Enter>
       </div>
-    </div></AnimatePresence></ModalContent>
-  </Modal>;
+    </div></section>;
 }

@@ -43,6 +43,7 @@ function environment() {
     setAgentConfigBusy: update => { state.busy = typeof update === 'function' ? update(state.busy) : update; }, setAgentConfigs: update => { state.configs = update(state.configs || {}); },
     cacheAgentConfig: (agent, values) => state.cached.push({ agent, values }),
     notify: message => { state.notice = message; },
+    closeSurface() {},
     setComposerOptions: update => { state.composer = typeof update === 'function' ? update(state.composer) : update; },
   };
   return { env, calls, state };

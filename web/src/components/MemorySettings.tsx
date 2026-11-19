@@ -12,7 +12,7 @@ type Props = {
   api: LoopraClient;
   workspaces: Workspace[];
   initialWorkspaceHash?: string;
-  onNestedDialog: (open: boolean) => void;
+  onNestedDialog?: (open: boolean) => void;
 };
 
 export default function MemorySettings({ api, workspaces, initialWorkspaceHash, onNestedDialog }: Props) {
@@ -32,7 +32,7 @@ export default function MemorySettings({ api, workspaces, initialWorkspaceHash, 
   </>;
 }
 
-function MemoryCollection({ api, scope, workspace, onNestedDialog }: { api: LoopraClient; scope: 'global' | 'project'; workspace: string; onNestedDialog: (open: boolean) => void }) {
+function MemoryCollection({ api, scope, workspace, onNestedDialog }: { api: LoopraClient; scope: 'global' | 'project'; workspace: string; onNestedDialog?: (open: boolean) => void }) {
   const [revision, setRevision] = useState(0);
   const { data, loading, error } = useRemote<MemoryEntry[]>(api, memoryPath(scope, workspace), revision);
   const [query, setQuery] = useState('');
@@ -49,7 +49,7 @@ function MemoryCollection({ api, scope, workspace, onNestedDialog }: { api: Loop
     return () => lifetime.current.abort();
   }, []);
   useEffect(() => {
-    if (!removing) return;
+    if (!removing || !onNestedDialog) return;
     onNestedDialog(true);
     return () => onNestedDialog(false);
   }, [removing, onNestedDialog]);
