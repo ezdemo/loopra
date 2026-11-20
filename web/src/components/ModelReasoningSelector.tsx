@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 
 import { Button, Input, Switch, Tooltip } from '@nextui-org/react';
 import { Check, ChevronDown, Search, Settings2, Star, X, Zap } from 'lucide-react';
 import { groupModels, modelLabel, type ComposerOptions, type ModelOption } from '../composer';
-import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDescription, agentOptionLabel, configValue, findAgentOption, type AgentConfigState } from '../agent-config';
+import { agentEffortLevels, agentModelGroups as groupAgentModels, agentOptionDescription, agentOptionLabel, configValue, findAgentOption, reasoningEffortLabel, type AgentConfigState } from '../agent-config';
 import { useMenuPlacement } from '../layout/menu-placement';
 import { Collapse } from './Motion';
 import ReasoningControl from './ReasoningControl';
@@ -43,12 +43,14 @@ export default function ModelReasoningSelector(props: Props) {
   const fusionValue = fusion ? configValue(fusion) : 'off';
   const fusionActive = !!fusion && fusionValue !== 'off';
   const fusionEffort = fusionActive ? findAgentOption(props.agentConfig?.options, 'fusionSidekickEffort') : undefined;
-  const fusionLabel = fusion?.options.find(option => option.value === fusionValue)?.name ?? '模型不可用';
   const agentBusy = !!props.agentConfig?.busy;
   const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const modelGroupsForAgent = useMemo(() => agentModel ? groupAgentModels(agentModel, agentEngineName) : [], [agentModel, agentEngineName]);
   const fusionGroups = useMemo(() => fusion ? groupAgentModels({ ...fusion, options: fusion.options.filter(option => option.value !== 'off') }, agentEngineName) : [], [fusion, agentEngineName]);
+  const fusionLabel = fusionValue === 'off'
+    ? fusion?.options.find(option => option.value === 'off')?.name ?? '关闭'
+    : fusionGroups.flatMap(group => group.models).find(model => model.value === fusionValue)?.name ?? '模型不可用';
   const pickerOption = menu === 'fusion' ? fusion : agentModel;
   const pickerValue = pickerOption ? configValue(pickerOption) : '';
   const pickerGroups = menu === 'fusion' ? fusionGroups : modelGroupsForAgent;
@@ -72,9 +74,7 @@ export default function ModelReasoningSelector(props: Props) {
 
   const modelName = agentModel ? activeModelLabel : selected ? modelLabel(selected) : '选择模型';
   const reasoningValue = agentEffort ? agentEffortValue : native ? options.effort : '';
-  const reasoningName = reasoningValue === 'none' ? '无' : reasoningValue === 'xhigh' ? 'XHigh'
-    : /^(minimal|low|medium|high|max|default)$/.test(reasoningValue) ? reasoningValue[0].toUpperCase() + reasoningValue.slice(1)
-    : agentEffort ? agentOptionLabel(agentEffort) : reasoningValue;
+  const reasoningName = reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue);
   const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : '', fusionActive ? `边缘：${fusionLabel}` : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
@@ -152,7 +152,7 @@ export default function ModelReasoningSelector(props: Props) {
             </button>}
             {!!fusionEffort && <button ref={fusionEffortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion-effort'); }} onClick={() => openPage('fusion-effort', true)} disabled={agentBusy || props.busy}
               aria-haspopup="dialog" aria-expanded={menu === 'fusion-effort'} aria-controls={menu === 'fusion-effort' ? `${panelId}-fusion-effort` : undefined}>
-              <span>边缘推理</span><span className="model-reasoning-value">{agentOptionLabel(fusionEffort)}</span>
+              <span>边缘推理</span><span className="model-reasoning-value">{reasoningEffortLabel(configValue(fusionEffort), agentOptionLabel(fusionEffort))}</span>
             </button>}
           </div>
         </section>
