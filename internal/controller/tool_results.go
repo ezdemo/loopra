@@ -49,6 +49,17 @@ func (r *sseToolResults) ToolFinished(callID, name string, response map[string]a
 	})
 }
 
+// ToolBackgrounded 标记一次让出循环的后台执行；终态仍走 tool_result。
+// 与 ToolFinished 共用同一把锁：终态先声明 sent 时该更新被抑制。
+func (r *sseToolResults) ToolBackgrounded(callID, name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if callID == "" || r.sent[callID] {
+		return
+	}
+	r.sse.send("tool_update", map[string]any{"toolCallId": callID, "name": name, "async": true, "status": "running"})
+}
+
 // ToolResultSent 实现 agentpkg.ToolResultSink。
 func (r *sseToolResults) ToolResultSent(callID string) bool {
 	r.mu.Lock()

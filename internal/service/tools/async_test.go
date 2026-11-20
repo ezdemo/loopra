@@ -203,6 +203,82 @@ func TestAsyncCloseJoinsAndIsolatesExecutions(t *testing.T) {
 	}
 }
 
+func TestAsyncStopIsScopedToOneBackgroundCall(t *testing.T) {
+	stopped := make(chan error, 1)
+	cleanup := make(chan struct{})
+	var cleanupOnce sync.Once
+	releaseCleanup := func() { cleanupOnce.Do(func() { close(cleanup) }) }
+	defer releaseCleanup()
+	r, ctx := startAsyncFixture(t, func(ctx agent.Context) (map[string]any, error) {
+		<-ctx.Done()
+		stopped <- context.Cause(ctx)
+		// A lossy adapter would still report success after cancellation;
+		// the runtime must not publish it.
+		<-cleanup
+		return map[string]any{"result": "not a success"}, nil
+	})
+	siblingCtx := make(chan agent.Context, 1)
+	siblingRelease := make(chan struct{})
+	defer close(siblingRelease)
+	sibling := WithAsyncExecution(asyncFixture{run: func(ctx agent.Context) (map[string]any, error) {
+		siblingCtx <- ctx
+		select {
+		case <-siblingRelease:
+			return map[string]any{"result": "sibling"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}}).(asyncRunnable)
+	yield, err := sibling.Run(asyncTestContext{base: ctx, id: "sibling"}, map[string]any{})
+	if err != nil || !IsAsyncPlaceholder("sibling", yield) {
+		t.Fatalf("sibling yield = %v, %v", yield, err)
+	}
+	_, other := NewAsyncRuntime(t.Context())
+	defer other.Close()
+	if _, err := other.Stop("call"); err == nil {
+		t.Fatal("cross-turn stop allowed")
+	}
+	if _, err := r.Stop("missing"); err == nil {
+		t.Fatal("unknown call id stopped")
+	}
+	for i := 0; i < 2; i++ {
+		out, err := r.Stop("call")
+		if err != nil || out["status"] != "stopping" || out["call_id"] != "call" {
+			t.Fatalf("stop = %v, %v", out, err)
+		}
+	}
+	select {
+	case cause := <-stopped:
+		if !errors.Is(cause, context.Canceled) {
+			t.Fatalf("cause = %v", cause)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("worker did not observe cancellation")
+	}
+	select {
+	case sctx := <-siblingCtx:
+		if sctx.Err() != nil {
+			t.Fatal("sibling cancelled by scoped stop")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("sibling worker never ran")
+	}
+	releaseCleanup()
+	out, err := r.Result(ctx, "call", 18000)
+	if err != nil || out["status"] != "failed" || out["error"] != context.Canceled.Error() {
+		t.Fatalf("result = %v, %v", out, err)
+	}
+	again, err := r.Stop("call")
+	if err != nil || again["status"] != "not_running" {
+		t.Fatalf("stop after finish = %v, %v", again, err)
+	}
+	for _, wait := range []int{18001, 60000, -1} {
+		if _, err := r.Result(ctx, "call", wait); err == nil {
+			t.Fatalf("accepted timeout_ms %d", wait)
+		}
+	}
+}
+
 func TestAsyncFastResultAndValidation(t *testing.T) {
 	ctx, r := NewAsyncRuntime(t.Context())
 	defer r.Close()
@@ -222,6 +298,9 @@ func TestAsyncFastResultAndValidation(t *testing.T) {
 	result, err := wrapped.Run(asyncTestContext{base: ctx, id: "fast"}, map[string]any{})
 	if err != nil || result["result"] != "fast" || r.Pending() {
 		t.Fatalf("fast = %v, %v", result, err)
+	}
+	if _, err := r.Stop("fast"); err == nil {
+		t.Fatal("synchronous call reported as stoppable background task")
 	}
 	if err := r.Drain(func(AsyncResult, bool) error { t.Fatal("sync result queued"); return nil }); err != nil {
 		t.Fatal(err)

@@ -37,11 +37,11 @@
 | type | data JSON |
 |---|---|
 | `tool_call` | `{toolCallId: string, name: string, args: string(JSON 对象序列化，null→"{}")}`（旧版无 id 形态：`{name, args: object}`） |
-| `tool_update` | `{toolCallId, name?, args?}` 或增量输出 `{toolCallId, result: string}` |
+| `tool_update` | `{toolCallId, name?, args?}` 或增量输出 `{toolCallId, result: string}`；半异步让出循环时额外发送 `{toolCallId, name, async: true, status: "running"}` 标记后台执行 |
 | `tool_result` | `{toolCallId, name, result: string(null→""), status: "completed"\|"failed"}`（旧版 `{name, result}`；`duration`(number ms) 可选）。并行调用时每个工具**一完成就发送**对应结果，不等整批结束；同一 `toolCallId` 只发送一次 |
 | `file_changes` | `{changes: [{path, additions:int, deletions:int, created:boolean, diff:string}]}`（编辑工具后或回合结束汇总） |
 
-半异步工具沿用上述事件：`running` 回执不发终态 `tool_result`，真实完成时按原调用 ID 上报一次；`complete` / `done` 等待待处理结果送回 Loop。JSONL 为回执增加 `tool_status:"running"`，晚到结果追加 `async_tool_result:true` 的 tool 行与真实 ADK 通知事件，前端更新原条目而不新增用户气泡。查询、取消和恢复细节见[半异步工具契约](ASYNC_TOOLS.md)。
+半异步工具沿用上述事件：`running` 回执不发终态 `tool_result`，先按原调用 ID 发一次 `tool_update{async:true,status:"running"}`，真实完成时按原调用 ID 上报一次 `tool_result`；`complete` / `done` 等待待处理结果送回 Loop。`tool_stop(call_id)` 是当前轮次内的模型工具，只取消指定后台调用（`stopping` / `not_running`），其终态同样走原调用的 `tool_result`；工作台「后台任务」只展示仍在运行的后台工具。JSONL 为回执增加 `tool_status:"running"`，晚到结果追加 `async_tool_result:true` 的 tool 行与真实 ADK 通知事件，前端更新原条目而不新增用户气泡。查询、取消和恢复细节见[半异步工具契约](ASYNC_TOOLS.md)。
 
 ### 1.3 用量与速率
 

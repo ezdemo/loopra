@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { createPortal } from 'react-dom';
 import { SquareTerminal } from 'lucide-react';
 import type { LoopraClient } from '../backend';
+import type { BackgroundToolTask } from '../chat';
 import { useBashSessions } from '../useBashSessions';
 import { TerminalPanel } from './Panels';
 import BackgroundTaskLog from './BackgroundTaskLog';
@@ -10,9 +11,12 @@ type Props = {
   api: LoopraClient; workspaceHash: string; sessionName?: string; connected: boolean; open: boolean;
   onOpenChange: (open: boolean) => void; notify: (message: string) => void;
   children: ReactNode; actions?: ReactNode; toolbarTarget?: HTMLElement | null;
+  asyncTools?: readonly BackgroundToolTask[];
 };
 
-export default function BackgroundTasks({ api, workspaceHash, sessionName, connected, open, onOpenChange, notify, children, actions, toolbarTarget }: Props) {
+const EMPTY_ASYNC_TOOLS: readonly BackgroundToolTask[] = [];
+
+export default function BackgroundTasks({ api, workspaceHash, sessionName, connected, open, onOpenChange, notify, children, actions, toolbarTarget, asyncTools = EMPTY_ASYNC_TOOLS }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
@@ -20,7 +24,7 @@ export default function BackgroundTasks({ api, workspaceHash, sessionName, conne
   const panelId = useId();
   const [unread, setUnread] = useState(false);
   const tasks = useBashSessions(api, workspaceHash, sessionName, connected);
-  const taskCount = tasks.sessions.length;
+  const taskCount = tasks.sessions.length + asyncTools.length;
   const [logOpen, setLogOpen] = useState(false);
   const [placement, setPlacement] = useState({ below: false, height: 400, offset: 28 });
   function close() { onOpenChange(false); trigger.current?.focus(); }
@@ -30,6 +34,12 @@ export default function BackgroundTasks({ api, workspaceHash, sessionName, conne
     window.addEventListener('loopra:bash-start', onStart);
     return () => window.removeEventListener('loopra:bash-start', onStart);
   }, [open, logOpen]);
+  const seenAsyncTools = useRef(new Set<string>());
+  useEffect(() => {
+    const ids = new Set(asyncTools.map(task => task.callId));
+    if (!open && !logOpen && asyncTools.some(task => !seenAsyncTools.current.has(task.callId))) setUnread(true);
+    seenAsyncTools.current = ids;
+  }, [asyncTools, open, logOpen]);
   useLayoutEffect(() => {
     if (!open) return;
     const position = () => {
@@ -75,7 +85,7 @@ export default function BackgroundTasks({ api, workspaceHash, sessionName, conne
   return <div className={`composer-task-anchor${taskCount > 0 ? ' has-tasks' : ''}`} ref={root} data-popover>
     {toolbarTarget ? createPortal(taskToolbar, toolbarTarget) : taskToolbar}
     {open && <div ref={dialog} id={panelId} className={`background-tasks-popover${placement.below ? ' below' : ''}`} style={{ '--background-tasks-height': `${placement.height}px`, '--background-tasks-offset': `${placement.offset}px` } as CSSProperties} role="dialog" aria-label="后台任务" tabIndex={-1}>
-      <TerminalPanel key={sessionName} api={api} workspaceHash={workspaceHash} sessionName={sessionName} onClose={close} notify={notify} state={tasks} onInspect={() => { onOpenChange(false); setLogOpen(true); }} />
+      <TerminalPanel key={sessionName} api={api} workspaceHash={workspaceHash} sessionName={sessionName} onClose={close} notify={notify} state={tasks} asyncTools={asyncTools} onInspect={() => { onOpenChange(false); setLogOpen(true); }} />
     </div>}
     {children}
     <BackgroundTaskLog state={tasks} open={logOpen} onClose={() => { setLogOpen(false); trigger.current?.focus(); }} notify={notify} />

@@ -9,6 +9,9 @@ const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'ut
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
 const { acpStopMessage, SseParser, StreamEventBuffer, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
+const chatUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText).toString('base64');
+const { runningBackgroundTools } = await import(chatUrl);
 
 test('tool output deltas append while snapshots and final results replace', () => {
   let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
@@ -38,6 +41,8 @@ test('asynchronous tool history replaces running receipt without extra messages'
   ];
   const running = historyMessages(history);
   assert.equal(running[1].blocks[0].status, '执行中');
+  assert.equal(running[1].blocks[0].background, true);
+  assert.deepEqual(runningBackgroundTools(running[1]), [{ callId: 'slow', name: 'shell' }]);
   const completed = historyMessages([...history,
     { role: 'assistant', content: 'Working on something independent.' },
     { role: 'tool', tool_call_id: 'slow', content: 'final evidence', tool_status: 'completed', async_tool_result: true },
@@ -50,6 +55,44 @@ test('asynchronous tool history replaces running receipt without extra messages'
   assert.equal(running[1].blocks[0].status, '执行中');
   const failed = historyMessages([...history, { role: 'tool', tool_call_id: 'slow', content: 'context canceled', tool_status: 'failed' }]);
   assert.equal(failed[1].blocks[0].status, '失败');
+});
+
+test('a stale background receipt does not mark another turn with the same call ID', () => {
+  const call = { id: 'call_0', name: 'shell', arguments: {} };
+  const history = [
+    { role: 'user', content: 'old turn' },
+    { role: 'assistant', tool_calls: [call] },
+    { role: 'tool', tool_call_id: call.id, tool_status: 'running', content: 'old receipt' },
+    { role: 'user', content: 'new turn' },
+    { role: 'assistant', tool_calls: [{ ...call }] },
+  ];
+  const messages = historyMessages(history);
+  assert.deepEqual(runningBackgroundTools(messages[1]), [{ callId: call.id, name: call.name }]);
+  assert.deepEqual(runningBackgroundTools(messages[3]), []);
+  assert.equal(messages[3].blocks[0].result, undefined);
+});
+
+test('async tool updates mark only the detached call as background until its final result', () => {
+  let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  const apply = event => { message = applyEvent(message, event); };
+  const block = id => message.blocks.find(item => item.toolCallId === id);
+  apply({ type: 'tool_call', toolCallId: 'sync-1', name: 'read' });
+  apply({ type: 'tool_update', toolCallId: 'sync-1', resultDelta: 'partial' });
+  apply({ type: 'tool_call', toolCallId: 'slow-1', name: 'shell' });
+  apply({ type: 'tool_call', toolCallId: 'slow-2', name: 'rg' });
+  apply({ type: 'tool_update', toolCallId: 'slow-1', async: true, status: 'running' });
+  assert.equal(block('sync-1').background, undefined);
+  assert.equal(block('slow-1').background, true);
+  assert.equal(block('slow-2').background, undefined);
+  assert.deepEqual(runningBackgroundTools(message), [{ callId: 'slow-1', name: 'shell' }]);
+  apply({ type: 'tool_result', toolCallId: 'slow-1', result: 'done', status: 'completed' });
+  assert.equal(block('slow-1').status, '成功');
+  apply({ type: 'tool_update', toolCallId: 'slow-1', async: true, status: 'running' });
+  assert.equal(block('slow-1').status, '成功');
+  apply({ type: 'tool_update', toolCallId: 'slow-2', async: true, status: 'running' });
+  apply({ type: 'tool_result', toolCallId: 'slow-2', result: 'context canceled', status: 'failed' });
+  assert.equal(block('slow-2').status, '失败');
+  assert.deepEqual(runningBackgroundTools(message), []);
 });
 
 test('a view cancellation signal does not disable request deadlines', async () => {

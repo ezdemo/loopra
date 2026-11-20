@@ -90,6 +90,15 @@ func ToolResultPlugin() (*plugin.Plugin, error) {
 // 执行完就立刻通知接收端，而不是等整批并行调用合并完成。
 func notifyToolResult(ctx agent.Context, t tool.Tool, _ map[string]any, result map[string]any, err error) (map[string]any, error) {
 	if tools.IsAsyncPlaceholder(ctx.FunctionCallID(), result) {
+		// 让出循环的工具行仍是占位状态；支持的接收端借此把
+		// 该调用标记为后台执行，真实完成时再发送终态结果。
+		if err == nil {
+			if sink, ok := ToolResultSinkFromContext(ctx).(interface {
+				ToolBackgrounded(callID, name string)
+			}); ok {
+				sink.ToolBackgrounded(ctx.FunctionCallID(), t.Name())
+			}
+		}
 		return nil, nil
 	}
 	sink := ToolResultSinkFromContext(ctx)
@@ -161,7 +170,11 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	agentTools = append(agentTools, resultTool)
+	stopTool, err := tools.AsyncStopTool()
+	if err != nil {
+		return nil, err
+	}
+	agentTools = append(agentTools, resultTool, stopTool)
 	instruction += "\n\n" + asyncInstruction
 	if contextRuntime.Compaction() != nil {
 		reader, err := OriginalToolResultTool(sessions)

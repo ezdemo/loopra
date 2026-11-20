@@ -18,6 +18,8 @@ import (
 
 const AsyncYieldAfter = 5 * time.Second
 
+const asyncResultMaxWaitMS = 18000
+
 type asyncKey struct{}
 
 // AsyncResult belongs to one turn. Final delivery and recording are tracked
@@ -30,6 +32,8 @@ type AsyncResult struct {
 	Err          error
 	Metadata     map[string]any
 	ctx          context.Context
+	cancel       context.CancelFunc
+	stopping     bool
 	prepared     bool
 	done         chan struct{}
 	detached     bool
@@ -89,7 +93,7 @@ func IsAsyncPlaceholder(id string, response map[string]any) bool {
 
 func pendingResult(id string) map[string]any {
 	return map[string]any{"async": true, "status": "running", "call_id": id,
-		"message": "Execution continues. Continue independent work; use tool_result(call_id) before dependent work. The final result will otherwise be delivered automatically. Do not repeat the original call."}
+		"message": "Execution continues. Continue independent work; use tool_result(call_id) before dependent work. The final result will otherwise be delivered automatically. Do not repeat the original call. Use tool_stop(call_id) if this execution is no longer needed."}
 }
 
 // Pending includes completed results that the model has not received yet.
@@ -178,6 +182,17 @@ type executionContext struct {
 func (c executionContext) Done() <-chan struct{}       { return c.lifetime.Done() }
 func (c executionContext) Err() error                  { return c.lifetime.Err() }
 func (c executionContext) Deadline() (time.Time, bool) { return c.lifetime.Deadline() }
+func (c executionContext) Value(key any) any           { return c.lifetime.Value(key) }
+
+// executionLifetime carries the turn lifetime while delegating values to the
+// original call context, so per-call cancellation reaches context.Cause and
+// child contexts without losing ADK values.
+type executionLifetime struct {
+	context.Context
+	values context.Context
+}
+
+func (c executionLifetime) Value(key any) any { return c.values.Value(key) }
 
 // WithAsyncExecution opts a cancellation-aware, action-free tool into bounded
 // synchronous waiting. Without a turn runtime (e.g. MCP export), it stays sync.
@@ -284,22 +299,31 @@ func (t *asyncTool) Run(ctx agent.Context, args any) (map[string]any, error) {
 		r.mu.Unlock()
 		return nil, fmt.Errorf("duplicate tool call ID %q", j.ID)
 	}
+	// ADK may end a model invocation while this execution is still pending.
+	// Preserve its values and tool identity, but use the owning turn's
+	// lifetime; tool_stop cancels this call without cancelling the turn.
+	lifetime, cancel := context.WithCancel(executionLifetime{Context: r.ctx, values: ctx})
+	workerCtx := executionContext{Context: ctx, lifetime: lifetime}
+	j.ctx, j.cancel = workerCtx, cancel
 	r.jobs[j.ID] = j
 	r.order = append(r.order, j)
 	r.wg.Add(1)
 	r.mu.Unlock()
-	// ADK may end a model invocation while this execution is still pending.
-	// Preserve its values and tool identity, but use the owning turn's lifetime.
-	workerCtx := executionContext{Context: ctx, lifetime: r.ctx}
-	j.ctx = workerCtx
 	go func() {
 		defer r.wg.Done()
+		defer cancel()
 		response, err := t.asyncRunnable.Run(workerCtx, businessArgs)
-		// Some adapters encode cancellation in their response instead of an
-		// error. A cancelled owning turn must never publish a success result.
-		if err == nil && workerCtx.Err() != nil {
+		r.mu.Lock()
+		// Claim the result before running hooks and notifying consumers.
+		j.cancel = nil
+		if j.stopping {
+			response, err = nil, context.Canceled
+		} else if err == nil && workerCtx.Err() != nil {
+			// Some adapters encode cancellation in their response instead of
+			// an error. A cancelled execution never publishes a success.
 			err = workerCtx.Err()
 		}
+		r.mu.Unlock()
 		if r.Finalize != nil {
 			input, _ := args.(map[string]any)
 			response, err = r.Finalize(workerCtx, t, input, response, err)
@@ -343,7 +367,7 @@ func (t *asyncTool) Run(ctx agent.Context, args any) (map[string]any, error) {
 
 type asyncResultInput struct {
 	CallID    string `json:"call_id" jsonschema:"ID returned by a running tool in this turn"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"Wait up to this many milliseconds, default 1000, maximum 60000; does not stop execution"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"Wait up to this many milliseconds, default 1000, maximum 18000; does not stop execution"`
 }
 
 func AsyncResultTool() (tool.Tool, error) {
@@ -359,8 +383,8 @@ func AsyncResultTool() (tool.Tool, error) {
 }
 
 func (r *AsyncRuntime) Result(ctx context.Context, id string, waitMS int) (map[string]any, error) {
-	if waitMS < 0 || waitMS > 60000 {
-		return nil, fmt.Errorf("timeout_ms must be between 0 and 60000")
+	if waitMS < 0 || waitMS > asyncResultMaxWaitMS {
+		return nil, fmt.Errorf("timeout_ms must be between 0 and %d", asyncResultMaxWaitMS)
 	}
 	if waitMS == 0 {
 		waitMS = 1000
@@ -388,6 +412,42 @@ func (r *AsyncRuntime) Result(ctx context.Context, id string, waitMS int) (map[s
 		j.delivered = true
 		return AsyncResponse(*j), nil
 	}
+}
+
+type asyncStopInput struct {
+	CallID string `json:"call_id" jsonschema:"ID returned by a running tool in this turn"`
+}
+
+func AsyncStopTool() (tool.Tool, error) {
+	return functiontool.New[asyncStopInput, map[string]any](functiontool.Config{
+		Name: "tool_stop", Description: "Request cancellation of one background tool by call_id in the current turn. Does not stop the turn. The original tool reports its final result after cleanup.",
+	}, func(ctx agent.Context, in asyncStopInput) (map[string]any, error) {
+		r := AsyncFromContext(ctx)
+		if r == nil {
+			return nil, fmt.Errorf("no active tool execution turn")
+		}
+		return r.Stop(in.CallID)
+	})
+}
+
+// Stop marks one detached call cancelled and releases its worker. A call that
+// already claimed its result reports not_running; anything else fails.
+func (r *AsyncRuntime) Stop(id string) (map[string]any, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	j := r.jobs[id]
+	if j == nil || !j.detached {
+		return nil, fmt.Errorf("unknown background call %q in this turn", id)
+	}
+	status := "not_running"
+	if j.cancel != nil {
+		if !j.stopping {
+			j.stopping = true
+			j.cancel()
+		}
+		status = "stopping"
+	}
+	return map[string]any{"call_id": id, "status": status}, nil
 }
 
 func AsyncResponse(j AsyncResult) map[string]any {

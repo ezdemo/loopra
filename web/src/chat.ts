@@ -4,12 +4,19 @@ export type ChatBlock =
   // `reasoning_started` marks a slot the model opened without streaming visible
   // tokens (encrypted reasoning); it upgrades to `reasoning` on the first delta.
   | { id: string; type: 'content' | 'reasoning' | 'reasoning_started'; content: string; segmentId?: string }
-  | { id: string; type: 'tool_call'; toolCallId?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; result?: string; duration?: string }
+  | { id: string; type: 'tool_call'; toolCallId?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; result?: string; duration?: string; background?: true }
   | { id: string; type: 'file_changes'; changes: FileChange[] }
   | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string; owner?: 'lead' | 'sidekick' }[] }
   | { id: string; type: 'sub_agent'; name: string; status: ToolStatus; blocks: ChatBlock[] }
   | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
 export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number; rollbackId?: string; snapshotId?: string; rollbackTimestamp?: number; images?: string[] };
+
+export type BackgroundToolTask = { callId: string; name: string };
+
+/** Detached tool calls still running in the latest turn; terminal results stop matching. */
+export function runningBackgroundTools(message?: Message): BackgroundToolTask[] {
+  return (message?.blocks || []).flatMap(block => block.type === 'tool_call' && block.background && block.status === '执行中' && block.toolCallId ? [{ callId: block.toolCallId, name: block.name }] : []);
+}
 
 export type MessageDocument = { name: string; text: string; size?: number };
 

@@ -32,7 +32,7 @@ export type AcpSessionState = { plan: AcpPlanEntry[]; commands: AcpCommand[] };
 export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string; customAgentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; displayName?: string; contextTokens: number; maxTokens: number; imageInput: boolean; reasoningEfforts?: string[]; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; toolsRestrictWorkspace: boolean; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string; toolModel: string; toolModelChannelId: string };
-export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; resultDelta?: string; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; segmentId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema']; meta?: ElicitationRequest['meta'] };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; async?: boolean; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; resultDelta?: string; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; segmentId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema']; meta?: ElicitationRequest['meta'] };
 export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; customAgentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; connectors?: Record<string, boolean> };
 
 export function serverAddress(value: string) {
@@ -293,6 +293,7 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
       if (event.args != null) existing.args = argsObject(event.args);
       if (event.result != null) existing.result = stringify(event.result);
       else if (event.resultDelta != null) existing.result = (existing.result || '') + event.resultDelta;
+      if (event.async && event.status === 'running' && existing.status === '执行中') existing.background = true;
     }
   }
   else if (event.type === 'tool_result') {
@@ -363,23 +364,19 @@ export function hasEncryptedReasoning(value: unknown) {
 
 export function historyMessages(raw: HistoryMessage[]): Message[] {
   const messages: Message[] = [];
-  // Fusion results bind to the preceding call object, not the id: providers may
-  // reuse `call_0` across turns, and a global id map could replay another
-  // turn's transcript. Normal tools keep id matching.
+  // Providers may reuse call IDs across turns. Bind results (including late
+  // async results and Fusion transcripts) to the originating call object.
   type HistoryToolCall = NonNullable<HistoryMessage['tool_calls']>[number];
-  const results = new Map<string, HistoryMessage>();
-  const fusionCalls = new Map<string, HistoryToolCall>();
-  const fusionResults = new Map<HistoryToolCall, HistoryMessage>();
+  const callsById = new Map<string, HistoryToolCall>();
+  const results = new Map<HistoryToolCall, HistoryMessage>();
   for (const entry of raw) {
-    if (entry.role === 'user') fusionCalls.clear();
-    if (entry.role === 'assistant') for (const call of entry.tool_calls || []) {
-      if ((call.function?.name || call.name) === 'fusion_delegate') fusionCalls.set(call.id, call);
-      else fusionCalls.delete(call.id);
-    }
+    if (entry.role === 'user') callsById.clear();
+    if (entry.role === 'assistant') for (const call of entry.tool_calls || []) callsById.set(call.id, call);
     if (entry.role !== 'tool' || !entry.tool_call_id) continue;
-    const call = fusionCalls.get(entry.tool_call_id);
-    if (call && (!entry.tool_name || entry.tool_name === 'fusion_delegate')) fusionResults.set(call, entry);
-    else if (entry.tool_name !== 'fusion_delegate') results.set(entry.tool_call_id, entry);
+    const call = callsById.get(entry.tool_call_id);
+    if (!call) continue;
+    const name = call.function?.name || call.name;
+    if (name === 'fusion_delegate' ? !entry.tool_name || entry.tool_name === name : entry.tool_name !== 'fusion_delegate') results.set(call, entry);
   }
   let current: Message | undefined;
   for (const [index, entry] of raw.entries()) {
@@ -408,10 +405,11 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
       for (const call of calls) {
         const name = call.function?.name || call.name || 'unknown';
         events.push({ type: 'tool_call', toolCallId: call.id, name, args: call.function?.arguments ?? call.arguments });
-        const result = name === 'fusion_delegate' ? fusionResults.get(call) : results.get(call.id);
+        const result = results.get(call);
         // A Fusion handoff replays its inline transcript between the delegate
         // call and its result, in the same order the live stream produced.
         if (name === 'fusion_delegate' && result?.fusion_events) for (const fused of result.fusion_events) events.push(fused);
+        if (result?.tool_status === 'running') events.push({ type: 'tool_update', toolCallId: call.id, async: true, status: 'running' });
         if (result) events.push({ type: 'tool_result', toolCallId: call.id, name, result: result.content, status: result.tool_status, duration: result.tool_duration_ms });
       }
       if (!delegates && content.trim()) events.push({ type: 'content', content });

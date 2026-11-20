@@ -25,9 +25,10 @@
 .background-tasks-popover .panel-empty { margin: 0; padding: 1.25rem; }
 .background-tasks-popover .bash-row { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; align-items: stretch; gap: 0; padding: 0; background: var(--surface); }
 .background-tasks-popover .bash-row:last-child { border-bottom: 0; }
-.background-tasks-popover .bash-select { display: flex; align-items: flex-start; gap: .625rem; min-width: 0; width: 100%; padding: .875rem 1rem; color: var(--text); text-align: left; }
+.background-tasks-popover .async-task-row { grid-template-columns: minmax(0, 1fr); }
+.background-tasks-popover :is(.bash-select, .async-task-info) { display: flex; align-items: flex-start; gap: .625rem; min-width: 0; width: 100%; padding: .875rem 1rem; color: var(--text); text-align: left; }
 .background-tasks-popover .bash-select:focus-visible { outline: 2px solid var(--blue); outline-offset: -3px; }
-.background-tasks-popover .bash-select > .bash-dot { flex-shrink: 0; margin-top: .375rem; }
+.background-tasks-popover :is(.bash-select, .async-task-info) > .bash-dot { flex-shrink: 0; margin-top: .375rem; }
 .background-tasks-popover .bash-main { min-width: 0; gap: .25rem; }
 .background-tasks-popover .bash-command strong { font-weight: 500; line-height: 1.5; }
 .background-tasks-popover .bash-task-actions { display: flex; align-items: center; justify-content: center; padding: .625rem; }

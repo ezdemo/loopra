@@ -105,7 +105,7 @@ func TestAsyncToolKeepsStreamOpenAndCompletesOriginalRow(t *testing.T) {
 	events := streamSSE(resp)
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
-	waiting, completed, results := false, 0, 0
+	waiting, completed, results, sawCall, updates := false, 0, 0, false, 0
 	for {
 		select {
 		case event, ok := <-events:
@@ -113,11 +113,25 @@ func TestAsyncToolKeepsStreamOpenAndCompletesOriginalRow(t *testing.T) {
 				t.Fatal("stream closed without done")
 			}
 			switch event["type"] {
+			case "tool_call":
+				if event["toolCallId"] == "slow-call" {
+					sawCall = true
+				}
+			case "tool_update":
+				if event["toolCallId"] == "slow-call" {
+					updates++
+					if !sawCall || waiting || event["async"] != true || event["status"] != "running" {
+						t.Fatalf("out-of-order or wrong async update: %v", event)
+					}
+				}
 			case "content":
 				// Text frames are JSON strings; streamSSE intentionally only
 				// retains their type. The first text is the provisional answer.
 				if !waiting {
 					waiting = true
+					if updates != 1 {
+						t.Fatalf("async tool_update count = %d before first text", updates)
+					}
 					releaseSlow()
 				}
 			case "tool_result":
@@ -135,13 +149,106 @@ func TestAsyncToolKeepsStreamOpenAndCompletesOriginalRow(t *testing.T) {
 			case "error":
 				t.Fatalf("stream error: %v", event)
 			case "done":
-				if results != 1 || completed != 1 {
-					t.Fatalf("results=%d complete=%d", results, completed)
+				if results != 1 || completed != 1 || updates != 1 {
+					t.Fatalf("results=%d complete=%d updates=%d", results, completed, updates)
 				}
 				return
 			}
 		case <-deadline.C:
 			t.Fatal("async stream did not finish")
+		}
+	}
+}
+
+// tool_stop 只取消所属的后台调用：原调用上报一次取消终态，
+// stop 自身是一次成功的普通工具结果，轮次随后正常结束。
+func TestAsyncToolStopStreamsFinalResultWithoutEndingTurn(t *testing.T) {
+	release := make(chan struct{})
+	slow, err := functiontool.New[struct{}, map[string]any](functiontool.Config{Name: "slow"}, func(ctx agentctx.Context, _ struct{}) (map[string]any, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-release:
+			return map[string]any{"result": "fixture released"}, nil
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	cfg := config.Default()
+	a, err := agentpkg.New(root, "project", &cfg, agentpkg.Options{Model: echo.New("stop",
+		echo.Script{ToolCalls: []*genai.FunctionCall{{ID: "slow-call", Name: "slow", Args: map[string]any{"yield_after_ms": 1}}}},
+		echo.Script{ToolCalls: []*genai.FunctionCall{{ID: "stop-call", Name: "tool_stop", Args: map[string]any{"call_id": "slow-call"}}}},
+		echo.Script{Text: "done"}), Tools: []tool.Tool{tools.WithAsyncExecution(slow)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, key, err := New(a, Options{Home: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer close(release)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/chat/stream", strings.NewReader(`{"message":"run","sessionName":"stop"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Loopra-Key", key)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	events := streamSSE(resp)
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	results := map[string]map[string]any{}
+	completed := 0
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatal("stream closed without done")
+			}
+			switch event["type"] {
+			case "tool_result":
+				if id, _ := event["toolCallId"].(string); id == "slow-call" || id == "stop-call" {
+					if results[id] != nil {
+						t.Fatalf("second terminal result for %s: %v", id, event)
+					}
+					results[id] = event
+				}
+			case "complete":
+				completed++
+				if event["content"] != "done" || results["slow-call"] == nil || results["stop-call"] == nil {
+					t.Fatalf("premature completion: %v", event)
+				}
+			case "error":
+				t.Fatalf("stream error: %v", event)
+			case "done":
+				slowResult, stopResult := results["slow-call"], results["stop-call"]
+				if completed != 1 || slowResult == nil || stopResult == nil {
+					t.Fatalf("completed=%d results=%v", completed, results)
+				}
+				if slowResult["status"] != "failed" {
+					t.Fatalf("stopped call status = %v", slowResult["status"])
+				}
+				if text, _ := slowResult["result"].(string); !strings.Contains(text, "context canceled") {
+					t.Fatalf("stopped call result = %v", slowResult["result"])
+				}
+				if stopResult["status"] != "completed" {
+					t.Fatalf("stop call status = %v", stopResult["status"])
+				}
+				if text, _ := stopResult["result"].(string); !strings.Contains(text, "stopping") {
+					t.Fatalf("stop call result = %v", stopResult["result"])
+				}
+				return
+			}
+		case <-deadline.C:
+			t.Fatal("stop stream did not finish")
 		}
 	}
 }

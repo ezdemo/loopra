@@ -31,7 +31,7 @@ import type { Preferences } from './components/Settings';
 import { mergeStoredSettings, toStoredSettings, type ClientSettings, type StoredUIPreferences } from './ui-preferences';
 import Search from './components/Search';
 import type { FileChange, Message, MessageDocument } from './chat';
-import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, userMessageDock } from './chat';
+import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, runningBackgroundTools, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
 import SessionOccupiedNotice from './components/SessionOccupiedNotice';
 import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
@@ -1540,7 +1540,8 @@ export default function App({ startupPending = false, initialServer }: { startup
     latest: petReplyPreview(session?.messages.filter(message => message.role === 'assistant').at(-1)),
     onDismiss: () => { void saveAgentSettings({ ...agentSettingsRef.current, petEnabled: false }); },
   });
-  const composer = <BackgroundTasks key={session?.id || workspace} api={api} workspaceHash={session?.workspaceHash || workspace} sessionName={session?.name} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} streaming={!!generatingId && generatingId === session.id} /> : undefined}>{session && isSessionOccupied(session.id)
+  const asyncTools = session && (generatingId === session.id || remoteRun?.id === session.id) ? runningBackgroundTools(session.messages.at(-1)) : [];
+  const composer = <BackgroundTasks key={session?.id || workspace} api={api} workspaceHash={session?.workspaceHash || workspace} sessionName={session?.name} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} asyncTools={asyncTools} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} streaming={!!generatingId && generatingId === session.id} /> : undefined}>{session && isSessionOccupied(session.id)
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
     : <Composer home={isHome} loading={workspaceLoading} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}

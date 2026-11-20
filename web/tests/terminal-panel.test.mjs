@@ -76,8 +76,9 @@ const sessions = [
   { sessionId: 's-2', workspace: 'C:/code/loopra', command: 'sleep 1', workdir: 'C:/code/loopra', startedAt: Date.now() - 900_000, status: 'completed' },
 ];
 
-async function mount({ floating = false, initialSessions = sessions, actions, toolbarTarget } = {}) {
+async function mount({ floating = false, initialSessions = sessions, actions, toolbarTarget, asyncTools: initialAsyncTools = [] } = {}) {
   let currentSessions = initialSessions;
+  let setTools = () => {};
   let hold = false;
   globalThis.__calls = []; globalThis.__notify = []; globalThis.__copied = [];
   Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value: { writeText: async text => { globalThis.__copied.push(text); } } });
@@ -93,11 +94,13 @@ async function mount({ floating = false, initialSessions = sessions, actions, to
   const root = createRoot(container);
   function Floating() {
     const [open, setOpen] = useState(false);
-    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', sessionName: 'sess-1', connected: true, open, onOpenChange: setOpen, notify: () => {}, actions, toolbarTarget }, createElement('textarea', { 'aria-label': '输入消息' }));
+    const [asyncTools, setAsyncTools] = useState(initialAsyncTools);
+    setTools = setAsyncTools;
+    return createElement(BackgroundTasks, { api, workspaceHash: 'hash 1', sessionName: 'sess-1', connected: true, open, onOpenChange: setOpen, notify: () => {}, actions, toolbarTarget, asyncTools }, createElement('textarea', { 'aria-label': '输入消息' }));
   }
   await act(async () => root.render(floating ? createElement(Floating) : createElement(TerminalPanel, { api, workspaceHash: 'hash 1', sessionName: 'sess-1', onClose: () => {}, notify: message => globalThis.__notify.push(message) })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-  return { container, root, updateSessions(value) { currentSessions = value; }, holdRequests() { hold = true; }, async close() { await act(async () => root.unmount()); container.remove(); } };
+  return { container, root, updateSessions(value) { currentSessions = value; }, setAsyncTools(value) { setTools(value); }, holdRequests() { hold = true; }, async close() { await act(async () => root.unmount()); container.remove(); } };
 }
 
 test('lists background sessions with the legacy summary and log output', async () => {
@@ -232,6 +235,34 @@ test('clearing all background tasks hides the entry again', async () => {
     assert.equal(view.container.querySelector('.background-tasks-trigger'), null);
     assert.equal(view.container.textContent.match(/暂无后台命令/g)?.length, 1);
     assert.equal(view.container.querySelector('.terminal-output'), null);
+  } finally { await view.close(); }
+});
+
+test('detached agent tools appear as running background tasks without shell actions', async () => {
+  const view = await mount({ floating: true, initialSessions: [], asyncTools: [{ callId: 'call-1', name: 'shell' }] });
+  const popover = () => view.container.querySelector('.background-tasks-popover');
+  try {
+    const trigger = view.container.querySelector('.background-tasks-trigger');
+    assert.ok(trigger);
+    assert.ok(trigger.querySelector('.background-tasks-unread'));
+    await act(async () => { trigger.click(); });
+    const row = popover().querySelector('.async-task-row');
+    assert.match(row.textContent, /shell/);
+    assert.match(row.textContent, /运行中/);
+    assert.equal(row.querySelector('button'), null);
+    assert.doesNotMatch(popover().textContent, /暂无后台命令|正在读取后台任务/);
+    assert.match(popover().textContent, /后台任务/);
+    assert.match(popover().textContent, /1 个运行中 · 共 1 个任务/);
+    view.updateSessions(sessions);
+    await act(async () => { popover().querySelector('[aria-label="刷新终端"]').click(); });
+    assert.ok(popover().querySelector('.async-task-row'));
+    assert.ok(popover().querySelector('.bash-select'));
+    assert.match(popover().textContent, /2 个运行中 · 共 3 个任务/);
+    assert.match(popover().textContent, /终止/);
+    await act(async () => { view.setAsyncTools([]); });
+    assert.equal(popover().querySelector('.async-task-row'), null);
+    assert.match(popover().textContent, /1 个运行中 · 共 2 个进程/);
+    assert.match(popover().textContent, /后台进程/);
   } finally { await view.close(); }
 });
 

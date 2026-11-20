@@ -12,7 +12,8 @@ import GitTools from './GitTools';
 import type { WorkspaceFile } from '../workspace-tabs';
 import ProjectCapabilities from './ProjectCapabilities';
 import EnvironmentPanel, { EnvironmentBar, useEnvironmentController } from './EnvironmentPanel';
-import { bashSessionState, bashSessionSummary, formatBashUptime } from '../bash-sessions';
+import { bashSessionState, bashSessionSummary, formatBashUptime, runningCount } from '../bash-sessions';
+import type { BackgroundToolTask } from '../chat';
 import { useBashSessions, type BashSessionsState } from '../useBashSessions';
 import { watchWorkspaceChanges } from '../workspace-events';
 import { PluginFrame, type PluginContext } from './PluginFrame';
@@ -111,7 +112,7 @@ function GitWorkspace({ api, workspaceHash, sessionName, revision, notify, onRef
       : <GitTools key={workspaceHash} {...{ api, workspaceHash, revision, notify }} showBranch={false} onRefresh={onRefresh} onFile={path => onOpenFile({ path, mode: 'diff' })} />}
   </>;
 }
-export function TerminalPanel({ api, workspaceHash, sessionName, onClose, state, onInspect }: PanelProps & { notify?: (message: string) => void; sessionName?: string; state?: BashSessionsState; onInspect?: (id: string) => void }) {
+export function TerminalPanel({ api, workspaceHash, sessionName, onClose, state, onInspect, asyncTools = [] }: PanelProps & { notify?: (message: string) => void; sessionName?: string; state?: BashSessionsState; onInspect?: (id: string) => void; asyncTools?: readonly BackgroundToolTask[] }) {
   // 后台进程归属于会话：没有外部 state 时，自身按会话名拉取。
   const localState = useBashSessions(api, workspaceHash, sessionName, !state);
   const data = state || localState;
@@ -123,9 +124,17 @@ export function TerminalPanel({ api, workspaceHash, sessionName, onClose, state,
     catch (cause) { setError(cause instanceof Error ? cause.message : '停止失败'); }
   }
   function inspect(id: string) { data.select(id); onInspect?.(id); }
-  return <section className="terminal-panel" aria-label="终端"><header><span><SquareTerminal size="1.0625rem" />后台进程</span><small className="terminal-summary">{bashSessionSummary(sessions)}</small><IconButton label="刷新终端" onClick={data.refresh}><RefreshCw size="1rem" /></IconButton><IconButton label="关闭终端" onClick={onClose}><X size="1.0625rem" /></IconButton></header>
+  const summary = asyncTools.length ? `${runningCount(sessions) + asyncTools.length} 个运行中 · 共 ${sessions.length + asyncTools.length} 个任务` : bashSessionSummary(sessions);
+  return <section className="terminal-panel" aria-label="终端"><header><span><SquareTerminal size="1.0625rem" />{asyncTools.length ? '后台任务' : '后台进程'}</span><small className="terminal-summary">{summary}</small><IconButton label="刷新终端" onClick={data.refresh}><RefreshCw size="1rem" /></IconButton><IconButton label="关闭终端" onClick={onClose}><X size="1.0625rem" /></IconButton></header>
     {error && <p className="settings-error" role="alert">{error}</p>}
-    <ul className="bash-list">{sessions.map(item => <li key={item.sessionId} className={`bash-row ${item.sessionId === selected ? 'selected' : ''}`}>
+    <ul className="bash-list">
+      {asyncTools.map(task => <li key={`async:${task.callId}`} className="bash-row async-task-row">
+        <div className="bash-command async-task-info">
+          <span className="bash-dot running" aria-hidden="true" />
+          <span className="bash-main"><strong>{task.name}</strong><span className="bash-meta"><span className="bash-state running">运行中</span></span></span>
+        </div>
+      </li>)}
+      {sessions.map(item => <li key={`bash:${item.sessionId}`} className={`bash-row ${item.sessionId === selected ? 'selected' : ''}`}>
       <button type="button" className="bash-select bash-command" aria-label={`查看日志 ${item.sessionId}`} title="查看任务输出" onClick={() => inspect(item.sessionId)}>
         <span className={`bash-dot ${item.status}`} aria-hidden="true" />
         <span className="bash-main"><strong>{item.command}</strong>
@@ -135,7 +144,7 @@ export function TerminalPanel({ api, workspaceHash, sessionName, onClose, state,
       </button>
       <div className="bash-task-actions">{item.status === 'running' ? <Button className="bash-terminate" size="sm" color="danger" variant="light" aria-label={`终止任务 ${item.sessionId}`} isLoading={data.terminating.includes(item.sessionId)} onPress={() => void terminate(item.sessionId)}>终止</Button> : <span>已结束</span>}</div>
     </li>)}</ul>
-    {sessions.length === 0 && <p className="panel-empty">{loading ? '正在读取后台任务…' : '暂无后台命令。你可以在聊天中让助手运行任务，后台命令的输出会显示在这里。'}</p>}
+    {sessions.length === 0 && asyncTools.length === 0 && <p className="panel-empty">{loading ? '正在读取后台任务…' : '暂无后台命令。你可以在聊天中让助手运行任务，后台命令的输出会显示在这里。'}</p>}
     {sessions.length > 0 && !onInspect && <div className="terminal-output"><pre>{output ?? (loading ? '正在读取输出…' : '暂时没有输出。')}</pre></div>}
   </section>;
 }
