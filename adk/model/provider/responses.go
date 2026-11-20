@@ -129,7 +129,7 @@ func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 						"name": p.FunctionCall.Name, "arguments": string(args),
 					})
 				case p.Thought:
-					// 同作用域记录的加密推理条目按原文回传；
+					// 同作用域记录的推理条目按原文回传；
 					// 无记录的旧思考保持既有行为被丢弃。
 					if raw := reasoningReplay(p, replayScope, "item"); raw != "" && json.Valid([]byte(raw)) {
 						input = append(input, json.RawMessage(raw))
@@ -323,8 +323,7 @@ type responsesOutputItem struct {
 	Arguments        string `json:"arguments"`
 	EncryptedContent string `json:"encrypted_content"`
 	Phase            string `json:"phase"`
-	// raw 保存可回放的推理条目原文；只有带加密内容的 reasoning
-	// 条目才捕获，避免为普通条目保留无用副本。
+	// raw 保存可回放的推理条目原文，不包含只有摘要的条目。
 	raw json.RawMessage
 }
 
@@ -336,7 +335,7 @@ func (item *responsesOutputItem) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	item.raw = nil
-	if item.Type == "reasoning" && item.EncryptedContent != "" {
+	if item.Type == "reasoning" && (item.EncryptedContent != "" || responsesPlaintextReasoning(*item) != "") {
 		item.raw = bytes.Clone(data)
 	}
 	return nil
@@ -420,16 +419,20 @@ func responsesParts(items []responsesOutputItem, scope string) ([]*genai.Part, e
 // reasoningText 取出推理条目里要展示的思考文本。
 // 有完整 reasoning_text 时用它，否则退回 summary（数组或字符串）。
 func reasoningText(item responsesOutputItem) string {
+	if text := responsesPlaintextReasoning(item); text != "" {
+		return text
+	}
+	return item.Summary.text()
+}
+
+func responsesPlaintextReasoning(item responsesOutputItem) string {
 	var b strings.Builder
 	for _, c := range item.Content {
 		if c.Type == "reasoning_text" && c.Text != "" {
 			b.WriteString(c.Text)
 		}
 	}
-	if b.Len() > 0 {
-		return b.String()
-	}
-	return item.Summary.text()
+	return b.String()
 }
 
 func responsesFinishReason(status string, incomplete *struct {
@@ -460,7 +463,7 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 		args   strings.Builder
 	}
 	calls := map[string]*callAcc{}
-	// response.completed 的 output 可能只有条目壳；加密推理
+	// response.completed 的 output 可能只有条目壳；推理
 	// 的完整数据在 output_item.done 里送达，按 id 记住备用。
 	doneReasoning := map[string]responsesOutputItem{}
 	var text strings.Builder
@@ -498,7 +501,7 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 			if !emit(&genai.Part{Text: packet.Delta}) {
 				return errStopRead
 			}
-		case "response.reasoning_summary_text.delta":
+		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 			if !emit(&genai.Part{Text: packet.Delta, Thought: true}) {
 				return errStopRead
 			}
@@ -535,18 +538,21 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 				usage = packet.Response.Usage
 				if len(packet.Response.Output) > 0 {
 					for i, item := range packet.Response.Output {
-						if item.Type != "reasoning" || len(item.raw) > 0 || item.ID == "" {
+						if item.Type != "reasoning" || item.ID == "" || item.EncryptedContent != "" {
 							continue
 						}
 						done, ok := doneReasoning[item.ID]
-						if !ok {
+						// completed 已含明文时，仅优先保留 done 提供的密文状态。
+						if !ok || (len(item.raw) > 0 && done.EncryptedContent == "") {
 							continue
 						}
 						item.raw = done.raw
 						item.EncryptedContent = done.EncryptedContent
-						if reasoningText(item) == "" {
-							item.Summary = done.Summary
+						if responsesPlaintextReasoning(item) == "" {
 							item.Content = done.Content
+						}
+						if item.Summary.text() == "" {
+							item.Summary = done.Summary
 						}
 						packet.Response.Output[i] = item
 					}

@@ -103,7 +103,7 @@ ChatBlock= content|reasoning|reasoning_started{content,segmentId?} | tool_call{t
   - `tool_call_id`（tool 行关联）、`tool_image_url`/`tool_image_detail`、`tool_calls`（assistant 行：`[{id(缺失→"unknown"),type:"function",function:{name,arguments:string(JSON 字符串)}}]`）、`thinking_blocks`
 - 追加：逐条同步写+立即 flush；rewrite 走 `.tmp` + `Files.move(REPLACE_EXISTING)` 原子替换；**`.events` 从不重写**。
 - load 跳过空行、`//` 注释行与内部通知行。
-- 原生模型的推理续接状态保存在 JSONL 的内部 ADK 数据中，仅用于同渠道、端点和模型的后续请求。Chat Completions 按兼容渠道回传推理字段；Responses 按原顺序回传加密推理条目，不依赖服务端会话。该内部数据不进入历史或审计 API 响应。旧记录缺少续接数据时仍可读取。
+- 原生模型的推理续接状态保存在 JSONL 的内部 ADK 数据中，仅用于同渠道、端点和模型的后续请求。Chat Completions 按兼容渠道回传推理字段；Responses 按原顺序回传带密文或明文 `reasoning_text` 的原始 `reasoning` 条目，不依赖服务端会话；只有摘要的条目仅展示、不回传。该内部数据不进入历史或审计 API 响应。旧记录缺少续接数据时仍可读取。
 
 ## 4. 伴生文件与目录
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -440,6 +441,37 @@ func TestResponsesReasoningReplay(t *testing.T) {
 		}
 	})
 
+	t.Run("sync replays plaintext but not summary-only reasoning", func(t *testing.T) {
+		const plain = `{"id":"rs_clear","type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":"  first\n"},{"type":"reasoning_text","text":"second  "}],"status":"completed"}`
+		srv, bodies := replayServer(t, func(call int, w http.ResponseWriter) {
+			if call == 0 {
+				responsesReply(w, `{"status":"completed","output":[`+plain+`,
+					{"id":"rs_summary","type":"reasoning","summary":[{"type":"summary_text","text":"summary only"}]},
+					{"type":"function_call","call_id":"call_plain","name":"echo","arguments":"{}"}
+				]}`)
+				return
+			}
+			responsesReply(w, `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}`)
+		})
+		llm, err := NewLLM(testChannel(ProtocolResponses, srv.URL), &Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := finalContent(t, llm, replayToolReq("test-model", userContent("run")), false)
+		if len(first.Parts) != 3 || !first.Parts[0].Thought || first.Parts[0].Text != "  first\nsecond  " || !first.Parts[1].Thought || first.Parts[1].Text != "summary only" {
+			t.Fatalf("unexpected displayed reasoning: %+v", first.Parts)
+		}
+		finalContent(t, llm, replayToolReq("test-model", continuation(first, "call_plain", "x")...), false)
+		input := (*bodies)[1]["input"].([]any)
+		var want map[string]any
+		if err := json.Unmarshal([]byte(plain), &want); err != nil {
+			t.Fatal(err)
+		}
+		if len(input) != 4 || !reflect.DeepEqual(input[1], want) || input[2].(map[string]any)["type"] != "function_call" || input[3].(map[string]any)["type"] != "function_call_output" {
+			t.Fatalf("expected exact plaintext item before call and output, without summary-only item: %v", input)
+		}
+	})
+
 	t.Run("opaque only reasoning has no text but still replays", func(t *testing.T) {
 		srv, bodies := replayServer(t, func(call int, w http.ResponseWriter) {
 			if call == 0 {
@@ -468,13 +500,13 @@ func TestResponsesReasoningReplay(t *testing.T) {
 		}
 	})
 
-	t.Run("stream done fallback fills encrypted item", func(t *testing.T) {
+	t.Run("stream done fallback prefers encrypted item", func(t *testing.T) {
 		srv, bodies := replayServer(t, func(call int, w http.ResponseWriter) {
 			if call == 0 {
 				w.Header().Set("Content-Type", "text/event-stream")
 				for _, f := range []string{
 					`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","item":{"id":"rs_9","type":"reasoning","summary":[{"type":"summary_text","text":"done里想"}],"encrypted_content":"enc-9"}}`,
-					`event: response.completed` + "\n" + `data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2},"output":[{"id":"rs_9","type":"reasoning","summary":[]},{"type":"message","content":[{"type":"output_text","text":"好"}]}]}}`,
+					`event: response.completed` + "\n" + `data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2},"output":[{"id":"rs_9","type":"reasoning","content":[{"type":"reasoning_text","text":"done里想"}],"summary":[]},{"type":"message","content":[{"type":"output_text","text":"好"}]}]}}`,
 				} {
 					fmt.Fprint(w, f+"\n\n")
 				}
@@ -489,7 +521,7 @@ func TestResponsesReasoningReplay(t *testing.T) {
 		first := finalContent(t, llm, replayToolReq("test-model", userContent("run")), true)
 		thought := first.Parts[0]
 		if !thought.Thought || thought.Text != "done里想" {
-			t.Fatalf("completed shell should inherit visible text from done item: %+v", thought)
+			t.Fatalf("visible reasoning = %+v", thought)
 		}
 		if thought.PartMetadata[ReasoningReplayMetadataKey] == nil {
 			t.Fatal("done fallback did not mark replay state")

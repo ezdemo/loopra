@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -24,28 +26,29 @@ type replayEchoArgs struct {
 }
 
 // assertResponsesReplay 校验一次 Responses 请求按原顺序回放了
-// 加密推理条目，并且工具结果与调用按 id 配对。
-func assertResponsesReplay(t *testing.T, body map[string]any) {
+// 推理条目，并且工具结果与调用按 id 配对。
+func assertResponsesReplay(t *testing.T, body, wantReasoning map[string]any) {
 	t.Helper()
 	if store, ok := body["store"].(bool); !ok || store {
 		t.Fatalf("store = %v, want false", body["store"])
 	}
 	var reasoning, call, output map[string]any
 	var types []string
-	for _, raw := range body["input"].([]any) {
+	reasoningIndex, callIndex, outputIndex := -1, -1, -1
+	for i, raw := range body["input"].([]any) {
 		item, _ := raw.(map[string]any)
 		types = append(types, fmt.Sprint(item["type"]))
 		switch item["type"] {
 		case "reasoning":
-			reasoning = item
+			reasoning, reasoningIndex = item, i
 		case "function_call":
-			call = item
+			call, callIndex = item, i
 		case "function_call_output":
-			output = item
+			output, outputIndex = item, i
 		}
 	}
-	if reasoning == nil || reasoning["encrypted_content"] != "enc-1" || reasoning["id"] != "rs_1" {
-		t.Fatalf("reasoning replay missing in input %v", types)
+	if !reflect.DeepEqual(reasoning, wantReasoning) || !(reasoningIndex < callIndex && callIndex < outputIndex) {
+		t.Fatalf("reasoning replay = %v, want %v before call and output in %v", reasoning, wantReasoning, types)
 	}
 	if call == nil || call["call_id"] != "call_1" {
 		t.Fatalf("function_call missing in input %v", types)
@@ -56,10 +59,24 @@ func assertResponsesReplay(t *testing.T, body map[string]any) {
 }
 
 // TestReasoningReplaySurvivesSessionReload 是原生通道的端到端回归：
-// Responses 首轮经 SSE 返回加密推理条目与 echo 调用，同一轮内的
+// Responses 首轮经 SSE 返回推理条目与 echo 调用，同一轮内的
 // 工具续接请求原样回放该条目；用新的 JSONL 会话服务重新打开同一
 // 根目录后，新一轮请求仍然带着这份内部状态。
 func TestReasoningReplaySurvivesSessionReload(t *testing.T) {
+	t.Run("encrypted", func(t *testing.T) {
+		testReasoningReplaySurvivesSessionReload(t, `{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"盘算"}],"encrypted_content":"enc-1"}`, "")
+	})
+	t.Run("plaintext", func(t *testing.T) {
+		testReasoningReplaySurvivesSessionReload(t, `{"id":"rs_1","type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":"先想\n再查"}]}`, "先想\n再查")
+	})
+}
+
+func testReasoningReplaySurvivesSessionReload(t *testing.T, reasoningJSON, wantDelta string) {
+	t.Helper()
+	var wantReasoning map[string]any
+	if err := json.Unmarshal([]byte(reasoningJSON), &wantReasoning); err != nil {
+		t.Fatal(err)
+	}
 	var mu sync.Mutex
 	var bodies []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +90,13 @@ func TestReasoningReplaySurvivesSessionReload(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		if call == 0 {
+			if wantDelta != "" {
+				for _, delta := range []string{"先想\n", "再查"} {
+					fmt.Fprintf(w, "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"delta\":%q}\n\n", delta)
+				}
+			}
 			for _, f := range []string{
-				`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","item":{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"盘算"}],"encrypted_content":"enc-1"}}`,
+				`event: response.output_item.done` + "\n" + `data: {"type":"response.output_item.done","item":` + reasoningJSON + `}`,
 				`event: response.output_item.added` + "\n" + `data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"echo"}}`,
 				`event: response.function_call_arguments.delta` + "\n" + `data: {"type":"response.function_call_arguments.delta","delta":"{\"text\":\"hi\"}"}`,
 				`event: response.completed` + "\n" + `data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":2},"output":[{"id":"rs_1","type":"reasoning","summary":[]},{"type":"function_call","call_id":"call_1","name":"echo","arguments":"{\"text\":\"hi\"}"}]}}`,
@@ -120,6 +142,7 @@ func TestReasoningReplaySurvivesSessionReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	var texts []string
+	var streamedThought strings.Builder
 	for ev, err := range a.Run(ctx, sess, genai.NewContentFromText("run echo", genai.RoleUser)) {
 		if err != nil {
 			t.Fatal(err)
@@ -128,6 +151,9 @@ func TestReasoningReplaySurvivesSessionReload(t *testing.T) {
 			for _, p := range ev.Content.Parts {
 				if p != nil && !p.Thought && p.Text != "" {
 					texts = append(texts, p.Text)
+				}
+				if ev.Partial && p != nil && p.Thought {
+					streamedThought.WriteString(p.Text)
 				}
 			}
 		}
@@ -138,7 +164,10 @@ func TestReasoningReplaySurvivesSessionReload(t *testing.T) {
 	if got != 2 {
 		t.Fatalf("model calls = %d, want 2", got)
 	}
-	assertResponsesReplay(t, bodies[1])
+	if got := streamedThought.String(); got != wantDelta {
+		t.Fatalf("streamed reasoning = %q, want %q", got, wantDelta)
+	}
+	assertResponsesReplay(t, bodies[1], wantReasoning)
 	if len(texts) == 0 || texts[len(texts)-1] != "done" {
 		t.Fatalf("final text = %v, want done", texts)
 	}
@@ -164,5 +193,5 @@ func TestReasoningReplaySurvivesSessionReload(t *testing.T) {
 	if got != 3 {
 		t.Fatalf("model calls after reload = %d, want 3", got)
 	}
-	assertResponsesReplay(t, bodies[2])
+	assertResponsesReplay(t, bodies[2], wantReasoning)
 }
