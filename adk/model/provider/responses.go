@@ -42,18 +42,20 @@ func (a *responsesAdapter) GenerateContent(ctx context.Context, req *model.LLMRe
 			return
 		}
 		start := time.Now()
+		modelName := a.config.modelName(req)
 		resp, err := postJSON(withRequestObserver(ctx, req), a.config.Client, "POST", a.config.Endpoint, headers, body, stream)
-		logModelCall("responses", start, a.config.modelName(req), stream, err)
+		logModelCall("responses", start, modelName, stream, err)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
 		defer resp.Body.Close()
+		scope := a.config.reasoningReplayScope(modelName)
 		if stream {
-			a.consumeStream(ctx, resp, yield)
+			a.consumeStream(ctx, resp, yield, scope)
 			return
 		}
-		out, err := a.parseSync(resp)
+		out, err := a.parseSync(resp, scope)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -72,6 +74,7 @@ func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 	if modelName == "" {
 		return nil, errors.New("responses: model is required")
 	}
+	replayScope := a.config.reasoningReplayScope(modelName)
 	input := make([]any, 0, len(req.Contents))
 	for _, c := range req.Contents {
 		if c == nil || len(c.Parts) == 0 {
@@ -108,10 +111,14 @@ func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 				}
 				switch {
 				case p.Text != "" && !p.Thought:
-					input = append(input, map[string]any{
+					item := map[string]any{
 						"type": "message", "role": "assistant",
 						"content": []any{map[string]any{"type": "output_text", "text": p.Text}},
-					})
+					}
+					if phase := reasoningReplay(p, replayScope, "phase"); phase != "" {
+						item["phase"] = phase
+					}
+					input = append(input, item)
 				case p.FunctionCall != nil:
 					args, err := marshalToolArguments(p)
 					if err != nil {
@@ -122,7 +129,11 @@ func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 						"name": p.FunctionCall.Name, "arguments": string(args),
 					})
 				case p.Thought:
-					// 推理条目不会被重放（签名会被丢弃）。
+					// 同作用域记录的加密推理条目按原文回传；
+					// 无记录的旧思考保持既有行为被丢弃。
+					if raw := reasoningReplay(p, replayScope, "item"); raw != "" && json.Valid([]byte(raw)) {
+						input = append(input, json.RawMessage(raw))
+					}
 				}
 			}
 		default:
@@ -144,7 +155,9 @@ func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 	if len(input) == 0 {
 		return nil, errors.New("responses: request has no input")
 	}
-	body := map[string]any{"model": modelName, "input": input, "stream": stream}
+	// store:false 不保留服务端会话，因此显式请求加密推理内容，
+	// 让下一次请求可以无状态地回放。
+	body := map[string]any{"model": modelName, "input": input, "stream": stream, "store": false, "include": []string{"reasoning.encrypted_content"}}
 	if snap.ServiceTierFast {
 		body["service_tier"] = "fast"
 	}
@@ -311,11 +324,30 @@ type responsesOutputItem struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
-	Arguments string `json:"arguments"`
+	Arguments        string `json:"arguments"`
+	EncryptedContent string `json:"encrypted_content"`
+	Phase            string `json:"phase"`
+	// raw 保存可回放的推理条目原文；只有带加密内容的 reasoning
+	// 条目才捕获，避免为普通条目保留无用副本。
+	raw json.RawMessage
+}
+
+// UnmarshalJSON 在常规字段解码之外，为可回放的推理条目保留原始
+// JSON；其它条目照常按类型解码。
+func (item *responsesOutputItem) UnmarshalJSON(data []byte) error {
+	type plain responsesOutputItem
+	if err := json.Unmarshal(data, (*plain)(item)); err != nil {
+		return err
+	}
+	item.raw = nil
+	if item.Type == "reasoning" && item.EncryptedContent != "" {
+		item.raw = bytes.Clone(data)
+	}
+	return nil
 }
 
 // parseSync 解码非流式的 Responses 调用。
-func (a *responsesAdapter) parseSync(resp *http.Response) (*model.LLMResponse, error) {
+func (a *responsesAdapter) parseSync(resp *http.Response, scope string) (*model.LLMResponse, error) {
 	data, err := readBody(resp.Body)
 	if err != nil {
 		return nil, err
@@ -337,7 +369,7 @@ func (a *responsesAdapter) parseSync(resp *http.Response) (*model.LLMResponse, e
 	if wire.Error != nil && wire.Error.Message != "" {
 		return nil, fmt.Errorf("responses error: %s", wire.Error.Message)
 	}
-	parts, err := responsesParts(wire.Output)
+	parts, err := responsesParts(wire.Output, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -350,19 +382,30 @@ func (a *responsesAdapter) parseSync(resp *http.Response) (*model.LLMResponse, e
 }
 
 // responsesParts 根据输出条目组装最终模型内容。
-func responsesParts(items []responsesOutputItem) ([]*genai.Part, error) {
+func responsesParts(items []responsesOutputItem, scope string) ([]*genai.Part, error) {
 	var parts []*genai.Part
 	for _, item := range items {
 		switch item.Type {
 		case "message":
 			for _, c := range item.Content {
 				if c.Type == "output_text" && c.Text != "" {
-					parts = append(parts, &genai.Part{Text: c.Text})
+					part := &genai.Part{Text: c.Text}
+					if item.Phase == "commentary" || item.Phase == "final_answer" {
+						setReasoningReplay(part, scope, "phase", item.Phase)
+					}
+					parts = append(parts, part)
 				}
 			}
 		case "reasoning":
-			if text := reasoningText(item); text != "" {
-				parts = append(parts, &genai.Part{Text: text, Thought: true})
+			text := reasoningText(item)
+			// 只有加密内容的纯推理条目没有可见文本，仍保留
+			// 一个空思考部分来承载续接状态。
+			if text != "" || len(item.raw) > 0 {
+				part := &genai.Part{Text: text, Thought: true}
+				if len(item.raw) > 0 {
+					setReasoningReplay(part, scope, "item", string(item.raw))
+				}
+				parts = append(parts, part)
 			}
 		case "function_call":
 			if item.Name == "" {
@@ -405,9 +448,9 @@ func responsesFinishReason(status string, incomplete *struct {
 // consumeStream 读取 Responses 的 SSE 流。文本与推理摘要
 // 增量作为部分结果产出；工具调用只在最终
 // response.completed 事件中完成。
-func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Response, yield func(*model.LLMResponse, error) bool) {
+func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Response, yield func(*model.LLMResponse, error) bool, scope string) {
 	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
-		out, err := a.parseSync(resp)
+		out, err := a.parseSync(resp, scope)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -421,6 +464,9 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 		args   strings.Builder
 	}
 	calls := map[string]*callAcc{}
+	// response.completed 的 output 可能只有条目壳；加密推理
+	// 的完整数据在 output_item.done 里送达，按 id 记住备用。
+	doneReasoning := map[string]responsesOutputItem{}
 	var text strings.Builder
 	var usage responsesUsage
 	var completed bool
@@ -432,11 +478,9 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 	}
 	err := readSSE(ctx, resp.Body, func(ev sseEvent) error {
 		var packet struct {
-			Type  string `json:"type"`
-			Delta string `json:"delta"`
-			Item  *struct {
-				responsesOutputItem
-			} `json:"item"`
+			Type     string               `json:"type"`
+			Delta    string               `json:"delta"`
+			Item     *responsesOutputItem `json:"item"`
 			Response *struct {
 				Usage  responsesUsage        `json:"usage"`
 				Output []responsesOutputItem `json:"output"`
@@ -463,7 +507,13 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 				return errStopRead
 			}
 		case "response.output_item.added", "response.output_item.done":
-			if packet.Item != nil && packet.Item.Type == "function_call" {
+			if packet.Item == nil {
+				return nil
+			}
+			if packet.Type == "response.output_item.done" && packet.Item.Type == "reasoning" && packet.Item.ID != "" && len(packet.Item.raw) > 0 {
+				doneReasoning[packet.Item.ID] = *packet.Item
+			}
+			if packet.Item.Type == "function_call" {
 				id := packet.Item.CallID
 				if id == "" {
 					id = packet.Item.ID
@@ -488,7 +538,23 @@ func (a *responsesAdapter) consumeStream(ctx context.Context, resp *http.Respons
 			if packet.Response != nil {
 				usage = packet.Response.Usage
 				if len(packet.Response.Output) > 0 {
-					parts, err := responsesParts(packet.Response.Output)
+					for i, item := range packet.Response.Output {
+						if item.Type != "reasoning" || len(item.raw) > 0 || item.ID == "" {
+							continue
+						}
+						done, ok := doneReasoning[item.ID]
+						if !ok {
+							continue
+						}
+						item.raw = done.raw
+						item.EncryptedContent = done.EncryptedContent
+						if reasoningText(item) == "" {
+							item.Summary = done.Summary
+							item.Content = done.Content
+						}
+						packet.Response.Output[i] = item
+					}
+					parts, err := responsesParts(packet.Response.Output, scope)
 					if err != nil {
 						return err
 					}

@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/adk/v2/session"
 
+	"github.com/ezdemo/looprax/adk/model/provider"
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/fsutil"
 	"github.com/ezdemo/looprax/internal/repository"
@@ -120,5 +121,23 @@ func (s *Controller) sessionEvents(name string) []map[string]any {
 	if err != nil {
 		return []map[string]any{}
 	}
-	return decodeJSONLines(data)
+	rows := decodeJSONLines(data)
+	// adk_event 原样保存在 append-only 审计镜像里，但推理续接是
+	// 纯内部状态，只对 API 响应剥掉该命名空间，本地文件不动。
+	for _, row := range rows {
+		event, _ := row["adk_event"].(map[string]any)
+		content, _ := event["content"].(map[string]any)
+		parts, _ := content["parts"].([]any)
+		for _, raw := range parts {
+			part, _ := raw.(map[string]any)
+			metadata, _ := part["partMetadata"].(map[string]any)
+			if _, ok := metadata[provider.ReasoningReplayMetadataKey]; ok {
+				delete(metadata, provider.ReasoningReplayMetadataKey)
+				if len(metadata) == 0 {
+					delete(part, "partMetadata")
+				}
+			}
+		}
+	}
+	return rows
 }

@@ -126,6 +126,8 @@ type Config struct {
 	Client         *http.Client
 	Settings       *Settings
 	InsecureStream bool
+	// channelID 参与推理续接状态的作用域指纹，不直接落盘。
+	channelID string
 }
 
 // DefaultMaxOutputTokens 与 Loopra 配置的默认值一致。
@@ -181,6 +183,7 @@ func NewLLM(ch Channel, opts *Options) (model.LLM, error) {
 		Headers:      opts.Headers,
 		Client:       opts.Client,
 		Settings:     settings,
+		channelID:    ch.ID,
 	}
 	switch protocol {
 	case ProtocolResponses:

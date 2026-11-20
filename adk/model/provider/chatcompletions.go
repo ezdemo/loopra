@@ -43,18 +43,19 @@ func (a *chatAdapter) GenerateContent(ctx context.Context, req *model.LLMRequest
 			return
 		}
 		start := time.Now()
+		modelName := a.config.modelName(req)
 		resp, err := postJSON(withRequestObserver(ctx, req), a.config.Client, "POST", a.config.Endpoint, headers, body, stream)
-		logModelCall("chat_completions", start, a.config.modelName(req), stream, err)
+		logModelCall("chat_completions", start, modelName, stream, err)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
 		defer resp.Body.Close()
 		if stream {
-			a.consumeStream(ctx, resp, yield)
+			a.consumeStream(ctx, resp, yield, modelName)
 			return
 		}
-		out, err := a.parseSync(resp)
+		out, err := a.parseSync(resp, modelName)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -70,6 +71,7 @@ type wireChatMessage struct {
 	ToolCallID       string         `json:"tool_call_id,omitempty"`
 	ToolCalls        []wireChatCall `json:"tool_calls,omitempty"`
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	Reasoning        string         `json:"reasoning,omitempty"`
 }
 
 type wireChatCall struct {
@@ -123,6 +125,12 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 	if modelName == "" {
 		return nil, errors.New("chat completions: model is required")
 	}
+	// 推理续接只作用于同一目的地；显式选择 none 强度时上行不带思考。
+	replayScope := a.config.reasoningReplayScope(modelName)
+	replayField := a.config.chatReasoningField(modelName)
+	if strings.EqualFold(snap.ReasoningEffort, "none") {
+		replayField = ""
+	}
 	messages := make([]wireChatMessage, 0, len(req.Contents)+1)
 	if system := systemText(req); system != "" {
 		messages = append(messages, wireChatMessage{Role: "system", Content: system})
@@ -155,6 +163,7 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 		case genai.RoleModel:
 			msg := wireChatMessage{Role: "assistant"}
 			var texts []string
+			var thoughts strings.Builder
 			for _, p := range c.Parts {
 				if p == nil {
 					continue
@@ -172,14 +181,30 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 					call.Function.Arguments = string(args)
 					msg.ToolCalls = append(msg.ToolCalls, call)
 				case p.Thought:
-					// 在 Chat Completions 中不会重放推理内容。
+					// 只回放本渠道同模型标记过的思考；未标记的
+					// 旧记录保持既有行为被丢弃。
+					if replayField != "" && reasoningReplay(p, replayScope, "field") != "" {
+						thoughts.WriteString(p.Text)
+					}
 				}
 			}
 			if len(texts) > 0 {
 				msg.Content = strings.Join(texts, "\n")
 			}
+			if thoughts.Len() > 0 {
+				if replayField == "reasoning" {
+					msg.Reasoning = thoughts.String()
+				} else {
+					msg.ReasoningContent = thoughts.String()
+				}
+			}
 			if msg.Content == nil && len(msg.ToolCalls) == 0 {
-				continue
+				// DeepSeek 要求纯思考消息也保留 reasoning_content；
+				// 其余空消息（含 OpenRouter 纯思考）继续跳过。
+				if msg.ReasoningContent == "" {
+					continue
+				}
+				msg.Content = ""
 			}
 			messages = append(messages, msg)
 		default:
@@ -333,7 +358,7 @@ func (u chatUsage) toUsageMetadata() *genai.GenerateContentResponseUsageMetadata
 }
 
 // parseSync 解码非流式补全响应。
-func (a *chatAdapter) parseSync(resp *http.Response) (*model.LLMResponse, error) {
+func (a *chatAdapter) parseSync(resp *http.Response, modelName string) (*model.LLMResponse, error) {
 	data, err := readBody(resp.Body)
 	if err != nil {
 		return nil, err
@@ -369,6 +394,7 @@ func (a *chatAdapter) parseSync(resp *http.Response) (*model.LLMResponse, error)
 	if err != nil {
 		return nil, err
 	}
+	a.markReasoningReplay(parts, reasoning, modelName)
 	return &model.LLMResponse{
 		Content:       &genai.Content{Role: genai.RoleModel, Parts: parts},
 		UsageMetadata: wire.Usage.toUsageMetadata(),
@@ -403,6 +429,17 @@ func chatParts(rawContent json.RawMessage, reasoning string, calls []wireChatCal
 	return parts, nil
 }
 
+// markReasoningReplay 给聚合后的思考部分打上续接标记：只有兼容
+// 网关返回了非空推理才记录上行字段。chatParts 约定推理文本总是
+// 第一个部分，标记前先断言这一契约。
+func (a *chatAdapter) markReasoningReplay(parts []*genai.Part, reasoning, modelName string) {
+	field := a.config.chatReasoningField(modelName)
+	if reasoning == "" || field == "" || len(parts) == 0 || !parts[0].Thought {
+		return
+	}
+	setReasoningReplay(parts[0], a.config.reasoningReplayScope(modelName), "field", field)
+}
+
 func chatFinishReason(reason string) genai.FinishReason {
 	switch strings.ToLower(reason) {
 	case "stop":
@@ -421,9 +458,9 @@ func chatFinishReason(reason string) genai.FinishReason {
 // consumeStream 读取 SSE 流，产出文本与推理的部分增量，
 // 以及一个最终组装完成的响应。工具调用只出现在最终
 // 响应中，因为该协议没有针对单个调用的完成事件。
-func (a *chatAdapter) consumeStream(ctx context.Context, resp *http.Response, yield func(*model.LLMResponse, error) bool) {
+func (a *chatAdapter) consumeStream(ctx context.Context, resp *http.Response, yield func(*model.LLMResponse, error) bool, modelName string) {
 	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
-		out, err := a.parseSync(resp)
+		out, err := a.parseSync(resp, modelName)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -558,6 +595,7 @@ func (a *chatAdapter) consumeStream(ctx context.Context, resp *http.Response, yi
 		yield(nil, err)
 		return
 	}
+	a.markReasoningReplay(parts, reasoning.String(), modelName)
 	yield(&model.LLMResponse{
 		Content:       &genai.Content{Role: genai.RoleModel, Parts: parts},
 		UsageMetadata: usage.toUsageMetadata(),
