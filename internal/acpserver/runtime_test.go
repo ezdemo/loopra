@@ -123,3 +123,73 @@ func TestRuntimeSpeaksACP(t *testing.T) {
 		t.Fatal("agent produced no text")
 	}
 }
+
+// 自有 ACP Agent 的 effort 选项随所选模型的 reasoningEfforts 目录
+// 校验与展示：空目录省略选项，切换模型后重新收敛当前值。
+func TestSessionOptionsFollowModelLevels(t *testing.T) {
+	cfg := modelconfig.Default()
+	cfg.Hitl = "free"
+	cfg.ModelChannels = []modelconfig.Channel{
+		{ID: "a", Models: []modelconfig.ModelEntry{
+			{Name: "model-a", ReasoningEfforts: []string{"low", "high"}},
+			{Name: "silent", ReasoningEfforts: []string{}},
+		}},
+	}
+	cfg.Model, cfg.ModelChannelID = "model-a", "a"
+	cfg.ReasoningEffort = "high"
+	runtime := New(t.TempDir(), &cfg)
+	live, err := runtime.open("", t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	find := func(id string) *acpsdk.SessionConfigOptionSelect {
+		for _, option := range live.options() {
+			if option.Select != nil && string(option.Select.Id) == id {
+				return option.Select
+			}
+		}
+		return nil
+	}
+	values := func(option *acpsdk.SessionConfigOptionSelect) []string {
+		var out []string
+		for _, choice := range *option.Options.Ungrouped {
+			out = append(out, string(choice.Value))
+		}
+		return out
+	}
+
+	effort := find("effort")
+	if effort == nil || string(effort.CurrentValue) != "high" {
+		t.Fatalf("initial effort = %+v", effort)
+	}
+	got := values(effort)
+	if len(got) != 2 || got[0] != "low" || got[1] != "high" {
+		t.Fatalf("effort options = %v", got)
+	}
+	if err := live.applyOption(runtime, "effort", "xhigh"); err == nil {
+		t.Fatal("unsupported effort accepted")
+	}
+	if err := live.applyOption(runtime, "effort", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if find("effort") == nil || string(find("effort").CurrentValue) != "low" {
+		t.Fatalf("effort after set = %+v", find("effort"))
+	}
+
+	if err := live.applyOption(runtime, "model", "a:silent"); err != nil {
+		t.Fatal(err)
+	}
+	if find("effort") != nil {
+		t.Fatal("empty catalog still advertises effort")
+	}
+	if err := live.applyOption(runtime, "effort", "high"); err == nil {
+		t.Fatal("effort accepted without catalog")
+	}
+	if err := live.applyOption(runtime, "model", "a:model-a"); err != nil {
+		t.Fatal(err)
+	}
+	effort = find("effort")
+	if effort == nil || string(effort.CurrentValue) != "high" {
+		t.Fatalf("effort after switch back = %+v", effort)
+	}
+}

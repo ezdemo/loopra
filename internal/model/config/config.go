@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -52,17 +53,40 @@ type ModelEntry struct {
 	ContextTokens int64  `json:"contextTokens"`
 	MaxTokens     int    `json:"maxTokens"`
 	ImageInput    bool   `json:"imageInput"`
-	Price         *Price `json:"price,omitempty"`
+	// ReasoningEfforts 限定该模型允许的推理强度：nil 表示沿用内置目录，
+	// 非 nil 空切片表示不发送推理强度参数。
+	ReasoningEfforts []string `json:"reasoningEfforts,omitzero"`
+	Price            *Price   `json:"price,omitempty"`
 }
 
 func (m *ModelEntry) UnmarshalJSON(data []byte) error {
+	*m = ModelEntry{ContextTokens: -1, MaxTokens: -1}
 	if len(data) > 0 && data[0] == '"' {
-		m.ContextTokens, m.MaxTokens = -1, -1
-		return json.Unmarshal(data, &m.Name)
+		if err := json.Unmarshal(data, &m.Name); err != nil {
+			return err
+		}
+	} else {
+		type plain ModelEntry
+		if err := json.Unmarshal(data, (*plain)(m)); err != nil {
+			return err
+		}
 	}
-	type plain ModelEntry
-	m.ContextTokens, m.MaxTokens = -1, -1
-	return json.Unmarshal(data, (*plain)(m))
+	if m.ReasoningEfforts != nil {
+		levels := make([]string, 0, len(m.ReasoningEfforts))
+		for _, raw := range m.ReasoningEfforts {
+			value := strings.TrimSpace(raw)
+			if value == "default" {
+				// default 是 Fusion 执行强度的保留取值，不能出现在模型目录里。
+				return fmt.Errorf("model %q: reasoning effort %q is reserved", m.Name, value)
+			}
+			if value == "" || slices.Contains(levels, value) {
+				continue
+			}
+			levels = append(levels, value)
+		}
+		m.ReasoningEfforts = levels
+	}
+	return nil
 }
 
 // Channel 是 modelChannels 中的一项。

@@ -375,9 +375,9 @@ test('combined model and reasoning menu supports overview, back, Escape and outs
   try {
     assert.equal(view.host.querySelectorAll('.composer-model').length, 1);
     assert.equal(view.host.querySelector('.composer-effort'), null);
-    assert.match(view.host.querySelector('.composer-model').textContent, /DeepSeek V4.1 Flash·Max/);
+    assert.match(view.host.querySelector('.composer-model').textContent, /DeepSeek V4.1 Flash·最大/);
     await click('.composer-model');
-    assert.deepEqual([...view.host.querySelectorAll('.model-reasoning-rows > button')].map(button => button.textContent), ['模型DeepSeek V4.1 Flash', '推理Max']);
+    assert.deepEqual([...view.host.querySelectorAll('.model-reasoning-rows > button')].map(button => button.textContent), ['模型DeepSeek V4.1 Flash', '推理最大']);
     await click('.model-reasoning-rows > button');
     assert.ok(view.host.querySelector('[aria-label="搜索模型或供应商"]'));
     await click('[aria-label="收起设置面板"]');
@@ -506,7 +506,7 @@ test('combined selector saves Native reasoning and fast mode while preserving mo
     await act(async () => Simulate.change(view.host.querySelector('[aria-label="快速模式"]'), { target: { checked: true } }));
     assert.deepEqual(changes[1], { ...options, effort: 'low', fast: true });
     await view.update({ options: changes[1] });
-    assert.equal(view.host.querySelector('.model-reasoning-effort').textContent, 'Low');
+    assert.equal(view.host.querySelector('.model-reasoning-effort').textContent, '低');
     assert.ok(view.host.querySelector('.effort-body'), 'saving keeps the reasoning panel mounted');
   } finally { await view.close(); }
 });
@@ -694,4 +694,41 @@ test('external ACP plan settings retain their own configuration IDs and values',
       assert.deepEqual(changes, [[id, nextValue]]);
     } finally { await view.close(); }
   }
+});
+
+test('native API displays and commits configured non-catalog effort choices', async () => {
+  const changes = [];
+  const agentConfig = { busy: false, onPrepare: idle, onChange: (...args) => changes.push(args), options: [
+    { id: 'model', category: 'model', type: 'select', name: '模型', currentValue: 'custom:flash', options: [{ value: 'custom:flash', name: 'Custom / Flash' }] },
+    { id: 'fast', category: 'model_config', type: 'select', name: '快速模式', currentValue: 'off', options: [{ value: 'off', name: '关闭' }, { value: 'on', name: '开启' }] },
+    { id: 'effort', category: 'thought_level', type: 'select', name: '思考强度', currentValue: 'minimal', options: [{ value: 'minimal', name: 'minimal' }, { value: 'Turbo', name: 'Turbo' }] },
+  ] };
+  const view = await mount({ agentId: 'native', draft: '', options: { modelId: '', mode: '完全自动', effort: '', fast: false }, agentConfig });
+  try {
+    await act(async () => view.host.querySelector('.composer-model').click());
+    await act(async () => view.host.querySelector('.model-reasoning-rows > button:last-child').click());
+    assert.ok(view.host.querySelector('[aria-label="推理强度：Turbo"]'), 'custom catalog value is advertised');
+    assert.ok(view.host.querySelector('[aria-label="推理强度：最小"]'));
+    assert.equal(view.host.querySelector('[aria-label="自定义推理强度"]'), null, 'configured catalogs are closed sets');
+    await act(async () => view.host.querySelector('[aria-label="推理强度：Turbo"]').click());
+    assert.deepEqual(changes, [['effort', 'Turbo']]);
+  } finally { await view.close(); }
+});
+
+test('a model with an empty effort catalog keeps fast mode without effort choices', async () => {
+  const changes = [];
+  const agentConfig = { busy: false, onPrepare: idle, onChange: (...args) => changes.push(args), options: [
+    { id: 'model', category: 'model', type: 'select', name: '模型', currentValue: 'custom:quiet', options: [{ value: 'custom:quiet', name: 'Custom / Quiet' }] },
+    { id: 'fast', category: 'model_config', type: 'select', name: '快速模式', currentValue: 'off', options: [{ value: 'off', name: '关闭' }, { value: 'on', name: '开启' }] },
+  ] };
+  const view = await mount({ agentId: 'native', draft: '', options: { modelId: '', mode: '完全自动', effort: '', fast: false }, agentConfig });
+  try {
+    assert.equal(view.host.querySelector('.model-reasoning-effort').textContent, '默认');
+    await act(async () => view.host.querySelector('.composer-model').click());
+    await act(async () => view.host.querySelector('.model-reasoning-rows > button:last-child').click());
+    assert.equal(view.host.querySelector('.effort-levels'), null, 'omitted effort option renders no picker');
+    assert.ok(view.host.querySelector('[aria-label="快速模式"]'), 'fast mode stays available');
+    await act(async () => Simulate.change(view.host.querySelector('[aria-label="快速模式"]'), { target: { checked: true } }));
+    assert.deepEqual(changes, [['fast', 'on']]);
+  } finally { await view.close(); }
 });

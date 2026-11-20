@@ -1,6 +1,6 @@
 import type { Provider, ProviderModel } from './lib';
 
-export type ModelOption = { id: string; name: string; displayName?: string; providerId: string; provider: string; color?: string; contextTokens?: number; maxTokens?: number; imageInput?: boolean };
+export type ModelOption = { id: string; name: string; displayName?: string; providerId: string; provider: string; color?: string; contextTokens?: number; maxTokens?: number; imageInput?: boolean; reasoningEfforts?: string[] };
 export function modelLabel(model: { name: string; displayName?: string }): string {
   return model.displayName?.trim() || model.name;
 }
@@ -62,6 +62,24 @@ export const effortLevels = [
   { value: 'xhigh', label: '超高', description: '更深入地推理' },
   { value: 'max', label: '最大', description: '优先完整的推理' },
 ];
+// modelEffortPresets is the built-in catalog a model can enable; named
+// values outside it get a proper label, other custom entries configured
+// on a model render with their raw value as the label.
+export const modelEffortPresets = [
+  effortLevels[0],
+  { value: 'minimal', label: '最小', description: '尽量少的思考' },
+  ...effortLevels.slice(1),
+];
+const namedEffortLevels = [...modelEffortPresets, { value: 'ultra', label: '极致', description: '极限推理深度' }];
+export function modelEffortLevels(levels?: string[]) {
+  // Persisted catalogs keep their case, so match named values loosely.
+  const named = (value: string) => namedEffortLevels.find(level => level.value === value.toLowerCase());
+  return levels?.map(value => named(value) ?? { value, label: value, description: '' }) ?? modelEffortPresets;
+}
+export function resolveModelEffort(levels: string[] | undefined, preferred: string, fallback: string) {
+  if (levels === undefined) return preferred || fallback;
+  return levels.includes(preferred) ? preferred : levels.includes(fallback) ? fallback : levels[0] ?? '';
+}
 export const skills = [
   { name: '代码审查', description: '检查逻辑、边界条件与潜在回归' },
   { name: '前端开发', description: '组件、交互与响应式布局' },

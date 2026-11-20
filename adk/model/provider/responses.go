@@ -178,11 +178,7 @@ func (a *responsesAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 			body["top_p"] = *req.Config.TopP
 		}
 	}
-	if snap.ReasoningEffort != "" {
-		effort := strings.ToLower(snap.ReasoningEffort)
-		if effort == "max" {
-			effort = "high"
-		}
+	if effort := a.config.wireReasoningEffort(modelName, snap.ReasoningEffort); effort != "" {
 		body["reasoning"] = map[string]any{"effort": effort}
 	}
 	return body, nil

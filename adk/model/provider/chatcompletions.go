@@ -128,7 +128,7 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 	// 推理续接只作用于同一目的地；显式选择 none 强度时上行不带思考。
 	replayScope := a.config.reasoningReplayScope(modelName)
 	replayField := a.config.chatReasoningField(modelName)
-	if strings.EqualFold(snap.ReasoningEffort, "none") {
+	if strings.EqualFold(a.config.wireReasoningEffort(modelName, snap.ReasoningEffort), "none") {
 		replayField = ""
 	}
 	messages := make([]wireChatMessage, 0, len(req.Contents)+1)
@@ -249,8 +249,8 @@ func (a *chatAdapter) buildBody(req *model.LLMRequest, tracker *callIDTracker, s
 			body["top_p"] = *req.Config.TopP
 		}
 	}
-	if snap.ReasoningEffort != "" {
-		body["reasoning_effort"] = strings.ToLower(snap.ReasoningEffort)
+	if effort := a.config.wireReasoningEffort(modelName, snap.ReasoningEffort); effort != "" {
+		body["reasoning_effort"] = effort
 	}
 	return body, nil
 }

@@ -346,3 +346,54 @@ test('the model usage page preserves IDs and save boundaries for all five purpos
     assert.equal(managed, true);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+test('per-model reasoning effort presets and custom values round-trip through save', async () => {
+  const provider = providerFixture('A');
+  provider.models[0].reasoningEfforts = ['Turbo', 'minimal', 'high'];
+  const ui = await providerUI([provider]);
+  try {
+    await ui.click('.provider-model-open');
+    const toggle = ui.host.querySelector('input[aria-label="配置推理强度"]');
+    assert.equal(toggle.checked, true);
+    assert.equal(ui.host.querySelector('input[aria-label="自定义推理强度"]').value, 'Turbo');
+    // Deselect the unsupported preset without touching custom values: the
+    // surviving custom value keeps its original position in the list.
+    await ui.click('button[aria-label="推理强度：最小"]');
+    await ui.apply();
+    await ui.text('保存渠道');
+    assert.deepEqual(ui.saved[0][0].models[0].reasoningEfforts, ['Turbo', 'high']);
+    // Reopen the saved model and replace the custom value.
+    await ui.render({ providers: ui.saved[0] });
+    await ui.click('.provider-model-open');
+    assert.equal(ui.host.querySelector('input[aria-label="自定义推理强度"]').value, 'Turbo');
+    await ui.input('自定义推理强度', 'Ultra');
+    await ui.apply();
+    await ui.text('保存渠道');
+    assert.deepEqual(ui.saved[1][0].models[0].reasoningEfforts, ['high', 'Ultra']);
+  } finally { await ui.close(); }
+});
+
+test('an emptied effort catalog persists as an explicit empty list and round-trips', async () => {
+  const { configProviders, providerChannels } = await import(backendUrl);
+  const ui = await providerUI([providerFixture('A')]);
+  try {
+    await ui.click('.provider-model-open');
+    const toggle = ui.host.querySelector('input[aria-label="配置推理强度"]');
+    assert.equal(toggle.checked, false);
+    assert.equal(ui.host.querySelector('input[aria-label="自定义推理强度"]'), null);
+    await act(async () => toggle.click());
+    for (const label of ['无', '最小', '低', '中', '高', '超高', '最大']) {
+      await ui.click(`button[aria-label="推理强度：${label}"]`);
+    }
+    assert.match(ui.host.textContent, /不发送推理强度参数/);
+    await ui.apply();
+    await ui.text('保存渠道');
+    assert.deepEqual(ui.saved[0][0].models[0].reasoningEfforts, []);
+    const channels = providerChannels(ui.saved[0]);
+    assert.deepEqual(channels[0].models[0].reasoningEfforts, []);
+    const back = configProviders({ modelChannels: channels });
+    assert.deepEqual(back[0].models[0].reasoningEfforts, []);
+    const plain = providerChannels([{ ...providerFixture('B') }]);
+    assert.equal('reasoningEfforts' in plain[0].models[0], false);
+  } finally { await ui.close(); }
+});

@@ -25,10 +25,10 @@ export function agentOptionDescription(option: AgentConfigOption | undefined): s
   return (option.options || []).find(item => item.value === configValue(option))?.description || option.description || option.name;
 }
 
-const effortLabels: Record<string, string> = { none: '无', minimal: '最小', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大', default: '默认' };
+const effortLabels: Record<string, string> = { none: '无', minimal: '最小', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大', ultra: '极致', default: '默认' };
 const effortDescriptions: Record<string, string> = {
   none: '直接响应', minimal: '尽量少的思考', low: '快速响应', medium: '平衡速度与深度',
-  high: '更充分地思考', xhigh: '更深入地推理', max: '优先完整的推理', default: '使用模型默认强度',
+  high: '更充分地思考', xhigh: '更深入地推理', max: '优先完整的推理', ultra: '极限推理深度', default: '使用模型默认强度',
 };
 
 export function reasoningEffortLabel(value: string, fallback = value): string {

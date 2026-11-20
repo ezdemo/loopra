@@ -88,6 +88,9 @@
 .model-reasoning-selector[data-placement="bottom"] .model-reasoning-menus { bottom: auto; top: calc(100% + .4375rem); }
 .model-reasoning-menus > .model-reasoning-popover { position: relative; bottom: auto; width: 100%; border-radius: .875rem; padding: .25rem; }
 .model-reasoning-menus > .model-reasoning-flyout { right: calc(100% + .5rem); bottom: 0; width: min(20rem, calc(100vw - 2.5rem), calc(100cqw - 1.5rem)); border-radius: .875rem; overflow: visible; }
+/* Effort panels size to their level row: more tiers ask for a wider flyout, up to
+   the same viewport bounds, instead of squeezing labels into vertical columns. */
+.model-reasoning-menus > .model-reasoning-flyout-effort { width: fit-content; min-width: min(20rem, calc(100vw - 2.5rem), calc(100cqw - 1.5rem)); max-width: min(34rem, calc(100vw - 2.5rem), calc(100cqw - 1.5rem)); }
 .model-reasoning-flyout::after { content: ''; position: absolute; top: 0; bottom: 0; right: -.5625rem; width: .5625rem; }
 .model-reasoning-selector[data-placement="bottom"] .model-reasoning-flyout { top: 0; bottom: auto; }
 .model-reasoning-summary .model-reasoning-rows { display: flex; flex-direction: column; overflow-y: auto; }
@@ -233,7 +236,7 @@
 .effort-summary strong { font-size: 0.875rem; font-weight: 500; }
 .effort-summary p { font-size: 0.75rem; color: var(--muted); margin-top: 0.125rem; }
 /* Reasoning strength: a gradient pill carrying a drifting starfield. Everything is
-   derived from `--effort-level` (0–5, written by ReasoningControl), so the higher
+   derived from `--effort-level` (the tier index, written by ReasoningControl), so the higher
    the level the tighter, brighter and quicker the stream — and the fill it lives in
    widens at the same time. */
 /* Match the track's endpoint centres to the first and last label cells, accounting
@@ -256,9 +259,9 @@
   overflow: hidden;
   /* One tile of drift per cycle. Widening the tile with the level is the whole density
      control: the stars scale off a radius var, so only their spacing changes. */
-  --spark-tile: calc(8rem - var(--effort-level) * 0.6rem);
+  --spark-tile: max(1.5rem, calc(8rem - var(--effort-level) * 0.6rem));
   --spark-r: calc(0.05625rem + var(--effort-level) * 0.0075rem);
-  --spark-speed: calc(2.8s - var(--effort-level) * 0.41s);
+  --spark-speed: max(0.3s, calc(2.8s - var(--effort-level) * 0.41s));
   background-image:
     linear-gradient(90deg, transparent calc(100% - 1.75rem), #ffffff2e),
     linear-gradient(90deg, color-mix(in srgb, var(--blue) 62%, #04123f), var(--blue) 46%, color-mix(in srgb, var(--blue) 55%, #7fa4ff));
@@ -291,7 +294,7 @@
     radial-gradient(circle at 74% 70%, #ffffff 0 var(--spark-r), #ffffff52 calc(var(--spark-r) * 1.6), transparent calc(var(--spark-r) * 1.95)),
     radial-gradient(circle at 93% 40%, #ffffffcc 0 calc(var(--spark-r) * 0.7), #ffffff3d calc(var(--spark-r) * 1.4), transparent calc(var(--spark-r) * 1.75));
   background-size: calc(var(--spark-tile) * 1.45) 100%;
-  animation: effort-spark-flow-b calc(var(--spark-speed) * 1.9) linear infinite, effort-spark-twinkle calc(2.4s - var(--effort-level) * 0.26s) ease-in-out infinite;
+  animation: effort-spark-flow-b calc(var(--spark-speed) * 1.9) linear infinite, effort-spark-twinkle max(0.5s, calc(2.4s - var(--effort-level) * 0.26s)) ease-in-out infinite;
 }
 /* Travelling exactly one tile keeps both loops seamless. */
 @keyframes effort-spark-flow { to { background-position: var(--spark-tile) 0; } }
@@ -309,8 +312,12 @@
   background: #fff;
   box-shadow: 0 0.0625rem 0.375rem #0000002b, 0 0 0 1px #0000000f, 0 0 calc(var(--effort-level) * 0.16rem) color-mix(in srgb, var(--blue) 34%, transparent);
 }
-.effort-levels { display: grid; grid-template-columns: repeat(var(--effort-count), minmax(0, 1fr)); justify-items: center; padding: 0.5625rem 0 0.5rem; }
-.effort-levels button { padding: 0.1875rem 0.3125rem; min-width: 1.75rem; font-size: 0.75rem; color: var(--muted); }
+.effort-levels { display: grid; grid-template-columns: repeat(var(--effort-count), minmax(max-content, 1fr)); justify-items: center; padding: 0.5625rem 0 0.5rem; }
+.effort-levels-wrap { display: flex; flex-wrap: wrap; justify-content: center; row-gap: 0.25rem; }
+.effort-levels-wrap button { flex: 1 0 auto; }
+/* A comfortable cell per tier keeps the slider long enough to aim at; the flyout
+   widens to fit these since the grid's floor is each label's max-content. */
+.effort-levels button { padding: 0.1875rem 0.5rem; min-width: 3rem; font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
 .effort-levels button[aria-pressed="true"] { background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.5rem; }
 .custom-effort > div { flex: 1; }

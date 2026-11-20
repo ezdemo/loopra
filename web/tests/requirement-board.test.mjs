@@ -72,6 +72,7 @@ const { default: RequirementBoard } = await import(await sourceUrl('components/R
   './BlockRenderer': blockStub,
   './BlockRenderer.tsx': blockStub,
   '../requirements': requirementsUrl,
+  '../composer': await sourceUrl('composer.ts'),
 }));
 
 const workspaces = [{ hash: 'p1', name: 'alpha', path: '/work/alpha' }];

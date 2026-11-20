@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -23,6 +24,10 @@ const fusionEffortOption = "fusionSidekickEffort"
 const fusionDefaultEffort = "default"
 
 const fusionOff = "off"
+
+// errUnsupportedFusionEffort 标记强度取值与当前执行模型目录不匹配；
+// 处理器把它映射为 400，与外层校验的响应保持一致。
+var errUnsupportedFusionEffort = errors.New("无效的 Agent 配置值")
 
 func isFusionConfigOption(id string) bool {
 	return id == fusionSidekickOption || id == fusionEffortOption
@@ -65,7 +70,26 @@ func (s *Controller) fusionSettings(meta map[string]any, fresh bool) (model, eff
 	if effort == "" {
 		effort = strOr(defaults, fusionEffortOption, fusionDefaultEffort)
 	}
-	return
+	return model, s.effectiveFusionEffort(model, effort)
+}
+
+// fusionEffortLevels 返回 Fusion 执行模型配置的强度目录；关闭或
+// 指向不存在模型时回退内置目录，保持 API 取值一致。
+func (s *Controller) fusionEffortLevels(selection string) []string {
+	ch, name, ok := fusionModel(s.cfg, selection)
+	if !ok {
+		return config.ReasoningEffortChoices(nil)
+	}
+	return config.ReasoningEffortChoices(s.cfg.ReasoningEffortsFor(ch.ID, name))
+}
+
+// effectiveFusionEffort 把已存/继承的强度收敛到执行模型的目录；
+// 失效值回落为 default（由执行模型自行决定）。
+func (s *Controller) effectiveFusionEffort(selection, effort string) string {
+	if effort == fusionDefaultEffort || slices.Contains(s.fusionEffortLevels(selection), effort) {
+		return effort
+	}
+	return fusionDefaultEffort
 }
 
 type fusionTurnSettings struct {
@@ -85,18 +109,38 @@ func (s *Controller) setFusionConfigOption(name, id, value string) error {
 	agents, values := nativeEnginePreferences(prefs)
 	// 保存旧的 native 配置以便会话写入失败时回退。
 	previous, existed := agents["native"]
-	next := maps.Clone(values)
-	next[id] = value
-	agents["native"] = next
-	if err := repository.WriteJSON(s.enginePreferencesPath(), prefs); err != nil {
-		return fmt.Errorf("保存 Agent 偏好失败: %w", err)
-	}
 	meta := s.sessionMetaRead(name)
 	if meta == nil {
 		meta = map[string]any{}
 	}
+	next := maps.Clone(values)
+	next[id] = value
+	if id == fusionEffortOption {
+		// 强度目录随执行模型变化：在外层校验与写入之间选择可能
+		// 已切换，按锁内刚读到的 meta 再验一次，避免把目录外取值
+		// 写进会话。
+		selection, _ := s.fusionSettings(meta, !s.sessionPersisted(name))
+		if value != fusionDefaultEffort && !slices.Contains(s.fusionEffortLevels(selection), value) {
+			return errUnsupportedFusionEffort
+		}
+	}
 	if id == fusionSidekickOption && strOr(meta, fusionSidekickOption, fusionOff) != value {
 		meta[fusionEpochKey] = newUUIDv4()
+		// 旧强度可能不在新执行模型的目录里：显式写回 default，
+		// 防止失效值在新选择下继续生效。未使用过的会话继承偏好默认
+		// 值参与判断；已持久化的历史会话没有明确强度时不代写。
+		old := strOr(meta, fusionEffortOption, "")
+		if old == "" && !s.sessionPersisted(name) {
+			old = strOr(values, fusionEffortOption, "")
+		}
+		if old != "" && s.effectiveFusionEffort(value, old) != old {
+			meta[fusionEffortOption] = fusionDefaultEffort
+			next[fusionEffortOption] = fusionDefaultEffort
+		}
+	}
+	agents["native"] = next
+	if err := repository.WriteJSON(s.enginePreferencesPath(), prefs); err != nil {
+		return fmt.Errorf("保存 Agent 偏好失败: %w", err)
 	}
 	meta[id] = value
 	if err := s.sessionMetaWrite(name, meta); err != nil {

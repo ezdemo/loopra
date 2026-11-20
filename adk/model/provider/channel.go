@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -41,6 +42,9 @@ type ModelEntry struct {
 	ContextTokens int64  `json:"contextTokens"`
 	MaxTokens     int    `json:"maxTokens"`
 	ImageInput    bool   `json:"imageInput"`
+	// ReasoningEfforts 限定该模型允许的推理强度；nil 沿用协议默认
+	// 处理，非 nil 时仅目录内取值原样上行，空目录不发送强度字段。
+	ReasoningEfforts []string `json:"reasoningEfforts,omitzero"`
 }
 
 // Entry 返回指定名称的模型条目；name 为空或未知时返回
@@ -128,6 +132,9 @@ type Config struct {
 	InsecureStream bool
 	// channelID 参与推理续接状态的作用域指纹，不直接落盘。
 	channelID string
+	// reasoningEfforts 是默认模型配置的强度目录；非 nil 时只有
+	// 目录内取值按原文上行。仅对匹配的默认模型生效。
+	reasoningEfforts []string
 }
 
 // DefaultMaxOutputTokens 与 Loopra 配置的默认值一致。
@@ -172,18 +179,23 @@ func NewLLM(ch Channel, opts *Options) (model.LLM, error) {
 	if settings == nil {
 		settings = NewSettings(opts.ReasoningEffort, opts.SessionKey, opts.ServiceTierFast, maxTokens)
 	}
+	var reasoningEfforts []string
+	if opts.Model == "" || opts.Model == entry.Name {
+		reasoningEfforts = slices.Clone(entry.ReasoningEfforts)
+	}
 	cfg := Config{
-		ImageInput:   entry.ImageInput,
-		Endpoint:     endpoint,
-		APIKey:       ch.APIKey,
-		Protocol:     protocol,
-		Special:      ch.SpecialCompatibility,
-		DefaultModel: name,
-		MaxTokens:    maxTokens,
-		Headers:      opts.Headers,
-		Client:       opts.Client,
-		Settings:     settings,
-		channelID:    ch.ID,
+		ImageInput:       entry.ImageInput,
+		Endpoint:         endpoint,
+		APIKey:           ch.APIKey,
+		Protocol:         protocol,
+		Special:          ch.SpecialCompatibility,
+		DefaultModel:     name,
+		MaxTokens:        maxTokens,
+		Headers:          opts.Headers,
+		Client:           opts.Client,
+		Settings:         settings,
+		channelID:        ch.ID,
+		reasoningEfforts: reasoningEfforts,
 	}
 	switch protocol {
 	case ProtocolResponses:
@@ -201,7 +213,8 @@ type Options struct {
 	Model string
 	// Endpoint 覆盖推导出的完整端点 URL。
 	Endpoint string
-	// ReasoningEffort 取值为 low/medium/high/max 之一。
+	// ReasoningEffort 是初始推理强度；配置了模型目录时取目录内
+	// 取值并按原文上行，未配置时按协议的历史兼容规则处理。
 	ReasoningEffort string
 	// SessionKey 携带 opencode 网关的粘性会话值。
 	SessionKey string
@@ -285,6 +298,27 @@ func (c Config) modelName(req *model.LLMRequest) string {
 		return req.Model
 	}
 	return c.DefaultModel
+}
+
+// wireReasoningEffort 把会话强度归一成上行取值。配置了模型目录的
+// 默认模型只透传目录内原文（含大小写），目录外一律省略；未配置时
+// 保留历史兼容规则：Anthropic 不发送强度字段，其余协议小写化，
+// Responses 把 max 折叠为 high。
+func (c Config) wireReasoningEffort(modelName, effort string) string {
+	if c.reasoningEfforts != nil && modelName == c.DefaultModel {
+		if slices.Contains(c.reasoningEfforts, effort) {
+			return effort
+		}
+		return ""
+	}
+	if c.Protocol == ProtocolAnthropic {
+		return ""
+	}
+	effort = strings.ToLower(effort)
+	if c.Protocol == ProtocolResponses && effort == "max" {
+		return "high"
+	}
+	return effort
 }
 
 // emptyObjectSchema 是不带参数的函数声明所需的占位 schema。

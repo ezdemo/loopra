@@ -168,6 +168,9 @@ func (a *anthropicAdapter) buildBody(req *model.LLMRequest, tracker *callIDTrack
 			body["top_p"] = *req.Config.TopP
 		}
 	}
+	if effort := a.config.wireReasoningEffort(modelName, snap.ReasoningEffort); effort != "" {
+		body["output_config"] = map[string]any{"effort": effort}
+	}
 	return body, nil
 }
 

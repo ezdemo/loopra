@@ -26,15 +26,6 @@ export const REQUIREMENT_PRIORITY_OPTIONS = [
   { value: 'low', label: '低', dot: '#6b7280' },
 ];
 
-export const REQUIREMENT_EFFORT_OPTIONS = [
-  { value: 'none', label: '无' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'xhigh', label: '超高' },
-  { value: 'max', label: '最大' },
-];
-
 export const REQUIREMENT_HITL_OPTIONS = [
   { value: 'free', label: '自由模式' },
   { value: 'approval', label: '审批模式' },
@@ -50,7 +41,7 @@ export type Requirement = {
   createdAt?: number; updatedAt?: number;
 };
 
-export type RequirementChannel = { id: string; name?: string; models?: { name: string }[] };
+export type RequirementChannel = { id: string; name?: string; models?: { name: string; reasoningEfforts?: string[] }[] };
 
 /** `channel::model` value used by the create dialog's model picker. */
 export function requirementModelOptions(channels: RequirementChannel[] | undefined) {

@@ -136,6 +136,10 @@
 .model-config-note { font-size: .6875rem; line-height: 1.6; color: var(--muted); margin: .875rem 0 1.25rem; }
 .model-config-capabilities { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; }
 .model-config-capabilities > span { display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: var(--secondary); }
+.model-config-efforts { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: .875rem; }
+.model-effort-toggle { display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: var(--secondary); }
+.model-effort-presets { display: flex; flex-wrap: wrap; gap: .5rem; }
+.model-effort-status { font-size: .6875rem; color: var(--muted); margin: 0; }
 .model-config-pricing { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 .model-config-pricing .settings-price-grid { margin-top: .875rem; }
 .model-config-footer { display: flex; align-items: center; gap: .5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--line); flex-shrink: 0; }

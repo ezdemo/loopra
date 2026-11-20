@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
+	"github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/service/acp"
 	"github.com/ezdemo/looprax/internal/service/customagent"
 	sessfiles "github.com/ezdemo/looprax/internal/service/session"
@@ -203,22 +205,9 @@ func (s *Controller) resolveSessionSettings(name string, requested map[string]st
 	s.state.files.Lock()
 	defer s.state.files.Unlock()
 	meta := s.sessionMetaRead(name)
-	resolved := map[string]any{}
-	for key, fallback := range map[string]string{"model": s.cfg.Model, "modelChannelId": s.cfg.ModelChannelID, "reasoningEffort": s.cfg.ReasoningEffort} {
-		value := strings.TrimSpace(requested[key])
-		if value == "" {
-			value = strings.TrimSpace(strOr(meta, key, fallback))
-		}
-		if key == "reasoningEffort" && value == "" {
-			value = "max"
-		}
-		resolved[key] = value
-	}
-	if _, ok := s.cfg.ChannelByID(resolved["modelChannelId"].(string)); !ok {
-		if strings.TrimSpace(requested["modelChannelId"]) != "" {
-			return nil, fmt.Errorf("模型渠道不存在: %s", resolved["modelChannelId"])
-		}
-		resolved["modelChannelId"] = s.cfg.ModelChannelID
+	resolved, err := s.effectiveSessionSettings(meta, requested)
+	if err != nil {
+		return nil, err
 	}
 	changed := false
 	for key, value := range resolved {
@@ -231,6 +220,43 @@ func (s *Controller) resolveSessionSettings(name string, requested map[string]st
 			return nil, err
 		}
 	}
+	return resolved, nil
+}
+
+// effectiveSessionSettings 是纯解析：模型与渠道按 请求 > 会话 >
+// 全局 的顺序归一，显式渠道必须存在（失效的已存渠道回落全局），
+// 推理强度再按所选模型的配置目录收敛。显式请求了目录外的强度会
+// 报错；已保存的失效值只回退不报错。
+func (s *Controller) effectiveSessionSettings(meta map[string]any, requested map[string]string) (map[string]any, error) {
+	resolved := map[string]any{}
+	for key, fallback := range map[string]string{"model": s.cfg.Model, "modelChannelId": s.cfg.ModelChannelID} {
+		value := strings.TrimSpace(requested[key])
+		if value == "" {
+			value = strings.TrimSpace(strOr(meta, key, fallback))
+		}
+		resolved[key] = value
+	}
+	channel, model := resolved["modelChannelId"].(string), resolved["model"].(string)
+	if _, ok := s.cfg.ChannelByID(channel); !ok {
+		if strings.TrimSpace(requested["modelChannelId"]) != "" {
+			return nil, fmt.Errorf("模型渠道不存在: %s", channel)
+		}
+		channel = s.cfg.ModelChannelID
+		resolved["modelChannelId"] = channel
+	}
+	levels := s.cfg.ReasoningEffortsFor(channel, model)
+	preferred := strings.TrimSpace(requested["reasoningEffort"])
+	if preferred != "" && levels != nil && !slices.Contains(levels, preferred) {
+		return nil, fmt.Errorf("模型不支持推理强度: %s", preferred)
+	}
+	if preferred == "" {
+		preferred = strings.TrimSpace(strOr(meta, "reasoningEffort", ""))
+	}
+	fallback := strings.TrimSpace(s.cfg.ReasoningEffort)
+	if fallback == "" {
+		fallback = "max"
+	}
+	resolved["reasoningEffort"] = config.ResolveReasoningEffort(levels, preferred, fallback)
 	return resolved, nil
 }
 

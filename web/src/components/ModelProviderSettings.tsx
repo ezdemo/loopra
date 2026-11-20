@@ -3,7 +3,7 @@ import { Button, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from
 import { Box, Copy, Download, Image, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { applyProviderPreset, fitModelOutput, providerPresetFor, providerPresets, validateProvider } from '../settings-data';
 import type { Provider, ProviderModel } from '../lib';
-import { formatTokens, modelDisplayName, modelLabel, newModel, providerModels } from '../composer';
+import { formatTokens, modelDisplayName, modelEffortPresets, modelLabel, newModel, providerModels } from '../composer';
 import { Field, SelectField, SettingSwitch } from './SettingControls';
 import RemoteModelsPicker from './RemoteModelsPicker';
 
@@ -11,18 +11,51 @@ type Props = { server: string; providers: Provider[]; onProviders: (value: Provi
 type ModelEdit = { channel: string; index: number; initial: ProviderModel };
 const copyProvider = (provider: Provider): Provider => ({ ...provider, models: providerModels(provider).map(model => ({ ...model })) });
 
+const rawCustomEfforts = (entry: ProviderModel) => entry.reasoningEfforts?.filter(value => !modelEffortPresets.some(preset => preset.value === value)).join(', ') ?? '';
+
 function ModelConfigDialog({ initial, adding, onClose, onApply }: { initial: ProviderModel; adding: boolean; onClose: () => void; onApply: (model: ProviderModel) => string }) {
   const [model, setModel] = useState(() => ({ ...initial }));
+  const [customEfforts, setCustomEfforts] = useState(() => rawCustomEfforts(initial));
   const [error, setError] = useState('');
   const source = useRef(initial);
   useEffect(() => {
     // Refresh an untouched dialog, while keeping edits made by the user.
-    if (JSON.stringify(model) === JSON.stringify(source.current)) setModel({ ...initial });
+    if (JSON.stringify(model) === JSON.stringify(source.current) && customEfforts === rawCustomEfforts(source.current)) {
+      setModel({ ...initial });
+      setCustomEfforts(rawCustomEfforts(initial));
+    }
     source.current = initial;
   }, [initial]);
   const update = (patch: Partial<ProviderModel>) => { setModel(current => ({ ...current, ...patch })); setError(''); };
+  const presetValues = new Set(modelEffortPresets.map(level => level.value));
+  const customValues = [...new Set(customEfforts.split(/[,，]/).map(value => value.trim()).filter(Boolean))];
+  // 预设开关决定保留哪些目录值；自定义值以输入框内容为准，删除即从列表移除。
+  // 保留值维持原有相对顺序（含自定义值位置），仅把新输入的自定义值追加到末尾。
+  const mergedEfforts = (levels: string[]) => {
+    const merged = levels.filter(value => presetValues.has(value) || customValues.includes(value));
+    for (const value of customValues) {
+      if (!merged.includes(value)) merged.push(value);
+    }
+    return merged;
+  };
+  const configuredEfforts = model.reasoningEfforts;
+  const effortCount = configuredEfforts === undefined ? -1 : mergedEfforts(configuredEfforts).length;
+  const toggleEffort = (value: string) => {
+    const levels = model.reasoningEfforts ?? [];
+    update({ reasoningEfforts: levels.includes(value) ? levels.filter(item => item !== value) : [...levels, value] });
+  };
   function apply() {
+    let reasoningEfforts = model.reasoningEfforts;
+    if (reasoningEfforts !== undefined) {
+      if (customValues.includes('default')) {
+        setError('推理强度不能使用保留值 default');
+        return;
+      }
+      reasoningEfforts = mergedEfforts(reasoningEfforts);
+    }
     const normalized = fitModelOutput({ ...model, name: model.name.trim(), displayName: model.displayName?.trim() || '' });
+    if (reasoningEfforts !== undefined) normalized.reasoningEfforts = reasoningEfforts;
+    else delete normalized.reasoningEfforts;
     const reason = validateProvider({ id: 'model', name: '模型', type: 'responses', count: 1, models: [normalized] });
     setError(reason || onApply(normalized));
   }
@@ -33,6 +66,14 @@ function ModelConfigDialog({ initial, adding, onClose, onApply }: { initial: Pro
         <div className="settings-field-grid"><Field autoFocus label="模型 ID" required value={model.name} onChange={name => update({ name })} placeholder="例如 deepseek-v4.1-flash" /><Field label="展示名称" value={model.displayName || ''} onChange={displayName => update({ displayName })} placeholder="可选，例如 DeepSeek Flash" /><Field label="上下文窗口（tokens）" type="number" min={1} value={model.contextTokens} onChange={value => update({ contextTokens: Number(value) })} /><Field label="最大输出（tokens）" type="number" min={1} value={model.maxTokens} onChange={value => update({ maxTokens: Number(value) })} /></div>
         <p className="model-config-note">展示名称用于界面显示，API 请求仍使用模型 ID。</p>
         <div className="model-config-capabilities"><span><SettingSwitch label="支持图片输入" value={model.imageInput} onChange={imageInput => update({ imageInput })} />图片输入</span><span><SettingSwitch label="自定义价格" value={model.priceEnabled} onChange={priceEnabled => update({ priceEnabled })} />自定义价格</span></div>
+        <section className="model-config-efforts" aria-label="推理强度">
+          <div className="model-effort-toggle"><SettingSwitch label="配置推理强度" value={configuredEfforts !== undefined} onChange={enabled => { if (enabled) update({ reasoningEfforts: modelEffortPresets.map(level => level.value) }); else { update({ reasoningEfforts: undefined }); setCustomEfforts(''); } }} /><span aria-hidden="true">配置推理强度</span></div>
+          {configuredEfforts !== undefined && <>
+            <div className="model-effort-presets">{modelEffortPresets.map(level => { const selected = configuredEfforts.includes(level.value); return <Button key={level.value} type="button" size="sm" disableAnimation variant={selected ? 'flat' : 'bordered'} color={selected ? 'primary' : 'default'} aria-pressed={selected} aria-label={`推理强度：${level.label}`} onPress={() => toggleEffort(level.value)}>{level.label}</Button>; })}</div>
+            <Field label="自定义推理强度" value={customEfforts} onChange={value => { setCustomEfforts(value); setError(''); }} placeholder="例如 turbo, ultra" />
+            {effortCount === 0 && <p className="model-effort-status">不发送推理强度参数</p>}
+          </>}
+        </section>
         {model.priceEnabled && <section className="model-config-pricing"><div className="model-price-heading"><span>模型价格</span><small>元 / 百万 tokens</small></div><div className="settings-price-grid">{(['inputPrice', 'cachePrice', 'outputPrice'] as const).map((key, index) => <Field key={key} label={['输入', '缓存', '输出'][index]} type="number" min={0} step={0.001} value={model[key]} onChange={value => update({ [key]: Number(value) })} />)}</div></section>}
         {error && <p role="alert" className="settings-error">{error}</p>}
       </ModalBody>

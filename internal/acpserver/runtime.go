@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -261,7 +262,8 @@ func (r *Runtime) open(id, cwd string, dirs []string) (*liveSession, error) {
 	live := &liveSession{
 		id: id, cwd: root, dirs: dirs,
 		mode: hitl.NormalizeMode(cfg.Hitl), model: cfg.Model, channel: cfg.ModelChannelID,
-		effort: cfg.ReasoningEffort, fast: cfg.FastMode,
+		effort:      modelconfig.ResolveReasoningEffort(cfg.ReasoningEffortsFor(cfg.ModelChannelID, cfg.Model), cfg.ReasoningEffort, ""),
+		fast:        cfg.FastMode,
 		instruction: instruction(r.home, root), cfg: cfg, registry: registry,
 	}
 	live.installPolicy(cfg)
@@ -372,7 +374,7 @@ func (s *liveSession) options() []acpsdk.SessionConfigOption {
 	mode, model, channel, effort, fast := s.mode, s.model, s.channel, s.effort, s.fast
 	cfg := s.cfg
 	s.mu.Unlock()
-	return sessionOptions(cfg, mode, channel+":"+model, effort, fast)
+	return sessionOptions(cfg, mode, channel, model, effort, fast)
 }
 
 func (s *liveSession) modes() *acpsdk.SessionModeState {
@@ -404,6 +406,8 @@ func (s *liveSession) applyOption(r *Runtime, id, value string) error {
 		channel, name, _ := strings.Cut(value, ":")
 		s.mu.Lock()
 		s.channel, s.model, s.stale = channel, name, true
+		// 强度随所选模型的目录重新收敛：保留仍受支持的取值。
+		s.effort = modelconfig.ResolveReasoningEffort(r.cfg.ReasoningEffortsFor(channel, name), s.effort, r.cfg.ReasoningEffort)
 		s.mu.Unlock()
 	case "mode":
 		switch hitl.NormalizeMode(value) {
@@ -413,12 +417,12 @@ func (s *liveSession) applyOption(r *Runtime, id, value string) error {
 		}
 		s.setMode(value)
 	case "effort":
-		switch value {
-		case "none", "minimal", "low", "medium", "high", "xhigh", "max":
-		default:
+		s.mu.Lock()
+		levels := r.cfg.ReasoningEffortsFor(s.channel, s.model)
+		if !slices.Contains(modelconfig.ReasoningEffortChoices(levels), value) && !(levels == nil && value == s.effort) {
+			s.mu.Unlock()
 			return fmt.Errorf("无效的思考强度")
 		}
-		s.mu.Lock()
 		s.effort, s.stale = value, true
 		s.mu.Unlock()
 	case "fast":

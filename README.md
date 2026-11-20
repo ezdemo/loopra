@@ -181,7 +181,11 @@ loopra acp        # 在标准输入输出上提供 ACP，不启动网页
 }
 ```
 
-`models` 兼容旧版字符串数组。每个模型条目还可以配置 `displayName`、`contextTokens`、`maxTokens`、`imageInput` 和 `price`。`maxTokens` 是该模型单次请求的最大输出 token 数，包含推理 token；Chat Completions 映射为 `max_tokens`，Responses 映射为 `max_output_tokens`。未配置或小于等于 `0` 时使用 32768。`contextTokens` 为 `-1` 表示上下文窗口未知。
+`models` 兼容旧版字符串数组。每个模型条目还可以配置 `displayName`、`contextTokens`、`maxTokens`、`imageInput`、`reasoningEfforts` 和 `price`。`maxTokens` 是该模型单次请求的最大输出 token 数，包含推理 token；Chat Completions 映射为 `max_tokens`，Responses 映射为 `max_output_tokens`。未配置或小于等于 `0` 时使用 32768。`contextTokens` 为 `-1` 表示上下文窗口未知。
+
+在界面上配置：设置 → 模型供应商 → 编辑模型 → 打开“配置推理强度”开关 → 勾选预设或填写自定义取值 → 应用更改 → 保存渠道。
+
+`reasoningEfforts` 限定该模型可选的推理强度，按配置顺序展示并原样上行（含大小写与自定义取值，如 `Turbo`）。缺省（不配置）沿用内置目录 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；配置为空数组 `[]` 表示该模型不发送推理强度参数。保留值 `default` 属于 Fusion 执行强度，不能出现在模型目录里。会话强度超出目录时：显式请求被拒绝，已保存的失效值依次回退到全局默认和目录首项。未配置目录的模型保留历史兼容行为：上行前小写化，Responses 协议把 `max` 折叠为 `high`，Anthropic 不发送强度字段。
 
 全局默认模型之外，每个会话可以单独选择模型、渠道和推理强度。选择写在服务端会话元数据里，重开或切换会话时恢复。首页当前的 Agent，以及每个 Agent 最近一次明确选择的模型、权限和推理强度，记在 `~/.loopra/agent-preferences.json`。新会话继承该 Agent 的上次配置，已有会话保留自己的设置。
 
@@ -569,7 +573,7 @@ loopra acp
 | `toolModel` | string | `""` | 可选的会话标题模型。 |
 | `toolModelChannelId` | string | `""` | 标题模型所在渠道 ID。 |
 | `workspaceDir` | string | 自动创建默认项目 | 当前项目目录。 |
-| `reasoningEffort` | string | `high` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 或 `max`。 |
+| `reasoningEffort` | string | `high` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 或 `max`；模型条目配置 `reasoningEfforts` 后取该模型目录内取值。 |
 | `hitl` | string | `free` | `free`、`approval` 或 `auto`。 |
 | `editMode` | string | `auto` | 编辑模式。 |
 | `lang` | string | `ZH` | 界面语言，`ZH` 或 `EN`。 |

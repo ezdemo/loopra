@@ -7,8 +7,9 @@ import type { HistoryMessage } from '../backend';
 import type { Workspace } from '../backend';
 import Markdown from './Markdown';
 import BlockRenderer from './BlockRenderer';
+import { modelEffortLevels, resolveModelEffort } from '../composer';
 import {
-  REQUIREMENT_COLUMNS, REQUIREMENT_EFFORT_OPTIONS, REQUIREMENT_HITL_OPTIONS, REQUIREMENT_PRIORITY_OPTIONS,
+  REQUIREMENT_COLUMNS, REQUIREMENT_HITL_OPTIONS, REQUIREMENT_PRIORITY_OPTIONS,
   formatRequirementRelative, formatRequirementTime, isScheduledRequirement, normalizeRequirementComment,
   requirementCommentCount, requirementComments, requirementLogCount, requirementLogMessages,
   requirementModelOptions, requirementPriorityLabel, requirementScheduleDescription, requirementScheduleMin,
@@ -48,6 +49,13 @@ export default function RequirementBoard({ api, onClose, notify }: { api: Loopra
   const comments = useMemo(() => requirementComments(messages), [messages]);
   const logs = useMemo(() => requirementLogMessages(messages), [messages]);
   const modelOptions = useMemo(() => requirementModelOptions(config?.modelChannels), [config]);
+  const effortLevelsFor = (selection: string) => {
+    const { modelChannelId, model } = splitRequirementModel(selection || (config?.modelChannelId && config?.model ? `${config.modelChannelId}::${config.model}` : ''));
+    return config?.modelChannels?.find(channel => channel.id === modelChannelId)?.models?.find(item => item.name === model)?.reasoningEfforts;
+  };
+  const effortLevels = effortLevelsFor(draft.modelSelection);
+  const effortChoices = modelEffortLevels(effortLevels);
+  const effectiveEffort = resolveModelEffort(effortLevels, draft.reasoningEffort, config?.reasoningEffort || 'max');
 
   async function loadRequirements() {
     setLoading(true);
@@ -138,7 +146,7 @@ export default function RequirementBoard({ api, onClose, notify }: { api: Loopra
         title, description: draft.description.trim(), priority: draft.priority,
         projectHash: project.hash, projectName: project.name,
         model, modelChannelId,
-        reasoningEffort: draft.reasoningEffort, hitl: draft.hitl,
+        reasoningEffort: effectiveEffort, hitl: draft.hitl,
         scheduleMode: draft.scheduleMode, scheduledAt,
       });
       // Immediate requirements enter the queue right away (legacy creates then runs).
@@ -283,10 +291,10 @@ export default function RequirementBoard({ api, onClose, notify }: { api: Loopra
           <SelectField label="项目" required={true} value={String((draft.projectHash) ?? '')} onChange={value => setDraft({ ...draft, projectHash: value })} options={[({ value: String(""), label: "请选择项目" }), ...(workspaces.map(item => ({ value: String(item.hash), label: String(item.name || item.path) })) || [])]} />
           <div className="req-config-row">
             <SelectField label={"优先级"} value={String((draft.priority) ?? '')} onChange={value => setDraft({ ...draft, priority: value })} options={[...(REQUIREMENT_PRIORITY_OPTIONS.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
-            <SelectField label={"模型"} value={String((draft.modelSelection) ?? '')} onChange={value => setDraft({ ...draft, modelSelection: value })} options={[({ value: String(""), label: "使用默认模型" }), ...(modelOptions.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
+            <SelectField label={"模型"} value={String((draft.modelSelection) ?? '')} onChange={value => setDraft(current => ({ ...current, modelSelection: value, reasoningEffort: resolveModelEffort(effortLevelsFor(value), current.reasoningEffort, config?.reasoningEffort || 'max') }))} options={[({ value: String(""), label: "使用默认模型" }), ...(modelOptions.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
           </div>
           <div className="req-config-row">
-            <SelectField label={"推理强度"} value={String((draft.reasoningEffort) ?? '')} onChange={value => setDraft({ ...draft, reasoningEffort: value })} options={[...(REQUIREMENT_EFFORT_OPTIONS.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
+            {effortChoices.length > 0 && <SelectField label={"推理强度"} value={String((effectiveEffort) ?? '')} onChange={value => setDraft({ ...draft, reasoningEffort: value })} options={[...(effortChoices.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />}
             <SelectField label={"审批模式"} value={String((draft.hitl) ?? '')} onChange={value => setDraft({ ...draft, hitl: value })} options={[...(REQUIREMENT_HITL_OPTIONS.map(option => ({ value: String(option.value), label: String(option.label) })) || [])]} />
           </div>
           <RadioGroup label="执行方式" value={draft.scheduleMode} onValueChange={value => setDraft({ ...draft, scheduleMode: value === 'scheduled' ? 'scheduled' : 'immediate', scheduledAt: value === 'scheduled' ? draft.scheduledAt : '' })} className="req-schedule-mode" classNames={{ wrapper: 'req-schedule-options' }}>

@@ -94,7 +94,7 @@ export const helpConfigOptions = [
   { name: 'model', desc: '使用的模型名称' },
   { name: 'workspaceDir', desc: '项目目录路径' },
   { name: 'editMode', desc: '编辑模式 (free / approval / auto)' },
-  { name: 'reasoningEffort', desc: '推理强度 (low/medium/high/max)' },
+  { name: 'reasoningEffort', desc: '推理强度（内置 none/minimal/low/medium/high/xhigh/max，或模型 reasoningEfforts 目录内取值）' },
   { name: 'modelChannels[].models[].maxTokens', desc: '按模型配置单次请求最大输出 token 数（包含推理 token）；未配置时使用默认值' },
   { name: 'lang', desc: '界面语言 (ZH/EN)' },
 ];

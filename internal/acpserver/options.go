@@ -1,17 +1,20 @@
 package acpserver
 
 import (
+	"slices"
+
 	acpsdk "github.com/coder/acp-go-sdk"
 
 	modelconfig "github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 )
 
-func sessionOptions(cfg *modelconfig.Loopra, mode, modelValue, effort string, fast bool) []acpsdk.SessionConfigOption {
+func sessionOptions(cfg *modelconfig.Loopra, mode, channelID, modelName, effort string, fast bool) []acpsdk.SessionConfigOption {
 	if cfg == nil {
 		fallback := modelconfig.Default()
 		cfg = &fallback
 	}
+	modelValue := channelID + ":" + modelName
 	out := []acpsdk.SessionConfigOption{}
 	models := acpsdk.SessionConfigSelectOptionsUngrouped{}
 	for _, channel := range cfg.ModelChannels {
@@ -39,14 +42,22 @@ func sessionOptions(cfg *modelconfig.Loopra, mode, modelValue, effort string, fa
 		{Value: hitl.ModeAuto, Name: "自动审批", Description: acpsdk.Ptr("使用 Loopra 的自动审批策略")},
 		{Value: hitl.ModeFree, Name: "完全自动", Description: acpsdk.Ptr("不进行工具权限审批")},
 	}))
+	levels := cfg.ReasoningEffortsFor(channelID, modelName)
+	choices := modelconfig.ReasoningEffortChoices(levels)
 	efforts := acpsdk.SessionConfigSelectOptionsUngrouped{}
-	for _, value := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+	for _, value := range choices {
 		efforts = append(efforts, acpsdk.SessionConfigSelectOption{Value: acpsdk.SessionConfigValueId(value), Name: value})
 	}
-	if effort == "" {
-		effort = "high"
+	if levels == nil && effort != "" && !slices.Contains(choices, effort) {
+		// 未配置目录的模型允许自由取值：当前自定义强度仍展示为可选项。
+		efforts = append(efforts, acpsdk.SessionConfigSelectOption{Value: acpsdk.SessionConfigValueId(effort), Name: effort})
 	}
-	out = append(out, selectOption("effort", "思考强度", "thought_level", effort, efforts))
+	if len(efforts) > 0 {
+		if effort == "" {
+			effort = "high"
+		}
+		out = append(out, selectOption("effort", "思考强度", "thought_level", effort, efforts))
+	}
 	toggles := acpsdk.SessionConfigSelectOptionsUngrouped{
 		{Value: "off", Name: "关闭"},
 		{Value: "on", Name: "开启"},

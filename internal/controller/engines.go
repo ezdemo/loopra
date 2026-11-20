@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
+	"github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/repository"
 	"github.com/ezdemo/looprax/internal/service/acp"
 	"github.com/ezdemo/looprax/internal/service/hitl"
@@ -42,13 +43,12 @@ func (s *Controller) agentEnginesDeepController(w http.ResponseWriter, r *http.R
 	}
 }
 
-// nativeEffortLevels 是原生推理强度目录：主模型与 Fusion 执行
-// 模型的强度选项共用同一组取值。
-var nativeEffortLevels = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
-
 // nativeConfigOptions 渲染用于 hitl 模式的 ACP 配置选项。
 func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 	meta := s.sessionMetaRead(session)
+	settings, _ := s.effectiveSessionSettings(meta, nil)
+	channel, model := settings["modelChannelId"].(string), settings["model"].(string)
+	current := settings["reasoningEffort"].(string)
 	values, _ := meta["agentConfig"].(map[string]any)
 	option := func(value, name, description string) map[string]any {
 		return map[string]any{"value": value, "name": name, "description": description}
@@ -70,24 +70,36 @@ func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 		}
 	}
 	if len(models) > 0 {
-		out = append(out, selectOption("model", "模型", "model", strOr(meta, "modelChannelId", s.cfg.ModelChannelID)+":"+strOr(meta, "model", s.cfg.Model), models))
-	}
-	efforts := []map[string]any{}
-	for _, value := range nativeEffortLevels {
-		efforts = append(efforts, option(value, value, ""))
+		out = append(out, selectOption("model", "模型", "model", channel+":"+model, models))
 	}
 	if !s.chatScoped() {
 		fusionModelValue, fusionEffort := s.fusionSettings(meta, !s.sessionPersisted(session))
+		fusionEfforts := []map[string]any{option(fusionDefaultEffort, "默认", "使用执行模型默认强度")}
+		for _, value := range s.fusionEffortLevels(fusionModelValue) {
+			fusionEfforts = append(fusionEfforts, option(value, value, ""))
+		}
 		out = append(out, selectOption(fusionSidekickOption, "Fusion", "fusion", fusionModelValue, append([]map[string]any{option(fusionOff, "关闭", "")}, models...)))
-		out = append(out, selectOption(fusionEffortOption, "Sidekick 推理", "fusion_effort", fusionEffort, append([]map[string]any{option(fusionDefaultEffort, "默认", "使用执行模型默认强度")}, efforts...)))
+		out = append(out, selectOption(fusionEffortOption, "Sidekick 推理", "fusion_effort", fusionEffort, fusionEfforts))
 	}
-	current := hitl.NormalizeMode(strOr(values, "mode", strOr(meta, "hitl", s.cfg.Hitl)))
-	out = append(out, selectOption("mode", "权限模式", "mode", current, []map[string]any{
+	hitlMode := hitl.NormalizeMode(strOr(values, "mode", strOr(meta, "hitl", s.cfg.Hitl)))
+	out = append(out, selectOption("mode", "权限模式", "mode", hitlMode, []map[string]any{
 		option("approval", "按需审批", "需要授权的工具操作由用户审批"),
 		option("auto", "自动审批", "使用 Loopra 的自动审批策略"),
 		option("free", "完全自动", "不进行工具权限审批"),
 	}))
-	out = append(out, selectOption("effort", "思考强度", "thought_level", strOr(meta, "reasoningEffort", s.cfg.ReasoningEffort), efforts))
+	levels := s.cfg.ReasoningEffortsFor(channel, model)
+	choices := config.ReasoningEffortChoices(levels)
+	efforts := make([]map[string]any, 0, len(choices)+1)
+	for _, value := range choices {
+		efforts = append(efforts, option(value, value, ""))
+	}
+	if levels == nil && current != "" && !slices.Contains(choices, current) {
+		// 未配置目录的模型允许自由取值：已存的自定义强度仍展示为可选项。
+		efforts = append(efforts, option(current, current, ""))
+	}
+	if len(efforts) > 0 {
+		out = append(out, selectOption("effort", "思考强度", "thought_level", current, efforts))
+	}
 	fast := "off"
 	if s.cfg.FastMode {
 		fast = "on"
@@ -98,11 +110,15 @@ func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 }
 
 func (s *Controller) setNativeConfigOption(name, id string, value any) error {
+	text, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("无效的 Agent 配置值")
+	}
 	valid := false
 	for _, option := range s.nativeConfigOptions(name) {
 		if option["id"] == id && !isFusionConfigOption(id) {
 			for _, choice := range option["options"].([]map[string]any) {
-				if choice["value"] == value {
+				if choice["value"] == text {
 					valid = true
 				}
 			}
@@ -111,32 +127,33 @@ func (s *Controller) setNativeConfigOption(name, id string, value any) error {
 	if !valid {
 		return fmt.Errorf("无效的 Agent 配置值")
 	}
-	text := value.(string)
-	patch := map[string]any{}
 	switch id {
 	case "model":
 		for _, ch := range s.cfg.ModelChannels {
 			for _, model := range ch.Models {
 				if ch.ID+":"+model.Name == text {
-					patch["model"], patch["modelChannelId"] = model.Name, ch.ID
+					_, err := s.resolveSessionSettings(name, map[string]string{"model": model.Name, "modelChannelId": ch.ID})
+					return err
 				}
 			}
 		}
+		return fmt.Errorf("无效的 Agent 配置值")
 	case "effort":
-		patch["reasoningEffort"] = text
+		_, err := s.resolveSessionSettings(name, map[string]string{"reasoningEffort": text})
+		return err
 	default:
 		values, _ := s.sessionMetaRead(name)["agentConfig"].(map[string]any)
 		if values == nil {
 			values = map[string]any{}
 		}
 		values[id] = text
-		patch["agentConfig"] = values
+		patch := map[string]any{"agentConfig": values}
 		if id == "mode" {
 			patch["hitl"] = text
 		}
+		s.sessionMetaSet(name, patch)
+		return nil
 	}
-	s.sessionMetaSet(name, patch)
-	return nil
 }
 
 // engineMcp 响应引擎级 MCP 开关：来自共享配置的已配置服务，
@@ -408,7 +425,9 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 					_, _, modelExists := fusionModel(s.cfg, value)
 					valid = value == fusionOff || modelExists
 				case fusionEffortOption:
-					valid = value == fusionDefaultEffort || slices.Contains(nativeEffortLevels, value)
+					meta := s.sessionMetaRead(body.SessionName)
+					selection, _ := s.fusionSettings(meta, !s.sessionPersisted(body.SessionName))
+					valid = value == fusionDefaultEffort || slices.Contains(s.fusionEffortLevels(selection), value)
 				}
 			}
 			if !valid {
@@ -416,7 +435,11 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := s.setFusionConfigOption(body.SessionName, body.ConfigID, value); err != nil {
-				writeFail(w, http.StatusInternalServerError, err.Error())
+				status := http.StatusInternalServerError
+				if errors.Is(err, errUnsupportedFusionEffort) {
+					status = http.StatusBadRequest
+				}
+				writeFail(w, status, err.Error())
 				return
 			}
 			writeOK(w, http.StatusOK, map[string]any{"configOptions": s.nativeConfigOptions(body.SessionName)})
@@ -435,6 +458,9 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			agents, values := nativeEnginePreferences(prefs)
+			// 主强度选项在模型配置空目录时整体省略；先清掉旧值再按
+			// 当前选项重建，避免快照里复活已不存在的强度。
+			delete(values, "effort")
 			for _, option := range s.nativeConfigOptions(body.SessionName) {
 				if option["id"] != "plan" && !isFusionConfigOption(option["id"].(string)) {
 					values[option["id"].(string)] = option["currentValue"]

@@ -131,7 +131,7 @@ func New(root, app string, cfg *config.Loopra, opts Options) (*Agent, error) {
 			Models: toProviderModels(ch.Models),
 		}, &provider.Options{
 			Model:           cfg.Model,
-			ReasoningEffort: cfg.ReasoningEffort,
+			ReasoningEffort: config.ResolveReasoningEffort(cfg.ReasoningEffortsFor(cfg.ModelChannelID, cfg.Model), cfg.ReasoningEffort, ""),
 			ServiceTierFast: cfg.FastMode,
 			Client:          opts.HTTPClient,
 		})
@@ -230,6 +230,7 @@ func toProviderModels(in []config.ModelEntry) []provider.ModelEntry {
 		out = append(out, provider.ModelEntry{
 			Name: m.Name, ContextTokens: m.ContextTokens,
 			MaxTokens: m.MaxTokens, ImageInput: m.ImageInput,
+			ReasoningEfforts: m.ReasoningEfforts,
 		})
 	}
 	return out

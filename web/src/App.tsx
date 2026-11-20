@@ -620,7 +620,9 @@ export default function App({ startupPending = false, initialServer }: { startup
           const fast = result.configOptions.find(option => option.id === 'fast');
           if (model && typeof model.currentValue === 'string') next.modelId = model.currentValue;
           if (mode && typeof mode.currentValue === 'string') next.mode = permissionLabel(mode.currentValue);
-          if (effort && typeof effort.currentValue === 'string') next.effort = effort.currentValue;
+          // An omitted effort option means the model sends no effort at all;
+          // keep the mirror empty instead of reviving the previous choice.
+          next.effort = effort && typeof effort.currentValue === 'string' ? effort.currentValue : '';
           if (fast) next.fast = fast.currentValue === true || fast.currentValue === 'on';
           return next;
         });
@@ -645,6 +647,22 @@ export default function App({ startupPending = false, initialServer }: { startup
       const fallback = catalog.find(model => model.id === defaultModel) || catalog[0];
       await api.request('/config', 'PUT', { modelChannels: providerChannels(next), model: fallback.name, modelChannelId: fallback.providerId });
       await backend.refresh(); notify('模型渠道已保存到 Loopra');
+      // Per-model effort catalogs change the advertised options: re-read the
+      // active Native session and refresh the prepared native home draft.
+      if (session && (session.agentId || 'native') === 'native') setAgentConfigRevision(value => value + 1);
+      const prepared = preparedNewSession.current;
+      if (!session && prepared && (prepared.target.agentId || 'native') === 'native') {
+        try {
+          const result = await api.request<{ configOptions: AgentConfigOption[] }>(`/agent-engines/config?${sessionQuery(prepared.target)}`, 'GET');
+          if (preparedNewSession.current === prepared) {
+            const draft = newAgentConfigRef.current;
+            if (draft?.key === prepared.key) storeNewAgentConfig({ ...draft, options: result.configOptions });
+            cacheAgentConfig(prepared.target.agentId || 'native', result.configOptions);
+          }
+        } catch {
+          // A stale draft refresh is best-effort; the next home view re-fetches.
+        }
+      }
     });
   }
   async function saveAgentSettings(next: AgentSettings) {
@@ -824,7 +842,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         }),
       api.request<{ model: string; modelChannelId: string; reasoningEffort: string }>(sessionRoute(selected, '/settings'), 'GET', undefined, controller.signal)
         .then(settings => {
-          if (!controller.signal.aborted) setComposerOptions(current => ({ ...current, ...(selected.agentId && selected.agentId !== 'native' ? {} : { modelId: `${settings.modelChannelId}:${settings.model}` }), effort: settings.reasoningEffort || current.effort }));
+          if (!controller.signal.aborted) setComposerOptions(current => ({ ...current, ...(selected.agentId && selected.agentId !== 'native' ? {} : { modelId: `${settings.modelChannelId}:${settings.model}` }), effort: settings.reasoningEffort }));
         }).catch(error => { if (!controller.signal.aborted) notify(`加载会话模型设置失败：${error instanceof Error ? error.message : error}`); }),
     ]);
   }

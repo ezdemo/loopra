@@ -460,7 +460,7 @@ func (s *Controller) hasRunningProject(hash string) bool {
 func providerChannel(ch config.Channel) provider.Channel {
 	out := provider.Channel{ID: ch.ID, Name: ch.Name, BaseURL: ch.BaseURL, APIKey: ch.APIKey, APIProtocol: ch.APIProtocol, SpecialCompatibility: ch.SpecialCompatibility}
 	for _, entry := range ch.Models {
-		out.Models = append(out.Models, provider.ModelEntry{Name: entry.Name, ContextTokens: entry.ContextTokens, MaxTokens: entry.MaxTokens, ImageInput: entry.ImageInput})
+		out.Models = append(out.Models, provider.ModelEntry{Name: entry.Name, ContextTokens: entry.ContextTokens, MaxTokens: entry.MaxTokens, ImageInput: entry.ImageInput, ReasoningEfforts: entry.ReasoningEfforts})
 	}
 	return out
 }
