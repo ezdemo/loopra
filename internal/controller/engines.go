@@ -4,10 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
@@ -40,6 +42,10 @@ func (s *Controller) agentEnginesDeepController(w http.ResponseWriter, r *http.R
 	}
 }
 
+// nativeEffortLevels 是原生推理强度目录：主模型与 Fusion 执行
+// 模型的强度选项共用同一组取值。
+var nativeEffortLevels = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
 // nativeConfigOptions 渲染用于 hitl 模式的 ACP 配置选项。
 func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 	meta := s.sessionMetaRead(session)
@@ -66,8 +72,14 @@ func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 	if len(models) > 0 {
 		out = append(out, selectOption("model", "模型", "model", strOr(meta, "modelChannelId", s.cfg.ModelChannelID)+":"+strOr(meta, "model", s.cfg.Model), models))
 	}
+	efforts := []map[string]any{}
+	for _, value := range nativeEffortLevels {
+		efforts = append(efforts, option(value, value, ""))
+	}
 	if !s.chatScoped() {
-		out = append(out, selectOption(fusionSidekickOption, "Fusion", "fusion", strOr(meta, fusionSidekickOption, fusionOff), append([]map[string]any{option(fusionOff, "关闭", "")}, models...)))
+		fusionModelValue, fusionEffort := s.fusionSettings(meta, !s.sessionPersisted(session))
+		out = append(out, selectOption(fusionSidekickOption, "Fusion", "fusion", fusionModelValue, append([]map[string]any{option(fusionOff, "关闭", "")}, models...)))
+		out = append(out, selectOption(fusionEffortOption, "Sidekick 推理", "fusion_effort", fusionEffort, append([]map[string]any{option(fusionDefaultEffort, "默认", "使用执行模型默认强度")}, efforts...)))
 	}
 	current := hitl.NormalizeMode(strOr(values, "mode", strOr(meta, "hitl", s.cfg.Hitl)))
 	out = append(out, selectOption("mode", "权限模式", "mode", current, []map[string]any{
@@ -75,10 +87,6 @@ func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 		option("auto", "自动审批", "使用 Loopra 的自动审批策略"),
 		option("free", "完全自动", "不进行工具权限审批"),
 	}))
-	efforts := []map[string]any{}
-	for _, value := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"} {
-		efforts = append(efforts, option(value, value, ""))
-	}
 	out = append(out, selectOption("effort", "思考强度", "thought_level", strOr(meta, "reasoningEffort", s.cfg.ReasoningEffort), efforts))
 	fast := "off"
 	if s.cfg.FastMode {
@@ -92,7 +100,7 @@ func (s *Controller) nativeConfigOptions(session string) []map[string]any {
 func (s *Controller) setNativeConfigOption(name, id string, value any) error {
 	valid := false
 	for _, option := range s.nativeConfigOptions(name) {
-		if option["id"] == id {
+		if option["id"] == id && !isFusionConfigOption(id) {
 			for _, choice := range option["options"].([]map[string]any) {
 				if choice["value"] == value {
 					valid = true
@@ -116,8 +124,6 @@ func (s *Controller) setNativeConfigOption(name, id string, value any) error {
 		}
 	case "effort":
 		patch["reasoningEffort"] = text
-	case fusionSidekickOption:
-		return s.setFusionSidekick(name, text)
 	default:
 		values, _ := s.sessionMetaRead(name)["agentConfig"].(map[string]any)
 		if values == nil {
@@ -146,9 +152,27 @@ func (s *Controller) enginePreferencesPath() string {
 }
 
 func (s *Controller) enginePreferencesRead() map[string]any {
+	prefs, err := s.loadEnginePreferences()
+	if err != nil {
+		return map[string]any{"agents": map[string]any{}}
+	}
+	return prefs
+}
+
+// loadEnginePreferences 严格读取偏好文件：存在但解析失败的文件
+// 返回错误而不是回退成空偏好，避免写路径覆盖掉读不出的内容。
+func (s *Controller) loadEnginePreferences() (map[string]any, error) {
 	out := map[string]any{"agents": map[string]any{}}
-	if data, err := os.ReadFile(s.enginePreferencesPath()); err == nil {
-		_ = json.Unmarshal(data, &out)
+	data, err := os.ReadFile(s.enginePreferencesPath())
+	if err == nil {
+		if err := json.Unmarshal(data, &out); err != nil {
+			return nil, err
+		}
+		if out == nil {
+			return nil, fmt.Errorf("无效的 Agent 偏好配置")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 	if out["agents"] == nil {
 		out["agents"] = map[string]any{}
@@ -156,7 +180,22 @@ func (s *Controller) enginePreferencesRead() map[string]any {
 	if out["selectedAgent"] == "looprax" {
 		out["selectedAgent"] = "native"
 	}
-	return out
+	return out, nil
+}
+
+// nativeEnginePreferences 返回偏好文件中 agents 与原生引擎的值表；
+// 缺省时在 prefs 内补出空表，已有 native 值原样保留供调用方合并。
+func nativeEnginePreferences(prefs map[string]any) (agents, values map[string]any) {
+	agents, _ = prefs["agents"].(map[string]any)
+	if agents == nil {
+		agents = map[string]any{}
+		prefs["agents"] = agents
+	}
+	values, _ = agents["native"].(map[string]any)
+	if values == nil {
+		values = map[string]any{}
+	}
+	return
 }
 
 // hiddenAgentSet 返回用户在设置里隐藏的外部 Agent，选择器不再列出它们。
@@ -360,22 +399,49 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 			writeFail(w, http.StatusConflict, "请等待当前回复结束后再修改 Native 配置")
 			return
 		}
+		if isFusionConfigOption(body.ConfigID) {
+			value, ok := body.Value.(string)
+			valid := false
+			if ok && !s.chatScoped() {
+				switch body.ConfigID {
+				case fusionSidekickOption:
+					_, _, modelExists := fusionModel(s.cfg, value)
+					valid = value == fusionOff || modelExists
+				case fusionEffortOption:
+					valid = value == fusionDefaultEffort || slices.Contains(nativeEffortLevels, value)
+				}
+			}
+			if !valid {
+				writeFail(w, http.StatusBadRequest, "无效的 Agent 配置值")
+				return
+			}
+			if err := s.setFusionConfigOption(body.SessionName, body.ConfigID, value); err != nil {
+				writeFail(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeOK(w, http.StatusOK, map[string]any{"configOptions": s.nativeConfigOptions(body.SessionName)})
+			return
+		}
 		if err := s.setNativeConfigOption(body.SessionName, body.ConfigID, body.Value); err != nil {
 			writeFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if body.ConfigID != "plan" && body.ConfigID != fusionSidekickOption {
+		if body.ConfigID != "plan" {
 			s.state.files.Lock()
-			prefs := s.enginePreferencesRead()
-			agents, _ := prefs["agents"].(map[string]any)
-			values := map[string]any{}
+			prefs, err := s.loadEnginePreferences()
+			if err != nil {
+				s.state.files.Unlock()
+				writeFail(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			agents, values := nativeEnginePreferences(prefs)
 			for _, option := range s.nativeConfigOptions(body.SessionName) {
-				if option["id"] != "plan" && option["id"] != fusionSidekickOption {
+				if option["id"] != "plan" && !isFusionConfigOption(option["id"].(string)) {
 					values[option["id"].(string)] = option["currentValue"]
 				}
 			}
 			agents["native"] = values
-			err := repository.WriteJSON(s.enginePreferencesPath(), prefs)
+			err = repository.WriteJSON(s.enginePreferencesPath(), prefs)
 			s.state.files.Unlock()
 			if err != nil {
 				writeFail(w, http.StatusInternalServerError, err.Error())

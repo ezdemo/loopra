@@ -22,7 +22,7 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 
 export default function ModelReasoningSelector(props: Props) {
   const { models, options, external, agentEngineName, notify } = props;
-  const [menu, setMenu] = useState<'summary' | 'models' | 'effort' | 'fusion'>('summary');
+  const [menu, setMenu] = useState<'summary' | 'models' | 'effort' | 'fusion' | 'fusion-effort'>('summary');
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const anchor = useRef<HTMLDivElement>(null);
@@ -30,6 +30,7 @@ export default function ModelReasoningSelector(props: Props) {
   const modelRow = useRef<HTMLButtonElement>(null);
   const effortRow = useRef<HTMLButtonElement>(null);
   const fusionRow = useRef<HTMLButtonElement>(null);
+  const fusionEffortRow = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const flyout = useRef<HTMLDivElement>(null);
   const hoverClose = useRef<ReturnType<typeof setTimeout>>();
@@ -41,6 +42,7 @@ export default function ModelReasoningSelector(props: Props) {
   const fusion = !external && !props.chatMode ? findAgentOption(props.agentConfig?.options, 'fusionSidekick') : undefined;
   const fusionValue = fusion ? configValue(fusion) : 'off';
   const fusionActive = !!fusion && fusionValue !== 'off';
+  const fusionEffort = fusionActive ? findAgentOption(props.agentConfig?.options, 'fusionSidekickEffort') : undefined;
   const fusionLabel = fusion?.options.find(option => option.value === fusionValue)?.name ?? '模型不可用';
   const agentBusy = !!props.agentConfig?.busy;
   const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
@@ -50,7 +52,7 @@ export default function ModelReasoningSelector(props: Props) {
   const pickerOption = menu === 'fusion' ? fusion : agentModel;
   const pickerValue = pickerOption ? configValue(pickerOption) : '';
   const pickerGroups = menu === 'fusion' ? fusionGroups : modelGroupsForAgent;
-  const pickerTitle = menu === 'models' ? '选择模型' : menu === 'fusion' ? 'Fusion 执行模型' : '推理设置';
+  const pickerTitle = menu === 'models' ? '选择模型' : menu === 'fusion' ? '边缘模型' : menu === 'fusion-effort' ? '边缘推理' : '推理设置';
   const agentModelValue = agentModel ? configValue(agentModel) : '';
   const agentEffortValue = agentEffort ? configValue(agentEffort) : '';
   const native = !external && !props.agentConfig;
@@ -73,15 +75,15 @@ export default function ModelReasoningSelector(props: Props) {
   const reasoningName = reasoningValue === 'none' ? '无' : reasoningValue === 'xhigh' ? 'XHigh'
     : /^(minimal|low|medium|high|max|default)$/.test(reasoningValue) ? reasoningValue[0].toUpperCase() + reasoningValue.slice(1)
     : agentEffort ? agentOptionLabel(agentEffort) : reasoningValue;
-  const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : '', fusionActive ? `Fusion：${fusionLabel}` : ''].filter(Boolean).join('\n');
+  const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : '', fusionActive ? `边缘：${fusionLabel}` : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
   const close = props.onClose;
   const focusInput = props.onSelected;
-  const back = () => { const previous = menu; setMenu('summary'); requestAnimationFrame(() => (previous === 'models' ? modelRow : previous === 'fusion' ? fusionRow : effortRow).current?.focus()); };
+  const back = () => { const previous = menu; setMenu('summary'); requestAnimationFrame(() => (previous === 'models' ? modelRow : previous === 'fusion' ? fusionRow : previous === 'fusion-effort' ? fusionEffortRow : effortRow).current?.focus()); };
   function cancelHoverClose() { clearTimeout(hoverClose.current); }
-  function openPage(page: 'models' | 'effort' | 'fusion', focus = false) {
-    if (agentBusy || (page === 'fusion' && props.busy)) return;
+  function openPage(page: 'models' | 'effort' | 'fusion' | 'fusion-effort', focus = false) {
+    if (agentBusy || ((page === 'fusion' || page === 'fusion-effort') && props.busy)) return;
     cancelHoverClose();
     if (focus) requestAnimationFrame(() => (flyout.current?.querySelector<HTMLInputElement>('input') || flyout.current?.querySelector<HTMLButtonElement>('button'))?.focus());
     if (menu === page) return;
@@ -111,9 +113,9 @@ export default function ModelReasoningSelector(props: Props) {
   return <div ref={anchor} className="model-reasoning-selector" data-placement={placement.side}
     style={{ '--composer-popover-max-height': `${placement.maxHeight}px` } as CSSProperties}
     onKeyDown={event => {
-      const rows = [modelRow, effortRow, fusionRow].map(ref => ref.current).filter((el): el is HTMLButtonElement => !!el && !el.disabled);
+      const rows = [modelRow, effortRow, fusionRow, fusionEffortRow].map(ref => ref.current).filter((el): el is HTMLButtonElement => !!el && !el.disabled);
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (menu !== 'summary') back(); else { close(); trigger.current?.focus(); } }
-      if (event.key === 'ArrowLeft' && rows.includes(event.target as HTMLButtonElement)) { event.preventDefault(); openPage(event.target === modelRow.current ? 'models' : event.target === fusionRow.current ? 'fusion' : 'effort', true); }
+      if (event.key === 'ArrowLeft' && rows.includes(event.target as HTMLButtonElement)) { event.preventDefault(); openPage(event.target === modelRow.current ? 'models' : event.target === fusionRow.current ? 'fusion' : event.target === fusionEffortRow.current ? 'fusion-effort' : 'effort', true); }
       if (event.key === 'ArrowRight' && flyout.current?.contains(event.target as Node)) { event.preventDefault(); back(); }
       if (rows.includes(event.target as HTMLButtonElement) && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
         event.preventDefault();
@@ -123,10 +125,10 @@ export default function ModelReasoningSelector(props: Props) {
     }}>
     <Tooltip content={title} classNames={{ content: 'model-name-tooltip' }} delay={600}>
       <Button ref={trigger} isDisabled={agentBusy} variant="light" className={`composer-model composer-model-reasoning ${props.open ? 'is-active' : ''}`}
-        title={title} aria-label={`模型与推理设置：${[agentEngineName, hasModel ? (fusionActive ? 'Fusion · ' : '') + modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ')}`}
+        title={title} aria-label={`模型与推理设置：${[agentEngineName, hasModel ? (fusionActive ? '边缘 · ' : '') + modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ')}`}
         aria-haspopup="dialog" aria-expanded={props.open} aria-controls={props.open ? panelId : undefined} onPress={props.onOpenChange}>
         <AgentIcon agentId={props.agentId} />
-        {hasModel && <span className="model-reasoning-name">{fusionActive ? 'Fusion · ' : ''}{modelName}</span>}
+        {hasModel && <span className="model-reasoning-name">{fusionActive ? '边缘 · ' : ''}{modelName}</span>}
         {hasModel && hasReasoning && <span className="model-reasoning-divider" aria-hidden="true">·</span>}
         {hasReasoning && <span className="model-reasoning-effort">{reasoningName || '快速'}</span>}
       </Button>
@@ -142,11 +144,15 @@ export default function ModelReasoningSelector(props: Props) {
             </button>}
             {hasReasoning && <button ref={effortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('effort'); }} onClick={() => openPage('effort', true)} disabled={agentBusy}
               aria-haspopup="dialog" aria-expanded={menu === 'effort'} aria-controls={menu === 'effort' ? `${panelId}-effort` : undefined}>
-              <span>推理</span><span className="model-reasoning-value">{reasoningName || '快速模式'}{fast && reasoningName && <Zap size="0.875rem" aria-label="快速模式已开启" />}</span>
+              <span>{fusionActive ? '主推理' : '推理'}</span><span className="model-reasoning-value">{reasoningName || '快速模式'}{fast && reasoningName && <Zap size="0.875rem" aria-label="快速模式已开启" />}</span>
             </button>}
             {!!fusion && <button ref={fusionRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion'); }} onClick={() => openPage('fusion', true)} disabled={agentBusy || props.busy}
               aria-haspopup="dialog" aria-expanded={menu === 'fusion'} aria-controls={menu === 'fusion' ? `${panelId}-fusion` : undefined}>
-              <span>Fusion</span><span className="model-reasoning-value" title={fusionLabel}>{fusionLabel}</span>
+              <span>边缘</span><span className="model-reasoning-value" title={fusionLabel}>{fusionLabel}</span>
+            </button>}
+            {!!fusionEffort && <button ref={fusionEffortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion-effort'); }} onClick={() => openPage('fusion-effort', true)} disabled={agentBusy || props.busy}
+              aria-haspopup="dialog" aria-expanded={menu === 'fusion-effort'} aria-controls={menu === 'fusion-effort' ? `${panelId}-fusion-effort` : undefined}>
+              <span>边缘推理</span><span className="model-reasoning-value">{agentOptionLabel(fusionEffort)}</span>
             </button>}
           </div>
         </section>
@@ -205,6 +211,9 @@ export default function ModelReasoningSelector(props: Props) {
           <div className="popover-footer"><span>模型来自 Loopra 配置</span><Button size="sm" variant="light" onPress={() => { close(); props.onManage(); }}><Settings2 size="0.875rem" />管理模型</Button></div>
         </>)}
 
+        {menu === 'fusion-effort' && fusionEffort && <div className="effort-body">
+          <ReasoningControl value={configValue(fusionEffort)} levels={agentEffortLevels(fusionEffort)} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(fusionEffort.id, value)} onClose={close} />
+        </div>}
         {menu === 'effort' && (agentEffort || agentFast ? <div className="effort-body">
           {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
           {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />快速模式</span><small>{agentOptionDescription(agentFast) || '发送快速模式参数，需模型支持'}</small></div><Toggle label="快速模式" value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -186,10 +187,27 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 		t.Fatalf("re-selecting same model rotated epoch: %q -> %q", epoch, again)
 	}
 
+	// 执行模型强度独立于主模型配置并随选择保存：强度编辑
+	// 不轮换 epoch，请求把它带给执行渠道。
+	code, env := call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
+		map[string]any{"workspaceHash": main, "sessionName": name, "configId": fusionEffortOption, "value": "high"})
+	if code != http.StatusOK {
+		t.Fatalf("fusion effort = %d %v", code, env)
+	}
+	if again, _ := s.sessionMetaRead(name)[fusionEpochKey].(string); again != epoch {
+		t.Fatalf("effort edit rotated epoch: %q -> %q", epoch, again)
+	}
+
 	turn1 := fusionStream(t, ts, key, name, "父会话第一条消息")
 	turn2 := fusionStream(t, ts, key, name, "父会话第二条消息")
-	enableFusion(t, ts, key, main, "fusion-other", "sidekick:side-model")
+	// fusion-other 没有明确选择：首个真实轮次继承服务端默认并固定到 .meta。
 	turn3 := fusionStream(t, ts, key, "fusion-other", "另一个会话的消息")
+	if got := s.sessionMetaRead("fusion-other")[fusionSidekickOption]; got != "sidekick:side-model" {
+		t.Fatalf("first turn did not pin inherited Fusion: %v", got)
+	}
+	if got := s.sessionMetaRead("fusion-other")[fusionEffortOption]; got != "high" {
+		t.Fatalf("first turn did not pin inherited Fusion effort: %v", got)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -203,6 +221,9 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 		}
 		if payload["model"] != "side-model" {
 			t.Fatalf("request %d model = %v", i, payload["model"])
+		}
+		if payload["reasoning_effort"] != "high" {
+			t.Fatalf("request %d reasoning_effort = %v", i, payload["reasoning_effort"])
 		}
 	}
 	// explore 委派只拿只读工具：rg/read 在，写工具、终端、委派与
@@ -387,7 +408,8 @@ func enableFusion(t *testing.T, ts *httptest.Server, key, workspace, session, va
 }
 
 // TestFusionConfigOption 覆盖引擎配置层的 Fusion 选项：缺省 off、
-// 按会话持久化、纯聊天与未知值被拒、关闭删键、且不进入引擎偏好。
+// 按会话持久化并成为新会话的服务端默认、纯聊天与未知值被拒、
+// 明确关闭写入 "off"、已用旧会话不跟随默认。
 func TestFusionConfigOption(t *testing.T) {
 	ts, key, s, _ := parityServer(t, "")
 	main := s.agent.App()
@@ -405,29 +427,69 @@ func TestFusionConfigOption(t *testing.T) {
 		}
 		return nil
 	}
-
-	// 旧会话没有保存过选择：选项存在且为 off。
-	code, env := call(t, ts, http.MethodGet, "/api/agent-engines/config?workspaceHash="+main+"&sessionName="+name, key, nil)
-	if code != http.StatusOK {
-		t.Fatalf("get config = %d %v", code, env)
+	nativePrefs := func() map[string]any {
+		data, err := os.ReadFile(s.enginePreferencesPath())
+		if err != nil {
+			t.Fatalf("read preferences: %v", err)
+		}
+		var prefs map[string]any
+		if err := json.Unmarshal(data, &prefs); err != nil {
+			t.Fatalf("parse preferences: %v", err)
+		}
+		agents, _ := prefs["agents"].(map[string]any)
+		native, _ := agents["native"].(map[string]any)
+		return native
 	}
-	opt := find(optionsOf(env), "fusionSidekick")
-	if opt == nil || opt["currentValue"] != "off" {
-		t.Fatalf("default fusion = %v", opt)
+	optionValue := func(session, id string) any {
+		code, env := call(t, ts, http.MethodGet, "/api/agent-engines/config?workspaceHash="+main+"&sessionName="+session, key, nil)
+		if code != http.StatusOK {
+			t.Fatalf("get config %s = %d %v", session, code, env)
+		}
+		if opt := find(optionsOf(env), id); opt != nil {
+			return opt["currentValue"]
+		}
+		return nil
+	}
+	prepareOption := func(session, id string) any {
+		body := map[string]any{"workspaceHash": main}
+		if session != "" {
+			body["sessionName"] = session
+		}
+		code, env := call(t, ts, http.MethodPost, "/api/agent-engines/prepare", key, body)
+		if code != http.StatusOK {
+			t.Fatalf("prepare %q = %d %v", session, code, env)
+		}
+		if opt := find(optionsOf(env), id); opt != nil {
+			return opt["currentValue"]
+		}
+		return nil
+	}
+
+	// 会话没有保存过选择且服务端没有默认：选项存在且为 off / default。
+	if got := optionValue(name, fusionSidekickOption); got != "off" {
+		t.Fatalf("default fusion = %v", got)
+	}
+	if got := optionValue(name, fusionEffortOption); got != "default" {
+		t.Fatalf("default fusion effort = %v", got)
 	}
 
 	// 纯聊天工作区不暴露选项，写入同样被拒。
-	code, env = call(t, ts, http.MethodGet, "/api/agent-engines/config?workspaceHash="+chatWorkspace+"&sessionName="+name, key, nil)
+	code, env := call(t, ts, http.MethodGet, "/api/agent-engines/config?workspaceHash="+chatWorkspace+"&sessionName="+name, key, nil)
 	if code != http.StatusOK {
 		t.Fatalf("chat get config = %d %v", code, env)
 	}
-	if find(optionsOf(env), "fusionSidekick") != nil {
-		t.Fatal("chat workspace exposes fusionSidekick")
+	if find(optionsOf(env), "fusionSidekick") != nil || find(optionsOf(env), fusionEffortOption) != nil {
+		t.Fatal("chat workspace exposes fusion options")
 	}
 	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
 		map[string]any{"workspaceHash": chatWorkspace, "sessionName": name, "configId": "fusionSidekick", "value": "off"})
 	if code != http.StatusBadRequest {
 		t.Fatalf("chat PUT fusion = %d %v", code, env)
+	}
+	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
+		map[string]any{"workspaceHash": chatWorkspace, "sessionName": name, "configId": fusionEffortOption, "value": "high"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("chat PUT fusion effort = %d %v", code, env)
 	}
 
 	// 不在目录中的组合值被拒。
@@ -436,52 +498,168 @@ func TestFusionConfigOption(t *testing.T) {
 	if code != http.StatusBadRequest {
 		t.Fatalf("unknown fusion value = %d %v", code, env)
 	}
+	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
+		map[string]any{"workspaceHash": main, "sessionName": name, "configId": fusionEffortOption, "value": "arbitrary"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("unknown fusion effort = %d %v", code, env)
+	}
 
-	// 目录内组合值按会话持久化，未知 meta 键保留。
+	// 目录内组合值按会话持久化并成为新会话的服务端默认，
+	// 未知 meta 键保留；偏好按请求从文件读取，重启后同样生效。
 	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
 		map[string]any{"workspaceHash": main, "sessionName": name, "configId": "fusionSidekick", "value": "default:deepseek-v4-flash"})
 	if code != http.StatusOK {
 		t.Fatalf("enable fusion = %d %v", code, env)
 	}
-	if opt = find(optionsOf(env), "fusionSidekick"); opt["currentValue"] != "default:deepseek-v4-flash" {
+	if opt := find(optionsOf(env), "fusionSidekick"); opt["currentValue"] != "default:deepseek-v4-flash" {
 		t.Fatalf("fusion current = %v", opt["currentValue"])
 	}
 	meta := s.sessionMetaRead(name)
 	if meta["fusionSidekick"] != "default:deepseek-v4-flash" || meta["futureField"] != "keep" {
 		t.Fatalf("meta = %v", meta)
 	}
-	code, env = call(t, ts, http.MethodGet, "/api/agent-engines/config?workspaceHash="+main+"&sessionName=other", key, nil)
-	if opt = find(optionsOf(env), "fusionSidekick"); opt == nil || opt["currentValue"] != "off" {
-		t.Fatalf("other session fusion = %v", opt)
+	if native := nativePrefs(); native["fusionSidekick"] != "default:deepseek-v4-flash" {
+		t.Fatalf("preference file = %v", native)
+	}
+	if got := optionValue("other", fusionSidekickOption); got != "default:deepseek-v4-flash" {
+		t.Fatalf("other session fusion = %v", got)
 	}
 
-	// Fusion 不写入引擎偏好；随后修改普通选项的快照也一样。
+	// 执行模型的推理强度独立配置：按会话持久化并成为新会话的
+	// 服务端默认，强度编辑不轮换模型上下文 epoch。
+	epoch, _ := s.sessionMetaRead(name)[fusionEpochKey].(string)
 	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
-		map[string]any{"workspaceHash": main, "sessionName": name, "configId": "effort", "value": "low"})
+		map[string]any{"workspaceHash": main, "sessionName": name, "configId": fusionEffortOption, "value": "high"})
 	if code != http.StatusOK {
-		t.Fatalf("effort = %d %v", code, env)
+		t.Fatalf("fusion effort = %d %v", code, env)
 	}
-	agents, _ := s.enginePreferencesRead()["agents"].(map[string]any)
-	native, _ := agents["native"].(map[string]any)
-	if _, ok := native["fusionSidekick"]; ok {
-		t.Fatalf("fusion leaked into preferences: %v", native)
+	if opt := find(optionsOf(env), fusionEffortOption); opt["currentValue"] != "high" {
+		t.Fatalf("fusion effort current = %v", opt["currentValue"])
 	}
-	if native["effort"] != "low" {
-		t.Fatalf("preferences = %v", native)
+	if again, _ := s.sessionMetaRead(name)[fusionEpochKey].(string); again != epoch {
+		t.Fatalf("effort edit rotated epoch: %q -> %q", epoch, again)
+	}
+	if native := nativePrefs(); native[fusionEffortOption] != "high" {
+		t.Fatalf("effort preference = %v", native)
+	}
+	if got := optionValue("other", fusionEffortOption); got != "high" {
+		t.Fatalf("other session fusion effort = %v", got)
 	}
 
-	// 关闭移除该键，其余 meta 字段不受影响。
+	// 命名与未命名的空白会话在 /prepare 都展示服务端默认。
+	if got := prepareOption("blank-named", fusionSidekickOption); got != "default:deepseek-v4-flash" {
+		t.Fatalf("named draft prepare fusion = %v", got)
+	}
+	if got := prepareOption("", fusionSidekickOption); got != "default:deepseek-v4-flash" {
+		t.Fatalf("unnamed draft prepare fusion = %v", got)
+	}
+	if got := prepareOption("fresh-effort", fusionEffortOption); got != "high" {
+		t.Fatalf("fresh draft prepare effort = %v", got)
+	}
+
+	// 已落盘的旧会话没有保存过选择：保持 off / default，不跟随新默认。
+	seedSessionMessage(t, s, main, "legacy")
+	if got := optionValue("legacy", fusionSidekickOption); got != "off" {
+		t.Fatalf("legacy session fusion = %v", got)
+	}
+	if got := optionValue("legacy", fusionEffortOption); got != "default" {
+		t.Fatalf("legacy session fusion effort = %v", got)
+	}
+
+	// 纯聊天会话修改普通选项时快照不含 Fusion 键；已保存的
+	// Fusion 默认与普通偏好原样保留，主模型强度与执行模型强度互不影响。
+	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
+		map[string]any{"workspaceHash": chatWorkspace, "sessionName": "chat-cfg", "configId": "effort", "value": "low"})
+	if code != http.StatusOK {
+		t.Fatalf("chat effort = %d %v", code, env)
+	}
+	if native := nativePrefs(); native["fusionSidekick"] != "default:deepseek-v4-flash" ||
+		native[fusionEffortOption] != "high" || native["effort"] != "low" {
+		t.Fatalf("preferences after chat write = %v", native)
+	}
+	if got := optionValue(name, fusionEffortOption); got != "high" {
+		t.Fatalf("session fusion effort = %v", got)
+	}
+
+	// 另一会话把执行强度改回默认：服务端默认复原，已明确选择的
+	// 会话保留自己的强度，且模型 epoch 不因强度编辑轮换。
+	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
+		map[string]any{"workspaceHash": main, "sessionName": "other", "configId": fusionEffortOption, "value": "default"})
+	if code != http.StatusOK {
+		t.Fatalf("reset fusion effort = %d %v", code, env)
+	}
+	if native := nativePrefs(); native[fusionEffortOption] != "default" {
+		t.Fatalf("effort preference reset = %v", native)
+	}
+	if got := optionValue(name, fusionEffortOption); got != "high" {
+		t.Fatalf("explicit effort followed default reset: %v", got)
+	}
+	if again, _ := s.sessionMetaRead(name)[fusionEpochKey].(string); again != epoch {
+		t.Fatalf("effort reset rotated epoch: %q -> %q", epoch, again)
+	}
+
+	// 另一会话显式关闭：服务端默认改回 off，新 prepare 展示 off；
+	// 已明确选择的会话保留自己的选择。
+	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
+		map[string]any{"workspaceHash": main, "sessionName": "other", "configId": "fusionSidekick", "value": "off"})
+	if code != http.StatusOK {
+		t.Fatalf("disable fusion = %d %v", code, env)
+	}
+	if native := nativePrefs(); native["fusionSidekick"] != "off" {
+		t.Fatalf("preference off = %v", native)
+	}
+	if got := prepareOption("new-draft", fusionSidekickOption); got != "off" {
+		t.Fatalf("draft after off = %v", got)
+	}
+	if got := optionValue(name, fusionSidekickOption); got != "default:deepseek-v4-flash" {
+		t.Fatalf("explicit session followed default change: %v", got)
+	}
+	if got := s.sessionMetaRead("other")["fusionSidekick"]; got != "off" {
+		t.Fatalf("explicit off not retained in meta: %v", got)
+	}
+
+	// 别处重新开启后，显式 off 的选择不变。
+	enableFusion(t, ts, key, main, "third", "default:deepseek-v4-flash")
+	if got := optionValue("other", fusionSidekickOption); got != "off" {
+		t.Fatalf("explicit off followed re-enable: %v", got)
+	}
+	if got := optionValue("legacy", fusionSidekickOption); got != "off" {
+		t.Fatalf("legacy session followed re-enable: %v", got)
+	}
+
+	// 显式关闭写入 "off" 而不是删键，其余 meta 字段不受影响。
 	code, env = call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
 		map[string]any{"workspaceHash": main, "sessionName": name, "configId": "fusionSidekick", "value": "off"})
 	if code != http.StatusOK {
 		t.Fatalf("disable fusion = %d %v", code, env)
 	}
 	meta = s.sessionMetaRead(name)
-	if _, ok := meta["fusionSidekick"]; ok {
-		t.Fatalf("meta still has fusion: %v", meta)
+	if meta["fusionSidekick"] != "off" {
+		t.Fatalf("meta fusion = %v", meta)
 	}
 	if meta["futureField"] != "keep" {
 		t.Fatalf("meta lost futureField: %v", meta)
+	}
+}
+
+// TestFusionConfigPreferenceWriteFailure 偏好文件不可读时保存
+// Fusion 选择返回失败，且不向会话写入任何选择。
+func TestFusionConfigPreferenceWriteFailure(t *testing.T) {
+	ts, key, s, _ := parityServer(t, "")
+	main := s.agent.App()
+	if parent := filepath.Dir(s.enginePreferencesPath()); parent != s.home {
+		t.Fatalf("unexpected preferences parent: %s", parent)
+	}
+	if err := os.Mkdir(s.enginePreferencesPath(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	code, env := call(t, ts, http.MethodPut, "/api/agent-engines/config", key,
+		map[string]any{"workspaceHash": main, "sessionName": "blocked", "configId": "fusionSidekick", "value": "default:deepseek-v4-flash"})
+	if code != http.StatusInternalServerError || env["success"] != false {
+		t.Fatalf("unreadable preferences PUT = %d %v", code, env)
+	}
+	if got := s.sessionMetaRead("blocked")["fusionSidekick"]; got != nil {
+		t.Fatalf("failed write still set session fusion: %v", got)
 	}
 }
 
@@ -533,6 +711,13 @@ func TestFusionSidekickRunsImplement(t *testing.T) {
 	}
 	if gotModel.Load() != "side-model" {
 		t.Fatalf("sidekick model = %v", gotModel.Load())
+	}
+	var runBody map[string]any
+	if err := json.Unmarshal([]byte(fmt.Sprint(gotBody.Load())), &runBody); err != nil {
+		t.Fatalf("sidekick body not json: %v", err)
+	}
+	if _, has := runBody["reasoning_effort"]; has {
+		t.Fatalf("default fusion effort sent reasoning_effort: %v", runBody["reasoning_effort"])
 	}
 	var scopedText, toolResult, final, segment string
 	scopedIndex, toolResultIndex, finalIndex := -1, -1, -1
@@ -732,6 +917,13 @@ func TestFusionLeavesOrdinarySubAgentOnParentModel(t *testing.T) {
 // schema 带 profile/task；普通 sub_agent 保持可让出的异步语义。
 func TestFusionDelegateIsSynchronous(t *testing.T) {
 	ts, key, s := fusionServer(t, echo.New("idle-lead"), "http://127.0.0.1:9/v1", nil)
+	// plain-sync 在设置服务端默认之前准备：继承当时的 off 并固定下来，
+	// 之后的默认变化不再影响它。
+	plain, err := s.prepareTurn(&chatRequest{SessionName: "plain-sync"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.closeTurnTools()
 	enableFusion(t, ts, key, s.agent.App(), "fusion-sync", "sidekick:side-model")
 
 	entries := func(turn *Controller) map[string]tools.Tool {
@@ -782,11 +974,6 @@ func TestFusionDelegateIsSynchronous(t *testing.T) {
 		t.Fatal("retired fusion_plan must not be advertised")
 	}
 
-	plain, err := s.prepareTurn(&chatRequest{SessionName: "plain-sync"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer plain.closeTurnTools()
 	plainEntries := entries(plain)
 	plainCheck, ok := plainEntries[checklistUpdateName]
 	if !ok || !plainCheck.Meta.ReadOnly || plainCheck.Meta.Async {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/infrastructure/gitops"
-	"github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/service/acp"
 	"github.com/ezdemo/looprax/internal/service/customagent"
 	"github.com/ezdemo/looprax/internal/service/tools"
@@ -153,20 +152,13 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 		req.LinkedProjectHashes = nil
 	}
 	// Fusion 是原生项目会话的开关：非空选择必须能解析回目录中的
-	// 渠道模型，失效值直接报错而不是静默退回父模型。
-	sidekick := ""
-	var fusionChannel config.Channel
+	// 渠道模型，失效值直接报错而不是静默退回父模型。首个真实轮次
+	// 把当前默认固定到 .meta，之后不再跟随服务端默认值变化。
+	var fusion fusionTurnSettings
 	if !chat {
-		sidekick = strOr(meta, fusionSidekickOption, "")
-		if sidekick == fusionOff {
-			sidekick = ""
-		}
-		if sidekick != "" {
-			ch, _, ok := fusionModel(cfg, sidekick)
-			if !ok {
-				return nil, fmt.Errorf("Fusion 执行模型已不可用，请重新选择或关闭 Fusion")
-			}
-			fusionChannel = ch
+		fusion, err = s.fusionTurnSelection(req.SessionName, cfg)
+		if err != nil {
+			return nil, err
 		}
 	}
 	projects, err := s.linkedProjects(s.agent.App(), req.LinkedProjectHashes)
@@ -177,16 +169,16 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	// 作用域指纹绑定所选模型、epoch、运行时工作区与关联项目根；
 	// 任一变化都让下一次委派从零开始而不是误续旧上下文。
 	scope := ""
-	if sidekick != "" {
-		scope = s.fusionScope(req.SessionName, sidekick, strOr(meta, fusionEpochKey, ""), fusionChannel, linkedRoots)
+	if fusion.model != "" {
+		scope = s.fusionScope(req.SessionName, fusion.model, fusion.epoch, fusion.channel, linkedRoots)
 	}
 	instruction := s.withMemoryInstruction(s.systemInstructionFor(s.workspaceRoot(), s.agent.App(), projects))
-	if sidekick != "" {
+	if fusion.model != "" {
 		instruction += "\n\n" + fusionLeadInstruction
 	}
 	// 会话级角色不体现在工作区缓存 Agent 的指令与工具清单里，必须重建。
 	sessionPersona := s.agent != nil && s.profile != nil && !customagent.IsID(s.agent.App())
-	changed := sessionPersona || sidekick != "" || model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
+	changed := sessionPersona || fusion.model != "" || model != cfg.Model || channel != cfg.ModelChannelID || effort != cfg.ReasoningEffort || cfg.FastMode != s.cfg.FastMode || req.FastMode != nil || len(linkedRoots) > 0 || len(s.linkedProjectRoots) > 0 || strings.TrimSpace(instruction) != s.agent.Instruction()
 	var turnSet *toolsearch.Set
 	var closers []io.Closer
 	if !chat {
@@ -234,8 +226,8 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	view.agent = a
 	view.installApprovalPolicy()
 	if !chat {
-		view.installTurnSubRunner(sidekick, scope)
-		if sidekick != "" {
+		view.installTurnSubRunner(fusion.model, fusion.effort, scope)
+		if fusion.model != "" {
 			// 自定义智能体限定工具清单时，允许 sub_agent 的角色
 			// 同样获得同步委派能力；不允许的角色不会因此放宽。
 			if view.registry != nil && view.profile != nil && view.profile.Tools != nil &&

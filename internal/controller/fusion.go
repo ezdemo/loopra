@@ -2,18 +2,31 @@ package controller
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/ezdemo/looprax/internal/model/config"
+	"github.com/ezdemo/looprax/internal/repository"
 )
 
 // fusionSidekickOption 是会话级 Fusion 开关在 .meta 与引擎配置中的键；
 // 取值是 "off" 或 "<channelId>:<modelName>" 的组合目录项。
 const fusionSidekickOption = "fusionSidekick"
+
+// fusionEffortOption 是 Fusion 执行模型独立的推理强度键；取值是
+// "default" 或推理强度目录项，只作用于 fusion_delegate。
+const fusionEffortOption = "fusionSidekickEffort"
+const fusionDefaultEffort = "default"
+
 const fusionOff = "off"
+
+func isFusionConfigOption(id string) bool {
+	return id == fusionSidekickOption || id == fusionEffortOption
+}
 
 // fusionEpochKey 是执行上下文的代号：选择变更、关闭再开启或历史撤回
 // 都会轮换它，旧检查点随作用域指纹失效而不会误续到新的上下文。
@@ -39,22 +52,107 @@ func fusionModel(cfg *config.Loopra, value string) (config.Channel, string, bool
 	return config.Channel{}, "", false
 }
 
-// setFusionSidekick 更新会话的 Fusion 选择；"off" 直接移除键，
-// 不写入引擎级 preferences（这是按会话的开关，不是全局默认）。
-// 选择变化时轮换 epoch；重选相同值保留上下文。
-func (s *Controller) setFusionSidekick(name, value string) error {
+// fusionSettings 只为尚未使用的会话补充服务端的 Fusion 默认值。
+func (s *Controller) fusionSettings(meta map[string]any, fresh bool) (model, effort string) {
+	model, effort = strOr(meta, fusionSidekickOption, ""), strOr(meta, fusionEffortOption, "")
+	var defaults map[string]any
+	if fresh && (model == "" || effort == "") {
+		_, defaults = nativeEnginePreferences(s.enginePreferencesRead())
+	}
+	if model == "" {
+		model = strOr(defaults, fusionSidekickOption, fusionOff)
+	}
+	if effort == "" {
+		effort = strOr(defaults, fusionEffortOption, fusionDefaultEffort)
+	}
+	return
+}
+
+type fusionTurnSettings struct {
+	model, effort, epoch string
+	channel              config.Channel
+}
+
+// setFusionConfigOption 保存会话的明确选择及新会话的默认值。
+// 模型变化时轮换 epoch；重选相同值或调整推理强度保留上下文。
+func (s *Controller) setFusionConfigOption(name, id, value string) error {
+	s.state.files.Lock()
+	defer s.state.files.Unlock()
+	prefs, err := s.loadEnginePreferences()
+	if err != nil {
+		return fmt.Errorf("读取 Agent 偏好失败: %w", err)
+	}
+	agents, values := nativeEnginePreferences(prefs)
+	// 保存旧的 native 配置以便会话写入失败时回退。
+	previous, existed := agents["native"]
+	next := maps.Clone(values)
+	next[id] = value
+	agents["native"] = next
+	if err := repository.WriteJSON(s.enginePreferencesPath(), prefs); err != nil {
+		return fmt.Errorf("保存 Agent 偏好失败: %w", err)
+	}
+	meta := s.sessionMetaRead(name)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	if id == fusionSidekickOption && strOr(meta, fusionSidekickOption, fusionOff) != value {
+		meta[fusionEpochKey] = newUUIDv4()
+	}
+	meta[id] = value
+	if err := s.sessionMetaWrite(name, meta); err != nil {
+		if existed {
+			agents["native"] = previous
+		} else {
+			delete(agents, "native")
+		}
+		if restoreErr := repository.WriteJSON(s.enginePreferencesPath(), prefs); restoreErr != nil {
+			err = errors.Join(err, fmt.Errorf("恢复 Agent 偏好失败: %w", restoreErr))
+		}
+		return fmt.Errorf("保存会话 Fusion 配置失败: %w", err)
+	}
+	return nil
+}
+
+// fusionTurnSelection 固定草稿继承的值，避免已开始的会话跟随默认值变化。
+func (s *Controller) fusionTurnSelection(name string, cfg *config.Loopra) (fusionTurnSettings, error) {
 	s.state.files.Lock()
 	defer s.state.files.Unlock()
 	meta := s.sessionMetaRead(name)
-	if previous := strOr(meta, fusionSidekickOption, fusionOff); previous != value {
-		meta[fusionEpochKey] = newUUIDv4()
+	if meta == nil {
+		meta = map[string]any{}
 	}
-	if value == fusionOff {
-		delete(meta, fusionSidekickOption)
-	} else {
-		meta[fusionSidekickOption] = value
+	fresh := !s.sessionPersisted(name)
+	var settings fusionTurnSettings
+	settings.model, settings.effort = s.fusionSettings(meta, fresh)
+	if settings.model != fusionOff {
+		var ok bool
+		settings.channel, _, ok = fusionModel(cfg, settings.model)
+		if !ok {
+			return fusionTurnSettings{}, fmt.Errorf("Fusion 执行模型已不可用，请重新选择或关闭 Fusion")
+		}
 	}
-	return s.sessionMetaWrite(name, meta)
+	changed := false
+	if fresh {
+		for id, value := range map[string]string{fusionSidekickOption: settings.model, fusionEffortOption: settings.effort} {
+			if strOr(meta, id, "") == "" {
+				meta[id] = value
+				changed = true
+			}
+		}
+	}
+	if changed {
+		if err := s.sessionMetaWrite(name, meta); err != nil {
+			return fusionTurnSettings{}, fmt.Errorf("保存会话 Fusion 配置失败: %w", err)
+		}
+	}
+	if settings.model == fusionOff {
+		settings.model = ""
+	}
+	if settings.effort == fusionDefaultEffort {
+		settings.effort = ""
+	}
+	settings.epoch = strOr(meta, fusionEpochKey, "")
+	return settings, nil
 }
 
 // resetFusionContext 在父会话历史被撤回后轮换 Fusion 上下文代号：

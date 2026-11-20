@@ -210,7 +210,7 @@ func TestNativeEngineSelectorsPersistAndRestore(t *testing.T) {
 	}
 	_, env := call(t, ts, "POST", "/api/agent-engines/prepare", key, map[string]any{"sessionName": "fresh"})
 	options := env["data"].(map[string]any)["configOptions"].([]any)
-	if len(options) != 5 {
+	if len(options) != 6 {
 		t.Fatalf("selectors = %v", options)
 	}
 	for _, item := range options {
@@ -218,6 +218,9 @@ func TestNativeEngineSelectorsPersistAndRestore(t *testing.T) {
 		want := selections[option["id"].(string)]
 		if option["id"] == fusionSidekickOption {
 			want = fusionOff
+		}
+		if option["id"] == fusionEffortOption {
+			want = fusionDefaultEffort
 		}
 		if option["currentValue"] != want {
 			t.Fatalf("restored selector = %v, want %s", option, want)

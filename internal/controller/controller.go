@@ -370,14 +370,15 @@ func ptr[T any](v T) *T { return &v }
 // 配置档、父级工具注册表、基于渠道的模型覆盖，以及
 // 与父级工具相同的审批闸门。
 func (s *Controller) installSubRunner() {
-	s.installTurnSubRunner("", "")
+	s.installTurnSubRunner("", "", "")
 }
 
 // installTurnSubRunner 装配单轮子代理运行时。非空 sidekick 是
 // "channel:model" 目录值：Fusion 委派使用该模型（StrictModel，
-// 无父模型回退），审批沿用父会话覆盖而不是匿名的 "sub"；scope 是
-// 执行上下文指纹，同一指纹的委派共享持久上下文。
-func (s *Controller) installTurnSubRunner(sidekick, scope string) {
+// 无父模型回退），审批沿用父会话覆盖而不是匿名的 "sub"；
+// sidekickEffort 是执行模型独立的推理强度，空值走模型默认；
+// scope 是执行上下文指纹，同一指纹的委派共享持久上下文。
+func (s *Controller) installTurnSubRunner(sidekick, sidekickEffort, scope string) {
 	if s.agent == nil || s.registry == nil {
 		return
 	}
@@ -393,7 +394,7 @@ func (s *Controller) installTurnSubRunner(sidekick, scope string) {
 		Config:      s.cfg,
 		Workspace:   s.agent.App(),
 		Environment: shellenv.Instruction(s.workspaceRoot()) + s.linkedProjectEnvironment(),
-		BuildModel: func(channelID, modelName string) (model.LLM, error) {
+		BuildModel: func(channelID, modelName, reasoningEffort string) (model.LLM, error) {
 			if s.cfg == nil {
 				return nil, fmt.Errorf("no config")
 			}
@@ -401,7 +402,7 @@ func (s *Controller) installTurnSubRunner(sidekick, scope string) {
 			if !ok {
 				return nil, fmt.Errorf("渠道不存在: %s", channelID)
 			}
-			return provider.NewLLM(providerChannel(ch), &provider.Options{Model: modelName})
+			return provider.NewLLM(providerChannel(ch), &provider.Options{Model: modelName, ReasoningEffort: reasoningEffort})
 		},
 		Profiles: func(id string) (subagent.Profile, bool) {
 			for _, p := range s.subAgentProfiles() {
@@ -426,6 +427,7 @@ func (s *Controller) installTurnSubRunner(sidekick, scope string) {
 		// 执行模型仅由 fusion_delegate 专用入口路由；sub_agent
 		// 的角色定义保持原样。
 		FusionModelChannel: sidekickChannel.ID, FusionModel: sidekickModel,
+		FusionReasoningEffort: sidekickEffort,
 		Gate: func(approvalSession string, t tool.Tool) tool.Tool {
 			policy := s.approvalPolicy
 			if policy == nil {

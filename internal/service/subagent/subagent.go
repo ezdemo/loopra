@@ -72,8 +72,9 @@ type Runner struct {
 	ParentModel model.LLM
 	Config      *config.Loopra
 	Workspace   string
-	// BuildModel 解析角色的渠道覆盖。
-	BuildModel func(channelID, modelName string) (model.LLM, error)
+	// BuildModel 解析角色的渠道覆盖；reasoningEffort 为空时
+	// 不向提供商发送强度参数。
+	BuildModel func(channelID, modelName, reasoningEffort string) (model.LLM, error)
 	// Profiles 按 id 解析角色定义。
 	Profiles func(id string) (Profile, bool)
 	// Registry 是用于复制条目的父工具注册表。
@@ -101,6 +102,10 @@ type Runner struct {
 	// 仍按角色自身配置或父模型运行。
 	FusionModelChannel string
 	FusionModel        string
+	// FusionReasoningEffort 是执行模型独立的推理强度，空值
+	// 表示跟随模型自身默认；只作用于 fusion_delegate，不影响
+	// 主模型或普通 sub_agent 的强度。
+	FusionReasoningEffort string
 	// fusionMu 串行化同一轮 Runner 上的 Fusion 委派：一次交接
 	// 完成前不允许下一次写入同一上下文。
 	fusionMu sync.Mutex
@@ -208,8 +213,12 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 		llm = nil
 	}
 	selectedChannel := ""
+	reasoningEffort := ""
+	if fusion {
+		reasoningEffort = r.FusionReasoningEffort
+	}
 	if profile.ModelChannel != "" && r.BuildModel != nil {
-		if built, err := r.BuildModel(profile.ModelChannel, profile.Model); err == nil && built != nil {
+		if built, err := r.BuildModel(profile.ModelChannel, profile.Model, reasoningEffort); err == nil && built != nil {
 			llm = built
 			selectedChannel = profile.ModelChannel
 		} else if profile.StrictModel && err != nil {
@@ -227,6 +236,9 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 			contextConfig.ModelChannelID = selectedChannel
 		}
 		contextConfig.Model = llm.Name()
+		if fusion {
+			contextConfig.ReasoningEffort = reasoningEffort
+		}
 	}
 	// subSessionID 是每次委派独立的审计/日志身份；Fusion 委派
 	// 另有一个按作用域稳定的私有 ADK 会话名，跨交接续用上下文。

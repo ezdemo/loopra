@@ -514,8 +514,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   }
   function cacheAgentConfig(agent: string, options: AgentConfigOption[]) {
     const id = agent || 'native';
-    // fusionSidekick 是按会话的选择，不进入按引擎缓存的默认值。
-    setAgentConfigCache(current => ({ ...current, [id]: id === 'native' ? options.filter(option => option.id !== 'fusionSidekick') : options }));
+    // fusionSidekick* 是按会话的选择，不进入按引擎缓存的默认值。
+    setAgentConfigCache(current => ({ ...current, [id]: id === 'native' ? options.filter(option => option.id !== 'fusionSidekick' && option.id !== 'fusionSidekickEffort') : options }));
   }
   const composerAgentOptions = session
     ? (Object.prototype.hasOwnProperty.call(agentConfigs, session.id) ? agentConfigs[session.id] : cachedAgentOptions(session.agentId || 'native'))
