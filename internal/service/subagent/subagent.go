@@ -228,7 +228,7 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 		}
 		contextConfig.Model = llm.Name()
 	}
-	// subSessionID 是每次委派独立的展示/日志身份；Fusion 委派
+	// subSessionID 是每次委派独立的审计/日志身份；Fusion 委派
 	// 另有一个按作用域稳定的私有 ADK 会话名，跨交接续用上下文。
 	agentName, sessionID, message := "sub-"+profileID, subSessionID, task
 	instruction := subInstruction(profile, instructions) + "\n\n" + r.Environment
@@ -300,12 +300,19 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 		return Result{}, fmt.Errorf("IO_ERROR: %v", err)
 	}
 
-	timeout := time.Duration(r.TimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 3600 * time.Second
+	// Fusion 委派是同步交接：执行时长跟随父轮次的取消与中断，
+	// 不套用普通子代理的 subAgentTimeoutSec 执行上限。
+	runCtx := ctx
+	var timeout time.Duration
+	if !fusion {
+		timeout = time.Duration(r.TimeoutSec) * time.Second
+		if timeout <= 0 {
+			timeout = 3600 * time.Second
+		}
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	rec := newRecorder(r.SubDir(parentSession))
 
@@ -315,8 +322,8 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 		"task": task, "name": name, "title": title, "startedAt": started,
 	}
 	if profile.StrictModel {
-		// 只写进 .sub 日志：Fusion 委派只能由主代理发起，
-		// 回放面板据此不提供人工续聊入口；实时 SSE 负载不变。
+		// 只写进 .sub 日志：Fusion 委派只能由主代理发起，执行
+		// 记录不进入子会话列表，也不提供人工续聊入口。
 		start["resumable"] = false
 	}
 	rec.record(start)
@@ -330,7 +337,7 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 	// 否则它启动的进程在面板上会挂到用户看不到的会话下。
 	owner := tools.SessionOwner{Workspace: r.Workspace, Session: parentSession}
 	driveCtx := executionContext(runCtx, contextConfig, owner)
-	reply, replyErr := r.drive(driveCtx, run, created.Session, parentSession, message, subID, subSessionID, rec, sink)
+	reply, replyErr := r.drive(driveCtx, run, created.Session, parentSession, message, subID, subSessionID, rec, sink, fusion)
 	// 只有成功且未被取消的交接才替换检查点；失败或撤销保留
 	// 上一次成功留下的上下文。
 	checkpointSaved := false
@@ -347,6 +354,9 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 		if ctx.Err() != nil {
 			status = "aborted"
 			reply = "⏹️ 子代理已取消"
+			if fusion {
+				reply = "⏹️ 执行已取消"
+			}
 			replyErr = nil
 		} else {
 			status = "error"
@@ -404,7 +414,7 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 		"type": "sub_user", "subId": prev.subID, "subSessionId": subSessionID, "content": message,
 	})
 	driveCtx := executionContext(runCtx, prev.imageConfig, prev.owner)
-	reply, driveErr := r.drive(driveCtx, prev.runner, prev.sess, prev.owner.Session, message, prev.subID, subSessionID, rec, sink)
+	reply, driveErr := r.drive(driveCtx, prev.runner, prev.sess, prev.owner.Session, message, prev.subID, subSessionID, rec, sink, false)
 	status := "completed"
 	if driveErr != nil {
 		status = "error"

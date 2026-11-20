@@ -106,7 +106,11 @@ func (s *Controller) newFusionDelegateTool(gate *fusionDelegationState) tool.Too
 			return subAgentToolResult(subagent.Result{}, err), nil
 		}
 		defer gate.endDelegation()
-		res, err := s.subRunner.RunFusion(tools.WithChildFileChanges(ctx), subAgentParent(ctx), in.Profile, in.Task, in.Instructions, sinkFromContext(ctx))
+		var sink subagent.Sink
+		if sse, ok := ctx.Value(sinkKey{}).(*sseWriter); ok {
+			sink = &fusionInlineSink{sse: sse}
+		}
+		res, err := s.subRunner.RunFusion(tools.WithChildFileChanges(ctx), subAgentParent(ctx), in.Profile, in.Task, in.Instructions, sink)
 		return subAgentToolResult(res, err), nil
 	})
 	return t

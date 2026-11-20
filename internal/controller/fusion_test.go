@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,14 +42,15 @@ func fusionServer(t *testing.T, lead *echo.Scripted, sidekickBase string, disabl
 			Models:      []config.ModelEntry{{Name: "side-model"}},
 		})
 	}
-	a, err := agentpkg.New(t.TempDir(), "a1b2c3", &cfg, agentpkg.Options{
+	home := t.TempDir()
+	a, err := agentpkg.New(home, "a1b2c3", &cfg, agentpkg.Options{
 		Model:    lead,
 		Toolsets: []tool.Toolset{reg},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, key, err := New(a, Options{Registry: reg, Home: t.TempDir()})
+	s, key, err := New(a, Options{Registry: reg, Home: home})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,11 +126,15 @@ func sseText(text string) string {
 		"data: {\"id\":\"t\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
 }
 
-func subStartIDs(events []map[string]any) []string {
+// fusionSegmentIDs 按出现顺序收集 Fusion 委派的就地片段标识：
+// 每次交接产生一个带 segmentId 的正文/思考段，而不是 sub_* 容器。
+func fusionSegmentIDs(events []map[string]any) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, e := range events {
-		if e["type"] == "sub_start" {
-			out = append(out, fmt.Sprint(e["subSessionId"]))
+		if id, ok := e["segmentId"].(string); ok && id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
 		}
 	}
 	return out
@@ -247,34 +253,33 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 			t.Fatalf("other session leaked earlier context %q", notWant)
 		}
 	}
-	if got := len(subStartIDs(turn1)); got != 3 {
-		t.Fatalf("turn 1 subStart count = %d, want 3", got)
+	segments := fusionSegmentIDs(turn1)
+	if len(segments) != 3 {
+		t.Fatalf("turn 1 scoped segments = %v, want 3 handoffs", segments)
 	}
-	// 首个委派（explore）的最终结果先于第二次子会话开始。
-	exploreResultIndex, secondSubStart := -1, -1
-	subStarts := 0
+	// 首个委派（explore）的最终结果先于第二次交接的就地正文开始。
+	exploreResultIndex, secondScoped := -1, -1
 	for i, e := range turn1 {
-		if e["type"] == "sub_start" {
-			subStarts++
-			if subStarts == 2 {
-				secondSubStart = i
+		if e["type"] == "content" && e["segmentId"] == segments[1] {
+			if secondScoped < 0 {
+				secondScoped = i
 			}
 		}
 		if e["type"] == "tool_result" && e["name"] == fusionDelegateName && strings.Contains(fmt.Sprint(e["result"]), "explore-fusion-result") {
 			exploreResultIndex = i
 		}
 	}
-	if exploreResultIndex < 0 || secondSubStart < 0 || exploreResultIndex > secondSubStart {
-		t.Fatalf("want explore result before second sub_start; events=%v", turn1)
+	if exploreResultIndex < 0 || secondScoped < 0 || exploreResultIndex > secondScoped {
+		t.Fatalf("want explore result before second scoped segment; events=%v", turn1)
 	}
 	ids := map[string]bool{}
 	for _, evs := range [][]map[string]any{turn1, turn2, turn3} {
-		for _, id := range subStartIDs(evs) {
+		for _, id := range fusionSegmentIDs(evs) {
 			ids[id] = true
 		}
 	}
 	if len(ids) != 5 {
-		t.Fatalf("subSessionIds not distinct: %v", ids)
+		t.Fatalf("fusion segments not distinct: %v", ids)
 	}
 }
 
@@ -321,14 +326,21 @@ func TestFusionSidekickDropsFailedHandoff(t *testing.T) {
 
 	fusionStream(t, ts, key, name, "第一条消息")
 	failed := fusionStream(t, ts, key, name, "第二条消息")
-	var failedEnd string
+	var failedStatus, failedResult, leadAfter string
 	for _, e := range failed {
-		if e["type"] == "sub_end" {
-			failedEnd, _ = e["status"].(string)
+		if e["type"] == "tool_result" && e["name"] == fusionDelegateName {
+			failedStatus, _ = e["status"].(string)
+			failedResult = fmt.Sprint(e["result"])
+		}
+		if e["type"] == "content" && e["segmentId"] == nil {
+			leadAfter += fmt.Sprint(e["content"])
 		}
 	}
-	if failedEnd != "error" {
-		t.Fatalf("failed handoff sub_end = %q; events=%v", failedEnd, failed)
+	if failedStatus != "failed" {
+		t.Fatalf("failed handoff delegate result = %q %q; events=%v", failedStatus, failedResult, failed)
+	}
+	if !strings.Contains(leadAfter, "已上报") {
+		t.Fatalf("lead did not continue after failed handoff; events=%v", failed)
 	}
 	fusionStream(t, ts, key, name, "第三条消息")
 
@@ -474,8 +486,9 @@ func TestFusionConfigOption(t *testing.T) {
 }
 
 // TestFusionSidekickRunsImplement 走完整聊天流：父代理委派 implement，
-// 子代理改打本地 sidekick 渠道，执行文本经由 sub_* 与工具结果返回，
-// 被禁用的工具不出现在执行模型的请求里。
+// 子代理改打本地 sidekick 渠道，执行文本作为带 segmentId 的就地正文与
+// 工具结果回到父流（不出现任何 sub_* 事件），被禁用的工具不出现在
+// 执行模型的请求里。
 func TestFusionSidekickRunsImplement(t *testing.T) {
 	var requests atomic.Int32
 	var gotModel, gotBody atomic.Value
@@ -501,16 +514,19 @@ func TestFusionSidekickRunsImplement(t *testing.T) {
 
 	events := fusionStream(t, ts, key, "fusion-run", "实现登录页")
 	types := eventTypes(events)
-	for _, want := range []string{"sub_start", "sub_content", "sub_end", "complete"} {
-		found := false
-		for _, typ := range types {
-			if typ == want {
-				found = true
-			}
+	for _, typ := range types {
+		if strings.HasPrefix(typ, "sub_") {
+			t.Fatalf("fusion stream leaked %q; events=%v", typ, events)
 		}
-		if !found {
-			t.Fatalf("missing %q; events=%v", want, events)
+	}
+	complete := false
+	for _, typ := range types {
+		if typ == "complete" {
+			complete = true
 		}
+	}
+	if !complete {
+		t.Fatalf("missing complete; events=%v", events)
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("sidekick requests = %d", requests.Load())
@@ -518,21 +534,26 @@ func TestFusionSidekickRunsImplement(t *testing.T) {
 	if gotModel.Load() != "side-model" {
 		t.Fatalf("sidekick model = %v", gotModel.Load())
 	}
-	var subText, toolResult, subEnd, final, subSessionID string
-	subStartIndex, subEndIndex, toolResultIndex, finalIndex := -1, -1, -1, -1
+	var scopedText, toolResult, final, segment string
+	scopedIndex, toolResultIndex, finalIndex := -1, -1, -1
 	planResultIndex := -1
 	for i, e := range events {
 		switch e["type"] {
-		case "sub_start":
-			subSessionID, _ = e["subSessionId"].(string)
-			if subStartIndex < 0 {
-				subStartIndex = i
+		case "content":
+			if id, _ := e["segmentId"].(string); id != "" {
+				if scopedIndex < 0 {
+					scopedIndex, segment = i, id
+				}
+				if id != segment {
+					t.Fatalf("single handoff produced multiple segments: %v", events)
+				}
+				scopedText += fmt.Sprint(e["content"])
+				continue
 			}
-		case "sub_content":
-			subText += fmt.Sprint(e["token"])
-		case "sub_end":
-			subEnd, _ = e["status"].(string)
-			subEndIndex = i
+			if finalIndex < 0 && fmt.Sprint(e["content"]) != "" {
+				finalIndex = i
+			}
+			final += fmt.Sprint(e["content"])
 		case "tool_result":
 			if n, _ := e["name"].(string); n == fusionDelegateName {
 				if toolResultIndex >= 0 {
@@ -544,18 +565,10 @@ func TestFusionSidekickRunsImplement(t *testing.T) {
 			if n, _ := e["name"].(string); n == checklistUpdateName {
 				planResultIndex = i
 			}
-		case "content":
-			if finalIndex < 0 && fmt.Sprint(e["content"]) != "" {
-				finalIndex = i
-			}
-			final += fmt.Sprint(e["content"])
 		}
 	}
-	if subEnd != "completed" {
-		t.Fatalf("sub_end status = %q; events=%v", subEnd, events)
-	}
-	if !strings.Contains(subText, "执行模型已完成实现") {
-		t.Fatalf("sub_content = %q", subText)
+	if scopedText != "执行模型已完成实现" {
+		t.Fatalf("scoped content = %q", scopedText)
 	}
 	if !strings.Contains(toolResult, "执行模型已完成实现") {
 		t.Fatalf("fusion_delegate tool_result = %q", toolResult)
@@ -563,29 +576,67 @@ func TestFusionSidekickRunsImplement(t *testing.T) {
 	if !strings.Contains(final, "可以交付") {
 		t.Fatalf("parent final = %q; events=%v", final, events)
 	}
-	// 同步委派：最终结果先回到 fusion_delegate，主代理再产出内容；
-	// 不会出现 running/call_id 占位结果。
-	if subEndIndex < 0 || toolResultIndex <= subEndIndex || finalIndex <= toolResultIndex {
-		t.Fatalf("want sub_end before fusion_delegate result before lead content; events=%v", events)
+	// 同步委派：Sidekick 正文先就地呈现，最终结果回到
+	// fusion_delegate，主代理再产出自己的内容。
+	if scopedIndex < 0 || toolResultIndex <= scopedIndex || finalIndex <= toolResultIndex {
+		t.Fatalf("want scoped content before fusion_delegate result before lead content; events=%v", events)
 	}
-	// 先拆解再交接：计划成功的 tool_result 先于首个 sub_start。
-	if planResultIndex < 0 || subStartIndex < 0 || planResultIndex > subStartIndex {
-		t.Fatalf("want checklist_update result before first sub_start; events=%v", events)
+	// 先拆解再交接：计划成功的 tool_result 先于首个就地正文。
+	if planResultIndex < 0 || planResultIndex > scopedIndex {
+		t.Fatalf("want checklist_update result before first scoped content; events=%v", events)
 	}
-	// Fusion 执行记录持久化 resumable:false，回放面板据此不提供续聊。
+	// Fusion 执行记录是内部审计，不进可回放的子会话列表。
 	code, env := call(t, ts, http.MethodGet,
 		"/api/sub-sessions?workspaceHash="+s.agent.App()+"&sessionName=fusion-run", key, nil)
 	if code != http.StatusOK {
 		t.Fatalf("sub-sessions = %d %v", code, env)
 	}
-	var subInfo map[string]any
+	if list := env["data"].([]any); len(list) != 0 {
+		t.Fatalf("fusion run leaked sub sessions: %v", list)
+	}
+	// 历史里委派行还原为普通工具结果并附就地回放事件。
+	code, env = call(t, ts, http.MethodGet,
+		"/api/agent/history?workspaceHash="+s.agent.App()+"&sessionName=fusion-run", key, nil)
+	if code != http.StatusOK {
+		t.Fatalf("history = %d %v", code, env)
+	}
+	var delegateRow map[string]any
 	for _, item := range env["data"].([]any) {
-		if dto := item.(map[string]any); dto["subSessionId"] == subSessionID {
-			subInfo = dto
+		if row := item.(map[string]any); row["role"] == "tool" && row["tool_name"] == fusionDelegateName {
+			delegateRow = row
 		}
 	}
-	if subInfo == nil || subInfo["resumable"] != false {
-		t.Fatalf("fusion sub session resumable = %v (id=%q, list=%v)", subInfo, subSessionID, env["data"])
+	if delegateRow == nil {
+		t.Fatalf("no fusion_delegate tool row; history=%v", env["data"])
+	}
+	if delegateRow["content"] != "执行模型已完成实现" || delegateRow["tool_status"] != "completed" {
+		t.Fatalf("delegate row = %v", delegateRow)
+	}
+	fused, ok := delegateRow["fusion_events"].([]any)
+	if !ok {
+		t.Fatalf("delegate row missing fusion_events: %v", delegateRow)
+	}
+	var replayed string
+	for _, item := range fused {
+		if ev := item.(map[string]any); ev["type"] == "content" && ev["segmentId"] == segment {
+			replayed += fmt.Sprint(ev["content"])
+		}
+	}
+	if replayed != scopedText {
+		t.Fatalf("history fusion_events content = %q, live scoped = %q", replayed, scopedText)
+	}
+	// .sub 审计仍按旧格式保留内部记录：resumable:false 且以
+	// sub_end completed 收尾。
+	audit, err := readSubEvents(filepath.Join(s.subSessionsDir("fusion-run"), segment+".jsonl"))
+	if err != nil {
+		t.Fatalf("fusion audit unreadable (segment=%q): %v", segment, err)
+	}
+	if !isFusionTranscript(audit) {
+		t.Fatalf("fusion audit missing resumable:false start: %v", audit)
+	}
+	last := audit[len(audit)-1]
+	if last["type"] != "sub_end" || last["status"] != "completed" {
+		t.Fatalf("fusion audit tail = %v", last)
 	}
 	if raw := fmt.Sprint(gotBody.Load()); strings.Contains(raw, `"name":"write"`) ||
 		strings.Contains(raw, `"name":"fusion_delegate"`) || strings.Contains(raw, `"name":"checklist_update"`) ||
@@ -828,12 +879,9 @@ func TestFusionDelegateRequiresActivePlan(t *testing.T) {
 	enableFusion(t, ts, key, s.agent.App(), "fusion-guard", "sidekick:side-model")
 
 	events := fusionStream(t, ts, key, "fusion-guard", "实现")
-	failed, subStarts := 0, 0
+	failed := 0
 	for _, e := range events {
-		switch e["type"] {
-		case "sub_start":
-			subStarts++
-		case "tool_result":
+		if e["type"] == "tool_result" {
 			if n, _ := e["name"].(string); n == fusionDelegateName && e["status"] == "failed" {
 				if !strings.Contains(fmt.Sprint(e["result"]), checklistUpdateName) {
 					t.Fatalf("delegate failure should mention %s: %q", checklistUpdateName, e["result"])
@@ -842,8 +890,8 @@ func TestFusionDelegateRequiresActivePlan(t *testing.T) {
 			}
 		}
 	}
-	if failed != 2 || subStarts != 0 {
-		t.Fatalf("failed delegates = %d, sub_start = %d; events=%v", failed, subStarts, events)
+	if failed != 2 || len(fusionSegmentIDs(events)) != 0 {
+		t.Fatalf("failed delegates = %d, scoped segments = %v; events=%v", failed, fusionSegmentIDs(events), events)
 	}
 	if requests.Load() != 0 {
 		t.Fatalf("rejected delegates reached sidekick: %d", requests.Load())
@@ -875,12 +923,9 @@ func TestFusionDelegateRequiresFreshPlanForNextHandoff(t *testing.T) {
 	enableFusion(t, ts, key, s.agent.App(), "fusion-fresh", "sidekick:side-model")
 
 	events := fusionStream(t, ts, key, "fusion-fresh", "干活")
-	subStarts, delegateOK, delegateFailed := 0, 0, 0
+	delegateOK, delegateFailed := 0, 0
 	for _, e := range events {
-		switch e["type"] {
-		case "sub_start":
-			subStarts++
-		case "tool_result":
+		if e["type"] == "tool_result" {
 			if n, _ := e["name"].(string); n != fusionDelegateName {
 				continue
 			}
@@ -894,15 +939,15 @@ func TestFusionDelegateRequiresFreshPlanForNextHandoff(t *testing.T) {
 			}
 		}
 	}
-	if delegateOK != 1 || delegateFailed != 1 || subStarts != 1 {
-		t.Fatalf("delegates ok=%d failed=%d sub_start=%d; events=%v", delegateOK, delegateFailed, subStarts, events)
+	if delegateOK != 1 || delegateFailed != 1 || len(fusionSegmentIDs(events)) != 1 {
+		t.Fatalf("delegates ok=%d failed=%d segments=%v; events=%v", delegateOK, delegateFailed, fusionSegmentIDs(events), events)
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("sidekick requests = %d, want 1 (first-brief only)", requests.Load())
 	}
 }
 
-// TestFusionSidekickFailure 执行模型返回不可重试错误时，子代理按
+// TestFusionSidekickFailure 执行模型返回不可重试错误时，委派工具按
 // 失败结束并把失败如实回给父代理，不回退到父模型。
 func TestFusionSidekickFailure(t *testing.T) {
 	var requests atomic.Int32
@@ -922,11 +967,9 @@ func TestFusionSidekickFailure(t *testing.T) {
 	enableFusion(t, ts, key, s.agent.App(), "fusion-fail", "sidekick:side-model")
 
 	events := fusionStream(t, ts, key, "fusion-fail", "实现")
-	var subEnd, toolStatus, toolResult, final string
+	var toolStatus, toolResult, final string
 	for _, e := range events {
 		switch e["type"] {
-		case "sub_end":
-			subEnd, _ = e["status"].(string)
 		case "tool_result":
 			if n, _ := e["name"].(string); n == fusionDelegateName {
 				toolStatus, _ = e["status"].(string)
@@ -938,9 +981,6 @@ func TestFusionSidekickFailure(t *testing.T) {
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("sidekick requests = %d", requests.Load())
-	}
-	if subEnd != "error" {
-		t.Fatalf("sub_end status = %q; events=%v", subEnd, events)
 	}
 	if toolStatus != "failed" || !strings.Contains(toolResult, "400") {
 		t.Fatalf("fusion_delegate tool_result = %q %q; events=%v", toolStatus, toolResult, events)
@@ -1013,16 +1053,24 @@ func TestFusionWorkerInheritsSessionApproval(t *testing.T) {
 		}
 	}
 
-	// 会话 approval 模式下父代理的 sub_agent 调用本身先要审批。
+	// 会话 approval 模式下父代理的 fusion_delegate 调用本身先要审批。
 	_, choice := readUntilEvent(t, scanner, "choice")
 	approve(fmt.Sprint(choice["permissionRequestId"]))
 
-	// 执行模型的非只读工具停在 sub_choice：审批前不得执行。
-	_, subChoice := readUntilEvent(t, scanner, "sub_choice")
+	// 执行模型的非只读工具停在父会话的普通 choice（不是
+	// sub_choice 容器事件）：审批前不得执行。
+	prefix, workerChoice := readUntilEvent(t, scanner, "choice")
 	if calls.Load() != 0 {
-		t.Fatalf("fixture ran before approval; subChoice=%v", subChoice)
+		t.Fatalf("fixture ran before approval; choice=%v", workerChoice)
 	}
-	approve(fmt.Sprint(subChoice["permissionRequestId"]))
+	workerRequestID, _ := workerChoice["permissionRequestId"].(string)
+	if workerRequestID == "" {
+		t.Fatalf("worker choice missing permissionRequestId: %v", workerChoice)
+	}
+	if _, has := workerChoice["subId"]; has {
+		t.Fatalf("fusion worker approval must not be a sub choice: %v", workerChoice)
+	}
+	approve(workerRequestID)
 
 	events, _ := readUntilEvent(t, scanner, "done")
 	if calls.Load() != 1 {
@@ -1031,13 +1079,175 @@ func TestFusionWorkerInheritsSessionApproval(t *testing.T) {
 	if requests.Load() != 2 {
 		t.Fatalf("sidekick requests = %d", requests.Load())
 	}
-	var subEnd string
-	for _, e := range events {
-		if e["type"] == "sub_end" {
-			subEnd, _ = e["status"].(string)
+	var callID, resolvedID, resolvedOption, delegateStatus string
+	resultCount := 0
+	for _, e := range append(prefix, events...) {
+		switch e["type"] {
+		case "tool_call":
+			if e["name"] == "fixture_check" {
+				callID, _ = e["toolCallId"].(string)
+			}
+		case "tool_result":
+			if e["name"] == "fixture_check" {
+				resultCount++
+				if id, _ := e["toolCallId"].(string); id != callID || !strings.HasPrefix(id, "fusion:") {
+					t.Fatalf("fixture result toolCallId = %q, want namespaced %q", id, callID)
+				}
+			}
+			if e["name"] == fusionDelegateName {
+				delegateStatus, _ = e["status"].(string)
+			}
+		case "permission_resolved":
+			resolvedID, _ = e["permissionRequestId"].(string)
+			resolvedOption, _ = e["optionId"].(string)
 		}
 	}
-	if subEnd != "completed" {
-		t.Fatalf("sub_end = %q; events=%v", subEnd, events)
+	if !strings.HasPrefix(callID, "fusion:") {
+		t.Fatalf("fixture toolCallId not namespaced: %q", callID)
+	}
+	if resultCount != 1 {
+		t.Fatalf("fixture results = %d; events=%v", resultCount, append(prefix, events...))
+	}
+	if resolvedID != workerRequestID || resolvedOption != "allow_once" {
+		t.Fatalf("permission_resolved = %q %q, want %q allow_once", resolvedID, resolvedOption, workerRequestID)
+	}
+	if delegateStatus != "completed" {
+		t.Fatalf("delegate result = %q; events=%v", delegateStatus, events)
+	}
+}
+
+// TestFusionSidekickUsesParentCancellation Fusion 委派不套用
+// subAgentTimeoutSec：交接可以运行得比子代理执行上限更久；父轮次
+// 取消时执行模型的在途请求立即随父上下文一起取消。
+func TestFusionSidekickUsesParentCancellation(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	canceled := make(chan struct{}, 1)
+	stopUpstream := make(chan struct{})
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		n := upstreamCalls.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		if n == 1 {
+			select {
+			case <-release:
+				fmt.Fprint(w, sseText("after-agent-limit"))
+			case <-r.Context().Done():
+			case <-stopUpstream:
+			}
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			canceled <- struct{}{}
+		case <-stopUpstream:
+		}
+	}))
+	defer func() {
+		close(stopUpstream)
+		upstream.Close()
+	}()
+
+	scripted := fusionTestLead("cancel-lead",
+		echo.Script{ToolCalls: fusionDelegateCall("implement", "hold", "")},
+		echo.Script{Text: "第一组交接完成"},
+		echo.Script{ToolCalls: fusionDelegateCall("implement", "hold-again", "")},
+		echo.Script{Text: "不应到达"},
+	)
+	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil)
+	ts.Client().Timeout = 30 * time.Second
+	// 子代理执行上限 1 秒：普通 sub_agent 此时会被超时终止，
+	// Fusion 交接只随父轮次的取消结束。
+	s.cfg.SubAgentTimeoutSec = 1
+	main := s.agent.App()
+	const name = "fusion-cancel"
+	enableFusion(t, ts, key, main, name, "sidekick:side-model")
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/chat/stream",
+		strings.NewReader(fmt.Sprintf(`{"message":"hold","sessionName":%q,"requestId":"cancel-1"}`, name)))
+	req.Header.Set("X-Loopra-Key", key)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first sidekick request did not start")
+	}
+	// 持有超过 subAgentTimeoutSec 再放行：委派必须仍然成功完成。
+	timer := time.NewTimer(1200 * time.Millisecond)
+	<-timer.C
+	close(release)
+
+	events, _ := readUntilEvent(t, scanner, "done")
+	var delegateStatus, delegateResult, final string
+	for _, e := range events {
+		switch e["type"] {
+		case "tool_result":
+			if e["name"] == fusionDelegateName {
+				delegateStatus, _ = e["status"].(string)
+				delegateResult = fmt.Sprint(e["result"])
+			}
+		case "content":
+			if e["segmentId"] == nil {
+				final += fmt.Sprint(e["content"])
+			}
+		}
+	}
+	if delegateStatus != "completed" || !strings.Contains(delegateResult, "after-agent-limit") {
+		t.Fatalf("delegate after configured limit = %q %q; events=%v", delegateStatus, delegateResult, events)
+	}
+	if !strings.Contains(final, "第一组交接完成") {
+		t.Fatalf("lead did not finish after slow delegate; events=%v", events)
+	}
+
+	// 第二个交接挂起后中止父轮次：在途的执行模型请求必须随
+	// 父上下文取消，而不是继续跑完。
+	req2, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/chat/stream",
+		strings.NewReader(fmt.Sprintf(`{"message":"hold-again","sessionName":%q,"requestId":"cancel-2"}`, name)))
+	req2.Header.Set("X-Loopra-Key", key)
+	resp2, err := ts.Client().Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("second sidekick request did not start")
+	}
+	code, result := call(t, ts, http.MethodPost, "/api/chat/abort", key,
+		map[string]any{"requestId": "cancel-2", "sessionName": name})
+	if code != http.StatusOK || result["data"].(map[string]any)["matched"] != float64(1) {
+		t.Fatalf("abort = %d %v", code, result)
+	}
+	select {
+	case <-canceled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("abort did not reach the in-flight sidekick request")
+	}
+	events2, _ := readUntilEvent(t, bufio.NewScanner(resp2.Body), "done")
+	var delegateOK, leadSuccess bool
+	for _, e := range events2 {
+		if e["type"] == "tool_result" && e["name"] == fusionDelegateName && e["status"] == "completed" {
+			delegateOK = true
+		}
+		if e["type"] == "content" && strings.Contains(fmt.Sprint(e["content"]), "不应到达") {
+			leadSuccess = true
+		}
+	}
+	if delegateOK || leadSuccess {
+		t.Fatalf("aborted turn produced success events: %v", events2)
 	}
 }

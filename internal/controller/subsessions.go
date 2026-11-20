@@ -141,7 +141,9 @@ func (s *Controller) subSessionsList(w http.ResponseWriter, parent string) {
 		id := strings.TrimSuffix(name, ".jsonl")
 		path := filepath.Join(dir, name)
 		events, err := readSubEvents(path)
-		if err != nil {
+		// Fusion 执行审计仍留在 .sub 目录作内部记录，但不属于
+		// 可回放的子会话（其过程已就地在父聊天里呈现）。
+		if err != nil || isFusionTranscript(events) {
 			continue
 		}
 		info := subSessionInfo(id, events)

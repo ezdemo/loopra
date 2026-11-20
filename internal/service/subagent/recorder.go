@@ -64,7 +64,7 @@ func nowMillis() int64 { return time.Now().UnixMilli() }
 // sub_choice 上；Java broker 在 5 分钟后超时并自动拒绝。
 const subHitlTimeout = 5 * time.Minute
 
-func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Session, parentSession, message string, subID int, subSessionID string, rec *recorder, sink Sink) (string, error) {
+func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Session, parentSession, message string, subID int, subSessionID string, rec *recorder, sink Sink, fusion bool) (string, error) {
 	ctx = loopraagent.WithParentSession(ctx, parentSession)
 	if sink != nil {
 		// 让 runner 的 AfterToolCallback 能逐个工具上报 sub_tool_result。
@@ -75,7 +75,7 @@ func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Ses
 		Role: genai.RoleUser, Parts: []*genai.Part{{Text: message}},
 	}
 	for {
-		pendings, last, err := r.onePass(ctx, run, sess, parentSession, content, subID, subSessionID, rec, sink, &reply)
+		pendings, last, err := r.onePass(ctx, run, sess, parentSession, content, subID, subSessionID, rec, sink, &reply, fusion)
 		if err != nil {
 			return last, err
 		}
@@ -92,6 +92,17 @@ func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Ses
 				r.Permissions.CancelOne(p.ID)
 				option = "reject_once" // broker 超时自动拒绝
 			}
+			if fusion {
+				// Fusion 审批以父会话普通 choice 呈现；回执已解决的
+				// 选项，前端据 permission_resolved 标记选项卡。
+				resolved := option
+				if !ok || resolved == "" {
+					resolved = "cancelled"
+				}
+				send(sink, "sub_permission_resolved", map[string]any{
+					"permissionRequestId": p.ID, "optionId": resolved,
+				})
+			}
 			responses = append(responses, &genai.Part{FunctionResponse: &genai.FunctionResponse{
 				Name:     toolconfirmation.FunctionCallName,
 				ID:       p.ConfirmID,
@@ -104,8 +115,11 @@ func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Ses
 
 // onePass 消费一次 ADK 运行，返回其暂停等待的审批请求
 // 与最新的助手文本；迭代错误在照常上报 sub_error 后向上传递。
-func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.Session, parentSession string, content *genai.Content, subID int, subSessionID string, rec *recorder, sink Sink, reply *string) ([]*hitl.Request, string, error) {
+func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.Session, parentSession string, content *genai.Content, subID int, subSessionID string, rec *recorder, sink Sink, reply *string, fusion bool) ([]*hitl.Request, string, error) {
 	var pendings []*hitl.Request
+	// Fusion 文本以流式增量直接呈现给父聊天；完整事件里重复的
+	// 正文不再二次发送（.sub 审计与最终回复仍照常落完整文本）。
+	streamedContent, streamedReasoning := false, false
 	it := run.Run(loopraagent.WithContextTurn(ctx), "default", sess.ID(), content, agentpkg.RunConfig{StreamingMode: agentpkg.StreamingModeSSE})
 	for ev, err := range it {
 		if err != nil {
@@ -132,8 +146,10 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 					continue
 				}
 				if p.Thought {
+					streamedReasoning = true
 					send(sink, "sub_reasoning", map[string]any{"subId": subID, "token": p.Text})
 				} else {
+					streamedContent = true
 					send(sink, "sub_content", map[string]any{"subId": subID, "token": p.Text})
 				}
 			}
@@ -157,11 +173,19 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 			case p.FunctionCall != nil && p.FunctionCall.Name == toolconfirmation.FunctionCallName:
 				if r.Permissions != nil {
 					if orig, cerr := toolconfirmation.OriginalCallFrom(p.FunctionCall); cerr == nil {
-						pendings = append(pendings, r.Permissions.RegisterSub(parentSession, subID, orig.Name, orig.Args, "", p.FunctionCall.ID))
+						if fusion {
+							// Fusion 审批登记在父会话名下，以普通
+							// choice 呈现在主对话而不是子代理容器里。
+							pendings = append(pendings, r.Permissions.Register(parentSession, orig.Name, orig.Args, "", p.FunctionCall.ID))
+						} else {
+							pendings = append(pendings, r.Permissions.RegisterSub(parentSession, subID, orig.Name, orig.Args, "", p.FunctionCall.ID))
+						}
 					}
 				}
 			case p.Text != "" && p.Thought:
-				send(sink, "sub_reasoning", map[string]any{"subId": subID, "token": p.Text})
+				if !fusion || !streamedReasoning {
+					send(sink, "sub_reasoning", map[string]any{"subId": subID, "token": p.Text})
+				}
 				if rec != nil {
 					rec.record(map[string]any{
 						"type": "sub_reasoning", "subId": subID,
@@ -169,7 +193,9 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 					})
 				}
 			case p.Text != "":
-				send(sink, "sub_content", map[string]any{"subId": subID, "token": p.Text})
+				if !fusion || !streamedContent {
+					send(sink, "sub_content", map[string]any{"subId": subID, "token": p.Text})
+				}
 				if rec != nil {
 					rec.record(map[string]any{
 						"type": "sub_content", "subId": subID,
@@ -230,6 +256,11 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 				"totalTokens": prompt + completion,
 				"cacheHit":    ev.UsageMetadata.CachedContentTokenCount, "cacheMiss": 0,
 			})
+		}
+		if ev.Content.Role == genai.RoleModel {
+			// 一次完整模型事件收尾：后续增量段重新计数，避免下一次
+			// 模型调用的流式文本被误判为已发送。
+			streamedContent, streamedReasoning = false, false
 		}
 	}
 	return pendings, *reply, nil

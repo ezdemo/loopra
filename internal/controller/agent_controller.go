@@ -59,7 +59,7 @@ func (s *Controller) agentHistoryController(w http.ResponseWriter, r *http.Reque
 		writeOK(w, http.StatusOK, s.sessionEvents(name))
 		return
 	}
-	writeOK(w, http.StatusOK, s.sessionMessages(r.Context(), name))
+	writeOK(w, http.StatusOK, s.withFusionTranscript(name, s.sessionMessages(r.Context(), name)))
 }
 
 // agentSessionStatusController 实现 GET /api/agent/session-status：

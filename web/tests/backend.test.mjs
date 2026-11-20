@@ -751,3 +751,77 @@ test('checklist updates collapse into one shared checklist; failures keep the la
   assert.equal(plain[1].blocks.filter(block => block.type === 'checklist').length, 0);
   assert.equal(plain[1].blocks[0].type, 'tool_call');
 });
+
+test('fusion sidekick transcript renders inline scoped blocks live and from history', () => {
+  const segment = 'sub-f01';
+  const fused = [
+    { type: 'reasoning', content: 'Sidekick 先读文件', segmentId: segment },
+    { type: 'tool_call', toolCallId: `fusion:${segment}:read-1`, name: 'read', args: '{"file_path":"a.go"}' },
+    { type: 'tool_result', toolCallId: `fusion:${segment}:read-1`, name: 'read', result: 'file body', status: 'completed' },
+    { type: 'content', content: '执行模型已完成实现', segmentId: segment },
+  ];
+  const live = [
+    { type: 'content', content: '先调查' },
+    { type: 'tool_call', toolCallId: 'delegate-1', name: 'fusion_delegate', args: { profile: 'implement', task: '实现' } },
+    ...fused,
+    { type: 'tool_result', toolCallId: 'delegate-1', name: 'fusion_delegate', result: '执行模型已完成实现', status: 'completed' },
+    { type: 'content', content: '已核对改动，可以交付' },
+  ];
+  const seed = () => ({ id: 'reply', role: 'assistant', text: '', blocks: [] });
+  const liveMessage = live.reduce(applyEvent, seed());
+  const segment2 = 'sub-f02';
+  const fused2 = [
+    { type: 'content', content: '第二段执行完成', segmentId: segment2 },
+  ];
+  const history = historyMessages([
+    { role: 'user', content: '实现' },
+    { role: 'assistant', content: '先调查', tool_calls: [{ id: 'delegate-1', name: 'fusion_delegate', arguments: { profile: 'implement', task: '实现' } }] },
+    { role: 'tool', tool_call_id: 'delegate-1', tool_name: 'fusion_delegate', content: '执行模型已完成实现', tool_status: 'completed', fusion_events: fused },
+    { role: 'assistant', content: '已核对改动，可以交付' },
+    { role: 'user', content: '再核对一遍' },
+    // Provider reuses the same call id; this turn must replay its own transcript.
+    { role: 'assistant', tool_calls: [{ id: 'delegate-1', name: 'fusion_delegate', arguments: { profile: 'test', task: '核对' } }] },
+    { role: 'tool', tool_call_id: 'delegate-1', tool_name: 'fusion_delegate', content: '第二段执行完成', tool_status: 'completed', fusion_events: fused2 },
+    { role: 'assistant', content: '全部通过' },
+  ]);
+  const semantic = message => message.blocks.map(block => [
+    block.type,
+    block.type === 'tool_call' ? block.name : block.content ?? '',
+    block.result ?? '',
+    block.status ?? '',
+  ]);
+  assert.deepEqual(semantic(history[1]), semantic(liveMessage));
+  assert.equal(liveMessage.blocks.filter(block => block.type === 'sub_agent').length, 0);
+  const texts = liveMessage.blocks.filter(block => block.type === 'content');
+  assert.deepEqual(texts.map(block => block.content), ['先调查', '执行模型已完成实现', '已核对改动，可以交付']);
+  assert.equal(liveMessage.text, '先调查\n\n执行模型已完成实现\n\n已核对改动，可以交付');
+  const second = history[3];
+  assert.deepEqual(second.blocks.filter(block => block.segmentId === segment).length, 0);
+  assert.deepEqual(second.blocks.filter(block => block.segmentId === segment2).map(block => block.content), ['第二段执行完成']);
+
+  // A non-streaming lead reply lands after the delegate as normal content;
+  // a complete echoing already-streamed text is not duplicated.
+  const withoutFinal = live.slice(0, -1);
+  const completed = applyEvent(withoutFinal.reduce(applyEvent, seed()), { type: 'complete', content: '已核对改动，可以交付' });
+  assert.deepEqual(completed.blocks.filter(block => block.type === 'content').map(block => block.content),
+    ['先调查', '执行模型已完成实现', '已核对改动，可以交付']);
+  const doubled = applyEvent(liveMessage, { type: 'complete', content: '已核对改动，可以交付' });
+  assert.equal(doubled, liveMessage);
+
+  // stream_reset drops only the unscoped tail; committed scoped text stays.
+  const reset = applyEvent(liveMessage, { type: 'stream_reset' });
+  assert.deepEqual(reset.blocks.filter(block => block.type === 'content').map(block => [block.content, block.segmentId]),
+    [['先调查', undefined], ['执行模型已完成实现', segment]]);
+
+  // Scoped deltas never merge into the lead's surrounding buffered text.
+  const emitted = [];
+  const buffer = new StreamEventBuffer(event => emitted.push(event), assert.fail);
+  buffer.push({ type: 'content', content: 'lead ' });
+  buffer.push({ type: 'content', content: 'scoped', segmentId: segment });
+  buffer.push({ type: 'content', content: '-more', segmentId: segment });
+  buffer.push({ type: 'content', content: 'tail' });
+  buffer.flush();
+  buffer.close(false);
+  assert.deepEqual(emitted.map(event => [event.content, event.segmentId]),
+    [['lead ', undefined], ['scoped-more', segment], ['tail', undefined]]);
+});

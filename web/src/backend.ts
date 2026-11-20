@@ -32,7 +32,7 @@ export type AcpSessionState = { plan: AcpPlanEntry[]; commands: AcpCommand[] };
 export type RemoteSession = { name: string; title?: string; mtime: number; messageCount: number; current?: boolean; worktreeMode?: boolean; agentId?: string; customAgentId?: string };
 export type Channel = { id: string; name: string; baseUrl: string; apiKey: string; apiProtocol: string; specialCompatibility: string; models: { name: string; displayName?: string; contextTokens: number; maxTokens: number; imageInput: boolean; price?: Record<string, number> }[] };
 export type RemoteConfig = { model: string; modelChannelId: string; modelChannels: Channel[]; reasoningEffort: string; hitl: string; fastMode: boolean; workspace: string; disabledTools: string[]; toolsRestrictWorkspace: boolean; validationModel: string; validationModelChannelId: string; imageUnderstandingModel: string; imageUnderstandingModelChannelId: string; toolModel: string; toolModelChannelId: string };
-export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; resultDelta?: string; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema']; meta?: ElicitationRequest['meta'] };
+export type StreamEvent = { type: string; configOptions?: AgentConfigOption[]; toolCallId?: string; status?: string; permissionRequestId?: string; optionId?: string; content?: string; token?: string; error?: string; reason?: string; name?: string; args?: unknown; arguments?: unknown; result?: unknown; resultDelta?: string; title?: string; question?: string; description?: string; options?: { title: string; value?: string; summary?: string }[]; changes?: { path: string; additions: number; deletions: number; created?: boolean; diff?: string }[]; subId?: string; subSessionId?: string; segmentId?: string; task?: string; duration?: number; msgId?: string; hasCodeSnapshot?: boolean; mode?: string; tokensPerSecond?: number; avgTokensPerSecond?: number; done?: boolean; completionTokens?: number; level?: string; message?: string; entries?: AcpPlanEntry[]; commands?: AcpCommand[]; stopReason?: string; elicitationRequestId?: string; schema?: ElicitationRequest['schema']; meta?: ElicitationRequest['meta'] };
 export type ChatRequest = { message: string; requestId: string; workspaceHash: string; sessionName: string; agentId?: string; customAgentId?: string; model?: string; modelChannelId?: string; reasoningEffort?: string; fastMode?: boolean; linkedProjectHashes?: string[]; images?: string[]; connectors?: Record<string, boolean> };
 
 export function serverAddress(value: string) {
@@ -171,7 +171,7 @@ export class StreamEventBuffer {
       const last = this.pending.at(-1);
       // Keep whitespace-only leading deltas separate: the message reducer may
       // discard them before a content block exists (Markdown indentation matters).
-      if (last?.type === event.type && last.subId === event.subId && last.task === event.task && last.content?.trim()) last.content += content;
+      if (last?.type === event.type && last.subId === event.subId && last.task === event.task && last.segmentId === event.segmentId && last.content?.trim()) last.content += content;
       else this.pending.push({ ...event, content });
       this.chars += content.length;
     } else this.speed = event;
@@ -270,13 +270,17 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
       while (index >= 0 && blocks[index].type === 'sub_agent') index--;
     }
     const target = index >= 0 ? blocks[index] : undefined;
-    if (target?.type === 'content' && event.type === 'content') blocks[index] = { ...target, content: target.content + content };
-    else if (target?.type === 'reasoning' && event.type === 'reasoning') blocks[index] = { ...target, content: target.content + content };
-    else if (target?.type === 'reasoning_started' && event.type === 'reasoning') blocks[index] = { id: target.id, type: 'reasoning', content };
-    else if (content.trim()) blocks.push({ id, type: event.type, content });
+    // A Fusion handoff streams the Sidekick's text/thinking inline; it keeps its
+    // own Markdown block instead of concatenating the lead's surrounding text.
+    const scoped = event.segmentId ? { segmentId: event.segmentId } : {};
+    if (target?.type === 'content' && event.type === 'content' && target.segmentId === event.segmentId) blocks[index] = { ...target, content: target.content + content };
+    else if (target?.type === 'reasoning' && event.type === 'reasoning' && target.segmentId === event.segmentId) blocks[index] = { ...target, content: target.content + content };
+    else if (target?.type === 'reasoning_started' && event.type === 'reasoning' && target.segmentId === event.segmentId) blocks[index] = { id: target.id, type: 'reasoning', content, ...scoped };
+    else if (content.trim()) blocks.push({ id, type: event.type, content, ...scoped });
   } else if (event.type === 'stream_reset') {
     // Retry invalidates only the current model segment, retaining completed tools.
-    while (['content', 'reasoning', 'reasoning_started'].includes(blocks.at(-1)?.type || '')) blocks.pop();
+    // Scoped Sidekick text already belongs to the finished delegate call.
+    for (let last = blocks.at(-1); last && (last.type === 'content' || last.type === 'reasoning' || last.type === 'reasoning_started') && !last.segmentId; last = blocks.at(-1)) blocks.pop();
   } else if (event.type === 'tool_call') {
     const existing = event.toolCallId && blocks.find(block => block.type === 'tool_call' && block.toolCallId === event.toolCallId);
     if (!existing) blocks.push({ id, type: 'tool_call', ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}), name: event.name || 'unknown', status: '执行中', args: argsObject(event.args ?? event.arguments) });
@@ -329,13 +333,22 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
       } else blocks.push({ id: `${message.id}-${blocks.length}`, type: 'content', content: USER_STOPPED_REPLY });
     }
   }
-  else if (event.type === 'complete' && content && !blocks.some(block => block.type === 'content' && block.content.trim())) blocks.push({ id, type: 'content', content });
+  else if (event.type === 'complete' && content) {
+    // Scoped Sidekick text is already finished; a non-streaming lead reply
+    // after a Fusion call still lands as its own normal content block.
+    for (let index = blocks.length - 1; index >= 0; index--) {
+      const block = blocks[index];
+      if (block.type === 'tool_call' && block.name === 'fusion_delegate') break;
+      if (block.type === 'content' && !block.segmentId && block.content.trim()) return message;
+    }
+    blocks.push({ id, type: 'content', content });
+  }
   if (blocks.length === previous.length && blocks.every((block, index) => block === previous[index])) return message;
   return { ...message, blocks, text: blocks.flatMap(block => block.type === 'content' ? [block.content] : []).join('\n\n') };
 }
 
 type HistoryContentPart = { type: string; text?: string; image_url?: { url: string }; imageUrl?: { url: string } };
-export type HistoryMessage = { snapshot_id?: string; rollback_id?: string; role: string; content?: string | HistoryContentPart[] | null; contentParts?: HistoryContentPart[] | null; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; response_reasoning?: unknown; responseReasoning?: unknown; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number; tool_status?: 'running' | 'completed' | 'failed' };
+export type HistoryMessage = { snapshot_id?: string; rollback_id?: string; role: string; content?: string | HistoryContentPart[] | null; contentParts?: HistoryContentPart[] | null; timestamp?: number; web_hidden?: boolean; webHidden?: boolean; reasoning_content?: string; response_reasoning?: unknown; responseReasoning?: unknown; tool_call_id?: string; tool_calls?: { id: string; function?: { name: string; arguments: unknown }; name?: string; arguments?: unknown }[]; file_changes?: StreamEvent['changes']; fileChanges?: StreamEvent['changes']; turn_started_at?: number; turn_finished_at?: number; tool_duration_ms?: number; tool_status?: 'running' | 'completed' | 'failed'; tool_name?: string; fusion_events?: StreamEvent[] };
 
 /** Legacy `chatHistory.hasEncryptedReasoning`: does a stored turn hide reasoning? */
 export function hasEncryptedReasoning(value: unknown) {
@@ -350,7 +363,24 @@ export function hasEncryptedReasoning(value: unknown) {
 
 export function historyMessages(raw: HistoryMessage[]): Message[] {
   const messages: Message[] = [];
-  const results = new Map(raw.filter(item => item.role === 'tool' && item.tool_call_id).map(item => [item.tool_call_id!, item]));
+  // Fusion results bind to the preceding call object, not the id: providers may
+  // reuse `call_0` across turns, and a global id map could replay another
+  // turn's transcript. Normal tools keep id matching.
+  type HistoryToolCall = NonNullable<HistoryMessage['tool_calls']>[number];
+  const results = new Map<string, HistoryMessage>();
+  const fusionCalls = new Map<string, HistoryToolCall>();
+  const fusionResults = new Map<HistoryToolCall, HistoryMessage>();
+  for (const entry of raw) {
+    if (entry.role === 'user') fusionCalls.clear();
+    if (entry.role === 'assistant') for (const call of entry.tool_calls || []) {
+      if ((call.function?.name || call.name) === 'fusion_delegate') fusionCalls.set(call.id, call);
+      else fusionCalls.delete(call.id);
+    }
+    if (entry.role !== 'tool' || !entry.tool_call_id) continue;
+    const call = fusionCalls.get(entry.tool_call_id);
+    if (call && (!entry.tool_name || entry.tool_name === 'fusion_delegate')) fusionResults.set(call, entry);
+    else if (entry.tool_name !== 'fusion_delegate') results.set(entry.tool_call_id, entry);
+  }
   let current: Message | undefined;
   for (const [index, entry] of raw.entries()) {
     // The history API serializes ChatMessage.contentParts separately; JSONL uses content[].
@@ -370,13 +400,21 @@ export function historyMessages(raw: HistoryMessage[]): Message[] {
       const events: StreamEvent[] = [];
       if (entry.reasoning_content) events.push({ type: 'reasoning', content: entry.reasoning_content });
       if (hasEncryptedReasoning(entry.response_reasoning || entry.responseReasoning)) events.push({ type: 'reasoning_started' });
-      for (const call of entry.tool_calls || []) {
+      const calls = entry.tool_calls || [];
+      // Preamble streamed in the same model event as the delegate call belongs
+      // before it; replaying tools first would reorder the lead's chronology.
+      const delegates = calls.some(call => (call.function?.name || call.name) === 'fusion_delegate');
+      if (delegates && content.trim()) events.push({ type: 'content', content });
+      for (const call of calls) {
         const name = call.function?.name || call.name || 'unknown';
         events.push({ type: 'tool_call', toolCallId: call.id, name, args: call.function?.arguments ?? call.arguments });
-        const result = results.get(call.id);
+        const result = name === 'fusion_delegate' ? fusionResults.get(call) : results.get(call.id);
+        // A Fusion handoff replays its inline transcript between the delegate
+        // call and its result, in the same order the live stream produced.
+        if (name === 'fusion_delegate' && result?.fusion_events) for (const fused of result.fusion_events) events.push(fused);
         if (result) events.push({ type: 'tool_result', toolCallId: call.id, name, result: result.content, status: result.tool_status, duration: result.tool_duration_ms });
       }
-      if (content.trim()) events.push({ type: 'content', content });
+      if (!delegates && content.trim()) events.push({ type: 'content', content });
       if (entry.file_changes || entry.fileChanges) events.push({ type: 'file_changes', changes: entry.file_changes || entry.fileChanges });
       for (const event of events) Object.assign(current, applyEvent(current, event));
       current.finishedAt = entry.turn_finished_at || entry.timestamp || current.finishedAt;

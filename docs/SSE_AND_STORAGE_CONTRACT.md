@@ -24,8 +24,8 @@
 | type | data JSON | 触发 |
 |---|---|---|
 | `snapshot` | `{msgId: string(8位hex), hasCodeSnapshot: boolean}` | 每条用户消息回合开始 |
-| `content` | **裸 JSON 字符串**（`"token"`） | 正文增量 |
-| `reasoning` | **裸 JSON 字符串** | 思考增量（非流式完整思考也走此事件） |
+| `content` | **裸 JSON 字符串**（`"token"`）；Fusion 就地正文为对象 `{content, segmentId}` | 正文增量 |
+| `reasoning` | **裸 JSON 字符串**；Fusion 就地思考为对象 `{content, segmentId}` | 思考增量（非流式完整思考也走此事件） |
 | `reasoning_started` | `{}` | 思考开始但无可见 token |
 | `complete` | Native：`{content: string}`（最终完整回复）；外部 ACP：`{stopReason: "cancelled"\|"max_tokens"\|"max_turn_requests"\|"refusal"}` | 回合结束 |
 | `error` | `{error: string, reason?: string}` | 任何异常；**发送后立即自动 complete()** |
@@ -73,20 +73,22 @@
 `sub_start{subId,subSessionId?,task,name?,title?,parentSubId?,startedAt:l}`、`sub_content{subId,token}`、`sub_reasoning{subId,token}`、`sub_reasoning_started{subId}`、`sub_tool_call{subId,toolCallId?,name,args:string}`、`sub_tool_update`、`sub_tool_result{subId,toolCallId?,name,result,status}`（并行调用时每个工具一完成就发送，同一 `toolCallId` 仅一次；`.sub` 审计日志仍按合并事件记录一次）、`sub_file_changes{subId,subSessionId,changes:[...]}`（与 `file_changes` 使用同一变更格式，持久化到子会话日志并保留父会话的变更记录）、`sub_usage{subId,model?,promptTokens,completionTokens,totalTokens,cacheHit,cacheMiss}`、`sub_error{subId,error}`、`sub_log`、`sub_plan{subId,entries:[...]}`、`sub_complete{subId}`、`sub_end{subId,status:"completed"/"aborted"/"error",error?(仅error),endedAt:l}`。
 顺序约定：首 `sub_start`，末 `sub_end`（幂等；取消补发 aborted）。
 
+Fusion 委派（`fusion_delegate`）不向父流发送 `sub_*`：同一执行循环产生的内部事件在边界处就地翻译为普通事件——`sub_content`/`sub_reasoning` → `{content, segmentId=<subSessionId>}` 的正文/思考对象，`sub_tool_call`/`sub_tool_update`/`sub_tool_result` → 同名普通工具事件（`toolCallId` 命名空间为 `fusion:{subSessionId}:{原ID}`），`sub_choice`/`sub_permission_resolved` → 普通 `choice`/`permission_resolved`（审批登记在父会话名下）。`sub_start`/`sub_end`/`sub_error`/`sub_usage`/`sub_file_changes` 不转发：开始/结束由委派工具行本身表达，用量不重复计入，文件变更已由父会话 `file_changes` 承载。每次委派仍写一份 `.sub/{subSessionId}.jsonl` 的 `sub_*` 审计日志（首行 `resumable:false`），仅作内部记录。
+
 ## 2. 前端消息模型（loopra-front 拼装规则，Go 端只需按上表发事件）
 
 ```
 Message={id, role:'user'|'assistant', text, blocks?:ChatBlock[], time?, startedAt?, finishedAt?,
          historyCount?, rollbackId?, snapshotId?, rollbackTimestamp?, images?:string[]}
 ToolStatus='成功'|'执行中'|'失败'
-ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,name,status,args?,result?,duration?}
+ChatBlock= content|reasoning|reasoning_started{content,segmentId?} | tool_call{toolCallId?,name,status,args?,result?,duration?}
          | file_changes{changes:[{path,additions,deletions,created?,diff?}]}
          | checklist{title,steps:[{description,status:'done'|'active'|'pending',result?,owner?:'lead'|'sidekick'}]}
          | sub_agent{name,status,blocks:ChatBlock[]} | choice{question,description?,subId?,permissionRequestId?,options:[{title,value?,description?}],selected?}
 ```
 
 新待办只在输入框上方的「待办」按钮中展示；同一会话有新待办时优先显示最新一份，旧版清单仍可作为回退。
-- content/reasoning 追加末尾同类型块；tool_call 按 toolCallId 建块（args JSON.parse）；tool_result 回填（status failed 或 result 前缀 `/^(错误|Error|Exception|\[failed\])/i` 判失败）。
+- content/reasoning 追加末尾同类型且同 `segmentId` 的块（Fusion 就地段不与前后主代理正文串联）；tool_call 按 toolCallId 建块（args JSON.parse）；tool_result 回填（status failed 或 result 前缀 `/^(错误|Error|Exception|\[failed\])/i` 判失败）。
 - sub_* 剥前缀后**递归**归约进 sub_agent 块。
 - `finish`、`ask_choice` 视为最终答复边界。
 - 流式缓冲：纯文本事件 40ms 合帧，非文本事件与首个非空文本立即 flush（32KB/128 条上限）。
@@ -107,13 +109,13 @@ ChatBlock= content|reasoning|reasoning_started{content} | tool_call{toolCallId?,
 `hash` = 项目绝对路径 UTF-8 MD5 前 6 字节 hex（12 位）。会话簇（`{name}` 为 sanitize 基名）：
 - `{name}.jsonl`：主日志（见 §3）。**延迟创建**：新建会话只切换当前会话并写 `.meta` 设置快照，首条消息写入时才创建 `.jsonl`/`.events`；会话列表只包含已写入过消息的会话（`.jsonl` 或从不重写的 `.events` 有内容；回滚截断为空也仍算）。只有 `.meta` 或旧版本遗留的“只有 0 字节 `.jsonl`、无 `.events`”空白会话不进入列表。
 - `{name}.events`：**append-only 审计镜像**（append 时与 .jsonl 同步双写，rewrite 不触碰）。
-- `{name}.meta`：JSON 读-改-写 + temp 原子替换，**必须保留未知键**。键：`title`、`worktreeMode:b`、`mergeMode`(默认"manual")、`model`、`modelChannelId`、`reasoningEffort`、`agentId`(默认"native")、`acpSessionId`、`acpCwd`、`acpUsage:{used,size,cost?,currency?,model?}`、`acpPlan:[...]`、`acpCommands:[...]`、`agentConfig:{}`、`fusionSidekick:s`。旧 `planMode`、`pendingPlan` 字段保留但不再参与原生工具过滤、提示词或会话列表。`agentConfig` 记录用户在会话里选定的 Agent 配置（模型、权限模式、思考强度等），外部 ACP Agent 的计划配置继续透传。恢复 ACP 会话时先读这份快照、把与 Agent 默认值不同的项重新下发，再回写；Agent 拒绝或未列出的键一律保留，不能因一次恢复失败丢失用户的选择。`fusionSidekick` 是 Fusion 执行模型的 `<channelId>:<modelName>` 组合字符串，缺省表示关闭（不写 `off` 值）；只作用于原生项目会话注册的同步委派工具 `fusion_delegate`（普通 `sub_agent` 不受影响），不改变 `sub_*` 事件结构。`fusionSidekickEpoch` 是内部代号（非用户可配置项）：切换选项、关闭再开启或撤回会话历史时轮换，参与执行上下文指纹，跨引擎分支/复刻不携带，旧分支的 epoch 不继承。
+- `{name}.meta`：JSON 读-改-写 + temp 原子替换，**必须保留未知键**。键：`title`、`worktreeMode:b`、`mergeMode`(默认"manual")、`model`、`modelChannelId`、`reasoningEffort`、`agentId`(默认"native")、`acpSessionId`、`acpCwd`、`acpUsage:{used,size,cost?,currency?,model?}`、`acpPlan:[...]`、`acpCommands:[...]`、`agentConfig:{}`、`fusionSidekick:s`。旧 `planMode`、`pendingPlan` 字段保留但不再参与原生工具过滤、提示词或会话列表。`agentConfig` 记录用户在会话里选定的 Agent 配置（模型、权限模式、思考强度等），外部 ACP Agent 的计划配置继续透传。恢复 ACP 会话时先读这份快照、把与 Agent 默认值不同的项重新下发，再回写；Agent 拒绝或未列出的键一律保留，不能因一次恢复失败丢失用户的选择。`fusionSidekick` 是 Fusion 执行模型的 `<channelId>:<modelName>` 组合字符串，缺省表示关闭（不写 `off` 值）；只作用于原生项目会话注册的同步委派工具 `fusion_delegate`（普通 `sub_agent` 不受影响）：委派过程就地投影为带 `segmentId` 的普通事件而不是 `sub_*`，执行时长随父轮次取消，不受 `subAgentTimeoutSec` 限制。`fusionSidekickEpoch` 是内部代号（非用户可配置项）：切换选项、关闭再开启或撤回会话历史时轮换，参与执行上下文指纹，跨引擎分支/复刻不携带，旧分支的 epoch 不继承。
 - 会话标题：首轮先把首条可见用户消息的截断文本写为标题；工具模型在后台生成标题，不阻塞对话，也可在流结束后更新。失败或超时保留原摘要，用户手动改名优先。客户端通过会话列表或 `/api/agent/session-status` 读取当前标题，无需等待流事件。
 - `acpHistorySeed:b`（缺省 `false`）与 `acpHistorySeededSessionId:s`（缺省空）：跨引擎分支/分叉的历史移交约定。`acpHistorySeed:true` 表示这条外部会话的本地可见转录还没进远端；当下一条用户提示词真正发出、且 `acpHistorySeededSessionId` 与当前远端 `acpSessionId` 不同（缺省视为未注入）时，先把 `.jsonl` 可见行投影成可移植历史（图片落成 `[image omitted]`，工具调用保留 id/name/arguments，内部 id、reasoning、计时与用量不带走）拼进第一条提示词，提示词送达且事件队列排空后才把 `acpHistorySeededSessionId` 写成当前远端 id。发送失败、取消或历史读取失败都不消耗种子，重试仍携带历史；会话准备（`/agent-engines/prepare`、读取配置）只建立远端绑定，不消耗种子。本地转录只记录用户消息本身，不含注入的合成上下文。带 `acpHistorySeed` 的会话再分支/分叉（含同引擎）都走本地转录复刻而不走远端 `session/fork`，新会话不沿用 `acpSessionId`/`acpHistorySeededSessionId` 并继续带 `acpHistorySeed`。
 - Codex 空白线程在首条消息前可能没有 rollout。恢复该线程明确返回 `no rollout found for thread id <当前 acpSessionId>` 时，只有 `.jsonl` 和 `.events` 均不存在或为 0 字节才允许重建远端线程，并恢复保存的 `agentConfig`；重建成功后更新绑定。已有审计记录（即使可见历史被回滚清空）、损坏但非空的日志、历史检查失败、取消及其他远端错误都不触发重建，失败保留旧绑定及原文件。
 - `{name}.usage`：`{prompt,completion,cacheHit,cacheMiss,lastPromptTokens}`（long；全 0 删除）。
 - `{name}.model_usage`：`{"<model>": [prompt,completion,cacheHit,cacheMiss]}`（空删除）。
-- `{name}.sub/{subSessionId}.jsonl`：子代理会话（每行 `{type:"sub_*",...payload}`；subSessionId 白名单校验防穿越；缺 `sub_end` 视为运行中）。Fusion 执行模型的 `sub_start` 日志行可附带 `resumable:false`（仅日志字段，用于回放面板关闭续聊；不进入实时 SSE `sub_start` 负载）。
+- `{name}.sub/{subSessionId}.jsonl`：子代理会话（每行 `{type:"sub_*",...payload}`；subSessionId 白名单校验防穿越；缺 `sub_end` 视为运行中）。Fusion 委派的执行审计沿用同一格式、首行 `sub_start` 带 `resumable:false`，但不属于可回放子会话：`/api/sub-sessions` 列表与续聊对其关闭，过程回放经 `/api/agent/history` 委派工具行上的 `fusion_events`（与实时流相同形状的就地事件数组）。
 - `{name}.sub/.fusion-context.json`：Fusion 执行代理的私有检查点 `{scope, events[]}`，由每次成功交接原子替换；回放该作用域（父会话+所选模型+epoch+工作区+渠道端点+关联项目根的指纹）匹配的完整事件来续用上下文，失败或取消的交接不覆盖上一版。它不是 `sub_*` 审计日志，不进 `/api/sub-sessions` 列表（仅枚举 `*.jsonl`），也不支持人工续聊；删除父会话连同 `.sub` 一并清理。
 - 项目级：`workspace/{hash}/workspace.json`（`{path,displayName:null,createdAt,lastAccessedAt,linkedProjectHashes?:string[],linkedProjectPaths?:string[]}`）、`workspace/{hash}/goals/`、`workspace/{hash}/schedules/schedules.json`。两类关联缺省为空：`linkedProjectPaths` 保存目录的规范绝对路径（解析符号链接及 Windows 目录联接），是关联的规范形式；`linkedProjectHashes` 仅为旧客户端和既有数据保留，解析时同样按目录生效。删除项目时先把其它项目对它的标识关联改写为目录关联（按目录去重、保留未知字段），因此项目列表删除不会让关联失效；目录关联不创建项目记录或会话目录。按实际目录去重后合计最多 8 个；保存使用项目元数据锁及原子替换，并保留其他字段；只更新其中一类时保留另一类。关联仅展开一层，每轮与临时关联合并用于系统提示词、write/edit 写入边界和审批策略；不可用的长期目录不授予权限，元数据仍保留；修改从下一轮生效。
 - Bot：`bots.json` 为 `{bots:[{id,name,platform,appId,appSecret,ownerId,tenantBrand,workspaceHash,enabled,allowedUserIds,allowedChatIds,chats,seenMessages,createdAt,updatedAt}]}`。缺失文件视为空列表，损坏配置报错且不覆盖；根对象和 Bot 对象的未知字段保留。凭证只存本地，使用同一互斥边界读改写、临时文件及原子替换，先保存再发布连接变更。授权中的二维码只存在内存，关闭或取消后停止轮询；重启不恢复未完成授权。默认工作目录为 `bot-projects/{botId}`，项目和 JSONL 使用既有存储格式；删除 Bot 不删除这些文件。`chats` 保存飞书聊天到会话的稳定绑定，`seenMessages` 保存最近 512 条已接收消息 ID。Bot 轮次按所属项目解析长期关联，并传入与工作台相同的目录快照和会话工具所有者上下文。
@@ -144,7 +146,7 @@ config.json、agent-preferences.json、ui-preferences.json、agent-mcp.json、mc
 
 ## 7. 复刻要点
 
-1. `content`/`reasoning` 的 data 是**裸 JSON 字符串**；其余事件 data 均为 JSON 对象。
+1. `content`/`reasoning` 的 data 是**裸 JSON 字符串**；Fusion 就地段例外，为对象 `{content, segmentId}`。其余事件 data 均为 JSON 对象。
 2. `error` 后必须跟 `done`；`done` 是唯一关流信号。
 3. 双 usage 形态共用 `usage` 事件名，按字段存在性判别。
 4. `.events` append-only；`.meta` 保留未知键；rewrite 原子替换。

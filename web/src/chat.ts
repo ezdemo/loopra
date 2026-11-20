@@ -3,7 +3,7 @@ export type FileChange = { path: string; additions: number; deletions: number; c
 export type ChatBlock =
   // `reasoning_started` marks a slot the model opened without streaming visible
   // tokens (encrypted reasoning); it upgrades to `reasoning` on the first delta.
-  | { id: string; type: 'content' | 'reasoning' | 'reasoning_started'; content: string }
+  | { id: string; type: 'content' | 'reasoning' | 'reasoning_started'; content: string; segmentId?: string }
   | { id: string; type: 'tool_call'; toolCallId?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; result?: string; duration?: string }
   | { id: string; type: 'file_changes'; changes: FileChange[] }
   | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string; owner?: 'lead' | 'sidekick' }[] }

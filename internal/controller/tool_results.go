@@ -36,7 +36,9 @@ func (r *sseToolResults) ToolFinished(callID, name string, response map[string]a
 	r.mu.Unlock()
 	// sseWriter 自带互斥，多个工具并发完成时每帧仍然是完整的。
 	status := "completed"
-	if response["error"] != nil || response["status"] == "failed" {
+	// Fusion 委派把 aborted 状态原样装进结果信封；对界面而言
+	// 中断的交接同样是一次失败的工具调用。
+	if response["error"] != nil || response["status"] == "failed" || (name == fusionDelegateName && response["status"] == "aborted") {
 		status = "failed"
 	}
 	r.sse.send("tool_result", map[string]any{
