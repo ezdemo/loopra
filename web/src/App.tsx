@@ -1575,7 +1575,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const nativeWindowControls = desktopShell && usesNativeWindowControls(desktopPlatform());
   return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar && !surfaceOpen ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
     {desktopShell && <DesktopTitleBar />}
-    <div className="workbench-body">
+    <div className="workbench-shell">
     <ActivityRail english={english} home={!surfaceOpen} utilityOpen={schedulesOpen || botsOpen || !!pluginPage} skillsOpen={skillsOpen} settingsOpen={settingsOpen} profile={profile} api={api} plugins={pluginNav}
       onHome={showHome} onSearch={openSearch}
       onSkills={() => openSettings('技能与插件')}

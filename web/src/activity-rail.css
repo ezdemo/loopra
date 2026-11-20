@@ -1,6 +1,6 @@
-.workbench-body { display: flex; flex: 1; min-height: 0; --activity-rail-width: 2.625rem; }
+.workbench-shell { display: flex; flex: 1; min-height: 0; --activity-rail-width: 2.625rem; }
 /* Keep the sliding session sidebar from painting over the activity rail. */
-.workbench-body > .app-body { min-width: 0; overflow-x: clip; }
+.workbench-shell > .app-body { min-width: 0; overflow-x: clip; }
 .app-body[data-surface="utility"] > :is(.sidebar, .sidebar-backdrop, .changes-panel, .workbench-backdrop) { display: none; }
 .surface-header-brand { font-weight: 600; letter-spacing: -.01em; }
 
@@ -15,5 +15,5 @@
 .desktop-app.is-desktop-shell.is-native-controls[data-sidebar="closed"] .conversation-header { padding-left: max(0px, calc(80px - var(--activity-rail-width))); }
 
 @media (max-width: 760px) {
-  .workbench-body { --activity-rail-width: 2.375rem; }
+  .workbench-shell { --activity-rail-width: 2.375rem; }
 }
