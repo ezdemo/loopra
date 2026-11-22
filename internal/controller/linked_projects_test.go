@@ -100,6 +100,12 @@ func TestProjectLinksPersistAndUpdateCachedRuntime(t *testing.T) {
 	linked := addProject(t, ts, key, linkedPath)
 	otherPath := filepath.Join(home, "other")
 	other := addProject(t, ts, key, otherPath)
+	const linkedName, otherName = "Saved project name", "Temporary project name"
+	for _, project := range []struct{ hash, name string }{{linked, linkedName}, {other, otherName}} {
+		if code, env := call(t, ts, http.MethodPut, "/api/workspaces/"+project.hash+"/name", key, map[string]any{"displayName": project.name}); code != http.StatusOK {
+			t.Fatalf("rename %s = %d %v", project.hash, code, env)
+		}
+	}
 	view, err := s.projectRuntime(main)
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +127,11 @@ func TestProjectLinksPersistAndUpdateCachedRuntime(t *testing.T) {
 	if !reflect.DeepEqual(turn.linkedProjectRoots, []string{linkedPath, otherPath}) {
 		t.Fatalf("roots = %v", turn.linkedProjectRoots)
 	}
+	if !strings.Contains(turn.agent.Instruction(), turn.subRunner.Environment) {
+		t.Fatalf("worker environment differs from lead prompt:\n%s\n---\n%s", turn.subRunner.Environment, turn.agent.Instruction())
+	}
 	for _, text := range []string{turn.agent.Instruction(), turn.subRunner.Environment} {
-		for _, want := range []string{linkedPath, otherPath, "相对路径与默认命令工作目录均以主项目为准"} {
+		for _, want := range []string{"副项目: " + linkedName + "\n根目录: " + linkedPath, "副项目: " + otherName + "\n根目录: " + otherPath, "相对路径与默认命令工作目录均以主项目为准"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("missing %q in system environment: %s", want, text)
 			}

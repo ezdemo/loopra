@@ -39,10 +39,9 @@ const subAgentToolDescription = `派生一个带预设角色的隔离子代理�
 // 原生项目轮次注册，且子代理的硬性拒绝列表会挡住它被下级看到。
 const fusionDelegateName = "fusion_delegate"
 
-const fusionDelegateDescription = `把调查、实现或验证同步交给当前会话的 Fusion 执行代理。需要查代码、追调用链或收集证据时先用 explore（只读，不执行通用终端命令）；方案确定后用 implement 落实，或用 test 做专项验证。先调用 checklist_update，把本次 Sidekick 步骤标为 active；每次只交接这一步。task 写清范围、要交付的证据或验收条件，instructions 为可选约束。每次交接共享此前成功的上下文；本调用等待最终结果，期间实时显示进度。`
+const fusionDelegateDescription = `向当前会话中持续保留记忆的 Fusion 边缘会话发送一条消息，交接调查、实现或验证。边缘会话记得此前成功交接的任务、回复和工具结果；后续只需交代新增或变化的目标与约束。先调用 checklist_update，把本次 Sidekick 步骤标为 active；每次只交接这一步。task 写清任务范围及所需结果，instructions 为可选补充指示。本调用同步等待最终结果，期间实时显示进度。`
 
 type fusionDelegateArgs struct {
-	Profile      string `json:"profile" jsonschema:"执行角色：explore（只读调查）、implement（实现）、test（验证）"`
 	Task         string `json:"task" jsonschema:"本次任务及验收条件"`
 	Instructions string `json:"instructions,omitempty" jsonschema:"可选补充指示"`
 }
@@ -110,7 +109,7 @@ func (s *Controller) newFusionDelegateTool(gate *fusionDelegationState) tool.Too
 		if sse, ok := ctx.Value(sinkKey{}).(*sseWriter); ok {
 			sink = &fusionInlineSink{sse: sse}
 		}
-		res, err := s.subRunner.RunFusion(tools.WithChildFileChanges(ctx), subAgentParent(ctx), in.Profile, in.Task, in.Instructions, sink)
+		res, err := s.subRunner.RunFusion(tools.WithChildFileChanges(ctx), subAgentParent(ctx), in.Task, in.Instructions, sink)
 		return subAgentToolResult(res, err), nil
 	})
 	return t

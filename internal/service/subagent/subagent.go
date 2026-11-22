@@ -44,9 +44,6 @@ type Profile struct {
 	AllowedTools []string `json:"allowedTools"`
 	ModelChannel string   `json:"modelChannel"`
 	Model        string   `json:"model"`
-	// StrictModel 表示渠道覆盖是强制要求（Fusion 执行模型）：构建失败
-	// 直接报错，不允许静默回退到父模型，也不进入进程级可续聊表。
-	StrictModel bool `json:"-"`
 }
 
 // DenyTools 是应用于每个子代理的硬性禁止列表（Java
@@ -92,14 +89,13 @@ type Runner struct {
 	// /chat/sub-hitl/{subId}）；为 nil 时禁用子代理 HITL 暂停。
 	Permissions *hitl.Registry
 	// FusionScope 是本轮 Fusion 执行上下文的作用域指纹：非空时
-	// StrictModel 角色在同名检查点上续用上下文。
+	// 同一作用域的委派续用同一个检查点。
 	FusionScope string
-	// FusionInstruction 是 Fusion 执行代理的常驻系统提示；角色
-	// 约定与任务随每次委派消息下发，不进系统提示词。
+	// FusionInstruction 是边缘会话的常驻系统提示；本次任务和补充指示
+	// 随每次委派作为一条新消息下发。
 	FusionInstruction string
-	// FusionModelChannel/FusionModel 是 fusion_delegate 固定路由的
-	// 执行模型；只在 RunFusion 路径覆盖角色模型，普通 sub_agent
-	// 仍按角色自身配置或父模型运行。
+	// FusionModelChannel/FusionModel 是 fusion_delegate 固定路由的执行模型；
+	// 普通 sub_agent 仍按角色自身配置或父模型运行。
 	FusionModelChannel string
 	FusionModel        string
 	// FusionReasoningEffort 是执行模型独立的推理强度，空值
@@ -159,40 +155,27 @@ var (
 // Run 执行一次子代理轮次：校验、启动独立循环、
 // 流式发送 sub_* 事件、记录 .sub 日志并返回最终回复。
 func (r *Runner) Run(ctx context.Context, parentSession, name, profileID, task, instructions string, sink Sink) (Result, error) {
-	return r.run(ctx, parentSession, name, profileID, task, instructions, sink, false)
-}
-
-// RunFusion 是 fusion_delegate 的入口：只接受 explore/implement/test
-// 角色，强制使用配置的执行模型与持久上下文，同步等待最终结果。
-func (r *Runner) RunFusion(ctx context.Context, parentSession, profileID, task, instructions string, sink Sink) (Result, error) {
-	switch profileID {
-	case "explore", "implement", "test":
-	default:
-		return Result{}, fmt.Errorf("Fusion 仅支持 explore、implement 或 test 角色")
-	}
-	return r.run(ctx, parentSession, "Fusion", profileID, task, instructions, sink, true)
-}
-
-func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, instructions string, sink Sink, fusion bool) (Result, error) {
 	profile, ok := r.Profiles(profileID)
 	if !ok || !profile.Enable {
 		return Result{}, fmt.Errorf("INVALID_SUB_AGENT_PROFILE: %s", profileID)
 	}
-	if fusion {
-		// 委派路径的角色模型来自会话的 Fusion 设置，用户输入不可选。
-		profile.ModelChannel, profile.Model = r.FusionModelChannel, r.FusionModel
-		profile.StrictModel = true
-		if profileID == "explore" {
-			profile.ReadOnly = true
-		}
-	}
+	return r.run(ctx, parentSession, name, task, instructions, &profile, sink)
+}
+
+// RunFusion 把本次交接作为新消息发送给连续的边缘会话，等待最终结果。
+func (r *Runner) RunFusion(ctx context.Context, parentSession, task, instructions string, sink Sink) (Result, error) {
+	return r.run(ctx, parentSession, "Fusion", task, instructions, nil, sink)
+}
+
+func (r *Runner) run(ctx context.Context, parentSession, name, task, instructions string, profile *Profile, sink Sink) (Result, error) {
+	fusion := profile == nil
 	if strings.TrimSpace(name) == "" {
 		return Result{}, fmt.Errorf("INVALID_SUB_AGENT_NAME: name 必填")
 	}
 	if strings.TrimSpace(task) == "" {
 		return Result{}, fmt.Errorf("INVALID_SUB_AGENT_TASK: task 必填")
 	}
-	if profile.StrictModel {
+	if fusion {
 		if r.FusionScope == "" {
 			return Result{}, fmt.Errorf("Fusion 执行上下文未配置")
 		}
@@ -209,19 +192,19 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 	title := BuildTitle(name, task)
 
 	llm := r.ParentModel
-	if profile.StrictModel {
+	var channelID, modelName, reasoningEffort string
+	if fusion {
 		llm = nil
+		channelID, modelName, reasoningEffort = r.FusionModelChannel, r.FusionModel, r.FusionReasoningEffort
+	} else {
+		channelID, modelName = profile.ModelChannel, profile.Model
 	}
 	selectedChannel := ""
-	reasoningEffort := ""
-	if fusion {
-		reasoningEffort = r.FusionReasoningEffort
-	}
-	if profile.ModelChannel != "" && r.BuildModel != nil {
-		if built, err := r.BuildModel(profile.ModelChannel, profile.Model, reasoningEffort); err == nil && built != nil {
+	if channelID != "" && r.BuildModel != nil {
+		if built, err := r.BuildModel(channelID, modelName, reasoningEffort); err == nil && built != nil {
 			llm = built
-			selectedChannel = profile.ModelChannel
-		} else if profile.StrictModel && err != nil {
+			selectedChannel = channelID
+		} else if fusion && err != nil {
 			// 不向工具结果回显渠道细节或凭据。
 			return Result{}, fmt.Errorf("Fusion 执行模型无法初始化")
 		}
@@ -242,18 +225,21 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 	}
 	// subSessionID 是每次委派独立的审计/日志身份；Fusion 委派
 	// 另有一个按作用域稳定的私有 ADK 会话名，跨交接续用上下文。
-	agentName, sessionID, message := "sub-"+profileID, subSessionID, task
-	instruction := subInstruction(profile, instructions) + "\n\n" + r.Environment
-	checkpoint := ""
-	if profile.StrictModel {
+	var agentName, description, instruction, checkpoint string
+	sessionID, message := subSessionID, task
+	if fusion {
 		agentName, sessionID = fusionAgentName, "fusion-"+r.FusionScope
-		instruction = subInstruction(Profile{Instructions: r.FusionInstruction}, "") + "\n\n" + r.Environment
-		message = fmt.Sprintf("本次角色：%s\n\n角色约定：\n%s\n\n任务：\n%s", profileID, profile.Instructions, task)
+		instruction = subInstruction(r.FusionInstruction, "")
 		if strings.TrimSpace(instructions) != "" {
 			message += "\n\n补充指示：\n" + instructions
 		}
 		checkpoint = filepath.Join(r.SubDir(parentSession), fusionCheckpointFile)
+	} else {
+		agentName = "sub-" + profile.ID
+		description = profile.Description
+		instruction = subInstruction(profile.Instructions, instructions)
 	}
+	instruction += "\n\n" + r.Environment
 	contextRuntime, err := loopraagent.NewContextRuntime(llm, contextConfig, agentName)
 	if err != nil {
 		return Result{}, err
@@ -262,7 +248,7 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 	// 普通子代理的审批统一归到匿名的 "sub" 会话；Fusion 执行
 	// 模型继承父会话的审批覆盖（会话级 hitl 模式与已授权清单）。
 	approvalSession := "sub"
-	if profile.StrictModel {
+	if fusion {
 		approvalSession = parentSession
 	}
 	subTools := r.subTools(profile, approvalSession)
@@ -280,7 +266,7 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 	root, err := llmagent.New(llmagent.Config{
 		Name:                agentName,
 		Model:               contextRuntime.Model(),
-		Description:         profile.Description,
+		Description:         description,
 		InstructionProvider: instructionProvider,
 		Tools:               subTools,
 	})
@@ -333,7 +319,7 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 		"type": "sub_start", "subId": subID, "subSessionId": subSessionID,
 		"task": task, "name": name, "title": title, "startedAt": started,
 	}
-	if profile.StrictModel {
+	if fusion {
 		// 只写进 .sub 日志：Fusion 委派只能由主代理发起，执行
 		// 记录不进入子会话列表，也不提供人工续聊入口。
 		start["resumable"] = false
@@ -349,7 +335,14 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 	// 否则它启动的进程在面板上会挂到用户看不到的会话下。
 	owner := tools.SessionOwner{Workspace: r.Workspace, Session: parentSession}
 	driveCtx := executionContext(runCtx, contextConfig, owner)
-	reply, replyErr := r.drive(driveCtx, run, created.Session, parentSession, message, subID, subSessionID, rec, sink, fusion)
+	// Fusion 交接在 .sub 旁记录有界的恢复要点：父轮次被打断后，下一次
+	// 主代理请求能拿到任务、已落盘路径和工具终态，而不是完整历史。
+	var recovery *fusionRecovery
+	if fusion {
+		recovery = startFusionRecovery(r.SubDir(parentSession), r.FusionScope, subSessionID, task)
+		driveCtx = tools.WithFileChangeObserver(driveCtx, recovery.changed)
+	}
+	reply, replyErr := r.drive(driveCtx, run, created.Session, parentSession, message, subID, subSessionID, rec, sink, fusion, recovery)
 	// 只有成功且未被取消的交接才替换检查点；失败或撤销保留
 	// 上一次成功留下的上下文。
 	checkpointSaved := false
@@ -375,6 +368,7 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 			replyErr = fmt.Errorf("子代理执行超时（%ds）", int(timeout.Seconds()))
 		}
 	}
+	recovery.end(status, reply)
 	ended := time.Now().UnixMilli()
 	rec.record(map[string]any{
 		"type": "sub_end", "subId": subID, "subSessionId": subSessionID,
@@ -385,7 +379,7 @@ func (r *Runner) run(ctx context.Context, parentSession, name, profileID, task, 
 	})
 
 	res := Result{SubSessionID: subSessionID, Title: title, Reply: reply, Status: status}
-	if status == "completed" && !profile.StrictModel {
+	if status == "completed" && !fusion {
 		keepResumable(&liveRun{
 			owner: owner, imageConfig: contextConfig, subID: subID,
 			subSessionID: subSessionID, title: title, runner: run, sess: created.Session,
@@ -426,7 +420,7 @@ func (r *Runner) Resume(ctx context.Context, subSessionID, message string, sink 
 		"type": "sub_user", "subId": prev.subID, "subSessionId": subSessionID, "content": message,
 	})
 	driveCtx := executionContext(runCtx, prev.imageConfig, prev.owner)
-	reply, driveErr := r.drive(driveCtx, prev.runner, prev.sess, prev.owner.Session, message, prev.subID, subSessionID, rec, sink, false)
+	reply, driveErr := r.drive(driveCtx, prev.runner, prev.sess, prev.owner.Session, message, prev.subID, subSessionID, rec, sink, false, nil)
 	status := "completed"
 	if driveErr != nil {
 		status = "error"
@@ -467,9 +461,9 @@ func keepResumable(run *liveRun) {
 }
 
 // subInstruction 组装子代理系统提示词。
-func subInstruction(profile Profile, extra string) string {
+func subInstruction(instruction, extra string) string {
 	sb := strings.Builder{}
-	sb.WriteString(profile.Instructions)
+	sb.WriteString(instruction)
 	sb.WriteString("\n\n" + loopraagent.ReplyImageInstruction)
 	if extra != "" {
 		sb.WriteString("\n\n补充指示：\n")
@@ -480,19 +474,19 @@ func subInstruction(profile Profile, extra string) string {
 
 // subTools 复制父注册表，并按禁止列表与
 // 角色工具策略（显式 allowedTools，或只读集合）过滤。
-func (r *Runner) subTools(profile Profile, approvalSession string) []tool.Tool {
+func (r *Runner) subTools(profile *Profile, approvalSession string) []tool.Tool {
 	denied := map[string]bool{}
 	for _, n := range DenyTools {
 		denied[n] = true
 	}
 	allowed := map[string]bool{}
 	unrestricted := true
-	if len(profile.AllowedTools) > 0 {
+	if profile != nil && len(profile.AllowedTools) > 0 {
 		unrestricted = false
 		for _, n := range profile.AllowedTools {
 			allowed[tools.ResolveName(n)] = true
 		}
-	} else if profile.ReadOnly {
+	} else if profile != nil && profile.ReadOnly {
 		unrestricted = false
 		for _, e := range r.Registry.Entries() {
 			if e.Meta.ReadOnly {
@@ -505,14 +499,8 @@ func (r *Runner) subTools(profile Profile, approvalSession string) []tool.Tool {
 		if denied[e.Meta.Name] || (!unrestricted && !allowed[e.Meta.Name]) {
 			continue
 		}
-		if profile.StrictModel {
-			// Fusion 只读角色不获得任何可写工具，角色自己的
-			// 允许清单也不能放宽这一约束。
-			if profile.ReadOnly && !e.Meta.ReadOnly {
-				continue
-			}
-			// Fusion 执行模型同时遵守会话允许清单，
-			// 不能恢复被自定义角色收窄的工具。
+		if profile == nil {
+			// 边缘会话沿用父会话的工具可用性，不套用子代理角色权限。
 			if !r.Registry.Available(e.Meta.Name) {
 				continue
 			}

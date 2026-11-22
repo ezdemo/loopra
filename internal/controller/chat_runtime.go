@@ -226,7 +226,7 @@ func (s *Controller) turnRuntime(req *chatRequest) (*Controller, error) {
 	view.agent = a
 	view.installApprovalPolicy()
 	if !chat {
-		view.installTurnSubRunner(fusion.model, fusion.effort, scope)
+		view.installTurnSubRunner(fusion.model, fusion.effort, scope, projects)
 		if fusion.model != "" {
 			// 自定义智能体限定工具清单时，允许 sub_agent 的角色
 			// 同样获得同步委派能力；不允许的角色不会因此放宽。
@@ -315,13 +315,14 @@ func (s *Controller) prepareWorktree(req *chatRequest) (*Controller, error) {
 		if s.agent != nil {
 			view.registry = tools.NewRegistry(append(tools.FileTools(target), tools.BashTools(target)...)...)
 			view.attachPluginTools(view.registry)
-			a, err := s.agent.Derive(s.agent.App(), view.cfg, []tool.Toolset{view.registry}, view.systemInstruction(target))
+			projects, _ := view.linkedProjects(s.agent.App(), nil)
+			a, err := s.agent.Derive(s.agent.App(), view.cfg, []tool.Toolset{view.registry}, view.systemInstructionFor(target, s.agent.App(), projects))
 			if err != nil {
 				return nil, err
 			}
 			view.agent = a
 			view.installApprovalPolicy()
-			view.installSubRunner()
+			view.installSubRunner(projects)
 			view.installControlTools()
 			view.applyToolConfig()
 		}

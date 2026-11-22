@@ -13,8 +13,7 @@ import (
 	"github.com/ezdemo/looprax/internal/repository"
 )
 
-// fusionAgentName 是所有 Fusion 委派共享的 ADK 智能体名：implement
-// 与 test 是同一位执行代理在不同角色约定下的委派。
+// fusionAgentName 是同一个边缘会话历次委派共享的 ADK 智能体名。
 const fusionAgentName = "fusion-sidekick"
 
 // fusionCheckpointFile 是放在父会话 .sub 目录里的私有检查点：

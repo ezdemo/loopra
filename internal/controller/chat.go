@@ -231,23 +231,36 @@ func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatReque
 		sse.sendError("会话打开失败: " + err.Error())
 		return
 	}
+	if err := s.recordFusionRecovery(ctx, sess); err != nil {
+		sse.sendError(err.Error())
+		return
+	}
 	// 连接器工具通过上下文找到本轮搜索集并在接受连接后热加来源。
 	if s.turnSet != nil {
 		ctx = context.WithValue(ctx, turnSetKey{}, s.turnSet)
 	}
 	s.ensureSessionTitle(ctx, req.SessionName, req.Message)
+	turnCtx := ctx
 	ctx, finishTools := s.agent.ToolTurn(ctx, sess)
+	completed := false
 	defer func() {
+		// finishTools 关闭异步运行时会顺带取消它派生的 ctx；
+		// 轮次是否被打断只看父级 turnCtx。
 		if err := finishTools(); err != nil {
 			logging.Errorf("chat", "record final tool results: %v", err)
 			sse.sendError("工具结果保存失败: " + err.Error())
+		} else if completed && turnCtx.Err() == nil {
+			// 轮次完整结束才确认恢复要点：中断、失败或再次取消都
+			// 保留文件，让下一次主代理请求继续拿到交接概要。
+			s.clearFusionRecovery(req.SessionName)
 		}
 		sse.done()
 	}()
 	content := userContent(req.Message, req.Images)
 	for {
-		pendings := s.driveTurn(ctx, sse, sess, req2Session(req), content)
+		pendings, final := s.driveTurn(ctx, sse, sess, req2Session(req), content)
 		if len(pendings) == 0 {
+			completed = final
 			return
 		}
 		responses := make([]*genai.Part, 0, len(pendings))
@@ -276,11 +289,13 @@ func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatReque
 }
 
 // driveTurn 消费一次 ADK 运行并转换其事件，返回该轮次
-// 暂停时所等待的审批请求（轮次完成时为空）。
-func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session.Session, sessionName string, content *genai.Content) []*hitl.Request {
+// 暂停时所等待的审批请求（轮次完成时为空）；第二个返回值
+// 表示本轮是否观察到正常的最终响应（取消与出错都是 false）。
+func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session.Session, sessionName string, content *genai.Content) ([]*hitl.Request, bool) {
 	started := time.Now()
 	usage := &usageTotals{}
 	toolCalls := 0
+	final := false
 	reasoningBytes := 0
 	reasoningStarted := false
 	// streamedReasoning 标记本次模型调用的思考是否已经以增量发出：
@@ -377,6 +392,7 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 			}
 		}
 		if ev.IsFinalResponse() && ev.CustomMetadata["asyncContinuation"] != true {
+			final = true
 			sse.send("complete", map[string]any{"content": eventText(ev)})
 		}
 	}
@@ -384,20 +400,20 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 	if ctx.Err() != nil {
 		s.permissions.Cancel(sessionName)
 		s.finishCancelledTurn(ctx, sse, sess, partialText.String(), partialReasoning.String(), invocationID)
-		return nil
+		return nil, false
 	}
 	if lastErr != nil {
 		sse.sendError(lastErr.Error())
-		return nil
+		return nil, false
 	}
 	if len(pendings) > 0 {
 		// 暂停的轮次会保持流打开以等待审批；complete/done
 		// 事件对在恢复结束后才发送。
 		logging.Infof("chat", "turn paused session=%s agent=native awaiting %d approval(s)", sessionName, len(pendings))
-		return pendings
+		return pendings, false
 	}
 	logging.Infof("chat", "turn done session=%s agent=native in %s (tools=%d, reasoning=%dB)", sessionName, elapsed, toolCalls, reasoningBytes)
-	return nil
+	return nil, final
 }
 
 const userStoppedReply = "{{用户主动打断}}"

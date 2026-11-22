@@ -175,6 +175,7 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 	chat := hash == chatWorkspace || (profile != nil && profile.ProjectHash == "")
 	reg := tools.NewRegistry()
 	instruction := anchor.chatSystemInstruction()
+	var projects []linkedProject
 	if chat {
 		reg = tools.NewRegistry(tools.ShellTools(os.TempDir())...)
 		reg.SetChatScope(true)
@@ -183,7 +184,8 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 		if hash == root.agent.App() && root.registry != nil && filepath.Clean(resolved) == filepath.Clean(root.workspaceRoot()) {
 			reg = tools.NewRegistry(root.registry.Entries()...)
 		}
-		instruction = anchor.systemInstructionFor(resolved, hash, nil)
+		projects, _ = anchor.linkedProjects(hash, nil)
+		instruction = anchor.systemInstructionFor(resolved, hash, projects)
 	}
 	root.attachPluginTools(reg)
 	a, err := root.agent.Derive(hash, cfg, []tool.Toolset{reg}, instruction)
@@ -204,7 +206,7 @@ func (s *Controller) projectRuntime(hash string) (*Controller, error) {
 	if chat {
 		runtime.installSkillTools()
 	} else {
-		runtime.installSubRunner()
+		runtime.installSubRunner(projects)
 		runtime.installControlTools()
 	}
 	runtime.applyToolConfig()
@@ -291,9 +293,6 @@ func (s *Controller) systemInstructionFor(workspace, hash string, projects []lin
 	if hash == chatWorkspace || (customagent.IsID(hash) && s.profile != nil && s.profile.ProjectHash == "") {
 		return s.chatSystemInstruction()
 	}
-	if projects == nil {
-		projects, _ = s.linkedProjects(hash, nil)
-	}
 	var text strings.Builder
 	base := agentpkg.DefaultInstruction
 	if s.state != nil && s.state.root.agent != nil {
@@ -302,8 +301,7 @@ func (s *Controller) systemInstructionFor(workspace, hash string, projects []lin
 	text.WriteString(base)
 	text.WriteString("\n\n" + agentpkg.ReplyImageInstruction)
 	text.WriteString("\n\n")
-	text.WriteString(shellenv.Instruction(workspace))
-	text.WriteString(projectEnvironment(workspace, projects))
+	text.WriteString(workspaceEnvironment(workspace, projects))
 	for _, path := range []string{filepath.Join(s.home, "loopra.md"), filepath.Join(workspace, "loopra.md"), filepath.Join(workspace, "AGENTS.md")} {
 		if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
 			text.WriteString("\n\n")

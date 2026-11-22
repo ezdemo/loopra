@@ -19,7 +19,6 @@ import (
 
 	"github.com/ezdemo/looprax/adk/model/provider"
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
-	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	internalmodel "github.com/ezdemo/looprax/internal/model"
 	"github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/petdesk"
@@ -202,7 +201,10 @@ func New(a *agentpkg.Agent, opts Options) (*Controller, string, error) {
 		go s.desktopUpdater.autoCheck()
 	}
 	s.installApprovalPolicy()
-	s.installSubRunner()
+	if a != nil && s.registry != nil {
+		projects, _ := s.linkedProjects(a.App(), nil)
+		s.installSubRunner(projects)
+	}
 	s.installControlTools()
 	s.applyToolConfig()
 	s.openapi = openapiservice.New(s.home)
@@ -369,16 +371,16 @@ func ptr[T any](v T) *T { return &v }
 // installSubRunner 装配 sub_agent 运行时：内置与自定义
 // 配置档、父级工具注册表、基于渠道的模型覆盖，以及
 // 与父级工具相同的审批闸门。
-func (s *Controller) installSubRunner() {
-	s.installTurnSubRunner("", "", "")
+func (s *Controller) installSubRunner(projects []linkedProject) {
+	s.installTurnSubRunner("", "", "", projects)
 }
 
 // installTurnSubRunner 装配单轮子代理运行时。非空 sidekick 是
-// "channel:model" 目录值：Fusion 委派使用该模型（StrictModel，
-// 无父模型回退），审批沿用父会话覆盖而不是匿名的 "sub"；
+// "channel:model" 目录值：Fusion 委派使用该模型（无父模型回退），
+// 审批沿用父会话覆盖而不是匿名的 "sub"；
 // sidekickEffort 是执行模型独立的推理强度，空值走模型默认；
 // scope 是执行上下文指纹，同一指纹的委派共享持久上下文。
-func (s *Controller) installTurnSubRunner(sidekick, sidekickEffort, scope string) {
+func (s *Controller) installTurnSubRunner(sidekick, sidekickEffort, scope string, projects []linkedProject) {
 	if s.agent == nil || s.registry == nil {
 		return
 	}
@@ -393,7 +395,7 @@ func (s *Controller) installTurnSubRunner(sidekick, sidekickEffort, scope string
 		ParentModel: s.agent.Model,
 		Config:      s.cfg,
 		Workspace:   s.agent.App(),
-		Environment: shellenv.Instruction(s.workspaceRoot()) + s.linkedProjectEnvironment(),
+		Environment: workspaceEnvironment(s.workspaceRoot(), projects),
 		BuildModel: func(channelID, modelName, reasoningEffort string) (model.LLM, error) {
 			if s.cfg == nil {
 				return nil, fmt.Errorf("no config")

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -9,9 +10,13 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ezdemo/looprax/internal/model/config"
 	"github.com/ezdemo/looprax/internal/repository"
+	"github.com/ezdemo/looprax/internal/service/subagent"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
 )
 
 // fusionSidekickOption 是会话级 Fusion 开关在 .meta 与引擎配置中的键；
@@ -38,11 +43,12 @@ func isFusionConfigOption(id string) bool {
 const fusionEpochKey = "fusionSidekickEpoch"
 
 const fusionLeadInstruction = `Fusion 模式已启用。你是主代理，负责澄清需求、定方向和验收标准、权衡方案、审查结果及与用户沟通。凡是需要用项目工具完成的调查或工作，默认交给 Sidekick，不要先自行把同样的活做一遍。
-需要了解项目现状、查代码、找根因或回答依赖代码的问题时，先用 checklist_update 列出实际步骤，第一项安排 Sidekick 调查；用 fusion_delegate 的 explore 角色交接，说明要查的问题、范围以及需要返回的文件位置、调用链、证据和不确定点。可以委派事实调查和选项比较，不把最终设计决策交出去。若现有证据或用户给定的方案已足够，不强制增加探索步骤；不依赖项目工具的简单问答直接回答，不为形式列计划或委派。
-收到调查结果后，由你判断证据是否充分并选定方案。明确范围、约束和验收条件后，把修改和相关测试交给同一个 Sidekick（implement）；仅需专项验证时用 test。后续修正也交回同一个 Sidekick，不必重复已有上下文。你要针对关键证据、实际改动与验证结果做独立抽查，而不是重做调查或测试。仅在 Sidekick 缺少能力、交接失败无法继续，或必须由你进行独立核验时亲自用工具；需要接手时说明原因。
+Sidekick 是当前会话里同一个连续的边缘会话，不是每次交接都重新启动的新代理。它记得此前成功交接的任务、回复和工具结果，但看不到主会话里未转述的用户消息。后续交接只需说明本次新增或变化的目标、约束与验收条件，可以直接引用之前的工作，不必重发历史；中断或失败的交接不一定留在边缘会话的记忆里。
+需要了解项目现状、查代码、找根因或回答依赖代码的问题时，先用 checklist_update 列出实际步骤，第一项安排 Sidekick 调查；用 fusion_delegate 交接，写清调查范围、不要修改文件，以及需要返回的文件位置、调用链、证据和不确定点。可以委派事实调查和选项比较，不把最终设计决策交出去。若现有证据或用户给定的方案已足够，不强制增加调查步骤；不依赖项目工具的简单问答直接回答，不为形式列计划或委派。
+收到调查结果后，由你判断证据是否充分并选定方案。明确范围、约束和验收条件后，把修改和相关测试交给同一个 Sidekick；仅需专项验证时，直接说明要验证的内容。后续修正也交回同一个 Sidekick。你要针对关键证据、实际改动与验证结果做独立抽查，而不是重做调查或测试。仅在 Sidekick 缺少能力、交接失败无法继续，或必须由你进行独立核验时亲自用工具；需要接手时说明原因。
 每次交接前先用 checklist_update 把本次 Sidekick 步骤标为 active，等待更新成功，再单独调用 fusion_delegate；每次只同步交接一步，不用 sub_agent 或 tool_result 代替。按实际结果推进清单，失败不标完成；交付前更新清单并说明实际结果。`
 
-const fusionWorkerInstruction = `你是此会话的 Fusion 执行模型。只执行最新交接，之前的任务和工具结果仅供参考，不重复已完成的工作。explore 只调查，返回结论、文件位置或调用链、可核对的证据和不确定点；implement 和 test 按本次范围与验收条件执行，回报实际改动、实际运行的检查和剩余问题。遵守当前角色、工作区指引与工具审批，不擅自扩大范围或改变方案，不提交或发布。`
+const fusionWorkerInstruction = `你是此会话的 Fusion 执行模型。这是一个连续会话：利用此前成功交接的任务、回复和工具结果理解本次请求，不重复已完成的工作。执行范围以最新交接为准；历史交接的临时约束不要套用到新任务。调查时按要求提供可核对的证据和不确定点；修改或验证时回报实际改动、运行的检查与剩余问题。遵守工作区指引与工具审批，不擅自扩大范围、改变方案、提交或发布。`
 
 // fusionModel 把 "channel:model" 目录值解析回渠道与模型名；
 // 不拆分字符串，避免渠道 id 或模型名本身含冒号。
@@ -222,4 +228,41 @@ func (s *Controller) fusionScope(parent, selection, epoch string, channel config
 		filepath.Clean(s.workspaceRoot()), channel.BaseURL, channel.APIProtocol, channel.SpecialCompatibility}
 	fields = append(fields, roots...)
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(fields, "\x00"))))
+}
+
+// clearFusionRecovery 确认本会话匹配作用域的恢复要点：只在轮次
+// 完整成功收尾后调用；中断、失败或 scope 不符的轮次保留文件。
+func (s *Controller) clearFusionRecovery(name string) {
+	if s.subRunner != nil && s.subRunner.FusionScope != "" {
+		subagent.ClearFusionRecovery(s.subSessionsDir(name), s.subRunner.FusionScope)
+	}
+}
+
+// recordFusionRecovery 把待确认的交接要点以模型角色的隐藏事件追加到
+// 下一条用户消息之前。事件进原始历史（模型可见），webHidden 让它在
+// 页面可见转录与 SSE 之外；稳定事件 ID 用于处理已追加但尚未删除
+// 待确认文件时的重复读取。
+func (s *Controller) recordFusionRecovery(ctx context.Context, sess session.Session) error {
+	if s.subRunner == nil || s.subRunner.FusionScope == "" {
+		return nil
+	}
+	dir, scope := s.subSessionsDir(sess.ID()), s.subRunner.FusionScope
+	id, text := subagent.FusionRecoveryNote(dir, scope)
+	if text == "" {
+		return nil
+	}
+	for old := range sess.Events().All() {
+		if old != nil && old.ID == id {
+			subagent.ClearFusionRecovery(dir, scope)
+			return nil
+		}
+	}
+	event := &session.Event{ID: id, Author: s.agent.Root.Name(), Timestamp: time.Now()}
+	event.Content = genai.NewContentFromText(text, genai.RoleModel)
+	event.CustomMetadata = map[string]any{"webHidden": true, "fusionRecovery": true}
+	if err := s.agent.Sessions.AppendEvent(ctx, sess, event); err != nil {
+		return fmt.Errorf("保存 Fusion 恢复记录失败: %w", err)
+	}
+	subagent.ClearFusionRecovery(dir, scope)
+	return nil
 }

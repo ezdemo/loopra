@@ -17,6 +17,7 @@ import (
 
 	loopraagent "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/hitl"
+	"github.com/ezdemo/looprax/internal/service/tools"
 )
 
 // recorder 向 {sessionsDir}/{parent}.sub/{subSessionId}.jsonl
@@ -64,18 +65,19 @@ func nowMillis() int64 { return time.Now().UnixMilli() }
 // sub_choice 上；Java broker 在 5 分钟后超时并自动拒绝。
 const subHitlTimeout = 5 * time.Minute
 
-func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Session, parentSession, message string, subID int, subSessionID string, rec *recorder, sink Sink, fusion bool) (string, error) {
+func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Session, parentSession, message string, subID int, subSessionID string, rec *recorder, sink Sink, fusion bool, recovery *fusionRecovery) (string, error) {
 	ctx = loopraagent.WithParentSession(ctx, parentSession)
-	if sink != nil {
-		// 让 runner 的 AfterToolCallback 能逐个工具上报 sub_tool_result。
-		ctx = loopraagent.WithToolResultSink(ctx, newSubToolResults(subID, sink))
+	if sink != nil || recovery != nil {
+		// 让 runner 的 AfterToolCallback 能逐个工具上报 sub_tool_result；
+		// Fusion 交接同时把终态写入恢复要点。
+		ctx = loopraagent.WithToolResultSink(ctx, newSubToolResults(subID, sink, recovery))
 	}
 	reply := ""
 	content := &genai.Content{
 		Role: genai.RoleUser, Parts: []*genai.Part{{Text: message}},
 	}
 	for {
-		pendings, last, err := r.onePass(ctx, run, sess, parentSession, content, subID, subSessionID, rec, sink, &reply, fusion)
+		pendings, last, err := r.onePass(ctx, run, sess, parentSession, content, subID, subSessionID, rec, sink, &reply, fusion, recovery)
 		if err != nil {
 			return last, err
 		}
@@ -115,7 +117,7 @@ func (r *Runner) drive(ctx context.Context, run *runner.Runner, sess session.Ses
 
 // onePass 消费一次 ADK 运行，返回其暂停等待的审批请求
 // 与最新的助手文本；迭代错误在照常上报 sub_error 后向上传递。
-func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.Session, parentSession string, content *genai.Content, subID int, subSessionID string, rec *recorder, sink Sink, reply *string, fusion bool) ([]*hitl.Request, string, error) {
+func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.Session, parentSession string, content *genai.Content, subID int, subSessionID string, rec *recorder, sink Sink, reply *string, fusion bool, recovery *fusionRecovery) ([]*hitl.Request, string, error) {
 	var pendings []*hitl.Request
 	// Fusion 文本以流式增量直接呈现给父聊天；完整事件里重复的
 	// 正文不再二次发送（.sub 审计与最终回复仍照常落完整文本）。
@@ -204,6 +206,7 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 				}
 				*reply = p.Text
 			case p.FunctionCall != nil:
+				recovery.called(p.FunctionCall.ID, p.FunctionCall.Name, p.FunctionCall.Args)
 				args, _ := json.Marshal(p.FunctionCall.Args)
 				send(sink, "sub_tool_call", map[string]any{
 					"subId": subID, "toolCallId": p.FunctionCall.ID,
@@ -231,6 +234,9 @@ func (r *Runner) onePass(ctx context.Context, run *runner.Runner, sess session.S
 					alreadySent = results.ToolResultSent(p.FunctionResponse.ID)
 				}
 				if !alreadySent {
+					if !tools.IsAsyncPlaceholder(p.FunctionResponse.ID, p.FunctionResponse.Response) {
+						recovery.finished(p.FunctionResponse.ID, p.FunctionResponse.Name, p.FunctionResponse.Response)
+					}
 					send(sink, "sub_tool_result", map[string]any{
 						"subId": subID, "toolCallId": p.FunctionResponse.ID,
 						"name": p.FunctionResponse.Name, "result": responseText(p.FunctionResponse),
@@ -290,19 +296,20 @@ func responseMapText(response map[string]any) string {
 // subToolResults 把子代理里单个工具完成的结果提前写入父聊天流。
 // 合并事件到达时按 toolCallId 去重（.sub 日志仍由 onePass 记录）。
 type subToolResults struct {
-	sink  Sink
-	subID int
-	mu    sync.Mutex
-	sent  map[string]bool
+	sink     Sink
+	subID    int
+	recovery *fusionRecovery
+	mu       sync.Mutex
+	sent     map[string]bool
 }
 
-func newSubToolResults(subID int, sink Sink) *subToolResults {
-	return &subToolResults{sink: sink, subID: subID, sent: map[string]bool{}}
+func newSubToolResults(subID int, sink Sink, recovery *fusionRecovery) *subToolResults {
+	return &subToolResults{sink: sink, subID: subID, recovery: recovery, sent: map[string]bool{}}
 }
 
 // ToolFinished 实现 agentpkg.ToolResultSink。
 func (s *subToolResults) ToolFinished(callID, name string, response map[string]any) {
-	if s.sink == nil || callID == "" {
+	if callID == "" {
 		return
 	}
 	msg, _ := response["error"].(string)
@@ -320,7 +327,9 @@ func (s *subToolResults) ToolFinished(callID, name string, response map[string]a
 	}
 	s.sent[callID] = true
 	s.mu.Unlock()
-	s.sink.SendSub("sub_tool_result", map[string]any{
+	// 每个工具完成即写入恢复要点，不依赖合并事件或 SSE 已就位。
+	s.recovery.finished(callID, name, response)
+	send(s.sink, "sub_tool_result", map[string]any{
 		"subId": s.subID, "toolCallId": callID, "name": name,
 		"result": responseMapText(response), "status": status,
 	})

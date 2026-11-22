@@ -167,17 +167,15 @@ func TestFusionCheckpointRoundTrip(t *testing.T) {
 	}
 }
 
-// TestFusionReadOnlyCannotUseWritableAllowlistedTool Fusion 只读角色
-// （explore）即使角色允许清单点名可写工具，也只拿到只读条目。
-func TestFusionReadOnlyCannotUseWritableAllowlistedTool(t *testing.T) {
+func TestFusionInheritsSessionToolAllowlist(t *testing.T) {
 	reg := tools.NewRegistry(tools.FileTools(t.TempDir())...)
+	reg.SetAllowed([]string{"read"})
 	r := Runner{Registry: reg}
-	profile := Profile{StrictModel: true, ReadOnly: true, AllowedTools: []string{"read", "edit"}}
 	var names []string
-	for _, item := range r.subTools(profile, "test") {
+	for _, item := range r.subTools(nil, "test") {
 		names = append(names, item.Name())
 	}
 	if !slices.Equal(names, []string{"read"}) {
-		t.Fatalf("read-only Fusion tools = %v", names)
+		t.Fatalf("Fusion session tools = %v, want [read]", names)
 	}
 }

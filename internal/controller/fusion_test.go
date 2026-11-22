@@ -2,9 +2,11 @@ package controller
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,13 +18,14 @@ import (
 	"time"
 
 	agentctx "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/adk/model/echo"
-	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	"github.com/ezdemo/looprax/internal/model/config"
+	"github.com/ezdemo/looprax/internal/repository"
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 	"github.com/ezdemo/looprax/internal/service/tools"
 )
@@ -30,7 +33,7 @@ import (
 // fusionServer 搭一个项目工作区：父模型用脚本 echo，可选的 sidekick
 // 渠道指向本地 OpenAI 兼容端点，disabled 进 cfg.DisabledTools，
 // extras 追加进父级工具注册表。
-func fusionServer(t *testing.T, lead *echo.Scripted, sidekickBase string, disabled []string, extras ...tools.Tool) (*httptest.Server, string, *Controller) {
+func fusionServer(t *testing.T, lead model.LLM, sidekickBase string, disabled []string, extras ...tools.Tool) (*httptest.Server, string, *Controller) {
 	t.Helper()
 	reg := tools.NewRegistry(append(tools.FileTools(t.TempDir()), extras...)...)
 	cfg := config.Default()
@@ -89,9 +92,9 @@ func subAgentCall(profile string) []*genai.FunctionCall {
 }
 
 // fusionDelegateCall 生成一次 fusion_delegate 委派；专用同步工具
-// 没有 name 参数，也不接受选择执行模型。
-func fusionDelegateCall(profile, task, instructions string) []*genai.FunctionCall {
-	args := map[string]any{"profile": profile, "task": task}
+// 没有 name 或角色参数，也不接受选择执行模型。
+func fusionDelegateCall(task, instructions string) []*genai.FunctionCall {
+	args := map[string]any{"task": task}
 	if instructions != "" {
 		args["instructions"] = instructions
 	}
@@ -162,13 +165,13 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 
 	scripted := fusionTestLead("fusion-lead",
 		// 同一轮内的连续三次委派：只读调查 → 实现 → 反馈评审。
-		echo.Script{ToolCalls: fusionDelegateCall("explore", "explore-fusion-brief", "explore-fusion-constraint")},
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "first-fusion-brief", "")},
-		echo.Script{ToolCalls: fusionDelegateCall("test", "review-fusion-brief", "review-fusion-constraint")},
+		echo.Script{ToolCalls: fusionDelegateCall("explore-fusion-brief", "explore-fusion-constraint")},
+		echo.Script{ToolCalls: fusionDelegateCall("first-fusion-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("review-fusion-brief", "review-fusion-constraint")},
 		echo.Script{Text: "第一轮完成"},
-		echo.Script{ToolCalls: fusionDelegateCall("test", "followup-fusion-brief", "followup-fusion-constraint")},
+		echo.Script{ToolCalls: fusionDelegateCall("followup-fusion-brief", "followup-fusion-constraint")},
 		echo.Script{Text: "第二轮完成"},
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "other-fusion-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("other-fusion-brief", "")},
 		echo.Script{Text: "第三轮完成"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil)
@@ -198,6 +201,14 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 		t.Fatalf("effort edit rotated epoch: %q -> %q", epoch, again)
 	}
 
+	// 边缘会话不依赖普通子代理角色：全部禁用后交接仍正常。
+	disabled := false
+	profiles := builtinProfiles()
+	for i := range profiles {
+		profiles[i].Enable = &disabled
+	}
+	s.subAgentSave(profiles)
+
 	turn1 := fusionStream(t, ts, key, name, "父会话第一条消息")
 	turn2 := fusionStream(t, ts, key, name, "父会话第二条消息")
 	// fusion-other 没有明确选择：首个真实轮次继承服务端默认并固定到 .meta。
@@ -214,32 +225,70 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 	if len(bodies) != 5 {
 		t.Fatalf("sidekick requests = %d", len(bodies))
 	}
+	var system string
+	wantHandoffs := []string{
+		"explore-fusion-brief\n\n补充指示：\nexplore-fusion-constraint",
+		"first-fusion-brief",
+		"review-fusion-brief\n\n补充指示：\nreview-fusion-constraint",
+		"followup-fusion-brief\n\n补充指示：\nfollowup-fusion-constraint",
+		"other-fusion-brief",
+	}
 	for i, body := range bodies {
-		var payload map[string]any
+		var payload struct {
+			Model           string `json:"model"`
+			ReasoningEffort string `json:"reasoning_effort"`
+			Messages        []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatalf("request %d not json: %v", i, err)
 		}
-		if payload["model"] != "side-model" {
-			t.Fatalf("request %d model = %v", i, payload["model"])
+		if payload.Model != "side-model" {
+			t.Fatalf("request %d model = %v", i, payload.Model)
 		}
-		if payload["reasoning_effort"] != "high" {
-			t.Fatalf("request %d reasoning_effort = %v", i, payload["reasoning_effort"])
+		if payload.ReasoningEffort != "high" {
+			t.Fatalf("request %d reasoning_effort = %v", i, payload.ReasoningEffort)
+		}
+		messages := payload.Messages
+		if len(messages) < 2 || messages[0].Role != "system" {
+			t.Fatalf("handoff %d missing system or user message: %+v", i, messages)
+		}
+		if i == 0 {
+			system = messages[0].Content
+			for _, heading := range []string{"[Runtime environment]", "[项目工作区]"} {
+				if strings.Count(system, heading) != 1 {
+					t.Fatalf("want one %s block in system instruction: %s", heading, system)
+				}
+			}
+			for _, line := range []string{"Working directory: " + s.workspaceRoot(), "主项目根目录: " + s.workspaceRoot()} {
+				if !strings.Contains(system, line) {
+					t.Fatalf("system instruction missing %q: %s", line, system)
+				}
+			}
+		} else if messages[0].Content != system {
+			t.Fatalf("handoff %d changed the system instruction:\n%s\n---\n%s", i, system, messages[0].Content)
+		}
+		last := messages[len(messages)-1]
+		if last.Role != "user" || last.Content != wantHandoffs[i] {
+			t.Fatalf("handoff %d last message = %+v, want user message %q", i, last, wantHandoffs[i])
 		}
 	}
-	// explore 委派只拿只读工具：rg/read 在，写工具、终端、委派与
-	// 清单工具都不出现在执行代理的工具声明里。
-	exploreBody := bodies[0]
-	for _, want := range []string{`"name":"rg"`, `"name":"read"`} {
-		if !strings.Contains(exploreBody, want) {
-			t.Fatalf("explore handoff missing read-only tool %q\nbody: %s", want, exploreBody)
+	// 各次交接使用同一套会话工具，不因任务类型切换角色权限。
+	for i, body := range bodies {
+		for _, want := range []string{`"name":"rg"`, `"name":"read"`, `"name":"edit"`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("handoff %d missing session tool %q", i, want)
+			}
+		}
+		for _, notWant := range []string{`"name":"sub_agent"`, `"name":"fusion_delegate"`, `"name":"checklist_update"`, "本次角色", "角色约定"} {
+			if strings.Contains(body, notWant) {
+				t.Fatalf("handoff %d contained %q", i, notWant)
+			}
 		}
 	}
-	for _, notWant := range []string{`"name":"edit"`, `"name":"write"`, fmt.Sprintf(`"name":"%s"`, shellenv.Current.Name), `"name":"fusion_delegate"`, `"name":"checklist_update"`} {
-		if strings.Contains(exploreBody, notWant) {
-			t.Fatalf("explore handoff leaked writable/meta tool %q", notWant)
-		}
-	}
-	// 同轮实现委派看到调查结论，并拿回写工具。
+	// 同轮实现委派看到调查结论。
 	implement := bodies[1]
 	for _, want := range []string{"explore-fusion-brief", "explore-fusion-result", "first-fusion-brief", `"name":"edit"`} {
 		if !strings.Contains(implement, want) {
@@ -278,7 +327,7 @@ func TestFusionSidekickKeepsHistoryAcrossHandoffs(t *testing.T) {
 	if len(segments) != 3 {
 		t.Fatalf("turn 1 scoped segments = %v, want 3 handoffs", segments)
 	}
-	// 首个委派（explore）的最终结果先于第二次交接的就地正文开始。
+	// 首个委派的最终结果先于第二次交接的就地正文开始。
 	exploreResultIndex, secondScoped := -1, -1
 	for i, e := range turn1 {
 		if e["type"] == "content" && e["segmentId"] == segments[1] {
@@ -329,13 +378,13 @@ func TestFusionSidekickDropsFailedHandoff(t *testing.T) {
 	defer upstream.Close()
 
 	scripted := fusionTestLead("fusion-lead",
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "keep-fusion-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("keep-fusion-brief", "")},
 		echo.Script{Text: "第一轮完成"},
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "fail-fusion-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("fail-fusion-brief", "")},
 		echo.Script{Text: "第二轮失败已上报"},
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "third-fusion-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("third-fusion-brief", "")},
 		echo.Script{Text: "第三轮完成"},
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "clean-fusion-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("clean-fusion-brief", "")},
 		echo.Script{Text: "第四轮完成"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil)
@@ -663,7 +712,7 @@ func TestFusionConfigPreferenceWriteFailure(t *testing.T) {
 	}
 }
 
-// TestFusionSidekickRunsImplement 走完整聊天流：父代理委派 implement，
+// TestFusionSidekickRunsImplement 走完整聊天流：父代理委派一次实现任务，
 // 子代理改打本地 sidekick 渠道，执行文本作为带 segmentId 的就地正文与
 // 工具结果回到父流（不出现任何 sub_* 事件），被禁用的工具不出现在
 // 执行模型的请求里。
@@ -684,7 +733,7 @@ func TestFusionSidekickRunsImplement(t *testing.T) {
 	defer upstream.Close()
 
 	scripted := fusionTestLead("fusion-lead",
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "实现登录页", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("实现登录页", "")},
 		echo.Script{Text: "已亲自核对执行模型的改动，可以交付"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", []string{"write"})
@@ -914,7 +963,7 @@ func TestFusionLeavesOrdinarySubAgentOnParentModel(t *testing.T) {
 
 // TestFusionDelegateIsSynchronous fusion_delegate 只在开启 Fusion 的
 // 原生轮次注册，且是同步工具：无 Async 元数据、无 yield 参数、
-// schema 带 profile/task；普通 sub_agent 保持可让出的异步语义。
+// schema 只有 task 与可选 instructions；普通 sub_agent 保持可让出的异步语义。
 func TestFusionDelegateIsSynchronous(t *testing.T) {
 	ts, key, s := fusionServer(t, echo.New("idle-lead"), "http://127.0.0.1:9/v1", nil)
 	// plain-sync 在设置服务端默认之前准备：继承当时的 off 并固定下来，
@@ -958,13 +1007,15 @@ func TestFusionDelegateIsSynchronous(t *testing.T) {
 		t.Fatal("fusion_delegate has no declaration")
 	}
 	schema, _ := json.Marshal(declarer.Declaration().ParametersJsonSchema)
-	for _, want := range []string{`"profile"`, `"task"`} {
+	for _, want := range []string{`"task"`, `"instructions"`} {
 		if !strings.Contains(string(schema), want) {
 			t.Fatalf("fusion_delegate schema %s missing %s", schema, want)
 		}
 	}
-	if strings.Contains(string(schema), "yield_after_ms") {
-		t.Fatalf("fusion_delegate schema must not yield: %s", schema)
+	for _, notWant := range []string{`"profile"`, `"yield_after_ms"`} {
+		if strings.Contains(string(schema), notWant) {
+			t.Fatalf("fusion_delegate schema must not contain %s: %s", notWant, schema)
+		}
 	}
 	check, ok := got[checklistUpdateName]
 	if !ok || !check.Meta.ReadOnly || check.Meta.Async {
@@ -984,6 +1035,12 @@ func TestFusionDelegateIsSynchronous(t *testing.T) {
 	}
 	if _, ok := plainEntries["fusion_plan"]; ok {
 		t.Fatal("retired fusion_plan must not be advertised")
+	}
+	if !strings.Contains(fused.agent.Instruction(), "同一个连续的边缘会话") || !strings.Contains(fused.agent.Instruction(), "记得此前成功交接") {
+		t.Fatal("Fusion lead was not told the edge session is continuous")
+	}
+	if strings.Contains(plain.agent.Instruction(), "同一个连续的边缘会话") {
+		t.Fatal("Fusion instruction leaked into a non-Fusion turn")
 	}
 }
 
@@ -1057,9 +1114,9 @@ func TestFusionDelegateRequiresActivePlan(t *testing.T) {
 		{"description": "随后交给执行代理", "owner": "sidekick", "status": "pending"},
 	}}}}}
 	scripted := echo.New("guard-lead",
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "实现", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("实现", "")},
 		leadActive,
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "实现", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("实现", "")},
 		echo.Script{Text: "计划未就绪，委派被计划门卫拒绝"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil)
@@ -1102,8 +1159,8 @@ func TestFusionDelegateRequiresFreshPlanForNextHandoff(t *testing.T) {
 	}}}}}
 	scripted := echo.New("fresh-plan-lead",
 		sidekickActive,
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "first-brief", "")},
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "stale-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("first-brief", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("stale-brief", "")},
 		echo.Script{Text: "第二项交接前需要刷新计划"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil)
@@ -1147,7 +1204,7 @@ func TestFusionSidekickFailure(t *testing.T) {
 	defer upstream.Close()
 
 	scripted := fusionTestLead("failing-lead",
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "实现", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("实现", "")},
 		echo.Script{Text: "执行模型失败，已如实上报"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil)
@@ -1177,8 +1234,8 @@ func TestFusionSidekickFailure(t *testing.T) {
 	}
 }
 
-// TestFusionWorkerInheritsSessionApproval 会话级 hitl 覆盖经 StrictModel
-// 透传给执行模型：全局 free + 会话 approval 时，worker 的非只读
+// TestFusionWorkerInheritsSessionApproval 会话级 hitl 覆盖透传给
+// 执行模型：全局 free + 会话 approval 时，worker 的非只读
 // 工具调用停在 sub_choice，POST /chat/permission 放行后才真正执行。
 func TestFusionWorkerInheritsSessionApproval(t *testing.T) {
 	var calls atomic.Int32
@@ -1206,7 +1263,7 @@ func TestFusionWorkerInheritsSessionApproval(t *testing.T) {
 	defer upstream.Close()
 
 	scripted := fusionTestLead("approval-lead",
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "干活", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("干活", "")},
 		echo.Script{Text: "执行模型已获准并完成"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil,
@@ -1341,9 +1398,9 @@ func TestFusionSidekickUsesParentCancellation(t *testing.T) {
 	}()
 
 	scripted := fusionTestLead("cancel-lead",
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "hold", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("hold", "")},
 		echo.Script{Text: "第一组交接完成"},
-		echo.Script{ToolCalls: fusionDelegateCall("implement", "hold-again", "")},
+		echo.Script{ToolCalls: fusionDelegateCall("hold-again", "")},
 		echo.Script{Text: "不应到达"},
 	)
 	ts, key, s := fusionServer(t, scripted, upstream.URL+"/v1", nil)
@@ -1436,5 +1493,380 @@ func TestFusionSidekickUsesParentCancellation(t *testing.T) {
 	}
 	if delegateOK || leadSuccess {
 		t.Fatalf("aborted turn produced success events: %v", events2)
+	}
+}
+
+// fusionRecoveryLead 包装脚本化主模型，记录每次请求的原始入参，
+// 用来核对恢复要点只出现在系统提示里而不进请求历史。
+type fusionRecoveryLead struct {
+	model.LLM
+	saw func(*model.LLMRequest)
+}
+
+func (l fusionRecoveryLead) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
+	l.saw(req)
+	return l.LLM.GenerateContent(ctx, req, stream)
+}
+
+func llmRequestText(req *model.LLMRequest, system bool) string {
+	var sb strings.Builder
+	if system {
+		if req.Config != nil && req.Config.SystemInstruction != nil {
+			for _, p := range req.Config.SystemInstruction.Parts {
+				if p != nil {
+					sb.WriteString(p.Text)
+				}
+			}
+		}
+		return sb.String()
+	}
+	for _, c := range req.Contents {
+		if c == nil {
+			continue
+		}
+		for _, p := range c.Parts {
+			if p != nil {
+				sb.WriteString(p.Text)
+			}
+		}
+	}
+	return sb.String()
+}
+
+// TestFusionRecoveryNoteReachesNextLeadTurn 主代理轮次在交接阻塞时被
+// 中止：执行代理已落盘的写和工具终态留在 .sub/.fusion-recovery.json。
+// 下一轮同一作用域把要点作为隐藏的模型角色事件一次性追加进历史
+// （位于用户文本之前），系统提示不变，可见历史 API 不含要点；
+// 追加即确认删除文件，之后轮次里内容保持稳定且不会因重放重复。
+func TestFusionRecoveryNoteReachesNextLeadTurn(t *testing.T) {
+	work := t.TempDir()
+	target := filepath.Join(work, "worker-output.txt")
+	args, _ := json.Marshal(map[string]string{"path": target, "content": "worker landed this"})
+	argJSON, _ := json.Marshal(string(args))
+
+	second := make(chan struct{}, 1)
+	stopUpstream := make(chan struct{})
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if upstreamCalls.Add(1) == 1 {
+			fmt.Fprintf(w, "data: {\"id\":\"t\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_write\",\"type\":\"function\",\"function\":{\"name\":\"write\",\"arguments\":%s}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n", argJSON)
+			return
+		}
+		// 第二次模型调用发出后挂起：交接永远收不到终态回复。
+		select {
+		case second <- struct{}{}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+		case <-stopUpstream:
+		}
+	}))
+	defer func() { close(stopUpstream); upstream.Close() }()
+
+	var mu sync.Mutex
+	var seen []*model.LLMRequest
+	scripted := fusionTestLead("recovery-lead",
+		echo.Script{ToolCalls: fusionDelegateCall("recovery-task-marker", "")},
+		echo.Script{Text: "follow-up lead reply"},
+		echo.Script{Text: "third lead reply"},
+	)
+	lead := fusionRecoveryLead{LLM: scripted, saw: func(req *model.LLMRequest) {
+		mu.Lock()
+		seen = append(seen, req)
+		mu.Unlock()
+	}}
+	ts, key, s := fusionServer(t, lead, upstream.URL+"/v1", nil)
+	ts.Client().Timeout = 60 * time.Second
+	main := s.agent.App()
+	const name = "fusion-recovery"
+	enableFusion(t, ts, key, main, name, "sidekick:side-model")
+
+	waitReleased := func() {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if s.sessionRunning(name) == "" {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("session %q still running", name)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/chat/stream",
+		strings.NewReader(fmt.Sprintf(`{"message":"begin","sessionName":%q,"requestId":"recovery-1"}`, name)))
+	req.Header.Set("X-Loopra-Key", key)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	select {
+	case <-second:
+	case <-time.After(15 * time.Second):
+		t.Fatal("second sidekick request did not start")
+	}
+	// 交接内的写工具已真正落盘，恢复要点记录该路径。
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(target); err == nil && string(data) == "worker landed this" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "worker landed this" {
+		t.Fatalf("worker write = %v %q", err, data)
+	}
+	code, result := call(t, ts, http.MethodPost, "/api/chat/abort", key,
+		map[string]any{"requestId": "recovery-1", "sessionName": name})
+	if code != http.StatusOK || result["data"].(map[string]any)["matched"] != float64(1) {
+		t.Fatalf("abort = %d %v", code, result)
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	if events, _ := readUntilEvent(t, scanner, "done"); events == nil {
+		t.Fatal("aborted stream ended without done")
+	}
+	waitReleased()
+
+	// 中止让交接要点留在 pending 文件里；保留原始字节，第三轮前用它
+	// 模拟"事件已追加、文件未删除"的崩溃窗口来验证稳定 ID 去重。
+	recoveryPath := filepath.Join(s.subSessionsDir(name), ".fusion-recovery.json")
+	pending, err := os.ReadFile(recoveryPath)
+	if err != nil {
+		t.Fatalf("pending recovery file: %v", err)
+	}
+
+	mu.Lock()
+	before := len(seen)
+	req1 := seen[0]
+	mu.Unlock()
+	fusionStream(t, ts, key, name, "follow up")
+	waitReleased()
+
+	var req2 *model.LLMRequest
+	mu.Lock()
+	if len(seen) > before {
+		req2 = seen[before]
+	}
+	count := len(seen)
+	mu.Unlock()
+	if req2 == nil {
+		t.Fatal("no lead request captured for the follow-up turn")
+	}
+	// 要点是历史里的一条隐藏模型事件：系统提示与中止前保持一致。
+	if instruction := llmRequestText(req2, true); instruction != llmRequestText(req1, true) {
+		t.Fatalf("system instruction changed across turns:\n%s\n---\n%s", llmRequestText(req1, true), instruction)
+	}
+	// 请求内容里恰好出现一次、模型角色、位于"follow up"用户文本之前。
+	noteAt, userAt, note := -1, -1, ""
+	for i, c := range req2.Contents {
+		if c == nil {
+			continue
+		}
+		for _, p := range c.Parts {
+			if p == nil {
+				continue
+			}
+			if strings.Contains(p.Text, "Prior Fusion handoff") {
+				if noteAt >= 0 {
+					t.Fatalf("recovery note duplicated in request contents:\n%s", llmRequestText(req2, false))
+				}
+				if c.Role != genai.RoleModel {
+					t.Fatalf("recovery note role = %q, want %q", c.Role, genai.RoleModel)
+				}
+				noteAt, note = i, p.Text
+			}
+			if c.Role == genai.RoleUser && strings.Contains(p.Text, "follow up") {
+				userAt = i
+			}
+		}
+	}
+	if noteAt < 0 {
+		t.Fatalf("recovery note missing from request contents:\n%s", llmRequestText(req2, false))
+	}
+	if userAt < 0 || noteAt > userAt {
+		t.Fatalf("note at content %d, user message at %d:\n%s", noteAt, userAt, llmRequestText(req2, false))
+	}
+	for _, want := range []string{"recovery-task-marker", `"write"`, "state: interrupted"} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("recovery note missing %q:\n%s", want, note)
+		}
+	}
+	// 深路径要点保留文件名尾部：changed 行以落盘的文件名收尾。
+	changedTail := false
+	for _, line := range strings.Split(note, "\n") {
+		if strings.HasPrefix(line, "changed: ") && strings.HasSuffix(line, `worker-output.txt"`) {
+			changedTail = true
+		}
+	}
+	if !changedTail {
+		t.Fatalf("recovery note changed line lost the filename:\n%s", note)
+	}
+	// 追加成功即确认删除 pending 文件。
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Fatalf("recovery file still pending after append: %v", err)
+	}
+	// 原始会话历史里恰好一条隐藏要点事件，webHidden 与恢复标记可往返。
+	sess, err := s.agent.Session(context.Background(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hidden := 0
+	for ev := range sess.Events().All() {
+		if ev == nil || ev.Content == nil {
+			continue
+		}
+		matched := false
+		for _, p := range ev.Content.Parts {
+			if p != nil && strings.Contains(p.Text, "Prior Fusion handoff") {
+				matched = true
+			}
+		}
+		if !matched {
+			continue
+		}
+		hidden++
+		if ev.CustomMetadata["webHidden"] != true || ev.CustomMetadata["fusionRecovery"] != true {
+			t.Fatalf("recovery event metadata = %v", ev.CustomMetadata)
+		}
+		if !strings.HasPrefix(ev.ID, "fusion-recovery-") || ev.Content.Role != genai.RoleModel {
+			t.Fatalf("recovery event id=%q role=%q", ev.ID, ev.Content.Role)
+		}
+	}
+	if hidden != 1 {
+		t.Fatalf("hidden recovery events = %d, want 1", hidden)
+	}
+	code, env := call(t, ts, http.MethodGet,
+		"/api/agent/history?workspaceHash="+main+"&sessionName="+name, key, nil)
+	if code != http.StatusOK {
+		t.Fatalf("history = %d %v", code, env)
+	}
+	if raw, _ := json.Marshal(env); strings.Contains(string(raw), "Prior Fusion handoff") {
+		t.Fatal("recovery note leaked into the history API")
+	}
+
+	// 崩溃窗口重放：同一 pending 文件再次被读到时，稳定事件 ID 让
+	// 追加去重而不是生成第二条要点，文件随后被确认删除。
+	if err := repository.WriteFile(recoveryPath, pending); err != nil {
+		t.Fatal(err)
+	}
+	fusionStream(t, ts, key, name, "again")
+	waitReleased()
+	var req3 *model.LLMRequest
+	mu.Lock()
+	if len(seen) > count {
+		req3 = seen[count]
+	}
+	mu.Unlock()
+	if req3 == nil {
+		t.Fatal("no lead request captured for the third turn")
+	}
+	if instruction := llmRequestText(req3, true); instruction != llmRequestText(req1, true) {
+		t.Fatalf("system instruction changed by the third turn:\n%s", instruction)
+	}
+	// 已提交的历史事件保留：第三轮内容以第二轮全部内容为前缀，且
+	// 要点仍恰好出现一次。
+	if !strings.HasPrefix(llmRequestText(req3, false), llmRequestText(req2, false)) {
+		t.Fatalf("third-turn contents diverged:\n%s\n---\n%s", llmRequestText(req2, false), llmRequestText(req3, false))
+	}
+	notes := 0
+	for _, c := range req3.Contents {
+		if c == nil {
+			continue
+		}
+		for _, p := range c.Parts {
+			if p != nil && strings.Contains(p.Text, "Prior Fusion handoff") {
+				notes++
+			}
+		}
+	}
+	if notes != 1 {
+		t.Fatalf("replayed pending file produced %d notes", notes)
+	}
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Fatalf("replayed recovery file not cleared: %v", err)
+	}
+}
+
+// TestFusionRecoveryQuietTurnClearsNote 计划/需求/机器人共用的静默轮次
+// 与 SSE 轮次一样把待确认要点追加为隐藏模型事件（用户文本之前、系统
+// 提示不变），随后确认删除 pending 文件。
+func TestFusionRecoveryQuietTurnClearsNote(t *testing.T) {
+	var mu sync.Mutex
+	var seen []*model.LLMRequest
+	lead := fusionRecoveryLead{LLM: echo.New("quiet-lead", echo.Script{Text: "quiet reply"}), saw: func(req *model.LLMRequest) {
+		mu.Lock()
+		seen = append(seen, req)
+		mu.Unlock()
+	}}
+	ts, key, s := fusionServer(t, lead, "http://127.0.0.1:9/v1", nil)
+	main := s.agent.App()
+	const name = "fusion-quiet"
+	enableFusion(t, ts, key, main, name, "sidekick:side-model")
+	view, err := s.prepareTurn(&chatRequest{SessionName: name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer view.closeTurnTools()
+	if view.subRunner == nil || view.subRunner.FusionScope == "" {
+		t.Fatal("fusion runner missing scope")
+	}
+	recoveryPath := filepath.Join(s.subSessionsDir(name), ".fusion-recovery.json")
+	if err := repository.WriteJSON(recoveryPath, map[string]any{
+		"scope": view.subRunner.FusionScope, "task": "quiet-marker", "status": "aborted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.runTurnQuiet(context.Background(), name, "follow up"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("no lead request captured for the quiet turn")
+	}
+	req := seen[0]
+	if instruction := llmRequestText(req, true); strings.Contains(instruction, "Prior Fusion handoff") {
+		t.Fatalf("quiet turn system instruction changed:\n%s", instruction)
+	}
+	// 要点作为隐藏模型事件进入请求内容，位于最新用户文本之前。
+	noteAt, userAt := -1, -1
+	for i, c := range req.Contents {
+		if c == nil {
+			continue
+		}
+		for _, p := range c.Parts {
+			if p == nil {
+				continue
+			}
+			if strings.Contains(p.Text, "Prior Fusion handoff") {
+				if noteAt >= 0 {
+					t.Fatal("recovery note duplicated in quiet request contents")
+				}
+				if c.Role != genai.RoleModel {
+					t.Fatalf("recovery note role = %q, want %q", c.Role, genai.RoleModel)
+				}
+				for _, want := range []string{"quiet-marker", "state: interrupted"} {
+					if !strings.Contains(p.Text, want) {
+						t.Fatalf("quiet note missing %q:\n%s", want, p.Text)
+					}
+				}
+				noteAt = i
+			}
+			if c.Role == genai.RoleUser && strings.Contains(p.Text, "follow up") {
+				userAt = i
+			}
+		}
+	}
+	if noteAt < 0 || userAt < 0 || noteAt > userAt {
+		t.Fatalf("note at content %d, user message at %d:\n%s", noteAt, userAt, llmRequestText(req, false))
+	}
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Fatalf("recovery file still present after a clean quiet turn: %v", err)
 	}
 }

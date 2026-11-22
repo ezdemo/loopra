@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strings"
 
+	"github.com/ezdemo/looprax/internal/infrastructure/shellenv"
 	"github.com/ezdemo/looprax/internal/service/projectlinks"
 )
 
@@ -38,12 +38,8 @@ func projectEnvironment(workspace string, projects []linkedProject) string {
 	return text.String()
 }
 
-func (s *Controller) linkedProjectEnvironment() string {
-	projects := make([]linkedProject, 0, len(s.linkedProjectRoots))
-	for _, path := range s.linkedProjectRoots {
-		projects = append(projects, linkedProject{Name: filepath.Base(path), Path: path})
-	}
-	return projectEnvironment(s.workspaceRoot(), projects)
+func workspaceEnvironment(workspace string, projects []linkedProject) string {
+	return shellenv.Instruction(workspace) + projectEnvironment(workspace, projects)
 }
 
 func (s *Controller) workspaceLinksController(w http.ResponseWriter, r *http.Request) {

@@ -71,17 +71,23 @@ func (s *Controller) runTurnQuiet(ctx context.Context, sessionName, message stri
 	if err != nil {
 		return "", err
 	}
+	if err := s.recordFusionRecovery(ctx, sess); err != nil {
+		return "", err
+	}
 	s.ensureSessionTitle(ctx, sessionName, message)
 	content := &genai.Content{
 		Role: "user", Parts: []*genai.Part{{Text: message}},
 	}
 	var reply string
 	for {
-		pendings, err := s.quietTurn(ctx, sess, content, &reply)
+		pendings, final, err := s.quietTurn(ctx, sess, content, &reply)
 		if err != nil {
 			return reply, err
 		}
 		if len(pendings) == 0 {
+			if final && ctx.Err() == nil {
+				s.clearFusionRecovery(sessionName)
+			}
 			return reply, nil
 		}
 		s.markApprovalPending(sessionName, len(pendings) > 0)
@@ -100,12 +106,14 @@ func (s *Controller) runTurnQuiet(ctx context.Context, sessionName, message stri
 }
 
 // quietTurn 静默消费一次 ADK 运行（不使用 SSE），收集最终的
-// 助手文本以及该轮次暂停时产生的审批请求。
-func (s *Controller) quietTurn(ctx context.Context, sess session.Session, content *genai.Content, reply *string) ([]*hitl.Request, error) {
+// 助手文本以及该轮次暂停时产生的审批请求；第二个返回值表示
+// 本轮是否观察到正常的最终响应。
+func (s *Controller) quietTurn(ctx context.Context, sess session.Session, content *genai.Content, reply *string) ([]*hitl.Request, bool, error) {
 	var pendings []*hitl.Request
+	final := false
 	for ev, err := range s.agent.Run(ctx, sess, content) {
 		if err != nil {
-			return pendings, err
+			return pendings, false, err
 		}
 		if ev.Partial || ev.Content == nil {
 			continue
@@ -124,8 +132,11 @@ func (s *Controller) quietTurn(ctx context.Context, sess session.Session, conten
 				}
 			}
 		}
+		if ev.IsFinalResponse() && ev.CustomMetadata["asyncContinuation"] != true {
+			final = true
+		}
 	}
-	return pendings, nil
+	return pendings, final, nil
 }
 
 // markApprovalPending 将实时的待审批状态同步到本会话对应的

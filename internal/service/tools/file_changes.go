@@ -14,6 +14,8 @@ import (
 
 type fileChangesKey struct{}
 
+type fileChangeObserverKey struct{}
+
 type fileChangesRuntime struct {
 	mu      sync.Mutex
 	pending map[string][]filediff.FileChange
@@ -29,6 +31,12 @@ func WithFileChanges(ctx context.Context, sink func([]filediff.FileChange)) cont
 	return context.WithValue(ctx, fileChangesKey{}, &fileChangesRuntime{
 		pending: map[string][]filediff.FileChange{}, sink: sink,
 	})
+}
+
+// WithFileChangeObserver 安装一个随每次写完成同步触发的观察者，
+// 不替代 sink 与 pending 归集，供 Fusion 交接记录已落盘的路径。
+func WithFileChangeObserver(ctx context.Context, observe func([]filediff.FileChange)) context.Context {
+	return context.WithValue(ctx, fileChangeObserverKey{}, observe)
 }
 
 // WithChildFileChanges gives a child runner its own tool-event metadata while
@@ -67,6 +75,9 @@ func reportFileChange(ctx agent.Context, root, abs string, before *string, after
 	r.mu.Lock()
 	r.pending[key] = append(r.pending[key], change)
 	r.mu.Unlock()
+	if observe, ok := ctx.Value(fileChangeObserverKey{}).(func([]filediff.FileChange)); ok {
+		observe([]filediff.FileChange{change})
+	}
 	if r.sink != nil {
 		r.sink([]filediff.FileChange{change})
 	}
