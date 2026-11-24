@@ -1,0 +1,36 @@
+name: Dispatch Loopra release
+
+# After backend CI passes on a main push, kick off the Build & Release
+# workflow in ezdemo/loopra-release. RELEASE_DISPATCH_TOKEN must be a PAT
+# that can run workflows in that repository (classic `repo` scope, or a
+# fine-grained token with Actions: write on ezdemo/loopra-release).
+on:
+  workflow_run:
+    workflows: [Looprax Backend]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      ${{ github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Build & Release in loopra-release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
+        run: >-
+          gh workflow run build.yml
+          --repo ezdemo/loopra-release
+          --ref main
+          -f create_release=true
+          -f build_android=false
+          -f source_sha=${{ github.event.workflow_run.head_sha }}
