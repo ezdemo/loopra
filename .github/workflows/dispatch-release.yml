@@ -33,3 +33,4 @@ jobs:
           --ref main
           -f create_release=true
           -f build_android=false
+          -f source_sha=${{ github.event.workflow_run.head_sha }}
