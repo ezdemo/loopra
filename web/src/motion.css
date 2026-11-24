@@ -1,8 +1,7 @@
 /* Shell layout plus the hand-rolled open/close motion. NextUI still owns its own
    component transitions; the surfaces below are custom, so they animate here. */
 .icon-button, .send-button { overflow: hidden; }
-.composer:focus-within { border-color: #2083ff75; box-shadow: 0 0 0 0.1875rem #2083ff0b, var(--shadow); }
-.send-button:not(:disabled):hover { box-shadow: 0 0.1875rem 0.625rem #2083ff26; }
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 .content-collapse, .code-preview { overflow: hidden; min-width: 0; }
 /* The code block's collapsed height used to be an inline style, which applied
    everywhere `Markdown` renders — including the plan review and requirement board,

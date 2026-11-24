@@ -3,9 +3,9 @@ import { useLocalState } from './lib';
 
 type PanelState = { open: boolean; tab: string };
 
-export function useSessionPanel(server: string, sessionId: string | undefined, workspace: string) {
-  const [states, setStates] = useLocalState<Record<string, PanelState>>('session-right-panels', {});
-  const key = JSON.stringify([server, sessionId ? 'session' : 'draft', sessionId || workspace]);
+export function useProjectPanel(server: string, workspace: string) {
+  const [states, setStates] = useLocalState<Record<string, PanelState>>('project-right-panels', {});
+  const key = JSON.stringify([server, workspace]);
   const state = states[key] || { open: false, tab: 'files' };
   const setOpen = useCallback((open: boolean) => {
     setStates(current => ({ ...current, [key]: { open, tab: current[key]?.tab ?? 'files' } }));

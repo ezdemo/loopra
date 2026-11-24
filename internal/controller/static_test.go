@@ -196,7 +196,7 @@ func TestStaticIndexStampsSavedTheme(t *testing.T) {
 		t.Fatalf("stamped index = %s", body)
 	}
 	legacy := stampIndexTheme([]byte(`<html><head><title>old</title></head><body>old</body></html>`), "dark")
-	if !strings.Contains(string(legacy), `var theme="dark"`) || !strings.Contains(string(legacy), "#191919") {
+	if !strings.Contains(string(legacy), `var theme="dark"`) || !strings.Contains(string(legacy), "#0a0a0a") {
 		t.Fatalf("legacy index = %s", legacy)
 	}
 	if got := string(stampIndexTheme([]byte(`<html>loopra</html>`), "dark")); got != `<html>loopra</html>` {

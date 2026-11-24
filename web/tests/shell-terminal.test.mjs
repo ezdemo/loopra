@@ -76,11 +76,11 @@ test('terminal follows light and dark appearance without replacing the terminal 
     assert.equal(terminal.options.theme.background, '#ffffff');
     assert.equal(terminal.options.minimumContrastRatio, 4.5);
     await act(async () => document.documentElement.classList.add('dark'));
-    assert.equal(terminal.options.theme.background, '#191919');
-    assert.equal(terminal.options.theme.cursor, '#ececea');
+    assert.equal(terminal.options.theme.background, '#0a0a0a');
+    assert.equal(terminal.options.theme.cursor, '#ededed');
     await act(async () => document.documentElement.classList.remove('dark'));
     assert.equal(terminal.options.theme.background, '#ffffff');
-    assert.equal(terminal.options.theme.cursor, '#1c1c1a');
+    assert.equal(terminal.options.theme.cursor, '#171717');
     assert.equal(terminals.length, terminalCount);
     assert.equal(sockets.length, socketCount);
     assert.equal(socket.closed, false);

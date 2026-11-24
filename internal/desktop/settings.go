@@ -23,11 +23,11 @@ const uiPreferencesFile = "ui-preferences.json"
 func Background(theme string) string {
 	switch theme {
 	case "dark":
-		return "#191919"
+		return "#0a0a0a"
 	case "light":
 		return "#ffffff"
 	default:
-		return "light-dark(#ffffff, #191919)"
+		return "light-dark(#ffffff, #0a0a0a)"
 	}
 }
 

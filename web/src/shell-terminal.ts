@@ -11,14 +11,14 @@ export type ShellSession = {
 
 export function shellTerminalTheme(dark: boolean): ITheme {
   return dark ? {
-    background: themeSurface.dark, foreground: '#ececea', cursor: '#ececea', cursorAccent: themeSurface.dark,
+    background: themeSurface.dark, foreground: '#ededed', cursor: '#ededed', cursorAccent: themeSurface.dark,
     selectionBackground: '#264f78', selectionInactiveBackground: '#343f4b',
-    black: '#1e1e1e', red: '#f06a62', green: '#3ec27a', yellow: '#e0b860',
-    blue: '#6c8cff', magenta: '#c586c0', cyan: '#4db8c6', white: '#d4d4d4',
+    black: '#1a1a1a', red: '#f2685f', green: '#3ecf8e', yellow: '#e5a93d',
+    blue: '#8794ff', magenta: '#c586c0', cyan: '#4db8c6', white: '#d4d4d4',
     brightBlack: '#888888', brightRed: '#ff8a80', brightGreen: '#73d99a', brightYellow: '#f2d088',
     brightBlue: '#9bb0ff', brightMagenta: '#dfade0', brightCyan: '#85dce6', brightWhite: '#ffffff',
   } : {
-    background: themeSurface.light, foreground: '#1c1c1a', cursor: '#1c1c1a', cursorAccent: themeSurface.light,
+    background: themeSurface.light, foreground: '#171717', cursor: '#171717', cursorAccent: themeSurface.light,
     selectionBackground: '#cce0ff', selectionInactiveBackground: '#e5eaf2',
     black: '#24292f', red: '#b42318', green: '#18733a', yellow: '#795e26',
     blue: '#2457c5', magenta: '#8250a4', cyan: '#116b7a', white: '#57606a',

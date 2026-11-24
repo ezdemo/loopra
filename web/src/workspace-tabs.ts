@@ -47,6 +47,18 @@ export function ensureSubAgentTab(state: WorkspaceTabs, tab: WorkspaceSubAgentTa
   return { ...state, agents: state.agents.map(item => item.subSessionId === tab.subSessionId ? tab : item) };
 }
 
+/**
+ * Sub-agent tabs belong to their owning session while file tabs stay
+ * project-wide. Returns the same reference when nothing is filtered out so
+ * memoized views do not re-render.
+ */
+export function tabsForSession(state: WorkspaceTabs, sessionName?: string): WorkspaceTabs {
+  const agents = state.agents.filter(agent => !!sessionName && agent.sessionName === sessionName);
+  if (agents.length === state.agents.length) return state;
+  const active = state.active?.startsWith('subagent:') && !agents.some(agent => subAgentTabKey(agent.subSessionId) === state.active) ? null : state.active;
+  return { ...state, agents, active };
+}
+
 export function closeSubAgentTab(state: WorkspaceTabs, subSessionId: string): WorkspaceTabs {
   const key = subAgentTabKey(subSessionId);
   const index = state.agents.findIndex(item => item.subSessionId === subSessionId);

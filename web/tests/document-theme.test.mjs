@@ -35,7 +35,7 @@ test('the document theme is applied before React paints', async () => {
   const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
   assert.match(html, /window\.__LOOPRA_THEME__=""/);
   assert.match(html, /loopra:preferences/);
-  assert.match(html, /#191919/);
+  assert.match(html, /#0a0a0a/);
   assert.match(main, /applyDocumentTheme\(bootTheme\(\)\)/);
   assert.match(app, /useLayoutEffect\(\(\) => \{\s*applyDocumentTheme\(preferences\.theme, systemDark\)/);
 });
@@ -50,7 +50,7 @@ test('applyDocumentTheme paints the saved dark surface on the document', () => {
   globalThis.window = { matchMedia: () => ({ matches: false }) };
   applyDocumentTheme('深色', false);
   assert.equal(root.classList.dark, true);
-  assert.equal(root.style.backgroundColor, '#191919');
+  assert.equal(root.style.backgroundColor, '#0a0a0a');
   assert.equal(root.style.colorScheme, 'dark');
-  assert.equal(meta.content, '#191919');
+  assert.equal(meta.content, '#0a0a0a');
 });

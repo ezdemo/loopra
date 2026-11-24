@@ -46,7 +46,7 @@ export function installHighlightThemes(editor: Pick<typeof Monaco.editor, 'defin
     base: 'vs-dark',
     inherit: true,
     rules: [{ token: 'comment', foreground: DARK_COMMENT, fontStyle: 'italic' }],
-    colors: {},
+    colors: { 'editor.background': '#0a0a0a' },
   });
 }
 

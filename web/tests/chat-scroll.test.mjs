@@ -51,6 +51,7 @@ const { Disclosure } = await import(motionUrl);
 const { default: BlockRenderer } = await import(await sourceUrl('components/BlockRenderer.tsx', {
   './Motion': motionUrl,
   '../chat': chatUrl,
+  '../backend': dataUrl(`export const USER_STOPPED_REPLY = '{{用户主动打断}}';`),
   '../tool-params': await sourceUrl('tool-params.ts'),
   'lucide-react': import.meta.resolve('lucide-react'),
   '@nextui-org/react': dataUrl('export const Button = () => null;'),

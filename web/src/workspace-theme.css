@@ -4,26 +4,26 @@
   --workspace-font: Inter, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   /* Neutral surfaces */
   --surface: #ffffff;
-  --sidebar: #fafaf9;
-  --soft: #f5f5f4;
-  --hover: #f0f0ee;
-  --selected: #ebebe8;
-  --line: #e7e7e4;
-  --line-strong: #d6d6d2;
+  --sidebar: #f7f7f7;
+  --soft: #f4f4f4;
+  --hover: #efefef;
+  --selected: #e8e8e8;
+  --line: #e5e5e5;
+  --line-strong: #d4d4d4;
 
   /* Text */
-  --text: #1c1c1a;
-  --secondary: #5f5f5a;
-  --muted: #8f8f89;
-  --selection-background: #2083ff30;
+  --text: #171717;
+  --secondary: #525252;
+  --muted: #737373;
+  --selection-background: #4f5bd52e;
   --selection-foreground: var(--text);
 
   /* Single accent */
-  --blue: #3b6cf6;
+  --blue: #4f5bd5;
   --accent: var(--blue);
-  --accent-soft: #3b6cf61a;
+  --accent-soft: #4f5bd526;
   --success: #1f9d55;
-  --warning: #c27803;
+  --warning: #b87903;
   --danger: #d6453d;
 
   /* Scale */
@@ -31,6 +31,7 @@
   --radius-md: .5rem;
   --radius-lg: .75rem;
   --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
   --space-1: .25rem;
   --space-2: .5rem;
   --space-3: .75rem;
@@ -44,27 +45,27 @@
 .workspace-theme.dark,
 .workspace-theme[data-theme="dark"] {
   color-scheme: dark;
-  --surface: #191919;
-  --sidebar: #1e1e1d;
-  --soft: #242423;
-  --hover: #2b2b29;
-  --selected: #323230;
-  /* Borders and secondary ink sit well above the surface so panels and
-     11px labels stay separable. The previous line (~1.3:1) and muted
-     (~4.4:1) collapsed into the background, especially at small sizes. */
-  --line: #3f3f3a;
-  --line-strong: #5a5a54;
-  --text: #ececea;
-  --secondary: #c2c2bb;
-  --muted: #a1a19a;
-  --selection-background: #d4d4cf;
-  --selection-foreground: #191919;
-  --blue: #6c8cff;
-  --accent-soft: #6c8cff26;
-  --success: #3ec27a;
-  --warning: #e0a030;
-  --danger: #f06a62;
+  --surface: #0a0a0a;
+  --sidebar: #101010;
+  --soft: #151515;
+  --hover: #1a1a1a;
+  --selected: #212121;
+  /* Hairline borders sit just above the surface; muted stays at ~4.7:1 or
+     better on every surface including --selected rows, which the previous
+     11px labels collapsed into. */
+  --line: #262626;
+  --line-strong: #3a3a3a;
+  --text: #ededed;
+  --secondary: #b4b4b4;
+  --muted: #8f8f8f;
+  --selection-background: #3a3a3a;
+  --selection-foreground: #ededed;
+  --blue: #8794ff;
+  --accent-soft: #8794ff26;
+  --success: #3ecf8e;
+  --warning: #e5a93d;
+  --danger: #f2685f;
   --shadow-sm: 0 1px 2px #0006;
   --shadow: 0 1px 2px #0006, 0 4px 16px #0005;
-  --shadow-pop: 0 4px 24px #0008, 0 0 0 1px #ffffff12;
+  --shadow-pop: 0 4px 24px #000a, 0 0 0 1px #ffffff10;
 }

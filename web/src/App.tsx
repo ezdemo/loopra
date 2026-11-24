@@ -4,7 +4,7 @@ import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader
 import { Check } from 'lucide-react';
 import { applyDocumentTheme, bootTheme } from './document-theme';
 import { getSessionMessages, useLocalState } from './lib';
-import { useSessionPanel } from './useSessionPanel';
+import { useProjectPanel } from './useProjectPanel';
 import type { Provider, Session } from './lib';
 import Sidebar from './layout/Sidebar';
 import ProfileEditor from './components/LocalProfile';
@@ -72,7 +72,7 @@ import { desktopPlatform, isDesktopWindow, syncDesktopTheme, usesNativeWindowCon
 import { fetchAvailableApplications, launchWorkspace, visibleApplications } from './workspace-launcher';
 import { notifyWorkspaceChanged, watchWorkspaceChanges } from './workspace-events';
 import WorkspaceTabs from './components/WorkspaceTabs';
-import { closeSubAgentTab, closeWorkspaceFile, emptyWorkspaceTabs, ensureSubAgentTab, openWorkspaceFile, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
+import { closeSubAgentTab, closeWorkspaceFile, emptyWorkspaceTabs, ensureSubAgentTab, openWorkspaceFile, tabsForSession, updateWorkspaceFilePath, type WorkspaceFile, type WorkspaceTabs as WorkspaceTabsState } from './workspace-tabs';
 import { useSubAgentTabs } from './useSubAgentTabs';
 import { SessionRuns, sessionRunKey, draftRunKey, isRunView } from './session-runs';
 import { orderWithNewSessionFirst } from './session-order';
@@ -258,6 +258,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const settingsQueue = useRef(Promise.resolve());
   const session = sessions.find(item => item.id === activeId);
   const composerHistory = useMemo(() => session ? getSessionMessages(session).map(message => message.text) : [], [session?.messages, session?.kind]);
+  const sessionTabs = useMemo(() => tabsForSession(editorTabs, session?.name), [editorTabs, session?.name]);
   const isHome = !session;
   const workspaceEntry = workspaces.find(item => item.hash === workspace);
   const sessionWorkspaceEntry = session ? workspaces.find(item => item.hash === session.workspaceHash) : undefined;
@@ -266,7 +267,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     || workspace === CHAT_WORKSPACE.hash || session?.workspaceHash === CHAT_WORKSPACE.hash;
   // 自定义智能体只支持内置引擎，绑定项目的也一样。
   const agentLocked = isAgentWorkspace(workspaceEntry) || isAgentWorkspace(sessionWorkspaceEntry);
-  const [panelOpen, setChanges, changesTab, setChangesTab] = useSessionPanel(server, session?.id, workspace);
+  const [panelOpen, setChanges, changesTab, setChangesTab] = useProjectPanel(server, session?.workspaceHash || workspace);
   const surfaceOpen = skillsOpen || schedulesOpen || botsOpen || !!pluginPage || settingsOpen;
   const changes = panelOpen && !surfaceOpen;
   const changesMounted = usePresence(changes);
@@ -1646,7 +1647,7 @@ export default function App({ startupPending = false, initialServer }: { startup
           notify={notify}
         />}
         <div className="app-chat-workspace" hidden={surfaceOpen}>
-        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : editorTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
+        <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : sessionTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
           {isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
@@ -1669,7 +1670,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         </div>
       </main>
       {changesMounted && <button className="workbench-backdrop" data-open={changes} aria-label="关闭工作区面板遮罩" onClick={() => setChanges(false)} />}
-      {changesMounted && <ChangesPanel open={changes} chatMode={chatMode} plugins={pluginPanels} context={pluginContext} api={api} workspaceHash={workspace} key={`${server}/${session?.id || `draft:${workspace}`}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
+      {changesMounted && <ChangesPanel open={changes} chatMode={chatMode} plugins={pluginPanels} context={pluginContext} api={api} workspaceHash={workspace} key={`${server}/${workspace}`} initialTab={changesTab} onTabChange={setChangesTab} onOpenFile={openFile} onPathChange={changeFilePath} activeFile={editorTabs.active} sessionName={session?.name || (isHome ? preparedNewSession.current?.target.name : undefined)} sessions={sessions} onAdd={addFileContext} onClose={() => setChanges(false)} notify={notify} />}
     </div>
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}

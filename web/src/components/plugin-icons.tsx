@@ -17,7 +17,7 @@ export const lucideIcons: Record<string, LucideIcon> = {
   star: Star, sun: Sun, terminal: Terminal, user: User, users: Users, video: Video, wand: Wand, wrench: Wrench, zap: Zap,
 };
 
-const pluginTones = ['#4f6ef7', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#3b6cf6'];
+const pluginTones = ['#4f5bd5', '#7b6cf6', '#1f2937', '#1f9d55', '#e25b4a', '#0f766e', '#d97706', '#8794ff'];
 export function pluginTone(id: string) {
   let n = 0;
   for (const ch of id) n = (n + ch.charCodeAt(0)) % pluginTones.length;

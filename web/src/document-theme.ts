@@ -1,7 +1,7 @@
 // Apply the saved appearance before the first paint. The desktop window
 // otherwise draws the light page, then waits for React to add `.dark`.
 
-export const themeSurface = { light: '#ffffff', dark: '#191919' } as const;
+export const themeSurface = { light: '#ffffff', dark: '#0a0a0a' } as const;
 
 declare global {
   interface Window { __LOOPRA_THEME__?: string }

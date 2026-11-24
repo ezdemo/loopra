@@ -4,6 +4,7 @@ import { Button } from '@nextui-org/react';
 import { Brain, Check, ChevronDown, FileDiff, FileSymlink, ListTree, LoaderCircle, Undo2, X } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
 import { chainBlocks } from '../chat';
+import { USER_STOPPED_REPLY } from '../backend';
 import { imageToolSources, toolParam } from '../tool-params';
 import { IconButton } from './ui';
 import Markdown from './Markdown';
@@ -148,6 +149,7 @@ function Chain({ steps, streaming = false, ...actions }: { steps: ChatBlock[]; s
 export default function BlockRenderer({ blocks, streaming = false, ...actions }: { blocks: ChatBlock[]; streaming?: boolean } & BlockActions) {
   return <div className="msg-blocks">{chainBlocks(blocks).map(block => {
     if (block.type === 'chain') return <Chain key={block.id} steps={block.steps} streaming={streaming && block.steps.at(-1)?.id === blocks.at(-1)?.id} {...actions} />;
+    if (block.type === 'content' && block.content.trim() === USER_STOPPED_REPLY) return <div key={block.id} className="block-stopped" role="status"><span className="block-stopped-icon" aria-hidden="true" />已中断</div>;
     if (block.type === 'content') return <Markdown key={block.id} text={block.content} streaming={streaming && block.id === blocks.at(-1)?.id} notify={actions.notify} onOpenFile={actions.onOpenFile} />;
     if (block.type === 'reasoning' || block.type === 'reasoning_started' || block.type === 'sub_agent') return <Step key={block.id} block={block} streaming={streaming && block.id === blocks.at(-1)?.id} {...actions} />;
     if (block.type === 'tool_call') {

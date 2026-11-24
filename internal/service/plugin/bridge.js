@@ -100,34 +100,34 @@
   const base = document.createElement("style");
   base.dataset.loopra = "base";
   base.textContent = `
-:where(html) { color-scheme: light dark; background: var(--surface, #fff); color: var(--text, #1c1c1a); font: 14px/1.5 var(--loopra-font, Inter, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif); -webkit-font-smoothing: antialiased; }
+:where(html) { color-scheme: light dark; background: var(--surface, #fff); color: var(--text, #171717); font: 14px/1.5 var(--loopra-font, Inter, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif); -webkit-font-smoothing: antialiased; }
 :where(html[data-theme="dark"]) { color-scheme: dark; -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 :where(body) { margin: 0; min-height: 100%; background: var(--surface, #fff); padding: 20px 24px 32px; }
 :where(*), :where(*::before), :where(*::after) { box-sizing: border-box; }
 :where(h1, h2, h3, h4) { font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; color: var(--text, inherit); }
 :where(h1) { font-size: 18px; } :where(h2) { font-size: 15px; } :where(h3, h4) { font-size: 13px; }
 :where(p) { margin: 0 0 8px; }
-:where(small, .muted) { color: var(--muted, #8f8f89); }
-:where(a) { color: var(--blue, #3b6cf6); text-decoration: none; }
+:where(small, .muted) { color: var(--muted, #737373); }
+:where(a) { color: var(--blue, #4f5bd5); text-decoration: none; }
 :where(a:hover) { text-decoration: underline; }
 :where(button, input, textarea, select) { font: inherit; color: inherit; }
-:where(button) { background: var(--surface, #fff); border: 1px solid var(--line, #e7e7e4); border-radius: var(--radius-md, .5rem); padding: 6px 12px; cursor: pointer; }
-:where(button:hover:not(:disabled)) { background: var(--hover, #f0f0ee); }
-:where(button.primary) { background: var(--blue, #3b6cf6); border-color: transparent; color: #fff; }
-:where(button.primary:hover:not(:disabled)) { background: color-mix(in srgb, var(--blue, #3b6cf6) 88%, black); }
+:where(button) { background: var(--surface, #fff); border: 1px solid var(--line, #e5e5e5); border-radius: var(--radius-md, .5rem); padding: 6px 12px; cursor: pointer; }
+:where(button:hover:not(:disabled)) { background: var(--hover, #efefef); }
+:where(button.primary) { background: var(--blue, #4f5bd5); border-color: transparent; color: #fff; }
+:where(button.primary:hover:not(:disabled)) { background: color-mix(in srgb, var(--blue, #4f5bd5) 88%, black); }
 :where(button.danger) { color: var(--danger, #d6453d); }
 :where(button:disabled) { opacity: .5; cursor: default; }
-:where(input, textarea, select) { background: var(--surface, #fff); border: 1px solid var(--line, #e7e7e4); border-radius: var(--radius-md, .5rem); padding: 8px 10px; }
-:where(label) { display: block; color: var(--secondary, #5f5f5a); font-size: 13px; }
+:where(input, textarea, select) { background: var(--surface, #fff); border: 1px solid var(--line, #e5e5e5); border-radius: var(--radius-md, .5rem); padding: 8px 10px; }
+:where(label) { display: block; color: var(--secondary, #525252); font-size: 13px; }
 :where(label input, label textarea, label select) { display: block; width: 100%; margin-top: 6px; }
-:where(:focus-visible) { outline: 2px solid var(--blue, #3b6cf6); outline-offset: 1px; }
+:where(:focus-visible) { outline: 2px solid var(--blue, #4f5bd5); outline-offset: 1px; }
 :where(table) { border-collapse: collapse; width: 100%; }
-:where(th) { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted, #8f8f89); }
-:where(th, td) { padding: 6px 8px; border-bottom: 1px solid var(--line, #e7e7e4); }
+:where(th) { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted, #737373); }
+:where(th, td) { padding: 6px 8px; border-bottom: 1px solid var(--line, #e5e5e5); }
 :where(code, kbd) { font-family: var(--loopra-code, Consolas, "Cascadia Code", monospace); font-size: 12px; }
-:where(pre) { background: var(--soft, #f5f5f4); border: 1px solid var(--line, #e7e7e4); border-radius: var(--radius-lg, .75rem); padding: 12px 14px; overflow: auto; font-family: var(--loopra-code, Consolas, "Cascadia Code", monospace); font-size: 12px; white-space: pre-wrap; }
-:where(hr) { border: 0; border-top: 1px solid var(--line, #e7e7e4); margin: 16px 0; }
-:where(::selection) { background: var(--accent-soft, #3b6cf61a); }
+:where(pre) { background: var(--soft, #f4f4f4); border: 1px solid var(--line, #e5e5e5); border-radius: var(--radius-lg, .75rem); padding: 12px 14px; overflow: auto; font-family: var(--loopra-code, Consolas, "Cascadia Code", monospace); font-size: 12px; white-space: pre-wrap; }
+:where(hr) { border: 0; border-top: 1px solid var(--line, #e5e5e5); margin: 16px 0; }
+:where(::selection) { background: var(--accent-soft, #4f5bd526); }
 :where([hidden]) { display: none !important; }
 `;
   // Claim both schemes before the host answers. A light-only document inside a

@@ -37,7 +37,7 @@
 .loopra-conversation .msg.user { display: flex; justify-content: flex-end; margin-top: 1.75rem; }
 .loopra-conversation .msg.user:first-child { margin-top: .5rem; }
 .loopra-conversation .msg-body { min-width: 0; user-select: text; }
-.loopra-conversation .user-body { width: fit-content; max-width: min(34rem, 88%); padding: .5rem .875rem; border: 0; border-radius: var(--radius-lg); background: var(--chat-user); }
+.loopra-conversation .user-body { width: fit-content; max-width: min(34rem, 85%); padding: .5rem .875rem; border: 1px solid var(--chat-border); border-radius: var(--radius-lg); background: var(--chat-user); }
 .loopra-conversation .assistant-body { width: 100%; background: transparent; border: 0; padding: 0; }
 .loopra-conversation .msg-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
 
@@ -109,7 +109,7 @@
 .loopra-conversation [data-open="true"] > .reasoning-head > svg:last-child { transform: rotate(180deg); }
 .loopra-conversation .rotated-right,
 .loopra-conversation .compacted-summary[data-open="true"] > .disclosure-heading > svg:last-child { transform: rotate(90deg); }
-.loopra-conversation .reasoning-text { margin: var(--chat-gap) 0 0; padding: .125rem 0; color: var(--chat-fg-3); font-size: var(--chat-font-meta); font-weight: 400; line-height: var(--chat-line); }
+.loopra-conversation .reasoning-text { margin: var(--chat-gap) 0 0; padding: .625rem .75rem; color: var(--chat-fg-3); font-size: var(--chat-font-meta); font-weight: 400; line-height: var(--chat-line); background: var(--chat-muted); border: 1px solid var(--chat-border); border-radius: var(--radius-md); }
 .loopra-conversation .reasoning-text .block-content { color: inherit; }
 .loopra-conversation .reasoning-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loopra-conversation .reasoning-preview[data-streaming="true"] { text-overflow: clip; }
@@ -133,17 +133,20 @@
 .loopra-conversation .tool-duration { margin-left: auto; white-space: nowrap; font: .6875rem var(--chat-mono); color: var(--chat-fg-4); }
 .loopra-conversation .tool-duration + svg:last-child { margin-left: 0 !important; }
 .loopra-conversation .tool-duration { min-width: 3.25rem; text-align: right; }
-.loopra-conversation .tool-detail { margin: var(--chat-gap) 0 0; padding: .25rem 0; }
+.loopra-conversation .tool-detail { margin: var(--chat-gap) 0 0; padding: .5rem .625rem; background: var(--chat-muted); border: 1px solid var(--chat-border); border-radius: var(--radius-md); }
 .loopra-conversation .tool-detail-label { display: block; font-size: .6875rem; font-weight: 500; letter-spacing: .02em; color: var(--chat-fg-4); margin-top: .25rem; }
 .loopra-conversation .tool-detail pre { padding: .5rem .625rem; margin: .25rem 0 .5rem; background: var(--chat-subtle); border: 1px solid var(--chat-border); border-radius: var(--radius-md); max-height: 12rem; overflow: auto; font: .75rem/1.55 var(--chat-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .loopra-conversation .tool-detail pre code { background: transparent; padding: 0; font: inherit; }
-.loopra-conversation .tool-group-detail { margin: .125rem 0 .5rem; padding: 0; }
+.loopra-conversation .tool-group-detail { margin: .125rem 0 .5rem; padding: .5rem .625rem; background: var(--chat-muted); border: 1px solid var(--chat-border); border-radius: var(--radius-md); }
 .loopra-conversation .tool-group-detail .block-tool:last-child { margin-bottom: 0; }
 .loopra-conversation .block-finish { border: 0; }
 .loopra-conversation .finish-head { cursor: default; font-size: .75rem; }
 .loopra-conversation .finish-head:hover { background: transparent; }
 .loopra-conversation .finish-head .tool-name { font-weight: 500; }
 .loopra-conversation .finish-content { padding: .25rem 0 0; }
+.loopra-conversation .block-stopped { display: flex; align-items: center; gap: .625rem; width: 100%; box-sizing: border-box; padding: .5rem .75rem; font-size: .8125rem; font-weight: 500; color: var(--chat-fg-3); background: var(--chat-muted); border: 1px solid var(--chat-border); border-radius: var(--radius-md); }
+.loopra-conversation .block-stopped-icon { flex: none; display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border-radius: 50%; border: 1px solid var(--chat-border); background: var(--chat-subtle); }
+.loopra-conversation .block-stopped-icon::before { content: ''; width: .4375rem; height: .4375rem; border-radius: 1px; background: var(--chat-fg-4); }
 
 /* ── Markdown body ──────────────────────────────────────── */
 .loopra-conversation .block-content { color: var(--chat-fg); font-size: var(--chat-font); font-weight: 400; line-height: var(--chat-line); overflow-wrap: anywhere; min-width: 0; }
@@ -348,7 +351,7 @@
 .loopra-conversation .chain-summary { color: var(--chat-fg-4); font-size: var(--chat-font-meta); font-weight: 400; line-height: 1.25rem; white-space: nowrap; }
 .loopra-conversation .chain-head > svg:last-child { margin-left: auto; flex-shrink: 0; color: var(--chat-fg-4); transition: transform .15s; }
 .loopra-conversation .block-chain[data-open="true"] > .chain-head > svg:last-child { transform: rotate(180deg); }
-.loopra-conversation .chain-steps { display: flex; flex-direction: column; gap: var(--chat-gap); margin: var(--chat-gap) 0 0; padding: 0; border: 0; }
+.loopra-conversation .chain-steps { display: flex; flex-direction: column; gap: var(--chat-gap); margin: var(--chat-gap) 0 0; padding: .375rem .625rem; background: var(--chat-muted); border: 1px solid var(--chat-border); border-radius: var(--radius-md); }
 .loopra-conversation .chain-steps .tool-head, .loopra-conversation .chain-steps .reasoning-head { margin-left: 0; width: 100%; padding-left: 0; }
 
 /* Mixed CJK / monospace text on one row. Text items share the baseline and one fixed line height, so every row

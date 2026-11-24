@@ -8,29 +8,29 @@ let dialogId = 0
 
 // Authentication appears before either renderer mounts, so its styles are self-contained.
 const dialogStyles = `
-.loopra-access { position:fixed; inset:0; z-index:2147483647; display:grid; place-items:center; padding:24px; box-sizing:border-box; overflow:auto; background:#17191d66; backdrop-filter:blur(6px); font:14px/1.5 var(--workspace-font, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif); color:var(--text, #1c1c1a); }
+.loopra-access { position:fixed; inset:0; z-index:2147483647; display:grid; place-items:center; padding:24px; box-sizing:border-box; overflow:auto; background:#17191d66; backdrop-filter:blur(6px); font:14px/1.5 var(--workspace-font, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif); color:var(--text, #171717); }
 .loopra-access *, .loopra-access *::before, .loopra-access *::after { box-sizing:border-box; }
-.loopra-access form { width:min(420px, 100%); margin:auto; padding:28px; border:1px solid var(--line, #e7e7e4); border-radius:22px; background:var(--surface, #fff); box-shadow:0 24px 80px #00000026, 0 4px 16px #0000000a; }
-.loopra-access .access-icon { display:grid; place-items:center; width:44px; height:44px; margin-bottom:20px; border:1px solid var(--line, #e7e7e4); border-radius:14px; background:var(--sidebar, #fafaf9); }
+.loopra-access form { width:min(420px, 100%); margin:auto; padding:28px; border:1px solid var(--line, #e5e5e5); border-radius:22px; background:var(--surface, #fff); box-shadow:0 24px 80px #00000026, 0 4px 16px #0000000a; }
+.loopra-access .access-icon { display:grid; place-items:center; width:44px; height:44px; margin-bottom:20px; border:1px solid var(--line, #e5e5e5); border-radius:14px; background:var(--sidebar, #f7f7f7); }
 .loopra-access svg { display:block; width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 .loopra-access h2 { margin:0; font-size:22px; line-height:1.35; font-weight:600; letter-spacing:-.5px; color:inherit; }
-.loopra-access .access-description { margin:9px 0 18px; color:var(--secondary, #5f5f5a); font-size:13px; line-height:1.7; }
-.loopra-access code { padding:1px 4px; border-radius:4px; background:var(--soft, #f5f5f4); font:12px ui-monospace, Consolas, monospace; color:inherit; }
-.loopra-access .access-server { display:flex; align-items:center; gap:8px; margin-bottom:24px; padding:10px 12px; border:1px solid var(--line, #e7e7e4); border-radius:10px; background:var(--sidebar, #fafaf9); font:12px/1.5 ui-monospace, Consolas, monospace; color:var(--secondary, #5f5f5a); overflow-wrap:anywhere; }
-.loopra-access .access-server svg { width:15px; height:15px; flex-shrink:0; color:var(--muted, #8f8f89); }
+.loopra-access .access-description { margin:9px 0 18px; color:var(--secondary, #525252); font-size:13px; line-height:1.7; }
+.loopra-access code { padding:1px 4px; border-radius:4px; background:var(--soft, #f4f4f4); font:12px ui-monospace, Consolas, monospace; color:inherit; }
+.loopra-access .access-server { display:flex; align-items:center; gap:8px; margin-bottom:24px; padding:10px 12px; border:1px solid var(--line, #e5e5e5); border-radius:10px; background:var(--sidebar, #f7f7f7); font:12px/1.5 ui-monospace, Consolas, monospace; color:var(--secondary, #525252); overflow-wrap:anywhere; }
+.loopra-access .access-server svg { width:15px; height:15px; flex-shrink:0; color:var(--muted, #737373); }
 .loopra-access label { display:block; font-size:13px; font-weight:500; }
-.loopra-access input { display:block; width:100%; height:46px; margin-top:8px; padding:0 13px; border:1px solid var(--line-strong, #d6d6d2); border-radius:10px; outline:none; background:var(--surface, #fff); color:inherit; font:inherit; transition:border-color .15s, box-shadow .15s; }
-.loopra-access input::placeholder { color:var(--muted, #8f8f89); }
-.loopra-access input:focus { border-color:var(--blue, #3b6cf6); box-shadow:0 0 0 3px color-mix(in srgb, var(--blue, #3b6cf6) 12%, transparent); }
+.loopra-access input { display:block; width:100%; height:46px; margin-top:8px; padding:0 13px; border:1px solid var(--line-strong, #d4d4d4); border-radius:10px; outline:none; background:var(--surface, #fff); color:inherit; font:inherit; transition:border-color .15s, box-shadow .15s; }
+.loopra-access input::placeholder { color:var(--muted, #737373); }
+.loopra-access input:focus { border-color:var(--blue, #4f5bd5); box-shadow:0 0 0 3px color-mix(in srgb, var(--blue, #4f5bd5) 12%, transparent); }
 .loopra-access input[aria-invalid=true] { border-color:var(--danger, #d6453d); }
 .loopra-access .access-error { margin:12px 0 0; padding:10px 12px; border-radius:8px; background:color-mix(in srgb, var(--danger, #d6453d) 7%, var(--surface, #fff)); color:var(--danger, #d6453d); font-size:12px; line-height:1.6; }
 .loopra-access .access-error:empty { display:none; }
-.loopra-access button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; height:44px; margin-top:20px; padding:0 16px; border:0; border-radius:10px; background:var(--blue, #3b6cf6); color:#fff; font:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:filter .15s, opacity .15s; }
+.loopra-access button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; height:44px; margin-top:20px; padding:0 16px; border:0; border-radius:10px; background:var(--blue, #4f5bd5); color:#fff; font:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:filter .15s, opacity .15s; }
 .loopra-access button:hover { filter:brightness(.94); }
-.loopra-access button:focus-visible { outline:2px solid var(--blue, #3b6cf6); outline-offset:3px; }
+.loopra-access button:focus-visible { outline:2px solid var(--blue, #4f5bd5); outline-offset:3px; }
 .loopra-access button:disabled { opacity:.6; cursor:wait; }
 .loopra-access button svg { width:16px; height:16px; }
-.loopra-access .access-note { margin:16px 0 0; color:var(--muted, #8f8f89); font-size:11px; line-height:1.7; text-align:center; }
+.loopra-access .access-note { margin:16px 0 0; color:var(--muted, #737373); font-size:11px; line-height:1.7; text-align:center; }
 @media (max-width:480px) { .loopra-access { padding:16px; } .loopra-access form { padding:24px; border-radius:18px; } }
 `
 

@@ -27,50 +27,40 @@ async function sourceUrl(name, dependencies = {}) {
   return dataUrl(outputText);
 }
 const libUrl = await sourceUrl('lib.ts', { './chat': dataUrl('export const demoMessages = {};') });
-const { useSessionPanel } = await import(await sourceUrl('useSessionPanel.ts', { './lib': libUrl }));
+const { useProjectPanel } = await import(await sourceUrl('useProjectPanel.ts', { './lib': libUrl }));
 
-test('each session restores its panel visibility and tab across switches and remounts', async () => {
+test('each project restores its panel visibility and tab across remounts', async () => {
   const container = document.createElement('div');
   document.body.append(container);
   let root = createRoot(container);
   let panel;
-  function Harness({ server, sessionId, workspace }) {
-    panel = useSessionPanel(server, sessionId, workspace);
+  function Harness({ server, workspace }) {
+    panel = useProjectPanel(server, workspace);
     return null;
   }
-  const render = async (sessionId, server = 'server-a', workspace = 'project-a') => {
-    await act(async () => root.render(createElement(Harness, { server, sessionId, workspace })));
+  const render = async (workspace, server = 'server-a') => {
+    await act(async () => root.render(createElement(Harness, { server, workspace })));
   };
   const state = () => [panel[0], panel[2]];
   try {
-    await render('session-a');
+    await render('project-a');
     assert.deepEqual(state(), [false, 'files']);
     await act(async () => { panel[1](true); panel[3]('git'); });
-    await render('session-b');
+    await render('project-b');
     assert.deepEqual(state(), [false, 'files']);
     await act(async () => { panel[1](true); panel[3]('capabilities'); panel[1](false); });
-    await render('session-a');
+    await render('project-a');
     assert.deepEqual(state(), [true, 'git']);
-    await render('session-b');
+    await render('project-b');
     assert.deepEqual(state(), [false, 'capabilities']);
 
     await act(async () => root.unmount());
     root = createRoot(container);
-    await render('session-a');
+    await render('project-a');
     assert.deepEqual(state(), [true, 'git']);
-    await render('session-b');
+    await render('project-b');
     assert.deepEqual(state(), [false, 'capabilities']);
-    await render('session-a', 'server-b');
-    assert.deepEqual(state(), [false, 'files']);
-
-    await render(undefined);
-    assert.deepEqual(state(), [false, 'files']);
-    await act(async () => panel[1](true));
-    await render(undefined, 'server-a', 'project-b');
-    assert.deepEqual(state(), [false, 'files']);
-    await render(undefined);
-    assert.deepEqual(state(), [true, 'files']);
-    await render('new-session');
+    await render('project-a', 'server-b');
     assert.deepEqual(state(), [false, 'files']);
   } finally {
     await act(async () => root.unmount());

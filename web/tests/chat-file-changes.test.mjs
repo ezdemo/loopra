@@ -64,7 +64,7 @@ const toolImageResult = await compile('../src/components/ToolImageResult.tsx', {
 const { ImageSourceProvider } = await import(chatImage);
 const fileGlyph = await compile('../src/components/FileGlyph.tsx', { '../file-icons': await compile('../src/file-icons.ts') });
 const { default: BlockRenderer } = await import(await compile('../src/components/BlockRenderer.tsx', {
-  '../chat': chat, '../tool-params': toolParams, './Motion': motionStub, './ui': uiStub, './Markdown': markdownStub, './UnifiedDiff': unifiedDiff, './ToolImageResult': toolImageResult, './FileGlyph': fileGlyph, '@nextui-org/react': nextuiStub,
+  '../chat': chat, '../tool-params': toolParams, '../backend': dataUrl(`export const USER_STOPPED_REPLY = '{{用户主动打断}}';`), './Motion': motionStub, './ui': uiStub, './Markdown': markdownStub, './UnifiedDiff': unifiedDiff, './ToolImageResult': toolImageResult, './FileGlyph': fileGlyph, '@nextui-org/react': nextuiStub,
 }));
 
 const change = (path, diff, additions, deletions) => ({ path, additions, deletions, diff });

@@ -160,7 +160,7 @@ func stampIndexTheme(html []byte, theme string) []byte {
 	if bytes.Contains(html, []byte("loopra:preferences")) {
 		return html
 	}
-	script := []byte(fmt.Sprintf(`<script>(function(){var theme=%q;var stored="";try{var saved=JSON.parse(localStorage.getItem("loopra:preferences")||"null");if(saved&&typeof saved.theme==="string")stored=saved.theme;}catch(e){}if(stored==="深色"||stored==="月之暗面"||stored==="dark")theme="dark";else if(stored==="浅色"||stored==="月之亮面"||stored==="light")theme="light";else if(stored==="跟随系统"||stored==="system")theme="system";var dark=theme==="dark"||(theme==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);var root=document.documentElement;root.classList.add("workspace-theme");root.classList.toggle("dark",dark);root.style.colorScheme=dark?"dark":"light";root.style.backgroundColor=dark?"#191919":"#ffffff";})();</script>`, theme))
+	script := []byte(fmt.Sprintf(`<script>(function(){var theme=%q;var stored="";try{var saved=JSON.parse(localStorage.getItem("loopra:preferences")||"null");if(saved&&typeof saved.theme==="string")stored=saved.theme;}catch(e){}if(stored==="深色"||stored==="月之暗面"||stored==="dark")theme="dark";else if(stored==="浅色"||stored==="月之亮面"||stored==="light")theme="light";else if(stored==="跟随系统"||stored==="system")theme="system";var dark=theme==="dark"||(theme==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);var root=document.documentElement;root.classList.add("workspace-theme");root.classList.toggle("dark",dark);root.style.colorScheme=dark?"dark":"light";root.style.backgroundColor=dark?"#0a0a0a":"#ffffff";})();</script>`, theme))
 	lower := bytes.ToLower(html)
 	if start := bytes.Index(lower, []byte("<head")); start >= 0 {
 		if end := bytes.IndexByte(html[start:], '>'); end >= 0 {

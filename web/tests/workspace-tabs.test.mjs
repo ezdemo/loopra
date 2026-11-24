@@ -20,7 +20,7 @@ async function compile(path, aliases = {}) {
 }
 const modelUrl = await compile('../src/workspace-tabs.ts');
 const model = await import(modelUrl);
-const { emptyWorkspaceTabs, openWorkspaceFile, closeWorkspaceFile, updateWorkspaceFilePath, ensureSubAgentTab, openSubAgentTab, closeSubAgentTab, subAgentTabKey } = model;
+const { emptyWorkspaceTabs, openWorkspaceFile, closeWorkspaceFile, updateWorkspaceFilePath, ensureSubAgentTab, openSubAgentTab, closeSubAgentTab, subAgentTabKey, tabsForSession } = model;
 const { codeViewerStub } = await import('./helpers/highlight.mjs');
 const events = await compile('../src/workspace-events.ts');
 const controls = dataUrl(`export const errorText = cause => cause.message; export const query = values => new URLSearchParams(values).toString();`);
@@ -320,4 +320,25 @@ test('closing tabs selects a neighbor and renaming or deleting a directory updat
   assert.equal(state.active, 'app/b.ts');
   state = updateWorkspaceFilePath(state, 'app');
   assert.deepEqual(state, emptyWorkspaceTabs);
+});
+
+test('tabsForSession scopes sub-agent tabs to the owning session while files stay project-wide', () => {
+  const file = { path: 'src/a.ts', mode: 'content' };
+  const state = { files: [file], agents: [
+    { subSessionId: 'run-1', sessionName: 'chat-1', label: 'A' },
+    { subSessionId: 'run-2', sessionName: 'chat-2', label: 'B' },
+  ], active: 'src/a.ts' };
+  const scoped = tabsForSession(state, 'chat-1');
+  assert.deepEqual(scoped.agents.map(agent => agent.subSessionId), ['run-1']);
+  assert.equal(scoped.files, state.files, 'file tabs are shared across sessions');
+  assert.equal(tabsForSession(state, undefined).agents.length, 0, 'no session means no sub-agent tabs');
+
+  const focused = { ...state, active: subAgentTabKey('run-2') };
+  assert.equal(tabsForSession(focused, 'chat-1').active, null, 'a filtered-out active sub-agent falls back to the conversation');
+  assert.equal(tabsForSession(focused, 'chat-2').active, subAgentTabKey('run-2'));
+  assert.equal(tabsForSession(state, 'chat-1').active, 'src/a.ts', 'an active file tab is unchanged');
+
+  const own = { ...state, agents: [{ subSessionId: 'run-1', sessionName: 'chat-1', label: 'A' }] };
+  assert.equal(tabsForSession(own, 'chat-1'), own, 'nothing filtered out keeps the same reference');
+  assert.equal(tabsForSession(emptyWorkspaceTabs, 'chat-1'), emptyWorkspaceTabs);
 });

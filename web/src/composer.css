@@ -1,7 +1,31 @@
 /* Rich composer tools inherit the quiet surfaces and blue accents of the shell. */
 .rich-composer { container-type: inline-size; padding: .75rem .625rem .5rem .875rem; min-height: 6.5rem; z-index: 12; }
 .rich-composer.welcome-composer { height: auto; min-height: 8rem; }
-.session-occupied { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1rem; min-height: 5.5rem; padding: 1rem 1.125rem; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface); }
+/* A raised, lightly graded card: the surface lifts off the page through layered
+   shadow and an inner highlight rather than a flat grey fill. */
+.rich-composer.composer {
+  border-color: color-mix(in srgb, var(--line-strong) 55%, var(--line));
+  border-radius: 1.5rem;
+  background: var(--surface);
+  box-shadow: 0 1px 2px #00000008, 0 6px 18px -10px #00000014, inset 0 1px 0 #ffffffcc;
+}
+.rich-composer.composer:hover { border-color: var(--line-strong); }
+.rich-composer.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent), 0 6px 18px -10px #00000014, inset 0 1px 0 #ffffffcc;
+}
+.workspace-theme.dark .rich-composer.composer,
+.workspace-theme[data-theme="dark"] .rich-composer.composer {
+  background: var(--soft);
+  box-shadow: 0 1px 2px #00000040, 0 6px 18px -10px #00000080, inset 0 1px 0 #ffffff10;
+}
+.workspace-theme.dark .rich-composer.composer:focus-within,
+.workspace-theme[data-theme="dark"] .rich-composer.composer:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), 0 6px 18px -10px #00000080, inset 0 1px 0 #ffffff10;
+}
+.rich-composer .send-button:not([data-disabled="true"]) { box-shadow: 0 2px 6px -2px #00000033; }
+.rich-composer .send-button:not([data-disabled="true"]):hover { opacity: 1; transform: translateY(-1px); }
+.session-occupied { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1rem; min-height: 5.5rem; padding: 1rem 1.125rem; border: 1px solid var(--line); border-radius: var(--radius-2xl); background: var(--soft); }
 .session-occupied-icon { flex: 0 0 auto; color: var(--secondary); }
 .session-occupied-copy { flex: 1; min-width: 0; text-align: left; }
 .session-occupied-copy strong { display: block; color: var(--text); font-size: .875rem; font-weight: 600; }
@@ -77,7 +101,7 @@
 .model-name-tooltip { max-width: min(32rem, calc(100vw - 2rem)); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; line-height: 1.5; }
 .composer-model > svg:not(.composer-agent-icon) { flex-shrink: 0; color: var(--muted); }
 .model-reasoning-selector { position: relative; min-width: 0; max-width: min(24rem, calc(100cqw - 7rem)); }
-.rich-composer .composer-model-reasoning { max-width: min(24rem, 100%); gap: .375rem; color: var(--text); background: var(--soft); }
+.rich-composer .composer-model-reasoning { max-width: min(24rem, 100%); gap: .375rem; color: var(--text); background: var(--surface); }
 .composer-agent-icon { flex: 0 0 1rem; width: 1rem; height: 1rem; color: var(--text); }
 .composer-agent-icon[data-agent="native"] { color: var(--blue); }
 .composer-agent-icon[data-agent="claude-code"] { color: #d97757; }
@@ -110,11 +134,11 @@
 .rich-composer .send-button { margin-left: 0.3125rem; }
 .composer-context-chips { display: flex; flex-wrap: wrap; gap: 0.3125rem; max-height: 4.625rem; overflow: auto; }
 .composer-context-chips:not(:empty) { padding-bottom: 0.5625rem; }
-.composer-context-chips .context-chip { background: var(--soft); color: var(--secondary); border: 1px solid var(--line); height: 1.625rem; max-width: 14.375rem; }
+.composer-context-chips .context-chip { background: var(--surface); color: var(--secondary); border: 1px solid var(--line); height: 1.625rem; max-width: 14.375rem; }
 .composer-context-chips [data-slot="content"] { text-overflow: ellipsis; overflow: hidden; }
 .composer-context-chips .chip-skills { color: #8b70c7; }
 /* The queue tucks behind the composer, with one quiet row per pending message. */
-.composer-queue { position: relative; min-width: 0; width: calc(100% - 2rem); margin: 0 auto -1rem; padding: .125rem .375rem 1rem; border: 1px solid var(--line); border-bottom: 0; border-radius: 1.125rem 1.125rem 0 0; background: var(--surface); container-type: inline-size; }
+.composer-queue { position: relative; min-width: 0; width: calc(100% - 2rem); margin: 0 auto -1rem; padding: .125rem .375rem 1rem; border: 1px solid var(--line); border-bottom: 0; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; background: var(--soft); container-type: inline-size; }
 .composer-queue-list { list-style: none; max-height: min(20rem, 36dvh); overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 0; }
 .composer-queue-list > li { min-width: 0; border-radius: var(--radius-md); font-size: .8125rem; }
 .composer-queue-list > li:hover { background: var(--surface); }
@@ -150,7 +174,7 @@
 .composer-run-status { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.375rem; }
 .composer-run-status i { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite; }
 /* 待选择弹窗（HITL 审批 / ask_choice）：在输入框上方依次作答后提交 */
-.choice-popup { display: flex; flex-direction: column; min-width: 0; max-height: min(60dvh, 32rem); box-sizing: border-box; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000010, 0 0.75rem 2rem #00000018; padding: 0.625rem 0.75rem 0.6875rem; margin-bottom: 0.4375rem; }
+.choice-popup { display: flex; flex-direction: column; min-width: 0; max-height: min(60dvh, 32rem); box-sizing: border-box; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow-pop); padding: 0.625rem 0.75rem 0.6875rem; margin-bottom: 0.4375rem; }
 .choice-popup-head { display: flex; flex: 0 1 auto; min-height: 0; min-width: 0; max-height: 34dvh; overflow: auto; overscroll-behavior: contain; flex-direction: column; gap: 0.25rem; }
 .choice-progress { align-self: flex-start; font-size: 0.6875rem; color: var(--muted); }
 .choice-popup .choice-question { display: flex; align-items: flex-start; gap: 0.4375rem; color: var(--text); }
@@ -183,8 +207,8 @@
 .composer-image-remove:hover { background: var(--red, var(--danger)); }
 .composer-context-chips .context-chip-size { margin-left: 0.25rem; color: var(--muted); font-size: 0.625rem; font-weight: 400; }
 .usage-ring { width: 1rem; height: 1rem; border-radius: 50%; background: conic-gradient(var(--blue) var(--usage), var(--line) 0); position: relative; }
-.usage-ring::after { content: ''; position: absolute; inset: 0.15625rem; border-radius: inherit; background: var(--surface); }
-.composer-popover { position: absolute; bottom: 4.375rem; z-index: 90; display: flex; flex-direction: column; width: min(22.8125rem, calc(100vw - 2.5rem)); max-height: min(37.5rem, var(--composer-popover-max-height, 31.25rem)); overflow: hidden; border: 1px solid var(--line); border-radius: 1.0625rem; background: var(--surface); box-shadow: 0 0.25rem 0.75rem #00000006, 0 0.875rem 2.8125rem #00000017; color: var(--text); font-size: 0.8125rem; text-align: left; padding: 0.375rem; }
+.usage-ring::after { content: ''; position: absolute; inset: 0.15625rem; border-radius: inherit; background: var(--soft); }
+.composer-popover { position: absolute; bottom: 4.375rem; z-index: 90; display: flex; flex-direction: column; width: min(22.8125rem, calc(100vw - 2.5rem)); max-height: min(37.5rem, var(--composer-popover-max-height, 31.25rem)); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow-pop); color: var(--text); font-size: 0.8125rem; text-align: left; padding: 0.375rem; }
 /* The popup is measured from the composer toolbar, so its downward fallback
    starts below the whole composer. */
 .rich-composer[data-placement="bottom"] > .composer-popover:not(.composer-suggestions) { top: calc(100% + 0.4375rem); bottom: auto; }
@@ -363,7 +387,7 @@
 .context-total > strong { font-size: 1.4375rem; font-weight: 500; }
 .context-total small { font-size: 0.8125rem; color: var(--muted); }
 .context-total > span { font-size: 0.75rem; color: var(--blue); }
-.context-total > span.context-high { color: #d9695f; }
+.context-total > span.context-high { color: var(--danger); }
 .context-total > span.context-medium { color: var(--warning); }
 .context-total > span.context-low { color: var(--blue); }
 .context-body > .composer-note { padding-left: 0; padding-right: 0; }
@@ -382,7 +406,7 @@
 .context-breakdown strong { font-weight: 500; }
 .context-breakdown small { color: var(--muted); font-size: 0.6875rem; width: 2.625rem; text-align: right; }
 .context-disclaimer { border-top: 1px solid var(--line); margin-top: 0.625rem; padding-top: 0.75rem; }
-.composer-suggestions { left: 0; top: auto; bottom: calc(100% + 7px); width: min(100%, 28rem); max-height: min(19rem, var(--composer-suggestions-max-height, 19rem)); padding: .25rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); }
+.composer-suggestions { left: 0; top: auto; bottom: calc(100% + 7px); width: min(100%, 28rem); max-height: min(19rem, var(--composer-suggestions-max-height, 19rem)); padding: .25rem; border-radius: var(--radius-xl); box-shadow: var(--shadow-pop); }
 .rich-composer[data-suggestions-placement="bottom"] > .composer-suggestions { top: calc(100% + 7px); bottom: auto; }
 .suggestions-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: .5rem; min-height: 2rem; padding: .375rem .625rem; font-size: .6875rem; color: var(--secondary); }
 .suggestions-heading > span:first-child { display: flex; align-items: baseline; gap: .5rem; min-width: 0; }
