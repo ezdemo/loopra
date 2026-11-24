@@ -1,4 +1,6 @@
 name: Looprax Backend
+# Path filters keep web/docs-only pushes off this suite; a green run on main
+# also triggers the Loopra release dispatch (dispatch-release.yml).
 on:
   push:
     paths:
