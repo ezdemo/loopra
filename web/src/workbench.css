@@ -1,5 +1,7 @@
 .remote-loading { display: flex; justify-content: center; padding: 1rem; }
 .workbench-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.panel-header .workbench-tabs { scrollbar-width: none; }
+.panel-header .workbench-tabs::-webkit-scrollbar { display: none; }
 .workbench-tabs button[role="tab"] { flex-shrink: 0; }
 .workbench-tabs .plugin-file-icon { width: .875rem; height: .875rem; object-fit: contain; }
 .workbench-body.workbench-plugin { display: flex; flex-direction: column; overflow: hidden; scrollbar-gutter: auto; }

@@ -1594,7 +1594,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         onNewAgent={() => setAgentEditor('new')} onEditAgent={item => { if (item.agent) setAgentEditor(item.agent); }} />}
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={surfaceOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
-          chatMode={chatMode} panelAvailable={!surfaceOpen}
+          chatMode={chatMode} panelAvailable={!surfaceOpen} workspaceActions={!surfaceOpen}
           returnToChat={surfaceOpen ? { label: english ? 'Back to chat' : '返回会话', onClick: closeSurface } : undefined}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}

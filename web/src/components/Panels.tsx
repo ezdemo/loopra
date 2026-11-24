@@ -88,7 +88,7 @@ export default function ChangesPanel({ open, chatMode = false, api, workspaceHas
   return <><aside className={`changes-panel ${wide ? 'wide' : ''}${dragging ? ' resizing' : ''}`} data-open={open} style={docked ? ({ width: panelWidth, flexBasis: panelWidth, '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined} aria-label="工作区面板">
     {docked && <div className="panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="拖动调整右侧面板宽度" title="拖动调整右侧面板宽度" onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} onLostPointerCapture={endResize} />}
     <header className="panel-header">
-      <div className="workbench-tabs" ref={tabsRef} role="tablist" aria-label="工作区工具">
+      <div className="workbench-tabs" ref={tabsRef} role="tablist" aria-label="工作区工具" onWheel={event => { if (!event.deltaX && event.deltaY) event.currentTarget.scrollLeft += event.deltaY; }}>
         {primaryTabs.map(([id, label, Icon]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><Icon size={14} />{label}</button>)}
         {plugins.map(item => { const id = `plugin:${item.id}`; return <button key={id} role="tab" aria-selected={tab === id} onClick={() => { setTab(id); onTabChange?.(id); }}><PluginGlyph api={api} pluginId={item.id} icon={item.icon} size=".875rem" />{item.title}</button>; })}
       </div>

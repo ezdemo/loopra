@@ -7,7 +7,8 @@
 .workspace-chat-tab { flex-shrink: 0; position: relative; border-inline-end: 1px solid var(--line) !important; }
 .workspace-chat-tab[aria-selected="true"]::after,
 .workspace-file-tab[data-active="true"]::after { content: ''; position: absolute; inset: auto 0 -1px; height: 2px; background: var(--blue); }
-.workspace-file-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.workspace-file-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.workspace-file-tabs::-webkit-scrollbar { display: none; }
 .workspace-file-tab { position: relative; display: flex; flex-shrink: 0; min-width: 0; border-inline-end: 1px solid var(--line); }
 .workspace-file-tab:hover, .workspace-file-tab[data-active="true"] { background: var(--soft); }
 .workspace-file-tab button[role="tab"] { padding-inline-end: .375rem; }

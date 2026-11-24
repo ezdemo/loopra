@@ -12,6 +12,7 @@ export type HeaderProps = {
   isHome: boolean;
   chatMode?: boolean;
   panelAvailable?: boolean;
+  workspaceActions?: boolean;
   returnToChat?: { label: string; onClick: () => void };
   workspaceName: string;
   session?: Session;
@@ -101,7 +102,7 @@ export default function Header(p: HeaderProps) {
           : <span className="app-version-number">{desktopVersion}</span>}
       </button>}
       <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
-      {!p.isHome && !p.chatMode && <>
+      {(p.workspaceActions ?? !p.isHome) && !p.chatMode && <>
         <div data-popover="folder" className="menu-anchor">
           <div className="folder-split">
             <button aria-label="在系统应用中打开项目" onClick={() => p.onOpenWorkspace()}><FolderClosed /></button>
