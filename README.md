@@ -154,13 +154,11 @@ loopra tui        # 在当前目录打开终端聊天，不启动网页
 
 在项目目录里运行 `loopra tui`，直接在终端里开一个 Loopra 会话：不启动网页或 HTTP 服务，工作目录就是当前目录，模型渠道与权限配置沿用 `~/.loopra/config.json`。
 
-Windows、macOS 和 Linux 的 amd64/arm64 发布包内嵌了 MIT 许可的 [micro-acp](https://github.com/BrokkAi/micro-acp) v0.8.1 终端客户端。`loopra tui` 会从本机可执行文件解包启动客户端，由它通过标准输入输出连接同一可执行文件启动的 `loopra acp`。不用另装或下载客户端。客户端自己的会话状态放在 `$LOOPRA_HOME/micro-acp`（默认 `~/.loopra/micro-acp`）。
+Windows、macOS 和 Linux 的 amd64/arm64 命令行构建（包括普通 `go build` 和 IDE 构建）默认内嵌 MIT 许可的 [micro-acp](https://github.com/BrokkAi/micro-acp) v0.8.1 终端客户端。`loopra tui` 会从本机可执行文件解包启动客户端，由它通过标准输入输出连接同一可执行文件启动的 `loopra acp`。不用另装或下载客户端。客户端自己的会话状态放在 `$LOOPRA_HOME/micro-acp`（默认 `~/.loopra/micro-acp`）。
 
 回车发送，`Alt+Enter` 或 `Ctrl+J` 换行，`/` 打开内置菜单；回复进行中按 Ctrl+C 停止本轮，输入为空时按 Ctrl+D 退出。micro-acp 自带本地会话列表。
 
-普通 `go build` 产物和 Linux s390x 包不内嵌客户端。`loopra tui` 会从 `PATH` 查找 `micro-acp`，找不到时提示安装；Linux s390x 没有上游预编译客户端。`loopra web` 与 `loopra acp` 不受影响。
-
-自行构建官方命令行包见 `scripts/package.sh` / `scripts/package.ps1`，内嵌客户端的下载与校验需要 Python 3。
+其他平台（例如 Linux s390x）不内嵌客户端，`loopra tui` 会从 `PATH` 查找 `micro-acp`。`loopra web` 与 `loopra acp` 不受影响。
 
 ### 配置模型
 

@@ -38,7 +38,7 @@ func resolveTUIClient() (executable string, cleanup func() error, err error) {
 	}
 	executable, err = exec.LookPath("micro-acp")
 	if err != nil {
-		return "", nil, fmt.Errorf("loopra tui: this build does not bundle micro-acp; install it on PATH or use a Loopra release with micro-acp bundled: %w", err)
+		return "", nil, fmt.Errorf("loopra tui: no bundled micro-acp for this platform; install it on PATH: %w", err)
 	}
 	return executable, nil, nil
 }

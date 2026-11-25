@@ -1,4 +1,4 @@
-// Package microacp 解包打包构建里内嵌的官方 micro-acp 终端客户端。
+// Package microacp 解包 Loopra 内嵌的官方 micro-acp 终端客户端。
 // 解包在系统临时目录完成，不访问网络。
 package microacp
 

@@ -31,7 +31,7 @@ internal/
     runtime.go                  API 项目上下文、运行时缓存协调
     ...                         聊天、MCP、Git、任务等 API 模块
   acpserver/                    ACP Agent 运行时：会话与轮次编排，经 stdio 输出消息、审批和提问
-  infrastructure/microacp/      官方包内嵌 micro-acp 客户端的解包与许可文本；二进制经构建期 overlay 注入
+  infrastructure/microacp/      按平台内嵌、解包 micro-acp 终端客户端及其许可证
   service/
     config.go                   配置快照、并发更新、保存失败回滚
     file.go                     文件树、搜索、图片读取、删除
@@ -83,9 +83,10 @@ Controller 按业务文件组织，共享进程级的会话和任务上下文。
 会话释放时按引用计数关闭进程，应用关闭时统一回收。
 
 `loopra tui` 通过 stdio 连接同一可执行文件启动的 `loopra acp` 子进程，走现有 ACP
-协议，不监听 HTTP。官方 Windows、macOS、Linux amd64/arm64 命令行包在构建期下载并
-校验固定版本的 micro-acp 发布物，经 Go overlay 注入 `go:embed`，并随附 MIT 许可。
-运行时仅在本地解包；未内嵌的构建从 `PATH` 查找客户端。
+协议，不监听 HTTP。Windows、macOS 和 Linux 的 amd64/arm64 命令行构建默认通过
+`go:embed` 嵌入仓库中的 micro-acp 压缩二进制和 MIT 许可证，构建和运行时均不下载客户端。
+未内嵌的平台从 `PATH` 查找客户端。更新内嵌版本时，修改 `scripts/vendor-micro-acp.py`
+中固定的版本和 SHA-256，运行 `python scripts/vendor-micro-acp.py`，并提交更新后的资产和许可证（若有变化）。
 
 Bot Service 在组合根显式装配，通过生命周期入口获得 Controller 提供的项目准备与轮次执行端口。每个 Bot 独立持有连接和取消上下文；飞书消息在持久化去重和绑定后异步执行，不占用事件确认窗口。Bot 不拥有独立的 Agent 执行栈，Native 轮次复用工作区运行时、关联项目、执行互斥、审批与 JSONL 历史。关闭服务会取消授权、长连接和执行并等待退出；旧连接回调不能覆盖新连接状态。
 

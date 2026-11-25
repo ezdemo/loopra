@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""Download and stage the pinned micro-acp release binary for `go build -overlay`.
+"""Vendor the pinned micro-acp release binaries for Loopra's default Go builds.
 
-Usage: python scripts/stage-micro-acp.py <goos> <goarch> <stage-dir>
+Usage: python scripts/vendor-micro-acp.py
 
-Writes <stage-dir>/payload.gz (gzipped upstream binary) and
-<stage-dir>/overlay.json mapping the repo's embed path onto it. The upstream
-archive is verified against a pinned SHA-256 before anything is consumed or
-cached; there is no fallback to unverified sources.
+Archives are checked against their pinned SHA-256 before use.
 """
 
-import argparse
 import gzip
 import hashlib
 import io
-import json
 import sys
 import tarfile
 import tempfile
@@ -36,19 +31,6 @@ SHA256 = {
 MAX_SIZE = 64 * 1024 * 1024
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Stage the pinned micro-acp binary for a Go build overlay.")
-    parser.add_argument("goos", help="target GOOS (windows, darwin, linux)")
-    parser.add_argument("goarch", help="target GOARCH (amd64, arm64)")
-    parser.add_argument("stage", type=Path, help="isolated staging directory to write payload.gz and overlay.json into")
-    args = parser.parse_args()
-    if (args.goos, args.goarch) not in SHA256:
-        parser.error(f"no pinned micro-acp release for {args.goos}/{args.goarch}")
-    if not args.stage.is_dir():
-        parser.error(f"staging directory does not exist: {args.stage}")
-    return args
-
-
 def verified_archive(name: str, expected: str) -> bytes:
     """Return the archive bytes, from the ignored cache or the pinned release URL."""
     cache = ROOT / ".cache" / "micro-acp" / name
@@ -63,7 +45,7 @@ def verified_archive(name: str, expected: str) -> bytes:
     url = f"{REPO}/releases/download/v{VERSION}/{name}"
     print(f"micro-acp: downloading {url}", file=sys.stderr)
     with urllib.request.urlopen(
-        urllib.request.Request(url, headers={"User-Agent": "loopra-package"}), timeout=30
+        urllib.request.Request(url, headers={"User-Agent": "loopra-vendor"}), timeout=30
     ) as response:
         archive = response.read(MAX_SIZE + 1)
     if len(archive) > MAX_SIZE:
@@ -82,7 +64,7 @@ def verified_archive(name: str, expected: str) -> bytes:
 
 
 def extract_binary(archive: bytes, goos: str, exe: str, name: str) -> bytes:
-    """Read the single top-level executable member; never touches the filesystem."""
+    """Read the single matching executable member without extracting the archive."""
 
     def matches(member_name: str) -> bool:
         return PurePosixPath(member_name).name == exe
@@ -108,19 +90,21 @@ def extract_binary(archive: bytes, goos: str, exe: str, name: str) -> bytes:
 
 
 def main() -> int:
-    args = parse_args()
-    exe = "micro-acp.exe" if args.goos == "windows" else "micro-acp"
-    name = f"micro-acp_{VERSION}_{args.goos}_{args.goarch}.{'zip' if args.goos == 'windows' else 'tar.gz'}"
-    expected = SHA256[(args.goos, args.goarch)]
-    archive = verified_archive(name, expected)
-    binary = extract_binary(archive, args.goos, exe, name)
-    payload = args.stage.resolve() / "payload.gz"
-    payload.write_bytes(gzip.compress(binary, compresslevel=6, mtime=0))
-    embed = ROOT / "internal" / "infrastructure" / "microacp" / "payload.gz"
-    (args.stage / "overlay.json").write_text(
-        json.dumps({"Replace": {str(embed): str(payload)}}), encoding="utf-8"
-    )
-    print(f"micro-acp: staged {exe} for {args.goos}/{args.goarch} -> {payload}", file=sys.stderr)
+    assets = ROOT / "internal" / "infrastructure" / "microacp" / "assets"
+    for (goos, goarch), expected in SHA256.items():
+        exe = "micro-acp.exe" if goos == "windows" else "micro-acp"
+        ext = "zip" if goos == "windows" else "tar.gz"
+        name = f"micro-acp_{VERSION}_{goos}_{goarch}.{ext}"
+        binary = extract_binary(verified_archive(name, expected), goos, exe, name)
+        if not 0 < len(binary) <= MAX_SIZE:
+            raise SystemExit(f"{name}: invalid {exe} size: {len(binary)} bytes")
+        payload = assets / f"{goos}_{goarch}" / "micro-acp.gz"
+        compressed = io.BytesIO()
+        with gzip.GzipFile(filename="", fileobj=compressed, mode="wb", compresslevel=6, mtime=0) as out:
+            out.write(binary)
+        payload.parent.mkdir(parents=True, exist_ok=True)
+        payload.write_bytes(compressed.getvalue())
+        print(f"micro-acp: vendored {goos}/{goarch} -> {payload}", file=sys.stderr)
     return 0
 
 
