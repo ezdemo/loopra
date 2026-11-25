@@ -53,5 +53,5 @@ test('choice cards never render and never fold the turn away', async () => {
   assert.doesNotMatch(renderer, /ChoiceBlock|block-choice/);
   assert.ok(conversation.includes("splitAssistantBlocks(blocks.filter(block => block.type !== 'choice'))"));
   assert.ok(conversation.includes("const pending = blocks.some(block => block.type === 'choice' && !block.selected);"));
-  assert.ok(conversation.includes('{(process.length > 0 || streaming || pending) &&'));
+  assert.ok(conversation.includes('{(process.length > 0 || streaming || pending || sources.length > 0) &&'));
 });

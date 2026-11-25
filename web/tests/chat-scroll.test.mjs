@@ -83,6 +83,7 @@ export const ModalBody = ({ children, className }) => createElement('div', { cla
 });
 const conversationUrl = await sourceUrl('components/Conversation.tsx', {
   './MessageContext': messageContextUrl,
+  './WebSources': dataUrl('export default () => null;'),
   './Motion': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Collapse = ({ open, children }) => open ? createElement('div', null, children) : null;
 export { Disclosure } from ${JSON.stringify(motionUrl)};
@@ -92,6 +93,7 @@ export const useCollapseAll = () => {};`),
   '../chat': chatUrl,
   '../chat-window': chatWindowUrl,
   '../file-stats': await sourceUrl('file-stats.ts'),
+  '../web-sources': await sourceUrl('web-sources.ts'),
   '../lib': dataUrl('export const getSessionMessages = session => session.messages;'),
   './ui': dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const IconButton = ({ label, children, onClick }) => createElement('button', { type: 'button', 'aria-label': label, onClick }, children);`),

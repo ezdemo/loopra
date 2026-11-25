@@ -12,6 +12,9 @@ const { acpStopMessage, SseParser, StreamEventBuffer, LoopraClient, LoopraApiErr
 const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const chatUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText).toString('base64');
 const { runningBackgroundTools } = await import(chatUrl);
+const webSource = await readFile(new URL('../src/web-sources.ts', import.meta.url), 'utf8');
+const webSourceUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(webSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText).toString('base64');
+const { messageWebSources } = await import(webSourceUrl);
 
 test('tool output deltas append while snapshots and final results replace', () => {
   let message = { id: 'reply', role: 'assistant', text: '', blocks: [] };
@@ -867,4 +870,51 @@ test('fusion sidekick transcript renders inline scoped blocks live and from hist
   buffer.close(false);
   assert.deepEqual(emitted.map(event => [event.content, event.segmentId]),
     [['lead ', undefined], ['scoped-more', segment], ['tail', undefined]]);
+});
+
+test('live and replayed web tool results expose the same turn sources', () => {
+  const fetchArgs = { action: 'fetch', url: 'https://EXAMPLE.com/docs#setup' };
+  const searchArgs = { action: 'search' };
+  const fetchResult = 'Read the docs at https://unrelated-fetch-body.example/ for more.';
+  const searchResult = 'Title: Example docs\r\nURL: https://example.com/docs\r\nPublished: N/A\r\nAuthor: N/A\r\nHighlights:\r\nURL: https://unrelated.example/\r\n---\r\n\r\nTitle: N/A\r\nURL: https://react.dev/reference/react/useId\r\nPublished: N/A\r\nHighlights:';
+  const expected = [
+    { url: 'https://example.com/docs#setup', hostname: 'example.com', title: 'Example docs' },
+    { url: 'https://react.dev/reference/react/useId', hostname: 'react.dev' },
+  ];
+  const replayed = historyMessages([
+    { role: 'user', content: 'look up the docs' },
+    { role: 'assistant', tool_calls: [
+      { id: 'web-fetch', name: 'web', arguments: fetchArgs },
+      { id: 'web-search', name: 'web', arguments: searchArgs },
+    ] },
+    { role: 'tool', tool_call_id: 'web-fetch', content: fetchResult, tool_status: 'completed' },
+    { role: 'tool', tool_call_id: 'web-search', content: searchResult, tool_status: 'completed' },
+    { role: 'assistant', content: 'final answer' },
+  ]);
+  assert.deepEqual(messageWebSources(replayed[1].blocks), expected);
+  let live = { id: 'reply', role: 'assistant', text: '', blocks: [] };
+  live = applyEvent(live, { type: 'tool_call', toolCallId: 'web-fetch', name: 'web', args: fetchArgs });
+  live = applyEvent(live, { type: 'tool_call', toolCallId: 'web-search', name: 'web', args: searchArgs });
+  assert.deepEqual(messageWebSources(live.blocks), []);
+  live = applyEvent(live, { type: 'tool_result', toolCallId: 'web-fetch', result: '{"async":true,"status":"running","call_id":"web-fetch"}', status: 'running' });
+  assert.deepEqual(messageWebSources(live.blocks), []);
+  live = applyEvent(live, { type: 'tool_result', toolCallId: 'web-fetch', result: fetchResult, status: 'completed' });
+  live = applyEvent(live, { type: 'tool_result', toolCallId: 'web-search', result: searchResult, status: 'completed' });
+  assert.deepEqual(messageWebSources(live.blocks), expected);
+});
+
+test('web sources skip failed, unrelated and unsafe URLs and include nested code results', () => {
+  const tool = (name, status, args, result) => ({ type: 'tool_call', name, status, args, result });
+  const blocks = [
+    tool('web', '失败', { action: 'fetch', url: 'https://failed.example/' }, 'network error'),
+    tool('read', '成功', { action: 'fetch', url: 'https://not-web.example/' }, 'file body'),
+    tool('web', '成功', { action: 'fetch', url: 'javascript:alert(1)' }, 'done'),
+    { type: 'sub_agent', name: 'researcher', status: '成功', blocks: [
+      tool('web', '成功', { action: ' CodeSearch ' }, 'Title: URL Standard\nURL: https://url.spec.whatwg.org/?expr=(a)&b=2\nCode/Highlights:\nexample'),
+    ] },
+    { type: 'content', content: 'See https://answer-body.example/ for details.' },
+  ];
+  assert.deepEqual(messageWebSources(blocks), [
+    { url: 'https://url.spec.whatwg.org/?expr=(a)&b=2', hostname: 'url.spec.whatwg.org', title: 'URL Standard' },
+  ]);
 });

@@ -336,6 +336,8 @@ AI 可以在回复正文中直接展示图片，例如 `![二维码](<C:/project
 
 `web` 用一个入口完成联网：`action=search` 做网页搜索，`action=code` 检索库、SDK 和 API 文档，`action=fetch` 读取 URL 并转成 Markdown、纯文本或 HTML。
 
+使用 `web` 的回复会在「用时」旁显示网页来源数量，点击可查看并打开本轮搜索或读取的页面。
+
 ### 技能
 
 Loopra 随程序提供只读的内置 `SelfSkill`（`@builtin-skills/self-skill`），介绍能力入口、技能发现与加载、MCP / OpenAPI 接入和能力缺失排查。系统提示会引导 Agent 在首次处理任务前通过 `skillread` 读取。

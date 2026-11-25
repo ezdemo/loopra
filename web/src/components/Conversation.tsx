@@ -14,6 +14,8 @@ import { ImagePreviewProvider } from './ImagePreview';
 import { copyText } from './Markdown';
 import MessageContext from './MessageContext';
 import { messageFileStats } from '../file-stats';
+import { messageWebSources } from '../web-sources';
+import WebSources from './WebSources';
 
 type MessageActions = BlockActions & { onEdit?: (text: string, documents?: MessageDocument[]) => void; onBranch?: (id: string) => void; onRollback?: (message: Message) => void; busy: boolean; onRawEvents?: () => void };
 type MessageViewActions = MessageActions & { canManageHistory: boolean };
@@ -81,6 +83,7 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
   const blocks: ChatBlock[] = useMemo(() => message.blocks?.length ? message.blocks : message.text ? [{ id: message.id + '-text', type: 'content', content: message.text }] : [], [message.blocks, message.text, message.id]);
   const { process, final } = useMemo(() => splitAssistantBlocks(blocks.filter(block => block.type !== 'choice')), [blocks]);
   const stats = useMemo(() => messageFileStats(blocks), [blocks]);
+  const sources = useMemo(() => messageWebSources(blocks), [blocks]);
   const answerText = useMemo(() => final.map(block => block.type === 'content' ? block.content : block.type === 'tool_call' ? block.result || '' : '').filter(Boolean).join('\n\n') || message.text, [final, message.text]);
   const processId = 'process-' + message.id;
   // A pending choice keeps the turn's "用时" summary on screen even when nothing
@@ -88,8 +91,11 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
   const pending = blocks.some(block => block.type === 'choice' && !block.selected);
   if (!streaming && !process.length && !final.length && !blocks.some(block => block.type === 'choice')) return null;
   return <Enter as="article" className="msg assistant" aria-label="助手消息" data-message-id={message.id}><div className="msg-body assistant-body">
-    {(process.length > 0 || streaming || pending) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
-      <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><TurnDuration startedAt={message.startedAt} finishedAt={message.finishedAt} streaming={streaming} showDuration={showDuration} /><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
+    {(process.length > 0 || streaming || pending || sources.length > 0) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
+      <div className="assistant-process-head">
+        <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><TurnDuration startedAt={message.startedAt} finishedAt={message.finishedAt} streaming={streaming} showDuration={showDuration} /><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
+        {sources.length > 0 && <WebSources sources={sources} />}
+      </div>
       <Collapse open={expanded && process.length > 0} id={processId} className="assistant-process-detail"><BlockRenderer blocks={process} {...actions} /></Collapse>
     </section>}
     <BlockRenderer blocks={final} streaming={streaming} {...actions} />
