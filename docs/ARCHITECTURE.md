@@ -30,8 +30,7 @@ internal/
     files.go                    文件请求与响应
     runtime.go                  API 项目上下文、运行时缓存协调
     ...                         聊天、MCP、Git、任务等 API 模块
-  acpserver/                    ACP Agent 运行时：会话与轮次编排，消息流、审批和提问经 Client 接口出站
-  tui/                          终端聊天：Bubble Tea 界面，进程内复用 acpserver Runtime；普通构建与 s390x 的回退
+  acpserver/                    ACP Agent 运行时：会话与轮次编排，经 stdio 输出消息、审批和提问
   infrastructure/microacp/      官方包内嵌 micro-acp 客户端的解包与许可文本；二进制经构建期 overlay 注入
   service/
     config.go                   配置快照、并发更新、保存失败回滚
@@ -83,17 +82,10 @@ Controller 按业务文件组织，共享进程级的会话和任务上下文。
 返回 `thread_active_writer`。其他 ACP 引擎仍在同一应用、同一工作目录复用空闲进程；
 会话释放时按引用计数关闭进程，应用关闭时统一回收。
 
-`loopra acp`（stdio 连接）与 `loopra tui` 复用同一个 `internal/acpserver.Runtime`；
-运行时的出站交互收敛到 `Client` 接口，stdio `AgentSideConnection` 与内置终端
-客户端分别实现该接口，运行时不依赖终端界面。
-
-官方发布的 Windows、macOS、Linux amd64/arm64 命令行包改走另一条边界：打包脚本
-按固定摘要下载并校验 BrokkAi/micro-acp 官方发布物，gzip 后经 Go 编译期 overlay
-注入 `internal/infrastructure/microacp` 的 `go:embed`（随附其 MIT 许可文本）。
-`loopra tui` 运行时把内嵌二进制就地解包到临时目录，客户端经 stdio 连接由同一
-可执行文件启动的 `loopra acp` 子进程——与任何外部 ACP 客户端走同一条 wire 边界，
-不产生 HTTP 监听，也不在运行时下载客户端。普通 `go build` 与 linux/s390x 产物没有该标签，
-`loopra tui` 继续使用进程内 Bubble Tea 界面。
+`loopra tui` 通过 stdio 连接同一可执行文件启动的 `loopra acp` 子进程，走现有 ACP
+协议，不监听 HTTP。官方 Windows、macOS、Linux amd64/arm64 命令行包在构建期下载并
+校验固定版本的 micro-acp 发布物，经 Go overlay 注入 `go:embed`，并随附 MIT 许可。
+运行时仅在本地解包；未内嵌的构建从 `PATH` 查找客户端。
 
 Bot Service 在组合根显式装配，通过生命周期入口获得 Controller 提供的项目准备与轮次执行端口。每个 Bot 独立持有连接和取消上下文；飞书消息在持久化去重和绑定后异步执行，不占用事件确认窗口。Bot 不拥有独立的 Agent 执行栈，Native 轮次复用工作区运行时、关联项目、执行互斥、审批与 JSONL 历史。关闭服务会取消授权、长连接和执行并等待退出；旧连接回调不能覆盖新连接状态。
 

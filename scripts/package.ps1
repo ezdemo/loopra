@@ -395,7 +395,7 @@ try {
                 $buildLdflags = "$ldflags -H windowsgui"
             }
             # web 的 amd64/arm64 产物编译期内嵌校验过的 micro-acp 客户端；
-            # linux/s390x 与 desktop 保持仅 webdist，tui 走内置终端界面。
+            # linux/s390x 与 desktop 保持仅 webdist。
             $buildOptions = @('-tags', 'webdist')
             if ($row.Product -eq 'web' -and $row.Arch -in @('amd64', 'arm64')) {
                 $python = Find-Python

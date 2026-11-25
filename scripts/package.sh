@@ -182,7 +182,7 @@ publish_darwin_app() {
 
 # 构建单个目标到 $tmp。web 的 amd64/arm64 产物在编译期通过
 # scripts/stage-micro-acp.py 内嵌校验过的 micro-acp 客户端；
-# linux/s390x 与 desktop 保持仅 webdist，tui 走内置终端界面。
+# linux/s390x 与 desktop 保持仅 webdist。
 build_target() (
   cd "$root" || exit 1
   case "$product/$arch" in

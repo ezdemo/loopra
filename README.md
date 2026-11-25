@@ -158,7 +158,7 @@ Windows、macOS 和 Linux 的 amd64/arm64 发布包内嵌了 MIT 许可的 [micr
 
 回车发送，`Alt+Enter` 或 `Ctrl+J` 换行，`/` 打开内置菜单；回复进行中按 Ctrl+C 停止本轮，输入为空时按 Ctrl+D 退出。micro-acp 自带本地会话列表。
 
-普通 `go build` 产物和 Linux s390x 包没有内嵌 micro-acp，此时 `loopra tui` 使用内置的精简终端界面：回车发送，Ctrl+J 换行；工具审批输入 `y` 回车允许一次，直接回车或 Esc 拒绝；回复中按 Ctrl+C 取消，空闲时按 Ctrl+C 或输入 `/quit`、`/exit` 退出，PgUp/PgDn 滚动，`/help` 查看按键说明。
+普通 `go build` 产物和 Linux s390x 包不内嵌客户端。`loopra tui` 会从 `PATH` 查找 `micro-acp`，找不到时提示安装；Linux s390x 没有上游预编译客户端。`loopra web` 与 `loopra acp` 不受影响。
 
 自行构建官方命令行包见 `scripts/package.sh` / `scripts/package.ps1`，内嵌客户端的下载与校验需要 Python 3。
 

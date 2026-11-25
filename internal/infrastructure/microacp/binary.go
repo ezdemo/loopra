@@ -1,6 +1,5 @@
-// Package microacp 只在打包构建里提供官方 micro-acp 终端客户端。
-// 二进制在编译期随可执行文件内嵌，运行时在系统临时目录就地解包，
-// 不访问网络、不查询 PATH。
+// Package microacp 解包打包构建里内嵌的官方 micro-acp 终端客户端。
+// 解包在系统临时目录完成，不访问网络。
 package microacp
 
 import (

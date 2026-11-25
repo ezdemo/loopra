@@ -5,7 +5,7 @@
 # darwin desktop outputs are .app bundles, plus a .zip with the executable bit.
 # web: those six, plus linux/s390x, all with a bundled ripgrep.
 # web amd64/arm64 targets also embed the pinned micro-acp TUI client;
-# linux/s390x keeps the built-in terminal fallback.
+# linux/s390x does not bundle micro-acp.
 # 32-bit targets are paused due to larksuite/oapi-sdk-go#254.
 # linux/arm is GOARM=7 and is written as loopra-linux-armv7.
 
