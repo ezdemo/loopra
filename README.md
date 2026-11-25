@@ -143,11 +143,24 @@ loopra            # 与 loopra web 相同，由系统分配空闲端口
 loopra web 4567   # 固定端口
 loopra web 0      # 同样由系统分配端口
 loopra acp        # 在标准输入输出上提供 ACP，不启动网页
+loopra tui        # 在当前目录打开终端聊天，不启动网页
 ```
 
-控制台会打印本地访问地址和本次启动的访问密钥。从该链接进入即完成校验；页面上的 API 请求携带 `X-Loopra-Key`。静态页面不校验密钥。未设置 `LOOPRA_ACCESS_KEY` 时，每次重启都会更换密钥。
+`loopra web`（包括默认启动）会在控制台打印本地访问地址和本次启动的访问密钥。从该链接进入即完成校验；页面上的 API 请求携带 `X-Loopra-Key`。静态页面不校验密钥。未设置 `LOOPRA_ACCESS_KEY` 时，每次重启都会更换密钥。
 
 首次启动会在 `~/.loopra/config.json` 写入默认配置。目录里已有 Loopra 配置时直接沿用。`LOOPRA_HOME` 可以把数据目录改到别处。
+
+### 终端聊天
+
+在项目目录里运行 `loopra tui`，直接在终端里开一个 Loopra 会话：不启动网页或 HTTP 服务，工作目录就是当前目录，模型渠道与权限配置沿用 `~/.loopra/config.json`。
+
+Windows、macOS 和 Linux 的 amd64/arm64 发布包内嵌了 MIT 许可的 [micro-acp](https://github.com/BrokkAi/micro-acp) v0.8.1 终端客户端。`loopra tui` 会从本机可执行文件解包启动客户端，由它通过标准输入输出连接同一可执行文件启动的 `loopra acp`。不用另装或下载客户端。客户端自己的会话状态放在 `$LOOPRA_HOME/micro-acp`（默认 `~/.loopra/micro-acp`）。
+
+回车发送，`Alt+Enter` 或 `Ctrl+J` 换行，`/` 打开内置菜单；回复进行中按 Ctrl+C 停止本轮，输入为空时按 Ctrl+D 退出。micro-acp 自带本地会话列表。
+
+普通 `go build` 产物和 Linux s390x 包没有内嵌 micro-acp，此时 `loopra tui` 使用内置的精简终端界面：回车发送，Ctrl+J 换行；工具审批输入 `y` 回车允许一次，直接回车或 Esc 拒绝；回复中按 Ctrl+C 取消，空闲时按 Ctrl+C 或输入 `/quit`、`/exit` 退出，PgUp/PgDn 滚动，`/help` 查看按键说明。
+
+自行构建官方命令行包见 `scripts/package.sh` / `scripts/package.ps1`，内嵌客户端的下载与校验需要 Python 3。
 
 ### 配置模型
 

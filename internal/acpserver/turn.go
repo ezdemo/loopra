@@ -153,13 +153,11 @@ func (s *liveSession) drive(ctx context.Context, runtime *Runtime, sess session.
 }
 
 func (s *liveSession) permit(ctx context.Context, runtime *Runtime, pending pendingConfirm) (bool, error) {
-	runtime.mu.Lock()
-	conn := runtime.conn
-	runtime.mu.Unlock()
-	if conn == nil {
+	client := runtime.currentClient()
+	if client == nil {
 		return false, nil
 	}
-	response, err := conn.RequestPermission(ctx, acpsdk.RequestPermissionRequest{
+	response, err := client.RequestPermission(ctx, acpsdk.RequestPermissionRequest{
 		SessionId: acpsdk.SessionId(s.id),
 		ToolCall: acpsdk.ToolCallUpdate{
 			ToolCallId: acpsdk.ToolCallId(pending.confirmID),
@@ -188,13 +186,11 @@ func (s *liveSession) permit(ctx context.Context, runtime *Runtime, pending pend
 }
 
 func (s *liveSession) emit(ctx context.Context, runtime *Runtime, update acpsdk.SessionUpdate) {
-	runtime.mu.Lock()
-	conn := runtime.conn
-	runtime.mu.Unlock()
-	if conn == nil {
+	client := runtime.currentClient()
+	if client == nil {
 		return
 	}
-	_ = conn.SessionUpdate(ctx, acpsdk.SessionNotification{
+	_ = client.SessionUpdate(ctx, acpsdk.SessionNotification{
 		SessionId: acpsdk.SessionId(s.id), Update: update,
 	})
 }

@@ -6,6 +6,7 @@
 //	loopra
 //	loopra [web] [port] [flags]
 //	loopra acp [flags]
+//	loopra tui [flags]
 //	loopra --config manifest/config/config.yaml --port 4567
 package main
 
@@ -26,7 +27,12 @@ import (
 const (
 	commandWeb = "web"
 	commandACP = "acp"
+	commandTUI = "tui"
 )
+
+func isSubcommand(arg string) bool {
+	return arg == commandWeb || arg == commandACP || arg == commandTUI
+}
 
 type invocation struct {
 	Command string
@@ -47,18 +53,21 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	quietWeb := parsed.Command != commandACP && !logging.DebugEnabled()
-	if quietWeb {
+	quiet := parsed.Command == commandTUI || (parsed.Command == commandWeb && !logging.DebugEnabled())
+	if quiet {
 		logging.Suppress()
 	}
 	var runErr error
-	if parsed.Command == commandACP {
+	switch parsed.Command {
+	case commandACP:
 		runErr = runACP(ctx, parsed.Options)
-	} else {
+	case commandTUI:
+		runErr = runTUI(ctx, parsed.Options)
+	default:
 		runErr = runWeb(ctx, stop, parsed.Options)
 	}
 	if runErr != nil {
-		if quietWeb {
+		if quiet {
 			fmt.Fprintf(os.Stderr, "%v\n", runErr)
 		} else {
 			tag := "server"
@@ -74,6 +83,7 @@ func main() {
 // parseArgs 解析启动参数。不写子命令时启动 web。
 // web 的端口可以写在子命令后面，也可以单独作为位置参数，或用 --port 指定。
 // acp 在标准输入输出上提供 ACP 服务，不使用端口。
+// tui 在当前目录打开终端会话，同样不使用端口与网页相关标志。
 func parseArgs(args []string, output io.Writer) (invocation, error) {
 	var options config.Options
 	fs := flag.NewFlagSet("loopra", flag.ContinueOnError)
@@ -81,6 +91,7 @@ func parseArgs(args []string, output io.Writer) (invocation, error) {
 	fs.Usage = func() {
 		fmt.Fprintln(output, "usage: loopra [web] [port] [flags]")
 		fmt.Fprintln(output, "       loopra acp [flags]")
+		fmt.Fprintln(output, "       loopra tui [--config path] [--home path]")
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&options.ConfigFile, "config", "", "配置文件路径（默认 manifest/config/config.yaml）")
@@ -94,7 +105,7 @@ func parseArgs(args []string, output io.Writer) (invocation, error) {
 	// std flag 在第一个非选项参数处停止解析，因此允许 `loopra web --port 4567`
 	// 与 `loopra --port 4567 web` 两种写法：先摘掉开头的子命令，再交给 flag 解析。
 	command := ""
-	if len(args) > 0 && (args[0] == commandWeb || args[0] == commandACP) {
+	if len(args) > 0 && isSubcommand(args[0]) {
 		command = args[0]
 		args = args[1:]
 	}
@@ -102,7 +113,7 @@ func parseArgs(args []string, output io.Writer) (invocation, error) {
 		return invocation{}, err
 	}
 	positional := fs.Args()
-	if len(positional) > 0 && (positional[0] == commandWeb || positional[0] == commandACP) {
+	if len(positional) > 0 && isSubcommand(positional[0]) {
 		if command != "" && command != positional[0] {
 			fs.Usage()
 			return invocation{}, errUsage
@@ -113,12 +124,25 @@ func parseArgs(args []string, output io.Writer) (invocation, error) {
 	if command == "" {
 		command = commandWeb
 	}
-	if command == commandACP {
+	if command == commandTUI {
+		var extraFlag string
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "config" && f.Name != "home" && extraFlag == "" {
+				extraFlag = f.Name
+			}
+		})
+		if extraFlag != "" {
+			fmt.Fprintf(output, "loopra tui does not use --%s\n", extraFlag)
+			fs.Usage()
+			return invocation{}, errUsage
+		}
+	}
+	if command == commandACP || command == commandTUI {
 		if len(positional) > 0 {
 			fs.Usage()
 			return invocation{}, errUsage
 		}
-		return invocation{Command: commandACP, Options: options}, nil
+		return invocation{Command: command, Options: options}, nil
 	}
 	if len(positional) > 1 {
 		fs.Usage()

@@ -180,6 +180,42 @@ publish_darwin_app() {
   echo '  已生成 .app。从 Windows 拷到 Mac 后需要 chmod +x Contents/MacOS/Loopra' >&2
 }
 
+# 构建单个目标到 $tmp。web 的 amd64/arm64 产物在编译期通过
+# scripts/stage-micro-acp.py 内嵌校验过的 micro-acp 客户端；
+# linux/s390x 与 desktop 保持仅 webdist，tui 走内置终端界面。
+build_target() (
+  cd "$root" || exit 1
+  case "$product/$arch" in
+    web/amd64 | web/arm64)
+      # Windows 应用商店别名会冒充 python/python3：能被执行但一调用就报错，
+      # 所以探测时要验证 --version 真的能跑通。
+      py=
+      for candidate in python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1 && "$candidate" --version >/dev/null 2>&1; then
+          py=$candidate
+          break
+        fi
+      done
+      if [ -z "$py" ]; then
+        echo '打包内嵌 micro-acp 需要 Python 3。' >&2
+        exit 1
+      fi
+      stage=$(mktemp -d) || exit 1
+      trap 'rm -rf "$stage"' EXIT
+      native_stage=$stage
+      if command -v cygpath >/dev/null 2>&1; then
+        # Git Bash 的 mktemp 给的是 MSYS 路径，Windows Python/go 需要原生路径。
+        native_stage=$(cygpath -am "$stage")
+      fi
+      "$py" "$root/scripts/stage-micro-acp.py" "$goos" "$arch" "$native_stage" || exit 1
+      "$go_bin" build -trimpath -tags webdist,microacp -overlay "$native_stage/overlay.json" -ldflags "$build_ldflags" -o "$tmp" "$pkg"
+      ;;
+    *)
+      "$go_bin" build -trimpath -tags webdist -ldflags "$build_ldflags" -o "$tmp" "$pkg"
+      ;;
+  esac
+)
+
 alias_name() {
   product=$1
   goos=$2
@@ -444,7 +480,7 @@ while IFS= read -r line; do
   if [ "$product" = desktop ] && [ "$goos" = windows ]; then
     build_ldflags="$ldflags -H windowsgui"
   fi
-  if (cd "$root" && "$go_bin" build -trimpath -tags webdist -ldflags "$build_ldflags" -o "$tmp" "$pkg"); then
+  if build_target; then
     if [ "$product" = desktop ] && [ "$goos" = darwin ]; then
       zip=$out/loopra-desktop-darwin-$arch.zip
       if publish_darwin_app "$tmp" "$dest" "$zip" >/dev/null; then

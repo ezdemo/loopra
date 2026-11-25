@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"flag"
+	"strings"
 	"testing"
 )
 
@@ -36,6 +38,30 @@ func TestParseArgsACP(t *testing.T) {
 	}
 	if _, err := parseArgs([]string{"acp", "4567"}, &bytes.Buffer{}); !errors.Is(err, errUsage) {
 		t.Fatalf("acp with port err = %v", err)
+	}
+}
+
+func TestParseArgsTUI(t *testing.T) {
+	for _, args := range [][]string{{"tui"}, {"tui", "--home", "data"}, {"--home", "data", "tui"}} {
+		parsed, err := parseArgs(args, &bytes.Buffer{})
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if parsed.Command != commandTUI {
+			t.Fatalf("%v command = %q", args, parsed.Command)
+		}
+	}
+	for _, args := range [][]string{{"tui", "0"}, {"tui", "--port", "0"}} {
+		if _, err := parseArgs(args, &bytes.Buffer{}); !errors.Is(err, errUsage) {
+			t.Fatalf("%v err = %v", args, err)
+		}
+	}
+	var output bytes.Buffer
+	if _, err := parseArgs([]string{"tui", "--help"}, &output); !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("tui --help err = %v", err)
+	}
+	if !strings.Contains(output.String(), "tui") {
+		t.Fatal("usage does not mention tui")
 	}
 }
 

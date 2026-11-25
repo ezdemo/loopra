@@ -59,10 +59,8 @@ func (s *liveSession) askChoice(ctx agentctx.Context, r *Runtime, question strin
 	if len(options) == 0 {
 		return "", fmt.Errorf("选项不能为空")
 	}
-	r.mu.Lock()
-	conn := r.conn
-	r.mu.Unlock()
-	if conn == nil {
+	client := r.currentClient()
+	if client == nil {
 		return "", fmt.Errorf("当前没有可以提问的客户端")
 	}
 	props := map[string]any{"choice": map[string]any{"type": "string", "enum": options}}
@@ -70,7 +68,7 @@ func (s *liveSession) askChoice(ctx agentctx.Context, r *Runtime, question strin
 		Type: "object", Properties: props, Required: []string{"choice"},
 	})
 	request.Form.Message = question
-	response, err := conn.UnstableCreateElicitation(ctx, request)
+	response, err := client.UnstableCreateElicitation(ctx, request)
 	if err != nil {
 		return "", err
 	}

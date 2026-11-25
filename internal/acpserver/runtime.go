@@ -41,9 +41,16 @@ type Runtime struct {
 	model    model.LLM
 	sessions *jsonl.Service
 
-	mu    sync.Mutex
-	conn  *acpsdk.AgentSideConnection
-	lives map[string]*liveSession
+	mu     sync.Mutex
+	client Client
+	lives  map[string]*liveSession
+}
+
+// Client 接收 ACP 运行时的出站交互，经 stdio 或在进程内。
+type Client interface {
+	SessionUpdate(context.Context, acpsdk.SessionNotification) error
+	RequestPermission(context.Context, acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error)
+	UnstableCreateElicitation(context.Context, acpsdk.UnstableCreateElicitationRequest) (acpsdk.UnstableCreateElicitationResponse, error)
 }
 
 type liveSession struct {
@@ -94,10 +101,17 @@ func (r *Runtime) UseModel(llm model.LLM) {
 	r.mu.Unlock()
 }
 
-func (r *Runtime) bind(conn *acpsdk.AgentSideConnection) {
+// SetClient 安装运行时的出站客户端。
+func (r *Runtime) SetClient(client Client) {
 	r.mu.Lock()
-	r.conn = conn
-	r.mu.Unlock()
+	defer r.mu.Unlock()
+	r.client = client
+}
+
+func (r *Runtime) currentClient() Client {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.client
 }
 
 // Serve 在 stdio 上接入 ACP 客户端，直到对端断开或 ctx 结束。
@@ -109,7 +123,7 @@ func Serve(ctx context.Context, runtime *Runtime) error {
 func ServeStreams(ctx context.Context, runtime *Runtime, toClient io.Writer, fromClient io.Reader) error {
 	conn := acpsdk.NewAgentSideConnection(runtime, toClient, fromClient)
 	conn.SetLogger(logging.LibraryLogger())
-	runtime.bind(conn)
+	runtime.SetClient(conn)
 	select {
 	case <-ctx.Done():
 		return nil

@@ -378,6 +378,7 @@ try {
             GOARM       = $env:GOARM
             CGO_ENABLED = $env:CGO_ENABLED
         }
+        $microStage = $null
         try {
             $env:GOOS = $row.OS
             $env:GOARCH = $row.Arch
@@ -393,7 +394,23 @@ try {
             if ($row.Product -eq 'desktop' -and $row.OS -eq 'windows') {
                 $buildLdflags = "$ldflags -H windowsgui"
             }
-            & $go build -trimpath -tags webdist -ldflags $buildLdflags -o $tmp $pkg
+            # web 的 amd64/arm64 产物编译期内嵌校验过的 micro-acp 客户端；
+            # linux/s390x 与 desktop 保持仅 webdist，tui 走内置终端界面。
+            $buildOptions = @('-tags', 'webdist')
+            if ($row.Product -eq 'web' -and $row.Arch -in @('amd64', 'arm64')) {
+                $python = Find-Python
+                if (-not $python) {
+                    throw '打包内嵌 micro-acp 需要 Python 3。'
+                }
+                $microStage = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'loopra-micro-acp-' + [Guid]::NewGuid().ToString('N'))
+                New-Item -ItemType Directory -Path $microStage | Out-Null
+                & $python (Join-Path $PSScriptRoot 'stage-micro-acp.py') $row.OS $row.Arch $microStage
+                if ($LASTEXITCODE -ne 0) {
+                    throw "stage-micro-acp 退出码 $LASTEXITCODE"
+                }
+                $buildOptions = @('-tags', 'webdist,microacp', '-overlay', (Join-Path $microStage 'overlay.json'))
+            }
+            & $go build -trimpath @buildOptions -ldflags $buildLdflags -o $tmp $pkg
             if ($LASTEXITCODE -ne 0) {
                 throw "go build 退出码 $LASTEXITCODE"
             }
@@ -422,6 +439,7 @@ try {
             Write-Host ("失败 {0}" -f $_.Exception.Message)
             if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
         } finally {
+            if ($microStage) { Remove-Item -LiteralPath $microStage -Recurse -Force -ErrorAction SilentlyContinue }
             foreach ($key in @('GOOS', 'GOARCH', 'GOARM', 'CGO_ENABLED')) {
                 if ([string]::IsNullOrEmpty($saved[$key])) {
                     Remove-Item "Env:$key" -ErrorAction SilentlyContinue
