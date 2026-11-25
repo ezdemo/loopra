@@ -24,8 +24,7 @@ export default function ModelUsageSettings({ providers, defaultModel, onDefaultM
     </div>
     <h3 className="settings-section-title">辅助功能</h3>
     <div className="settings-card model-usage-card settings-field-grid">
-      <div className="settings-field model-usage-wide"><ModelSelect label="工具模型" optional value={config.toolModel} onChange={toolModel => onConfig({ ...config, toolModel })} models={models} /><p className="model-usage-hint">用于会话标题生成，未配置时使用消息截取标题。</p></div>
-      <div className="settings-field"><ModelSelect label="命令校验模型" optional value={config.validatorModel} onChange={validatorModel => onConfig({ ...config, validatorModel })} models={models} /><p className="model-usage-hint">用于工具调用前的命令校验，可指定独立模型。</p></div>
+      <div className="settings-field"><ModelSelect label="工具模型" optional emptyLabel="未配置" value={config.toolModel} onChange={toolModel => onConfig({ ...config, toolModel })} models={models} /><p className="model-usage-hint">用于生成会话标题和自动审批时的命令校验。</p></div>
       <div className="settings-field"><ModelSelect label="图片理解模型" optional value={config.imageModel} onChange={imageModel => onConfig({ ...config, imageModel })} models={models.filter(model => model.imageInput)} /><p className="model-usage-hint">用于理解图片，仅列出支持图片输入的模型。</p></div>
     </div>
     {!models.length && <p className="section-note">暂无可用模型，请先在“模型供应商”中添加并启用模型。</p>}

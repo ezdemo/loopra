@@ -685,12 +685,12 @@ export default function App({ startupPending = false, initialServer }: { startup
       persistClientSettings(currentClientSettings(), true);
     }
     const changed = <K extends keyof AgentSettings>(key: K) => JSON.stringify(next[key]) !== JSON.stringify(agentSettings[key]);
-    const localOnly = !(['systemPrompt', 'tools', 'validatorModel', 'imageModel', 'toolModel'] as const).some(changed);
+    const localOnly = !(['systemPrompt', 'tools', 'imageModel', 'toolModel'] as const).some(changed);
     if (localOnly) { setAgentSettings(next); return; }
     await mutation(async () => {
       const patch: Record<string, unknown> = {};
       if (changed('tools')) patch.disabledTools = next.tools.filter(tool => !tool.enabled).map(tool => tool.name);
-      for (const [key, modelKey, channelKey] of [['validatorModel', 'validationModel', 'validationModelChannelId'], ['imageModel', 'imageUnderstandingModel', 'imageUnderstandingModelChannelId'], ['toolModel', 'toolModel', 'toolModelChannelId']] as const) {
+      for (const [key, modelKey, channelKey] of [['imageModel', 'imageUnderstandingModel', 'imageUnderstandingModelChannelId'], ['toolModel', 'toolModel', 'toolModelChannelId']] as const) {
         if (changed(key)) { const model = getModelCatalog(providers).find(item => item.id === next[key]); patch[modelKey] = model?.name || ''; patch[channelKey] = model?.providerId || ''; }
       }
       if (Object.keys(patch).length) await api.request('/config', 'PUT', patch);
@@ -1478,7 +1478,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     setComposerOptions(current => session
       ? { ...current, mode: permissionLabel(config.hitl), fast: config.fastMode }
       : { ...current, modelId, effort: config.reasoningEffort || 'max', mode: permissionLabel(config.hitl), fast: config.fastMode });
-    setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, validatorModel: config.validationModel ? `${config.validationModelChannelId}:${config.validationModel}` : '', imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '', toolModel: config.toolModel ? `${config.toolModelChannelId}:${config.toolModel}` : '' }));
+    setAgentSettings(current => ({ ...current, serverUrl: server, projectPath: config.workspace, defaultWorkspace: backend.workspaces.find(item => item.path === config.workspace)?.name || backend.workspaces[0]?.name || '', tools: backend.tools, skills: backend.skills, systemPrompt: backend.prompt, imageModel: config.imageUnderstandingModel ? `${config.imageUnderstandingModelChannelId}:${config.imageUnderstandingModel}` : '', toolModel: config.toolModel ? `${config.toolModelChannelId}:${config.toolModel}` : '' }));
   }, [backend.config, backend.tools, backend.skills, backend.prompt, backend.workspaces, server, session?.id]);
   // The host is what actually launches these, and only it knows what exists there (Git Bash is
   // Windows-only, PowerShell needs pwsh installed), so ask it instead of offering a fixed list.
@@ -1513,10 +1513,10 @@ export default function App({ startupPending = false, initialServer }: { startup
   }, [providers, composerOptions.modelId, defaultModel, setComposerOptions, setDefaultModel]);
   useEffect(() => {
     const catalog = getModelCatalog(providers);
-    if ((agentSettings.toolModel && !catalog.some(model => model.id === agentSettings.toolModel)) || (agentSettings.validatorModel && !catalog.some(model => model.id === agentSettings.validatorModel)) || (agentSettings.imageModel && !catalog.some(model => model.id === agentSettings.imageModel && model.imageInput))) {
-      setAgentSettings(current => ({ ...current, toolModel: catalog.some(model => model.id === current.toolModel) ? current.toolModel : '', validatorModel: catalog.some(model => model.id === current.validatorModel) ? current.validatorModel : '', imageModel: catalog.some(model => model.id === current.imageModel && model.imageInput) ? current.imageModel : '' }));
+    if ((agentSettings.toolModel && !catalog.some(model => model.id === agentSettings.toolModel)) || (agentSettings.imageModel && !catalog.some(model => model.id === agentSettings.imageModel && model.imageInput))) {
+      setAgentSettings(current => ({ ...current, toolModel: catalog.some(model => model.id === current.toolModel) ? current.toolModel : '', imageModel: catalog.some(model => model.id === current.imageModel && model.imageInput) ? current.imageModel : '' }));
     }
-  }, [providers, agentSettings.validatorModel, agentSettings.imageModel, agentSettings.toolModel, setAgentSettings]);
+  }, [providers, agentSettings.imageModel, agentSettings.toolModel, setAgentSettings]);
   useEffect(() => {
     const names = ['编程助手', '通用助手', '代码审查助手', ...agentSettings.agents.filter(agent => agent.enabled).map(agent => agent.name)];
     if (!names.includes(agentSettings.agentName)) setAgentSettings(current => ({ ...current, agentName: '编程助手' }));

@@ -232,7 +232,7 @@ Windows、macOS 和 Linux 的 amd64/arm64 命令行构建（包括普通 `go bui
     </td>
     <td width="50%" valign="top">
       <strong>审批边界</strong><br/>
-      <code>free</code>、<code>approval</code>、<code>auto</code> 三种模式。<code>auto</code> 可接独立校验模型；无法自动放行时转人工。
+      <code>free</code>、<code>approval</code>、<code>auto</code> 三种模式。<code>auto</code> 可由工具模型预审；无法自动放行时转人工。
     </td>
   </tr>
   <tr>
@@ -487,9 +487,9 @@ Loopra Agent 直接按任务和工具审批策略执行，不提供独立计划�
 |---|---|
 | `free` | 跳过工具审批链。工具自身的路径与参数校验仍然生效。 |
 | `approval` | 自动放行只读工具、项目内文件写入和可识别的项目内命令；其余调用转人工审批。 |
-| `auto` | 先应用与 `approval` 相同的规则，再使用已配置的校验模型审核剩余调用；未配置、未批准或审核失败时转人工。 |
+| `auto` | 先应用与 `approval` 相同的规则，再使用已配置的工具模型审核剩余调用；未配置、未批准或审核失败时转人工。 |
 
-`validationModel` 与 `validationModelChannelId` 用于 `auto` 模式的独立审核。`blockedPaths` 中的路径一律转人工。这是应用层审核，工具自身的路径与参数校验仍然生效，它不替代操作系统沙箱。旧配置里的布尔值会迁移：`true` 视为 `approval`，`false` 视为 `free`。
+工具模型（`toolModel` / `toolModelChannelId`）用于生成会话标题，也用于 `auto` 模式下的命令校验。`blockedPaths` 中的路径一律转人工。这是应用层审核，工具自身的路径与参数校验仍然生效，它不替代操作系统沙箱。旧配置里的布尔值会迁移：`true` 视为 `approval`，`false` 视为 `free`。
 
 ## 使用
 
@@ -577,12 +577,10 @@ loopra acp
 | `modelChannels` | array | 默认渠道 | API 地址、密钥、协议与模型条目。 |
 | `modelChannelId` | string | `default` | 当前模型所属渠道 ID。 |
 | `model` | string | `deepseek-v4-flash` | 当前模型名称。 |
-| `validationModel` | string | `""` | 可选的工具调用校验模型。 |
-| `validationModelChannelId` | string | `""` | 校验模型所在渠道 ID。 |
 | `imageUnderstandingModel` | string | `""` | 图片理解模型，需在模型条目中启用 `imageInput`。 |
 | `imageUnderstandingModelChannelId` | string | `""` | 图片理解模型所在渠道 ID。 |
-| `toolModel` | string | `""` | 可选的会话标题模型。 |
-| `toolModelChannelId` | string | `""` | 标题模型所在渠道 ID。 |
+| `toolModel` | string | `""` | 用于生成会话标题和自动审批时的命令校验。 |
+| `toolModelChannelId` | string | `""` | 工具模型所在渠道 ID。 |
 | `workspaceDir` | string | 自动创建默认项目 | 当前项目目录。 |
 | `reasoningEffort` | string | `high` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 或 `max`；模型条目配置 `reasoningEfforts` 后取该模型目录内取值。 |
 | `hitl` | string | `free` | `free`、`approval` 或 `auto`。 |
@@ -598,6 +596,8 @@ loopra acp
 | `toolsRestrictWorkspace` | bool | `false` | 开启后 `write`、`edit` 只能写入主项目、长期关联的副项目和本轮临时关联项目；`read`、`rg`、`read_image` 与命令工具不受影响。也可在设置 → 工具里切换。 |
 | `blockedPaths` | string[] | `[]` | 受限路径列表。 |
 | `worktreeBaseDir` | string | `~/.loopra/worktree` | 隔离分支模式的根目录。 |
+
+旧配置中未设置工具模型时，会沿用已配置的命令校验模型及其渠道；两项都已设置时，以工具模型为准。
 
 首次启动未指定 `workspaceDir` 时，会在数据目录旁创建 `defaultWorkSpace`，避免把启动目录意外当成项目根目录。
 

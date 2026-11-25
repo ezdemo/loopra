@@ -301,18 +301,16 @@ Reject commands that can cause destructive data loss, credential or private-data
 Return only one JSON object with this exact shape and JSON boolean values:
 {"allow":true,"requiresHuman":false,"reason":"brief reason"}`
 
-// buildAIReviewer 为 auto 模式装配校验模型的预审；
-// 未配置校验模型时保持为 nil，退回
-// 人工审批，与 Java 运行时一致。
+// buildAIReviewer 为 auto 模式使用工具模型预审；不可用时退回人工审批。
 func (s *Controller) buildAIReviewer() func(session, tool string, args map[string]any) (bool, bool, error) {
-	if s.cfg == nil || s.cfg.ValidationModel == "" || s.cfg.ValidationModelChannelID == "" {
+	if s.cfg == nil {
 		return nil
 	}
-	ch, ok := s.cfg.ChannelByID(s.cfg.ValidationModelChannelID)
+	ch, entry, ok := s.cfg.ResolveToolModel()
 	if !ok || ch.BaseURL == "" || ch.APIKey == "" {
 		return nil
 	}
-	llm, err := provider.NewLLM(providerChannel(ch), &provider.Options{Model: s.cfg.ValidationModel})
+	llm, err := provider.NewLLM(providerChannel(ch), &provider.Options{Model: entry.Name})
 	if err != nil {
 		return nil
 	}

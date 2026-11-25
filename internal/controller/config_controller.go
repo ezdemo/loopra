@@ -53,11 +53,14 @@ func (s *Controller) configController(w http.ResponseWriter, r *http.Request) {
 			view["price"] = map[string]any{}
 		}
 		dto := map[string]any{}
-		for _, field := range []string{"baseUrl", "model", "availableModels", "workspace", "editMode", "reasoningEffort", "lang", "hitl", "disabledTools", "toolsRestrictWorkspace", "blockedPaths", "apiKey", "price", "activePet", "fastMode", "modelChannels", "modelChannelsConfigured", "modelChannelId", "validationModel", "validationModelChannelId", "imageUnderstandingModel", "imageUnderstandingModelChannelId", "toolModel", "toolModelChannelId", "proxy"} {
+		for _, field := range []string{"baseUrl", "model", "availableModels", "workspace", "editMode", "reasoningEffort", "lang", "hitl", "disabledTools", "toolsRestrictWorkspace", "blockedPaths", "apiKey", "price", "activePet", "fastMode", "modelChannels", "modelChannelsConfigured", "modelChannelId", "imageUnderstandingModel", "imageUnderstandingModelChannelId", "toolModel", "toolModelChannelId", "proxy"} {
 			if value, exists := view[field]; exists {
 				dto[field] = value
 			}
 		}
+		// 旧客户端的校验模型字段是工具模型的兼容别名。
+		dto["validationModel"] = dto["toolModel"]
+		dto["validationModelChannelId"] = dto["toolModelChannelId"]
 		for _, field := range []string{"disabledTools", "blockedPaths"} {
 			if dto[field] == nil {
 				dto[field] = []string{}
@@ -74,14 +77,20 @@ func (s *Controller) configController(w http.ResponseWriter, r *http.Request) {
 			writeFail(w, http.StatusBadRequest, "配置格式不正确")
 			return
 		}
+		if patch["toolModel"] == nil && patch["toolModelChannelId"] == nil {
+			patch["toolModel"] = patch["validationModel"]
+			patch["toolModelChannelId"] = patch["validationModelChannelId"]
+		}
+		delete(patch, "validationModel")
+		delete(patch, "validationModelChannelId")
 		s.restoreMaskedKeys(patch)
 		if err := s.saveConfig(patch); err != nil {
 			writeFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		message := "配置已更新"
-		for _, key := range []string{"baseUrl", "apiKey", "modelChannels", "modelChannelId", "validationModel", "validationModelChannelId", "imageUnderstandingModel", "imageUnderstandingModelChannelId", "proxy", "proxyAddress"} {
-			if _, ok := patch[key]; ok {
+		for _, key := range []string{"baseUrl", "apiKey", "modelChannels", "modelChannelId", "toolModel", "toolModelChannelId", "imageUnderstandingModel", "imageUnderstandingModelChannelId", "proxy", "proxyAddress"} {
+			if patch[key] != nil {
 				message = "模型渠道已更新，Agent 已重新初始化"
 			}
 		}

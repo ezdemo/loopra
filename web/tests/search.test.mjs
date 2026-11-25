@@ -59,6 +59,7 @@ test('model usage controls search to their dedicated settings page', () => {
     assert.ok(results.length, query);
     assert.ok(results.every(result => result.category === '模型用途'), query);
   }
+  assert.deepEqual(searchSettings('命令校验模型', sections).map(item => item.title), ['工具模型']);
 });
 
 test('long-term memory and system environment search to the memory manager', () => {

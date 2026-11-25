@@ -125,8 +125,6 @@ type Loopra struct {
 	Model                            string           `json:"model"`
 	ModelChannelID                   string           `json:"modelChannelId"`
 	APIProtocol                      string           `json:"apiProtocol,omitempty"`
-	ValidationModel                  string           `json:"validationModel"`
-	ValidationModelChannelID         string           `json:"validationModelChannelId"`
 	ImageUnderstandingModel          string           `json:"imageUnderstandingModel"`
 	ImageUnderstandingModelChannelID string           `json:"imageUnderstandingModelChannelId"`
 	ToolModel                        string           `json:"toolModel"`
@@ -196,8 +194,16 @@ func (c *Loopra) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(payload, (*plain)(c)); err != nil {
+	legacy := struct {
+		*plain
+		ValidationModel          string `json:"validationModel"`
+		ValidationModelChannelID string `json:"validationModelChannelId"`
+	}{plain: (*plain)(c)}
+	if err := json.Unmarshal(payload, &legacy); err != nil {
 		return err
+	}
+	if strings.TrimSpace(c.ToolModel) == "" && strings.TrimSpace(legacy.ValidationModel) != "" && strings.TrimSpace(legacy.ValidationModelChannelID) != "" {
+		c.ToolModel, c.ToolModelChannelID = legacy.ValidationModel, legacy.ValidationModelChannelID
 	}
 	raw := map[string]json.RawMessage{}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -210,6 +216,8 @@ func (c *Loopra) UnmarshalJSON(data []byte) error {
 			delete(raw, name)
 		}
 	}
+	delete(raw, "validationModel")
+	delete(raw, "validationModelChannelId")
 	c.Extra = raw
 	for key, value := range raw {
 		if hash, ok := strings.CutPrefix(key, "sessionOrder:"); ok {
@@ -321,6 +329,11 @@ func (c *Loopra) normalize() {
 		}
 		c.ModelChannels = []Channel{{ID: id, Name: "Default", BaseURL: c.BaseURL, APIKey: c.APIKey, APIProtocol: c.APIProtocol, Models: models}}
 	}
+	if strings.TrimSpace(c.ToolModel) != "" && c.ToolModelChannelID == "" {
+		if channel, ok := c.ChannelByID(""); ok {
+			c.ToolModelChannelID = channel.ID
+		}
+	}
 	if c.Hitl == "true" {
 		c.Hitl = "approval"
 	}
@@ -351,4 +364,19 @@ func (c *Loopra) ChannelByID(id string) (Channel, bool) {
 		return c.ModelChannels[0], true
 	}
 	return Channel{}, false
+}
+
+// ResolveToolModel 返回工具模型及它所属渠道的模型目录条目。
+func (c *Loopra) ResolveToolModel() (Channel, ModelEntry, bool) {
+	name := strings.TrimSpace(c.ToolModel)
+	if name != "" {
+		if channel, ok := c.ChannelByID(c.ToolModelChannelID); ok {
+			for _, entry := range channel.Models {
+				if entry.Name == name {
+					return channel, entry, true
+				}
+			}
+		}
+	}
+	return Channel{}, ModelEntry{}, false
 }

@@ -65,13 +65,13 @@ export function SelectField({ label, value, onChange, options, compact = false, 
     {items.map(item => <SelectItem key={`option:${item.value}`} textValue={item.label}>{item.label}</SelectItem>)}
   </Select>;
 }
-export function ModelSelect({ label, value, onChange, models, optional = false }: { label: string; value: string; onChange: (value: string) => void; models: ModelOption[]; optional?: boolean }) {
+export function ModelSelect({ label, value, onChange, models, optional = false, emptyLabel = '不启用 / 继承主模型' }: { label: string; value: string; onChange: (value: string) => void; models: ModelOption[]; optional?: boolean; emptyLabel?: string }) {
   const popover = useSelectPopover();
   const groups = [...new Set(models.map(model => model.providerId))];
   const hasValue = models.some(model => model.id === value);
   return <Select {...popover} label={label} labelPlacement="outside" placeholder="请选择模型" size="md" variant="bordered" radius="lg" disallowEmptySelection selectedKeys={hasValue ? [`model:${value}`] : optional ? ['none'] : []} onSelectionChange={keys => { const key = Array.from(keys)[0]; if (key !== undefined) onChange(key === 'none' ? '' : String(key).slice(6)); }} className="settings-next-select">
     {[
-      ...(optional ? [<SelectItem key="none" textValue="不启用 / 继承主模型">不启用 / 继承主模型</SelectItem>] : []),
+      ...(optional ? [<SelectItem key="none" textValue={emptyLabel}>{emptyLabel}</SelectItem>] : []),
       ...groups.map(id => <SelectSection key={id} title={models.find(model => model.providerId === id)?.provider}>{models.filter(model => model.providerId === id).map(model => <SelectItem key={`model:${model.id}`} textValue={modelLabel(model)}><span className="model-select-label" title={model.name}>{modelLabel(model)}</span></SelectItem>)}</SelectSection>),
     ]}
   </Select>;

@@ -162,30 +162,19 @@ func (s *Controller) renameSessionTitle(name, title string) error {
 }
 
 func generateSessionTitle(ctx context.Context, cfg *config.Loopra, source string) string {
-	modelName := strings.TrimSpace(cfg.ToolModel)
-	if source == "" || modelName == "" {
+	if source == "" {
 		return ""
 	}
-	channel, ok := cfg.ChannelByID(cfg.ToolModelChannelID)
+	channel, entry, ok := cfg.ResolveToolModel()
 	if !ok {
 		return ""
 	}
-	available := false
 	outputLimit := int32(512)
-	for _, entry := range channel.Models {
-		if entry.Name == modelName {
-			available = true
-			if entry.MaxTokens > 0 && entry.MaxTokens < int(outputLimit) {
-				outputLimit = int32(entry.MaxTokens)
-			}
-			break
-		}
-	}
-	if !available {
-		return ""
+	if entry.MaxTokens > 0 && entry.MaxTokens < int(outputLimit) {
+		outputLimit = int32(entry.MaxTokens)
 	}
 	llm, err := provider.NewLLM(providerChannel(channel), &provider.Options{
-		Model: modelName, ReasoningEffort: "none",
+		Model: entry.Name, ReasoningEffort: "none",
 	})
 	if err != nil {
 		return ""

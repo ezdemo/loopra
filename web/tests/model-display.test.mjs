@@ -317,13 +317,13 @@ const { default: ModelUsageSettings } = await import(await moduleUrl('components
   '@nextui-org/react': dataUrl(`import {createElement} from ${JSON.stringify(import.meta.resolve('react'))}; export const Button=({children,onPress})=>createElement('button',{onClick:onPress},children);`),
 }));
 
-test('the model usage page preserves IDs and save boundaries for all five purposes', async () => {
+test('the model usage page preserves IDs and save boundaries for all four purposes', async () => {
   const providers = [
     { id: 'main', name: 'Main', models: [{ name: 'raw/model', displayName: 'Flash', imageInput: false }, { name: 'vision', imageInput: true }] },
     { id: 'off', name: 'Disabled', enabled: false, models: [{ name: 'hidden', imageInput: true }] },
   ];
   const options = { modelId: 'main:raw/model', effort: 'max', fast: true, mode: '按需审批' };
-  const config = { toolModel: '', validatorModel: 'main:raw/model', imageModel: 'main:vision', systemPrompt: 'keep this prompt' };
+  const config = { toolModel: 'main:vision', imageModel: 'main:vision', systemPrompt: 'keep this prompt' };
   const defaults = [], chats = [], configs = []; let managed = false;
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
   try {
@@ -331,17 +331,18 @@ test('the model usage page preserves IDs and save boundaries for all five purpos
     const change = (label, value) => act(async () => {
       const select = host.querySelector(`select[aria-label="${label}"]`); select.value = value; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     });
-    assert.equal(host.querySelectorAll('select').length, 5);
+    assert.equal(host.querySelectorAll('select').length, 4);
+    assert.equal(host.querySelector('select[aria-label="命令校验模型"]'), null);
     assert.deepEqual([...host.querySelector('select[aria-label="工具模型"]').options].map(option => option.value), ['', 'main:raw/model', 'main:vision']);
     assert.deepEqual([...host.querySelector('select[aria-label="图片理解模型"]').options].map(option => option.value), ['', 'main:vision']);
     await change('新会话默认模型', 'main:vision');
     await change('当前聊天模型', 'main:vision');
     await change('工具模型', 'main:raw/model');
-    await change('命令校验模型', '');
+    await change('工具模型', '');
     await change('图片理解模型', '');
     assert.deepEqual(defaults, ['main:vision']);
     assert.deepEqual(chats, [{ ...options, modelId: 'main:vision' }]);
-    assert.deepEqual(configs, [{ ...config, toolModel: 'main:raw/model' }, { ...config, validatorModel: '' }, { ...config, imageModel: '' }]);
+    assert.deepEqual(configs, [{ ...config, toolModel: 'main:raw/model' }, { ...config, toolModel: '' }, { ...config, imageModel: '' }]);
     await act(async () => host.querySelector('button').click());
     assert.equal(managed, true);
   } finally { await act(async () => root.unmount()); host.remove(); }
