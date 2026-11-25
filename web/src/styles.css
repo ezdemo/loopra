@@ -243,6 +243,7 @@ svg { flex-shrink: 0; }
 /* Project and Agent switchers share one row above the composer. */
 .welcome-switchers { display: flex; align-items: center; gap: .25rem; margin-left: .25rem; margin-bottom: .5rem; }
 .welcome-switchers .workspace-selector { margin: 0; }
+.welcome-tui + .isolation-switch, .welcome-tui + .welcome-isolation-loading { margin-left: 0; }
 .agent-selector { z-index: 8; }
 .agent-selector > button { height: 1.875rem; padding: 0 .625rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: .4375rem; background: transparent; color: var(--secondary); font-size: .8125rem; transition: background .12s, color .12s; }
 .agent-selector > button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
@@ -739,6 +740,12 @@ code { background: var(--soft); padding: 0 0.3125rem; border-radius: var(--radiu
 .shell-dock header button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .shell-dock-screen { flex: 1; min-height: 0; padding: .375rem .5rem .5rem; }
 .shell-dock-screen .xterm { height: 100%; }
+
+.agent-tui { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); color: var(--text); }
+.agent-tui-screen { flex: 1; min-height: 0; padding: .375rem .5rem .5rem; }
+.agent-tui-screen .xterm { height: 100%; }
+.agent-tui-loading { flex: 1; display: flex; align-items: center; justify-content: center; }
+.agent-tui-error { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; padding: 1rem; }
 
 .terminal-panel header > .terminal-summary { color: var(--muted); font-size: 0.75rem; margin-right: auto; }
 

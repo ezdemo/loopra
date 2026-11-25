@@ -37,7 +37,8 @@ export default function ShellDock({ api, workspaceHash, open, onClose }: Props) 
     void api.request<{ sessions: ShellSession[] }>(`/shell-terminal/sessions?workspaceHash=${encodeURIComponent(workspaceHash)}`, 'GET', undefined, controller.signal)
       .then(data => {
         if (cancelled) return;
-        const list = data.sessions || [];
+        // Agent TUI 会话独占主视图，不混进终端坞的标签页。
+        const list = (data.sessions || []).filter(item => !item.agent);
         setSessions(list);
         if (list.length) setActive(current => current && list.some(item => item.id === current) ? current : list[0].id);
         else void create();

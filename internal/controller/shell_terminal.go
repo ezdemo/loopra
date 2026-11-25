@@ -3,10 +3,15 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/ezdemo/looprax/internal/service/acp"
+	"github.com/ezdemo/looprax/internal/shellterm"
 )
 
 func (s *Controller) registerShellTerminalRoutes(api *apiRouter) {
@@ -30,12 +35,104 @@ func (s *Controller) shellTerminalOpen(w http.ResponseWriter, r *http.Request) {
 		writeFail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	info, err := s.shellHub().Open(dir)
+	// 空 body 保持普通登录 shell；带 agentId 时改为启动外部 Agent 的 TUI。
+	var body struct {
+		AgentID     string `json:"agentId"`
+		SessionName string `json:"sessionName"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	agentID := strings.TrimSpace(body.AgentID)
+	if agentID == "" {
+		info, err := s.shellHub().Open(dir)
+		if err != nil {
+			writeFail(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeOK(w, http.StatusOK, info)
+		return
+	}
+	s.openAgentTerminal(w, r, dir, agentID, body.SessionName)
+}
+
+// openAgentTerminal 在项目目录里以交互终端运行外部 Agent CLI。
+// sessionName 为空或指向尚无任何记录的名称时按 TUI 会话创建：先写
+// .meta（mode/agentId/标题，claude 附 tuiResumeId）再拉起 CLI。
+// 已存在的 GUI 会话一律拒绝；已有 TUI 会话的 agentId 必须与请求一致，
+// 重开时 PTY 还活着就直接复用，进程已退出则按 tuiStarted 拼续接参数。
+func (s *Controller) openAgentTerminal(w http.ResponseWriter, r *http.Request, dir, agentID, sessionName string) {
+	provider, ok := acp.Lookup(agentID)
+	if !ok {
+		writeFail(w, http.StatusBadRequest, "该 Agent 不支持 TUI 终端")
+		return
+	}
+	sessionName = strings.TrimSpace(sessionName)
+	meta := map[string]any{}
+	creating := sessionName == ""
+	if !creating {
+		meta = s.sessionMetaRead(sessionName)
+		switch {
+		case strOr(meta, "mode", "") == "tui":
+			if strOr(meta, "agentId", "") != agentID {
+				writeFail(w, http.StatusBadRequest, "该 TUI 会话绑定了其他 Agent")
+				return
+			}
+		case len(meta) == 0 && !s.sessionExists(r.Context(), sessionName):
+			// 同名会话连登记与文件都没有：按创建补齐元数据。
+			creating = true
+		default:
+			writeFail(w, http.StatusBadRequest, "该会话不是 TUI 会话")
+			return
+		}
+	}
+	if creating {
+		if sessionName == "" {
+			sessionName = "loopra-" + newMsgID()
+		}
+		patch := map[string]any{
+			"mode": "tui", "agentId": agentID, "tuiStarted": false,
+			"title": provider.Name + " TUI",
+		}
+		if agentID == "claude-code" {
+			patch["tuiResumeId"] = newUUIDv4()
+		}
+		s.sessionMetaSet(sessionName, patch)
+		s.setCurrentSession(sessionName)
+		meta = s.sessionMetaRead(sessionName)
+	}
+	start := acp.TUIStart{
+		Resume:   meta["tuiStarted"] == true,
+		ResumeID: strOr(meta, "tuiResumeId", ""),
+	}
+	launch, err := acp.TUILaunch(agentID, start)
 	if err != nil {
 		writeFail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeOK(w, http.StatusOK, info)
+	env := make([]string, 0, len(launch.Env))
+	for key, value := range launch.Env {
+		env = append(env, key+"="+value)
+	}
+	sort.Strings(env)
+	info, err := s.shellHub().OpenWith(dir, shellterm.Options{
+		Title:   provider.Name,
+		Agent:   agentID,
+		Key:     "tui:" + sessionName,
+		Command: launch.Command,
+		Env:     env,
+	})
+	if err != nil {
+		writeFail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if creating {
+		s.sessionMetaSet(sessionName, map[string]any{"tuiStarted": true})
+	}
+	writeOK(w, http.StatusOK, struct {
+		shellterm.Info
+		SessionName string `json:"sessionName"`
+	}{info, sessionName})
 }
 
 func (s *Controller) shellTerminalClose(w http.ResponseWriter, r *http.Request) {

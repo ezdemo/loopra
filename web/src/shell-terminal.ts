@@ -7,6 +7,7 @@ import { themeSurface } from './document-theme';
 
 export type ShellSession = {
   id: string; title: string; shell: string; cwd: string; cols: number; rows: number; exited: boolean; exitCode: number;
+  agent?: string;
 };
 
 export function shellTerminalTheme(dark: boolean): ITheme {

@@ -1,5 +1,5 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react';
-import { Check, ChevronDown, FolderClosed, FolderPlus, MessageCircle } from 'lucide-react';
+import { Check, ChevronDown, FolderClosed, FolderPlus, MessageCircle, Keyboard } from 'lucide-react';
 import { Enter, Popup } from '../components/Motion';
 import { LoadingSkeleton, LoopraMark } from '../components/ui';
 import type { AgentEngine, CustomAgent, Workspace } from '../backend';
@@ -32,12 +32,13 @@ type HomeViewProps = {
   onRefreshEngines?: () => void;
   /** Isolation switch for the prepared draft, right-aligned on the switcher row. */
   isolation?: ReactNode;
+  tui?: { disabled: boolean; disabledReason?: string; onToggle: () => void };
   onTaskToolbarMount?: (element: HTMLDivElement | null) => void;
   children: ReactNode;
 };
 
 export default function HomeView({ workspaces, workspacesLoading, enginesLoading, workspace, workspaceName, chatMode, disabledReason, menuOpen, onToggleMenu, onSelect, onManage,
-  engines, agentId, agentDisabled, onAgent, agents, customAgentId, onSelectAgent, onRefreshEngines, isolation, onTaskToolbarMount, children }: HomeViewProps) {
+  engines, agentId, agentDisabled, onAgent, agents, customAgentId, onSelectAgent, onRefreshEngines, isolation, tui, onTaskToolbarMount, children }: HomeViewProps) {
   // The menu opens upward by default. It is capped to the room above (the list
   // scrolls inside) and only flips below the anchor when the top of the window
   // leaves too little usable height. Heading and footer stay put either way.
@@ -60,6 +61,7 @@ export default function HomeView({ workspaces, workspacesLoading, enginesLoading
       </div>}
       {enginesLoading ? <div className="welcome-selector-loading" role="status" aria-label="正在加载智能体"><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <AgentSwitcher engines={engines} agentId={agentId} disabled={agentDisabled} disabledReason={disabledReason || (chatMode ? '纯聊天仅支持 Loopra Native；切换到项目后可选择其他 Agent' : undefined)} onSelect={onAgent} onRefreshEngines={onRefreshEngines} agents={agents} customAgentId={customAgentId} onSelectAgent={onSelectAgent} />}
       <div className="welcome-task-toolbar" ref={onTaskToolbarMount} />
+      {tui && <button type="button" className="isolation-switch welcome-tui" disabled={tui.disabled} title={tui.disabledReason || '以终端界面新建会话'} onClick={tui.onToggle}><Keyboard size="0.875rem" /><span className="isolation-text">TUI 模式</span></button>}
       {workspacesLoading ? <div className="welcome-selector-loading welcome-isolation-loading" role="status" aria-label="正在加载分支配置"><LoadingSkeleton className="skeleton-isolation" /></div> : isolation}
     </div>
     {children}

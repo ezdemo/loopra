@@ -324,6 +324,10 @@ func (s *Controller) enginePrepare(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	name := strings.TrimSpace(body.SessionName)
+	if name != "" && s.sessionIsTUI(name) {
+		writeFail(w, http.StatusBadRequest, "TUI 会话不能进入对话流程")
+		return
+	}
 	if name == "" && s.acp != nil && body.AgentID != "" && body.AgentID != "native" && acp.IsExternal(body.AgentID) {
 		for _, candidate := range s.acp.IdleSessions(s.acpHost(), body.AgentID, s.workspaceRoot()) {
 			if len(s.sessionMessages(r.Context(), candidate)) == 0 {
@@ -395,6 +399,10 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionName == "" ||
 			body.ConfigID == "" {
 			writeFail(w, http.StatusBadRequest, "请求参数不完整")
+			return
+		}
+		if s.sessionIsTUI(body.SessionName) {
+			writeFail(w, http.StatusBadRequest, "TUI 会话不能进入对话流程")
 			return
 		}
 		agentID := s.migrateRetiredAgent(body.SessionName)
@@ -481,6 +489,10 @@ func (s *Controller) engineConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if name == "" {
 		writeFail(w, http.StatusBadRequest, "sessionName 必填")
+		return
+	}
+	if s.sessionIsTUI(name) {
+		writeFail(w, http.StatusBadRequest, "TUI 会话不能进入对话流程")
 		return
 	}
 	if acp.IsExternal(s.migrateRetiredAgent(name)) {

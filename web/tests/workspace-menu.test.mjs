@@ -39,13 +39,14 @@ export const Bot = Icon;
 export const FolderClosed = Icon;
 export const FolderPlus = Icon;
 export const MessageCircle = Icon;
+export const Keyboard = Icon;
 `);
 const motionStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
 export const Enter = ({ children }) => children;
 export const Popup = ({ open, children, className }) => open ? createElement('div', { className }, children) : null;
 `);
-const uiStub = dataUrl('export const LoopraMark = () => null; export const LoadingSkeleton = () => null;');
+const uiStub = dataUrl('export const IconButton = () => null; export const LoopraMark = () => null; export const LoadingSkeleton = () => null;');
 const agentIconUrl = await sourceUrl('components/AgentIcon.tsx', {
   'lucide-react': iconStub,
   './plugin-icons': dataUrl('export const lucideIcons = {};'),

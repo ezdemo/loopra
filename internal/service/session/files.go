@@ -64,6 +64,23 @@ func (s *Store) HasHistory(name string) (bool, error) {
 	return false, nil
 }
 
+// MetaNames 返回存在 .meta 边车的会话名（文件名即会话名）。
+// TUI 会话没有消息日志，只有 .meta，列表靠这个方法补出。
+func (s *Store) MetaNames() []string {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil
+	}
+	names := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta") {
+			continue
+		}
+		names = append(names, strings.TrimSuffix(entry.Name(), ".meta"))
+	}
+	return names
+}
+
 func (s *Store) ReadMeta(name string) map[string]any {
 	meta := map[string]any{}
 	if data, err := os.ReadFile(s.MetaPath(name)); err == nil {

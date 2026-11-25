@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"iter"
@@ -44,6 +45,13 @@ func (s *Controller) sessionEventsPath(name string) string {
 
 // sessionPersisted 判断会话是否已经真正落盘。
 func (s *Controller) sessionPersisted(name string) bool { return s.sessionFiles().Persisted(name) }
+
+// sessionExists 判断存储层是否已登记该会话名：落盘的会话与仅在
+// 内存登记的新草稿都算（GUI 草稿也要挡住 TUI 打开，防止名字撞上）。
+func (s *Controller) sessionExists(ctx context.Context, name string) bool {
+	_, err := s.agent.Sessions.Get(ctx, getSessionRequest(s.agent, name))
+	return err == nil
+}
 
 // sessionMetaPath 对应 Java 的 .meta 边车文件。
 func (s *Controller) sessionMetaPath(name string) string { return s.sessionFiles().MetaPath(name) }
@@ -283,6 +291,12 @@ func (s *Controller) migrateRetiredAgent(name string) string {
 	return "native"
 }
 
+// sessionIsTUI 报告会话是否创建为 TUI 模式：模式在创建时固定，
+// TUI 会话由外部 CLI 终端独占，永不进入对话/ACP 流程。
+func (s *Controller) sessionIsTUI(name string) bool {
+	return strOr(s.sessionMetaRead(name), "mode", "") == "tui"
+}
+
 func strOr(meta map[string]any, key, def string) string {
 	if v, ok := meta[key].(string); ok && v != "" {
 		return v
@@ -372,6 +386,10 @@ var invalidBranchName = regexp.MustCompile(`[^\p{L}\p{N}_\-\[\]]`)
 func (s *Controller) sessionBranch(w http.ResponseWriter, r *http.Request, name string) {
 	if r.Method != http.MethodPost {
 		writeFail(w, http.StatusNotFound, "未找到路径")
+		return
+	}
+	if s.sessionIsTUI(name) {
+		writeFail(w, http.StatusBadRequest, "TUI 会话不支持分支或分叉")
 		return
 	}
 	count, convErr := strconv.Atoi(r.URL.Query().Get("messageCount"))

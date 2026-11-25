@@ -169,7 +169,7 @@ Fusion 执行代理和普通子代理的系统提示词均复用主代理当前�
 ### 3.7 Sessions（/api/sessions）
 | 方法+路径 | 参数 | data |
 |---|---|---|
-| GET `` | q: workspaceHash? | `[{name,title,messageCount:l,current:b,mtime:l,worktreeMode:b,agentId:s(默认"native"),customAgentId?:s}]`（仅含写入过消息的会话：`.jsonl` 或审计 `.events` 有内容；customAgentId 仅在绑定角色时出现） |
+| GET `` | q: workspaceHash? | `[{name,title,messageCount:l,current:b,mtime:l,worktreeMode:b,agentId:s(默认"native"),customAgentId?:s,mode?:s("tui")}]`（仅含写入过消息的会话与 .meta 标记 mode=tui 的 TUI 会话：`.jsonl` 或审计 `.events` 有内容；customAgentId 仅在绑定角色时出现） |
 | PUT `/order` | q: workspaceHash*; body `[sessionName...]` | s `"排序已保存"` |
 | GET `/current` | q: workspaceHash? | `{workspaceHash, sessionName}` |
 | POST `/new` | q: workspaceHash*, sessionName?, worktreeMode?:b | `{message:"已创建新会话", workspaceHash, sessionName}`（惰性：不创建会话日志，首条消息写入时才落盘） |

@@ -52,6 +52,7 @@ func (s *Controller) sessionsClearController(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.acp.CloseAll()
+	s.shellHub().CloseAll()
 	for _, sess := range list.Sessions {
 		if err := s.agent.Sessions.Delete(r.Context(), delReq(s.agent, sess.ID())); err != nil {
 			writeFail(w, http.StatusInternalServerError, err.Error())

@@ -31,10 +31,13 @@ type Session struct {
 	Title string
 	Dir   string
 	Shell string
+	Key   string
+	Agent string
 
 	mu       sync.Mutex
 	term     *terminal.Terminal
 	done     chan struct{}
+	procDone chan struct{}
 	exitCode int
 	exited   bool
 	closed   bool
@@ -42,8 +45,22 @@ type Session struct {
 	rows     int
 }
 
+// Options tunes how a session starts. Empty Command keeps the login shell.
+type Options struct {
+	Title   string
+	Agent   string
+	Key     string
+	Command []string
+	Env     []string
+}
+
 // Open starts the user login shell in dir.
 func Open(id, dir string) (*Session, error) {
+	return OpenWith(id, dir, Options{})
+}
+
+// OpenWith starts opts.Command (or the login shell when empty) in dir.
+func OpenWith(id, dir string, opts Options) (*Session, error) {
 	if err := terminal.Load(); err != nil {
 		return nil, err
 	}
@@ -56,11 +73,21 @@ func Open(id, dir string) (*Session, error) {
 		return nil, fmt.Errorf("工作目录不存在")
 	}
 	name := shellName()
+	title := opts.Title
+	if title == "" {
+		title = name
+	}
+	shell := opts.Agent
+	if shell == "" {
+		shell = name
+	}
 	s := &Session{
-		ID: id, Title: name, Dir: dir, Shell: name,
-		done: make(chan struct{}), cols: defaultCols, rows: defaultRows,
+		ID: id, Title: title, Dir: dir, Shell: shell, Key: opts.Key, Agent: opts.Agent,
+		done: make(chan struct{}), procDone: make(chan struct{}), cols: defaultCols, rows: defaultRows,
 	}
 	term, err := terminal.New(terminal.Options{
+		Command:   opts.Command,
+		Env:       opts.Env,
 		Dir:       dir,
 		Theme:     terminal.DarkTheme(),
 		DarkTheme: terminal.DarkTheme(),
@@ -77,6 +104,7 @@ func Open(id, dir string) (*Session, error) {
 	go func() {
 		<-term.Done()
 		s.markExit(term.ExitCode())
+		close(s.procDone)
 	}()
 	return s, nil
 }
@@ -102,6 +130,17 @@ func (s *Session) markExit(code int) {
 
 // Done is closed when the shell exits.
 func (s *Session) Done() <-chan struct{} { return s.done }
+
+// ProcessDone is closed when the child process has actually exited.
+// Close 标记 done 后进程仍在收尾，需要等句柄释放的调用方用这一个。
+func (s *Session) ProcessDone() <-chan struct{} { return s.procDone }
+
+// exitedState reports whether the process ended or was closed.
+func (s *Session) exitedState() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.exited
+}
 
 // Write types into the shell.
 func (s *Session) Write(data []byte) error {
@@ -165,7 +204,7 @@ func (s *Session) Mirror() (*terminal.Mirror, error) {
 func (s *Session) Info() Info {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	info := Info{ID: s.ID, Title: s.Title, Shell: s.Shell, Cwd: s.Dir, Cols: s.cols, Rows: s.rows, Exited: s.exited, ExitCode: s.exitCode}
+	info := Info{ID: s.ID, Title: s.Title, Shell: s.Shell, Cwd: s.Dir, Cols: s.cols, Rows: s.rows, Exited: s.exited, ExitCode: s.exitCode, Agent: s.Agent}
 	if s.term != nil {
 		if cwd := strings.TrimSpace(s.term.Dir()); cwd != "" {
 			info.Cwd = cwd
@@ -201,6 +240,7 @@ type Info struct {
 	Rows     int    `json:"rows"`
 	Exited   bool   `json:"exited"`
 	ExitCode int    `json:"exitCode"`
+	Agent    string `json:"agent,omitempty"`
 }
 
 func clampSize(cols, rows int) (int, int) {

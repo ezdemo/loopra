@@ -75,6 +75,10 @@ func (s *Controller) chatStreamHandler(w http.ResponseWriter, r *http.Request) {
 		req.AgentID = "native"
 	}
 	meta := s.sessionMetaRead(req.SessionName)
+	if strOr(meta, "mode", "") == "tui" {
+		writeFail(w, http.StatusBadRequest, "TUI 会话不能发送对话消息")
+		return
+	}
 	bound := strOr(meta, "agentId", "")
 	if bound == "looprax" {
 		bound = s.migrateRetiredAgent(req.SessionName)

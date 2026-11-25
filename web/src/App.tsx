@@ -18,6 +18,9 @@ import SessionHistoryState from './components/SessionHistoryState';
 import ChangesPanel from './components/Panels';
 import BackgroundTasks from './components/BackgroundTasks';
 import ShellDock from './components/ShellDock';
+import AgentTui from './components/AgentTui';
+import { canUseTui, tuiDisabledReason, tuiSessionBody } from './agent-tui';
+import type { ShellSession } from './shell-terminal';
 import Settings, { defaultPreferences } from './components/Settings';
 import SkillsAndPluginsPage from './components/SkillsAndPluginsPage';
 import { capabilitiesTabForSection, type CapabilitiesTab } from './capabilities-navigation';
@@ -136,6 +139,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [requirementsOpen, setRequirementsOpen] = useState(false);
   const [terminal, setTerminal] = useState(false);
   const [shellOpen, setShellOpen] = useState(false);
+  const tuiCreating = useRef(false);
   const [homeTaskToolbar, setHomeTaskToolbar] = useState<HTMLDivElement | null>(null);
   const [gitBranch, setGitBranch] = useState('工作区');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -297,6 +301,9 @@ export default function App({ startupPending = false, initialServer }: { startup
   useEffect(() => { if (session) runs.markRead(server, session.id); }, [runs, server, session?.id]);
   const agentPreferencesReady = agentPreferencesServer === server;
   const composerConfigBusy = !!agentConfigBusy || (!session && (!agentPreferencesReady || agentSelectionBusy || newAgentConfig?.key !== agentConfigKey));
+  const tuiOn = session?.mode === 'tui';
+  const tuiVisible = canUseTui(agentId, { chatMode, surface: surfaceOpen, session: !!session });
+  const tuiReason = tuiDisabledReason(agentId, { chatMode, surface: surfaceOpen, session: !!session, busy: !!generatingId || !!remoteRun });
   useEffect(() => {
     if (backend.status !== 'connected') return;
     const controller = new AbortController();
@@ -322,7 +329,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   }, [api, backend.status, agentPreferencesRevision]);
   useEffect(() => {
     setAgentConfigError('');
-    if (!session?.name || !session.workspaceHash || backend.status !== 'connected') return;
+    if (!session?.name || !session.workspaceHash || session.mode === 'tui' || backend.status !== 'connected') return;
     if (runs.get(sessionRunKey(server, session.id))) { setAgentConfigBusy(undefined); return; }
     // Just converted from a preconfigured draft: the Agent already holds these
     // choices, so a read here only competes with the first prompt for the process.
@@ -747,6 +754,20 @@ export default function App({ startupPending = false, initialServer }: { startup
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setTimeout(() => textarea.current?.focus(), 50);
   }
+  // 会话的 GUI/TUI 模式在创建时固定；点顶栏图标立即建一个 TUI 会话并选中。
+  async function createTuiSession() {
+    if (tuiCreating.current || !currentWorkspace || backend.status !== 'connected') return;
+    tuiCreating.current = true;
+    try {
+      const created = await api.request<ShellSession & { sessionName: string }>('/shell-terminal/sessions', 'POST', tuiSessionBody(currentWorkspace.hash, agentId, ''));
+      const target = remoteSession({ name: created.sessionName, title: created.title || '新会话', mtime: Date.now(), messageCount: 0, agentId, mode: 'tui' }, currentWorkspace);
+      setSessions(current => [target, ...current.filter(item => item.id !== target.id)]);
+      pinNewSession(currentWorkspace.hash, target.name);
+      void backend.refresh();
+      await selectSession(target.id, target);
+    } catch (error) { notify(`创建 TUI 会话失败：${error instanceof Error ? error.message : String(error)}`); }
+    finally { tuiCreating.current = false; }
+  }
   // 连接器卡片“去对话”：开一个带该连接器开关的新会话。
   function startConnectorChat(connectorId: string) {
     newSession();
@@ -824,6 +845,8 @@ export default function App({ startupPending = false, initialServer }: { startup
     userScrolledAway.current = false; lastScrollTop.current = 0; setShowScrollBtn(false);
     setHistoryState(undefined);
     runs.markRead(server, id);
+    // TUI 会话没有消息历史和 ACP 进程：选中即打开终端视图。
+    if (selected.mode === 'tui') return;
     const localRunning = !!runs.get(sessionRunKey(server, id));
     if (!localRunning) setHistoryState({ id });
     // History is independently useful; slow Agent configuration must not hold it back.
@@ -1650,10 +1673,11 @@ export default function App({ startupPending = false, initialServer }: { startup
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : sessionTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
           {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
-          {isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
+          {tuiOn ? <AgentTui key={`${workspace}/${session.agentId}/${session.name}`} api={api} workspaceHash={session.workspaceHash || workspace} agentId={session.agentId || agentId} sessionName={session.name || ''} /> : isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={selectWorkspace} onManage={() => { setMenu(null); setProjectsOpen(true); }}
             engines={chatMode || agentLocked ? engines.filter(engine => engine.id === 'native') : engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy || chatMode || agentLocked} disabledReason={agentLocked ? '自定义智能体仅支持 Loopra Native' : undefined} onAgent={switchAgent}
             agents={chatMode || agentLocked ? [] : backend.agents} customAgentId={draftAgentId} onSelectAgent={selectCustomAgent}
+            tui={tuiVisible ? { disabled: !!tuiReason, disabledReason: tuiReason, onToggle: () => void createTuiSession() } : undefined}
             onTaskToolbarMount={setHomeTaskToolbar}
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}

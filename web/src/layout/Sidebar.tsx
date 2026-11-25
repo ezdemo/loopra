@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Plus, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
 import { useLocalState, type Session } from '../lib';
@@ -210,6 +210,7 @@ export default function Sidebar(props: SidebarProps) {
                   {entry.customAgentId ? <PersonaIcon icon={workspaces.find(ws => ws.hash === entry.customAgentId)?.agent?.icon} size="0.875rem" /> : <AgentIcon agentId={entry.agentId || 'native'} />}
                   <SessionTitle text={entry.title} />
                   {props.runningIds?.has(entry.id) ? <span className="session-run-indicator running" role="img" aria-label="正在运行" title="正在运行" /> : props.unreadIds?.has(entry.id) && <span className="session-run-indicator" role="img" aria-label="有新回复" title="有新回复" />}
+                  {entry.mode === 'tui' && <Terminal className="session-tui-badge" size="0.75rem" aria-label="TUI 会话" />}
                   {entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}
                   <time>{sessionDate(entry.mtime)}</time>
                 </button>

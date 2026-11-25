@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"net/http"
+	"os"
 	"sort"
 )
 
@@ -19,6 +20,7 @@ func (s *Controller) sessionsController(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	out := make([]map[string]any, 0, len(list.Sessions))
+	seen := map[string]bool{}
 	for _, sess := range list.Sessions {
 		name := sess.ID()
 		// 存储层为满足 ADK 的 List 契约也会返回仅在内存登记的会话；
@@ -27,9 +29,26 @@ func (s *Controller) sessionsController(w http.ResponseWriter, r *http.Request) 
 		if !s.sessionPersisted(name) {
 			continue
 		}
+		seen[name] = true
 		messages := s.sessionMessages(r.Context(), name)
 		meta := s.sessionMetaRead(name)
 		out = append(out, s.sessionRow(name, meta, messages, sess.LastUpdateTime().UnixMilli()))
+	}
+	// TUI 会话没有消息日志，不会出现在存储层 List 里；
+	// 有 mode=tui 的 .meta 即视为已落盘并补进列表。
+	for _, name := range s.sessionFiles().MetaNames() {
+		if seen[name] {
+			continue
+		}
+		meta := s.sessionMetaRead(name)
+		if strOr(meta, "mode", "") != "tui" {
+			continue
+		}
+		var mtime int64
+		if info, err := os.Stat(s.sessionMetaPath(name)); err == nil {
+			mtime = info.ModTime().UnixMilli()
+		}
+		out = append(out, s.sessionRow(name, meta, nil, mtime))
 	}
 	order := s.sessionOrderNames()
 	sort.SliceStable(out, func(i, j int) bool {
@@ -95,6 +114,8 @@ func (s *Controller) sessionsDelete(w http.ResponseWriter, r *http.Request) {
 // removeSession 删除会话日志及其全部边车文件与隔离分支。
 func (s *Controller) removeSession(ctx context.Context, name string) error {
 	s.dropACP(name)
+	// TUI 会话的 PTY 以 "tui:"+name 为 key 登记在终端 Hub 上。
+	s.shellHub().CloseKey("tui:" + name)
 	if err := s.agent.Sessions.Delete(ctx, delReq(s.agent, name)); err != nil {
 		return err
 	}
@@ -109,6 +130,9 @@ func (s *Controller) sessionRow(name string, meta map[string]any, messages []map
 		"name": name, "title": s.sessionDisplayTitle(name, messages), "messageCount": len(messages),
 		"current": s.currentSession() == name, "mtime": mtime,
 		"worktreeMode": meta["worktreeMode"] == true, "agentId": s.listedAgentID(name, meta),
+	}
+	if mode := strOr(meta, "mode", ""); mode != "" {
+		row["mode"] = mode
 	}
 	if persona := strOr(meta, "customAgentId", ""); persona != "" {
 		row["customAgentId"] = persona

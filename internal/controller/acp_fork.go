@@ -104,6 +104,10 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 		writeFail(w, http.StatusNotFound, "未找到路径")
 		return
 	}
+	if s.sessionIsTUI(name) {
+		writeFail(w, http.StatusBadRequest, "TUI 会话不支持分支或分叉")
+		return
+	}
 	count := 0
 	if raw := r.URL.Query().Get("messageCount"); raw != "" {
 		value, err := strconv.Atoi(raw)
