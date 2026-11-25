@@ -1,11 +1,13 @@
 import { Collapse, Disclosure, useCollapseAll } from './Motion';
 import { memo, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
-import { Brain, Check, ChevronDown, FileDiff, FileSymlink, ListTree, LoaderCircle, Undo2, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, File, FileDiff, FileSymlink, Folder, Globe, ListTree, LoaderCircle, Pencil, Search, Sparkle, Terminal, Undo2, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ChatBlock, FileChange, ToolStatus } from '../chat';
 import { chainBlocks } from '../chat';
 import { USER_STOPPED_REPLY } from '../backend';
-import { imageToolSources, toolParam } from '../tool-params';
+import { imageToolSources, toolDiffStats, toolIcon, toolParam } from '../tool-params';
+import type { ToolIcon } from '../tool-params';
 import { IconButton } from './ui';
 import Markdown from './Markdown';
 import UnifiedDiff from './UnifiedDiff';
@@ -13,8 +15,10 @@ import ToolImageResult from './ToolImageResult';
 import FileGlyph from './FileGlyph';
 
 export type BlockActions = { notify: (message: string) => void; onOpenFile?: (path: string) => void; onDiff?: (path: string, diff?: string) => void; onRevert?: (changes: FileChange[]) => Promise<void> };
-function StatusIcon({ status }: { status: ToolStatus }) {
-  return <span className={`tool-icon ${status === '成功' ? 'success' : status === '失败' ? 'failed' : 'running'}`}>{status === '成功' ? <Check size="0.9375rem" /> : status === '失败' ? <X size="0.9375rem" /> : <LoaderCircle size="0.9375rem" className="spin" />}</span>;
+const TOOL_ICONS: Record<ToolIcon, LucideIcon> = { pencil: Pencil, terminal: Terminal, file: File, search: Search, folder: Folder, globe: Globe, bot: Bot, check: Check };
+
+function StatusIcon({ status, icon: Icon = Check }: { status: ToolStatus; icon?: LucideIcon }) {
+  return <span className={`tool-icon ${status === '成功' ? 'success' : status === '失败' ? 'failed' : 'running'}`}>{status === '成功' ? <Icon size="0.9375rem" /> : status === '失败' ? <X size="0.9375rem" /> : <LoaderCircle size="0.9375rem" className="spin" />}</span>;
 }
 
 const ToolBlock = memo(function ToolBlock({ block, onOpenFile }: { block: Extract<ChatBlock, { type: 'tool_call' }>; onOpenFile?: (path: string) => void }) {
@@ -25,6 +29,7 @@ const ToolBlock = memo(function ToolBlock({ block, onOpenFile }: { block: Extrac
   const images = block.status === '成功' ? imageToolSources(block.name, block.args) : [];
   const open = expanded ?? (images.length > 0);
   const param = toolParam(block.name, block.args);
+  const stats = block.status === '成功' ? toolDiffStats(block.name, block.args) : null;
   useLayoutEffect(() => {
     const previews = headRef.current?.querySelectorAll<HTMLElement>('.tool-name, .tool-param, .tool-file');
     if (!previews) return;
@@ -43,7 +48,7 @@ const ToolBlock = memo(function ToolBlock({ block, onOpenFile }: { block: Extrac
   const paramNode = param?.filePath
     ? <span className="tool-file" role="button" tabIndex={0} title={param.title} onClick={openFile} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFile(event); } }}>{param.text}</span>
     : param ? <span className="tool-param" title={param.title}>{param.text}</span> : null;
-  return <div className="block-tool"><button ref={headRef} type="button" className="tool-head" aria-expanded={open} aria-controls={detailId} onClick={() => setExpanded(!open)}><StatusIcon status={block.status} /><code className="tool-name" title={block.name}>{block.name}</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span>{paramNode}{block.duration && <span className="tool-duration">{block.duration}</span>}<ChevronDown size="0.875rem" className={open ? 'rotated' : ''} /></button><Collapse open={open} id={detailId} className="tool-detail">{images.length ? <ToolImageResult images={images} /> : <>{block.args && <><span className="tool-detail-label">参数</span><pre><code>{JSON.stringify(block.args, null, 2)}</code></pre></>}{block.result && <><span className="tool-detail-label">结果</span><pre><code>{block.result}</code></pre></>}</>}</Collapse></div>;
+  return <div className="block-tool"><button ref={headRef} type="button" className="tool-head" aria-expanded={open} aria-controls={detailId} onClick={() => setExpanded(!open)}><span className="tool-lead"><StatusIcon status={block.status} icon={TOOL_ICONS[toolIcon(block.name)]} /><ChevronDown size="0.875rem" className="tool-lead-chevron" /></span><code className="tool-name" title={block.name}>{block.name}</code>{paramNode}<span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span>{stats && (stats.additions > 0 || stats.deletions > 0) && <span className="tool-diff">{stats.additions > 0 && <b className="file-change-add">+{stats.additions}</b>}{stats.deletions > 0 && <b className="file-change-del">−{stats.deletions}</b>}</span>}{block.duration && <span className="tool-duration">{block.duration}</span>}</button><Collapse open={open} id={detailId} className="tool-detail">{images.length ? <ToolImageResult images={images} /> : <>{block.args && <pre><code>{JSON.stringify(block.args, null, 2)}</code></pre>}{block.result && <pre><code>{block.result}</code></pre>}</>}</Collapse></div>;
 });
 
 // One row of the file list: the name expands the diff in the transcript, the
@@ -129,11 +134,11 @@ const Step = memo(function Step({ block, streaming = false, ...actions }: StepPr
     // Thinking is shown as plain text: Markdown parsing/highlighting of streamed reasoning only burns CPU.
     const reasoning = block.type === 'reasoning' ? formatReasoningText(block.content) : '';
     const text = block.type === 'reasoning' ? <p className="reasoning-plain">{reasoning}</p> : '加密思考';
-    return <Disclosure className="block-reasoning" headingClass="reasoning-head" heading={<><Brain size="0.9375rem" /><ReasoningPreview content={reasoning} streaming={streaming} /><ChevronDown size="0.875rem" /></>}><div className="reasoning-text" role={block.type === 'reasoning' ? undefined : 'status'}>{text}</div></Disclosure>;
+    return <Disclosure className="block-reasoning" headingClass="reasoning-head" heading={<><span className="tool-lead"><Sparkle size="0.875rem" fill="currentColor" /><ChevronDown size="0.875rem" className="tool-lead-chevron" /></span><ReasoningPreview content={reasoning} streaming={streaming} /></>}><div className="reasoning-text" role={block.type === 'reasoning' ? undefined : 'status'}>{text}</div></Disclosure>;
   }
   if (block.type === 'tool_call') return <ToolBlock block={block} onOpenFile={actions.onOpenFile} />;
   if (block.type === 'sub_agent') {
-    return <Disclosure className="block-tool" headingClass="tool-head" heading={<><StatusIcon status={block.status} /><code className="tool-name">子代理</code><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span><span className="tool-param">{block.name} · {block.blocks.length} 步</span><ChevronDown size="0.875rem" /></>}><div className="tool-group-detail"><BlockRenderer blocks={block.blocks} streaming={streaming && block.status === '执行中'} {...actions} /></div></Disclosure>;
+    return <Disclosure className="block-tool" headingClass="tool-head" heading={<><span className="tool-lead"><StatusIcon status={block.status} icon={Bot} /><ChevronDown size="0.875rem" className="tool-lead-chevron" /></span><code className="tool-name">子代理</code><span className="tool-param">{block.name} · {block.blocks.length} 步</span><span className={`tool-status ${block.status === '成功' ? 'success' : block.status === '失败' ? 'failed' : 'running'}`}>{block.status}</span></>}><div className="tool-group-detail"><BlockRenderer blocks={block.blocks} streaming={streaming && block.status === '执行中'} {...actions} /></div></Disclosure>;
   }
   return null;
 });
@@ -143,7 +148,7 @@ function Chain({ steps, streaming = false, ...actions }: { steps: ChatBlock[]; s
   const tools = steps.filter((step): step is Extract<ChatBlock, { type: 'tool_call' }> => step.type === 'tool_call');
   const thoughts = steps.filter(step => step.type === 'reasoning' || step.type === 'reasoning_started').length;
   const summary = [thoughts ? `${thoughts} 次思考` : '', tools.length ? `${tools.length} 次工具` : ''].filter(Boolean).join(' · ');
-  return <Disclosure className="block-chain" headingClass="chain-head" heading={<>{running ? <StatusIcon status="执行中" /> : <ListTree size="0.9375rem" />}<span className="chain-summary">{summary}</span><ChevronDown size="0.875rem" /></>}><div className="chain-steps">{steps.map((step, index) => <Step key={step.id} block={step} streaming={streaming && index === steps.length - 1} {...actions} />)}</div></Disclosure>;
+  return <Disclosure className="block-chain" headingClass="chain-head" heading={<><ChevronDown size="0.875rem" className="chain-chevron" />{running ? <StatusIcon status="执行中" /> : <ListTree size="0.875rem" />}<span className="chain-summary">{summary}</span></>}><div className="chain-steps">{steps.map((step, index) => <Step key={step.id} block={step} streaming={streaming && index === steps.length - 1} {...actions} />)}</div></Disclosure>;
 }
 
 export default function BlockRenderer({ blocks, streaming = false, ...actions }: { blocks: ChatBlock[]; streaming?: boolean } & BlockActions) {

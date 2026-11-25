@@ -67,3 +67,52 @@ export function toolParam(name: string, args?: Record<string, unknown>): ToolPar
   if (fallback.trim() === name.trim()) return null;
   return fallback ? { text: fallback } : null;
 }
+
+/** Lead glyph shown on completed tool rows; `check` is the generic fallback. */
+export type ToolIcon = 'pencil' | 'terminal' | 'file' | 'search' | 'folder' | 'globe' | 'bot' | 'check';
+
+/** Maps a tool name to its row icon, covering namespaced MCP/ACP titles. */
+export function toolIcon(name: string): ToolIcon {
+  const key = name.trim().toLowerCase();
+  if (key === 'write' || key === 'edit' || key === 'multi_edit') return 'pencil';
+  if (key === 'bash' || key === 'shell') return 'terminal';
+  if (key === 'grep' || key === 'glob') return 'search';
+  if (key === 'ls') return 'folder';
+  if (key === 'read' || key.startsWith('readfile') || /^(?:read|view)[_ -]?image/.test(key)) return 'file';
+  if (key === 'sub_agent') return 'bot';
+  if (key.includes('web') || key.includes('fetch')) return 'globe';
+  return 'check';
+}
+
+export type ToolDiffStats = { additions: number; deletions: number };
+
+const countLines = (text: string) => text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+
+/**
+ * Line counts shown at the row end for successful write/edit calls, derived
+ * from the arguments alone: `write` adds its `content`, `edit` (and
+ * `multi_edit`) sums the `edits` old/new pairs; a top-level old/new pair is
+ * accepted for foreign edit tools. Anything unrecognised returns null.
+ */
+export function toolDiffStats(name: string, args?: Record<string, unknown>): ToolDiffStats | null {
+  const key = name.trim().toLowerCase();
+  if (key === 'write') {
+    return typeof args?.content === 'string' ? { additions: countLines(args.content), deletions: 0 } : null;
+  }
+  if (key === 'edit' || key === 'multi_edit') {
+    const pairs = Array.isArray(args?.edits)
+      ? args.edits
+      : [{ old: args?.old ?? args?.old_string, new: args?.new ?? args?.new_string }];
+    let additions = 0, deletions = 0, found = false;
+    for (const pair of pairs) {
+      if (!pair || typeof pair !== 'object') continue;
+      const record = pair as Record<string, unknown>;
+      if (typeof record.old !== 'string' || typeof record.new !== 'string') continue;
+      deletions += countLines(record.old);
+      additions += countLines(record.new);
+      found = true;
+    }
+    return found ? { additions, deletions } : null;
+  }
+  return null;
+}

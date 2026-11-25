@@ -70,25 +70,33 @@ test('one gap separates every transcript block, including inside a chain', () =>
   // The chain must not add margins of its own on top of that gap.
   assert.match(ruleBody('.loopra-conversation .block-chain'), /margin: 0;/);
   assert.doesNotMatch(css, /\.block-chain \{ margin: [.]25rem/);
-  // Expanded steps are spaced by the same token, not by their own margins.
+  // Expanded steps sit flush as pill rows (no box), so a tight gap separates
+  // them instead of the block-level token.
   const steps = ruleBody('.loopra-conversation .chain-steps');
   assert.match(steps, /display: flex/);
-  assert.match(steps, /gap: var\(--chat-gap\)/);
+  assert.match(steps, /gap: \.25rem/);
 });
 
-// "Still working" has to read before the eye gets to 用时, and it has to stop the
-// instant the turn does: the pixel loader mounts inside the toggle only while
-// `streaming` — the very flag that swaps the composer's send button for 停止生成 —
-// so loader and button share one lifetime.
-test('a running turn leads its duration row with a loader that stops with it', () => {
+// "Still working" stays on screen for the whole stream, and it has to stop the
+// instant the turn does: the pixel loader mounts on the status row below the
+// process rows only while `streaming` — the very flag that swaps the composer's
+// send button for 停止生成 — so loader and button share one lifetime.
+test('a running turn keeps its loader on the status row until the turn stops', () => {
   const live = ruleBody('.loopra-conversation .assistant-process-summary.live .assistant-process-toggle');
   // One ink level up from the quiet chrome, so a live row reads as active.
   assert.match(live, /color: var\(--chat-fg-2\)/);
 
   // The loader mounts in the DOM gated on `streaming`, not painted as a
-  // pseudo-element: a settled or replayed turn renders no loader at all.
-  assert.match(conversation, /\{streaming && <PixelLoader \/>\}<TurnDuration/);
+  // pseudo-element: a settled or replayed turn renders no loader at all. The
+  // 用时 toggle itself stays loader-free, and the status row shows the loader
+  // even once answer text has arrived.
+  assert.match(conversation, /\{streaming && <div className="thinking" role="status"><PixelLoader \/>/);
+  assert.doesNotMatch(conversation, /\{streaming && <PixelLoader \/>\}/);
   assert.doesNotMatch(css, /assistant-process-toggle::before/);
+
+  // The clipped-gradient shimmer would blank the cells' currentColor fill, so
+  // the loader sits out of that swap.
+  assert.match(css, /\.thinking > span:not\(\.pixel-loader\)/);
 
   // The wavefront is one shared keyframe on each cell of the 3×3 grid.
   assert.match(css, /@keyframes pixel-on \{/);
