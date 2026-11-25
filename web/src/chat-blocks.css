@@ -79,14 +79,14 @@
 .loopra-conversation .assistant-process-toggle { display: flex; align-self: flex-start; align-items: center; gap: .25rem; min-height: 1.75rem; padding: .125rem .5rem .125rem 0; color: var(--chat-fg-4); font-size: var(--chat-font-meta); font-weight: 400; line-height: 1.25rem; text-align: left; border-radius: var(--radius-sm); transition: color .12s; }
 .loopra-conversation .assistant-process-toggle:hover { color: var(--chat-fg-3); }
 .loopra-conversation .assistant-process-toggle > svg { color: var(--chat-fg-4); transition: transform .15s; }
-/* A turn that is still running leads its 用时 row with a spinner and lifts one
-   ink level, so "still working" reads before "how long so far"; once the turn
-   settles the row fades back into quiet chrome. `.live` is set from the same
-   `streaming` flag that swaps the composer's send button for 停止生成, so the
-   spinner lives exactly as long as that button: it never survives a finished or
-   stopped turn, and never shows up on a replayed one. */
+/* A turn that is still running leads its 用时 row with the pixel loader and
+   lifts one ink level, so "still working" reads before "how long so far"; once
+   the turn settles the row fades back into quiet chrome. The loader mounts
+   inside the toggle only while the same `streaming` flag that swaps the
+   composer's send button for 停止生成 is set, so it lives exactly as long as
+   that button: it never survives a finished or stopped turn, and never shows
+   up on a replayed one. */
 .loopra-conversation .assistant-process-summary.live .assistant-process-toggle { color: var(--chat-fg-2); font-variant-numeric: tabular-nums; }
-.loopra-conversation .assistant-process-summary.live .assistant-process-toggle::before { content: ''; flex: none; box-sizing: border-box; width: .75rem; height: .75rem; margin-right: .125rem; border: .09375rem solid color-mix(in srgb, var(--accent) 22%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: chat-spin .8s linear infinite; }
 .loopra-conversation .assistant-process-detail { margin: 0; padding: 0; border: 0; }
 .loopra-conversation .msg-blocks { display: flex; flex-direction: column; gap: var(--chat-gap); min-width: 0; }
 
@@ -217,6 +217,66 @@
 .loopra-conversation .thinking { margin: .25rem 0 .5rem; }
 .loopra-conversation .spin { animation: chat-spin 1s linear infinite; }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
+
+/* Motion adapted from Beautiful UI (MIT, (c) 2026 Shane Levine,
+   https://github.com/slev12397/beautiful-ui): a 3×3 pixel loader whose cells
+   brighten on a staggered wavefront, a shimmering sweep for live text,
+   staggered entrances for freshly appended steps, and small pop/scale
+   confirmations. All of it is plain keyframes/transitions, so the
+   html[data-motion="off"] and prefers-reduced-motion switches in motion.css
+   stay authoritative — with motion off each element rests at the keyframe's
+   end state, which is its ordinary appearance. */
+.loopra-conversation .pixel-loader { display: inline-grid; grid-template-columns: repeat(3, .25rem); gap: .09375rem; flex: none; }
+.loopra-conversation .pixel-loader > span { width: .25rem; height: .25rem; border-radius: .0625rem; background: currentColor; opacity: .15; animation: pixel-on .65s ease-in-out infinite; }
+@keyframes pixel-on { 0%, 100% { opacity: .15; } 18%, 42% { opacity: 1; } 62% { opacity: .15; } }
+@keyframes shimmer-text { from { background-position: 150% center; } to { background-position: -50% center; } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(.5rem); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes scale-in { from { transform: scale(0); } to { transform: scale(1); } }
+/* The shimmer repaints the text as a moving clip-masked gradient, so it is
+   gated on motion being allowed rather than left to the kill switch: a frozen
+   gradient would otherwise paint a static two-tone label. */
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-motion="off"]) .loopra-conversation .thinking > span,
+  html:not([data-motion="off"]) .loopra-conversation .reasoning-preview[data-streaming="true"] {
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    background-image: linear-gradient(90deg, var(--chat-fg-4) 35%, var(--chat-fg) 50%, var(--chat-fg-4) 65%);
+    background-size: 200% 100%;
+    animation: shimmer-text 1.4s linear infinite;
+  }
+  /* background-clip: text would clip the running pill's fill to the glyphs, so
+     the pill is repainted as an inset shadow instead. */
+  html:not([data-motion="off"]) .loopra-conversation .tool-status.running {
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    box-shadow: inset 0 0 0 99px var(--chat-yellow-bg);
+    background-image: linear-gradient(90deg, var(--chat-yellow) 35%, color-mix(in srgb, var(--chat-yellow) 45%, #fff) 50%, var(--chat-yellow) 65%);
+    background-size: 200% 100%;
+    animation: shimmer-text 1.4s linear infinite;
+  }
+}
+/* Steps mount as the run appends them; only opacity/transform move, so the
+   virtualiser keeps measuring one stable row height. */
+.loopra-conversation .assistant-process-detail .msg-blocks > *,
+.loopra-conversation .chain-steps > *,
+.loopra-conversation .file-change-row { animation: fade-up .3s cubic-bezier(.23,1,.32,1) both; }
+.loopra-conversation :is(.assistant-process-detail .msg-blocks, .chain-steps) > :nth-child(2),
+.loopra-conversation .file-change-row:nth-child(2 of .file-change-row) { animation-delay: .06s; }
+.loopra-conversation :is(.assistant-process-detail .msg-blocks, .chain-steps) > :nth-child(3),
+.loopra-conversation .file-change-row:nth-child(3 of .file-change-row) { animation-delay: .12s; }
+.loopra-conversation :is(.assistant-process-detail .msg-blocks, .chain-steps) > :nth-child(4),
+.loopra-conversation .file-change-row:nth-child(4 of .file-change-row) { animation-delay: .18s; }
+.loopra-conversation :is(.assistant-process-detail .msg-blocks, .chain-steps) > :nth-child(5),
+.loopra-conversation .file-change-row:nth-child(5 of .file-change-row) { animation-delay: .24s; }
+.loopra-conversation :is(.assistant-process-detail .msg-blocks, .chain-steps) > :nth-child(6),
+.loopra-conversation .file-change-row:nth-child(6 of .file-change-row) { animation-delay: .3s; }
+/* Swapping Copy for the checkmark remounts the icon, so a mount keyframe is all
+   the confirmation feedback needs. */
+.loopra-conversation .code-block-top .icon-button > svg { animation: pop-in .16s cubic-bezier(.23,1,.32,1) both; }
 @media (max-width: 760px) {
   .loopra-conversation { padding-top: 0.75rem; }
   .loopra-conversation .user-body { max-width: 92%; }

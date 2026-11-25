@@ -503,7 +503,6 @@ export default function Composer(props: Props) {
       {planActive && agentPlan && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label="退出计划模式" disabled={agentBusy} onClick={() => changeAgent(agentPlan.id, planOff)}><X size="0.75rem" /></button>}>计划模式</Chip>}
       {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>清除</button>}
     </div>
-    {props.remoteRunning && <div className="composer-run-status" role="status"><i /><span>该会话正在后台执行，输入的内容会加入队列</span></div>}
     <textarea ref={inputRef} aria-label="输入消息" placeholder={chatMode ? (props.language === 'English' ? 'Message… / commands' : '输入消息，/ 调用指令…') : props.language === 'English' ? 'Message… / commands, @ context' : '输入消息，/ 调用指令，@ 引用文件…'} value={draft}
       onChange={event => { onDraft(event.target.value); setSuggestionIndex(0); setDismissedDraft(null); }}
       onPaste={event => { void handlePaste(event); }}
@@ -539,7 +538,7 @@ export default function Composer(props: Props) {
         {props.agentConfig?.error && <Tooltip content={props.agentConfig.error} delay={300}><Button isIconOnly size="sm" variant="light" className="composer-icon" onPress={props.agentConfig.onPrepare} aria-label="重试加载 Agent 配置"><RefreshCw size="1rem" /></Button></Tooltip>}
         {props.generating ? <Button isIconOnly aria-label="停止生成" className="send-button generating" onPress={props.onStop}><Square size="0.75rem" fill="currentColor" /></Button>
           : props.remoteRunning ? <Button isIconOnly aria-label="停止后台任务" className="send-button generating" onPress={props.onStopRemote}><Square size="0.75rem" fill="currentColor" /></Button> : null}
-        <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={sendDisabled} onPress={sendDraft}><ArrowUp size="1rem" strokeWidth={2.25} /></Button>
+        <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={sendDisabled} onPress={sendDraft}><ArrowUp key={props.generating || props.remoteRunning ? 'queued' : 'send'} size="1rem" strokeWidth={2.25} /></Button>
       </div>
       </>}
     </div>

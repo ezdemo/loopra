@@ -7,6 +7,7 @@ import { ESTIMATED_MESSAGE_HEIGHT, VIRTUALIZATION_THRESHOLD, virtualMessageWindo
 import type { Session } from '../lib';
 import { getSessionMessages } from '../lib';
 import { IconButton } from './ui';
+import PixelLoader from './PixelLoader';
 import BlockRenderer from './BlockRenderer';
 import type { BlockActions } from './BlockRenderer';
 import { ImagePreviewProvider } from './ImagePreview';
@@ -88,18 +89,18 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
   if (!streaming && !process.length && !final.length && !blocks.some(block => block.type === 'choice')) return null;
   return <Enter as="article" className="msg assistant" aria-label="助手消息" data-message-id={message.id}><div className="msg-body assistant-body">
     {(process.length > 0 || streaming || pending) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
-      <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><TurnDuration startedAt={message.startedAt} finishedAt={message.finishedAt} streaming={streaming} showDuration={showDuration} /><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
+      <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}>{streaming && <PixelLoader />}<TurnDuration startedAt={message.startedAt} finishedAt={message.finishedAt} streaming={streaming} showDuration={showDuration} /><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
       <Collapse open={expanded && process.length > 0} id={processId} className="assistant-process-detail"><BlockRenderer blocks={process} {...actions} /></Collapse>
     </section>}
     <BlockRenderer blocks={final} streaming={streaming} {...actions} />
-    {streaming && !message.text && <div className="thinking" role="status"><i /><i /><i /><span>正在准备回复…</span></div>}
+    {streaming && !message.text && <div className="thinking" role="status"><PixelLoader /><span>正在准备回复…</span></div>}
     {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>修改 {stats.edited.length} 文件</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>新增 {stats.created.length} 文件</button>}</span><span className="msg-actions"><IconButton label="复制回复" onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canBranch && actions.onBranch && <button type="button" className="msg-action-button" aria-label="继续到新会话" title="从此回复继续到新会话" disabled={actions.busy} onClick={() => actions.onBranch?.(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
   </div></Enter>;
 });
 
 // Long sessions mount only the visible slice (legacy `Chat.vue` virtualWindow);
 // measured heights keep the spacer sizes honest and the scroll position stable.
-export function Messages({ session, loading, scrollRef, offsetsRef, showDuration = true, ...callbacks }: { session: Session; loading: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
+export function Messages({ session, loading, remoteRunning = false, scrollRef, offsetsRef, showDuration = true, ...callbacks }: { session: Session; loading: boolean; remoteRunning?: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
   const actions = useMessageActions(callbacks);
   const messages = useMemo(() => getSessionMessages(session), [session.kind, session.messages]);
   const canManageHistory = !session.agentId || session.agentId === 'native';
@@ -167,11 +168,12 @@ export function Messages({ session, loading, scrollRef, offsetsRef, showDuration
 
   const render = (message: Message) => message.role === 'user'
     ? <UserMessage key={message.id} message={message} canManageHistory={canManageHistory} {...actions} />
-    : <AssistantMessage key={message.id} message={message} streaming={loading && message.id === last?.id} showDuration={showDuration} canBranch={canBranch} {...actions} />;
+    : <AssistantMessage key={message.id} message={message} streaming={(loading || remoteRunning) && message.id === last?.id} showDuration={showDuration} canBranch={canBranch} {...actions} />;
   const visible = virtualized ? messages.slice(view.start, view.end) : messages;
   return <div className="loopra-conversation" aria-label="聊天内容"><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}
     {virtualized ? visible.map(message => <div key={message.id} ref={node => measure(String(message.id), node)} className="virtual-message-item">{render(message)}</div>) : visible.map(render)}
     {virtualized && view.bottomHeight > 0 && <div className="virtual-spacer" style={{ height: view.bottomHeight }} aria-hidden="true" />}
+    {remoteRunning && !loading && last?.role !== 'assistant' && <article className="msg assistant" aria-label="助手消息"><div className="msg-body assistant-body"><div className="thinking" role="status"><PixelLoader /><span>正在准备回复…</span></div></div></article>}
   </div></ImagePreviewProvider></div>;
 }

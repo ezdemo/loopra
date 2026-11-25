@@ -25,14 +25,14 @@ export default function ChoicePopup({ choices, onSubmit, draftKey = '', drafts }
   const longDescription = (current.description?.length || 0) > 600 || (current.description?.split('\n').length || 0) > 8;
   const pick = (option: ChoiceBlockData['options'][number]) => setDraft({ index, answers: { ...answers, [choiceKey(current)]: { id: current.id, value: option.value || option.title, label: option.title, subId: current.subId, ...(current.permissionRequestId ? { permissionRequestId: current.permissionRequestId } : {}) } } });
   return <section className="choice-popup" role="dialog" aria-label="待选择">
-    <header className="choice-popup-head">
+    <header className="choice-popup-head" key={current.id}>
       {choices.length > 1 && <span className="choice-progress">问题 {index + 1} / {choices.length}</span>}
       <div className="choice-question"><CircleHelp size="1rem" /><strong>{current.question}</strong></div>
       {current.description && (longDescription
         ? <details className="choice-details" key={current.id}><summary>查看完整审批参数</summary><pre className="choice-desc" tabIndex={0} aria-label="完整审批参数">{current.description}</pre></details>
         : <p className="choice-desc">{current.description}</p>)}
     </header>
-    <div className="choice-popup-options" role="radiogroup" aria-label={current.question}>
+    <div className="choice-popup-options" role="radiogroup" aria-label={current.question} key={current.id}>
       {current.options.map((option, position) => {
         const active = chosen?.label === option.title;
         return <button type="button" role="radio" aria-checked={active} key={option.title} className={`choice-popup-option ${active ? 'is-selected' : ''}`} onClick={() => pick(option)}>

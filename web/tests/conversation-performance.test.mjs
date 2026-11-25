@@ -58,6 +58,7 @@ const specifiers = {
   './BlockRenderer': blockUrl,
   './MessageContext': dataUrl('export default () => null;'),
   './Markdown': dataUrl('export const copyText = async () => {};'),
+  './PixelLoader': dataUrl('export default () => null;'),
   './ui': dataUrl(`import { createElement } from ${JSON.stringify(reactUrl)}; export const IconButton = ({ label, ...props }) => createElement('button', { ...props, 'aria-label': label });`),
   './ImagePreview': dataUrl('export const ImagePreviewProvider = ({ children }) => children; export const useImagePreview = () => null;'),
 };

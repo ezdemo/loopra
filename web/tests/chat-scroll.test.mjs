@@ -101,6 +101,7 @@ export default ({ blocks }) => createElement('div', { className: 'blocks-stub' }
 export const ImagePreviewProvider = ({ children }) => createElement('div', null, children);
 export const useImagePreview = () => null;`),
   './Markdown': dataUrl('export const copyText = async () => true;'),
+  './PixelLoader': dataUrl('export default () => null;'),
 });
 const { Messages } = await import(conversationUrl);
 

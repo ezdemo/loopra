@@ -8,6 +8,7 @@
   border-radius: 1.5rem;
   background: var(--surface);
   box-shadow: 0 1px 2px #00000008, 0 6px 18px -10px #00000014, inset 0 1px 0 #ffffffcc;
+  transition: border-color .15s, box-shadow .15s;
 }
 .rich-composer.composer:hover { border-color: var(--line-strong); }
 .rich-composer.composer:focus-within {
@@ -131,7 +132,11 @@
   .model-reasoning-selector[data-placement="bottom"] .model-reasoning-flyout { top: calc(100% + .5rem); bottom: auto; }
 }
 .rich-composer .is-active { background: var(--accent-soft); color: var(--accent); }
-.rich-composer .send-button { margin-left: 0.3125rem; }
+.rich-composer .send-button { margin-left: 0.3125rem; transition: background .15s, opacity .15s, transform .12s; }
+/* Adapted from Beautiful UI (MIT, (c) 2026 Shane Levine): the 停止生成 button
+   mounts on send and the arrow icon remounts when it swaps between 发送消息 and
+   加入队列, so a mount keyframe marks each state change. */
+.rich-composer .send-button > svg { animation: pop-in .16s cubic-bezier(.23,1,.32,1) both; }
 .composer-context-chips { display: flex; flex-wrap: wrap; gap: 0.3125rem; max-height: 4.625rem; overflow: auto; }
 .composer-context-chips:not(:empty) { padding-bottom: 0.5625rem; }
 .composer-context-chips .context-chip { background: var(--surface); color: var(--secondary); border: 1px solid var(--line); height: 1.625rem; max-width: 14.375rem; }
@@ -171,10 +176,12 @@
   .composer-queue-guide { gap: .25rem; padding-inline: .25rem; }
 }
 .rich-composer .send-button.queueing { opacity: 0.75; }
-.composer-run-status { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.375rem; }
-.composer-run-status i { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--blue); animation: pulse 1.2s infinite; }
 /* 待选择弹窗（HITL 审批 / ask_choice）：在输入框上方依次作答后提交 */
-.choice-popup { display: flex; flex-direction: column; min-width: 0; max-height: min(60dvh, 32rem); box-sizing: border-box; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow-pop); padding: 0.625rem 0.75rem 0.6875rem; margin-bottom: 0.4375rem; }
+.choice-popup { display: flex; flex-direction: column; min-width: 0; max-height: min(60dvh, 32rem); box-sizing: border-box; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow-pop); padding: 0.625rem 0.75rem 0.6875rem; margin-bottom: 0.4375rem; animation: fade-up .38s cubic-bezier(.23,1,.32,1) both; }
+/* Entry/selection motion adapted from Beautiful UI (MIT, (c) 2026 Shane
+   Levine). The question's body remounts on each `key={current.id}` switch, so
+   the fade is the page-turn between one question and the next. */
+.choice-popup-head, .choice-popup-options { animation: fade-in .3s ease-out both; }
 .choice-popup-head { display: flex; flex: 0 1 auto; min-height: 0; min-width: 0; max-height: 34dvh; overflow: auto; overscroll-behavior: contain; flex-direction: column; gap: 0.25rem; }
 .choice-progress { align-self: flex-start; font-size: 0.6875rem; color: var(--muted); }
 .choice-popup .choice-question { display: flex; align-items: flex-start; gap: 0.4375rem; color: var(--text); }
@@ -185,7 +192,9 @@
 .choice-details summary { cursor: pointer; padding: 0.25rem 0; color: var(--secondary); font-size: 0.75rem; }
 .choice-details[open] .choice-desc { padding: 0.5rem; background: var(--soft); border-radius: var(--radius-md); font-family: var(--font-mono, monospace); }
 .choice-popup-options { display: flex; flex: 0 1 auto; min-height: 2.75rem; max-height: 22dvh; overflow: auto; overscroll-behavior: contain; flex-direction: column; gap: 0.3125rem; margin: 0.5rem 0 0.5625rem; }
-.choice-popup-option { display: flex; flex-shrink: 0; align-items: center; gap: 0.625rem; width: 100%; box-sizing: border-box; padding: 0.4375rem 0.625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); text-align: left; color: var(--text); }
+.choice-popup-option { display: flex; flex-shrink: 0; align-items: center; gap: 0.625rem; width: 100%; box-sizing: border-box; padding: 0.4375rem 0.625rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--soft); text-align: left; color: var(--text); transition: background .15s, color .15s, border-color .15s; }
+.choice-popup-option.is-selected .choice-index { animation: scale-in .2s cubic-bezier(.23,1,.32,1) both; }
+.choice-popup-option > svg { animation: pop-in .2s cubic-bezier(.23,1,.32,1) both; }
 .choice-popup-option:hover { border-color: var(--blue); background: var(--hover); }
 .choice-popup-option.is-selected { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
 .choice-popup .choice-index { display: grid; place-items: center; flex-shrink: 0; width: 1.25rem; height: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 0.6875rem; color: var(--muted); }

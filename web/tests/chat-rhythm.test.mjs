@@ -10,6 +10,7 @@ import { test } from 'node:test';
 //    process row keeps an even gap from the text above and below it.
 const css = await readFile(new URL('../src/chat-blocks.css', import.meta.url), 'utf8');
 const renderer = await readFile(new URL('../src/components/BlockRenderer.tsx', import.meta.url), 'utf8');
+const conversation = await readFile(new URL('../src/components/Conversation.tsx', import.meta.url), 'utf8');
 
 function ruleBody(selector) {
   const pattern = new RegExp('^[ \\t]*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}', 'm');
@@ -76,27 +77,29 @@ test('one gap separates every transcript block, including inside a chain', () =>
 });
 
 // "Still working" has to read before the eye gets to 用时, and it has to stop the
-// instant the turn does: the `.live` class rides the very flag that swaps the
-// composer's send button for 停止生成, so spinner and button share one lifetime.
-test('a running turn leads its duration row with a spinner that stops with it', () => {
+// instant the turn does: the pixel loader mounts inside the toggle only while
+// `streaming` — the very flag that swaps the composer's send button for 停止生成 —
+// so loader and button share one lifetime.
+test('a running turn leads its duration row with a loader that stops with it', () => {
   const live = ruleBody('.loopra-conversation .assistant-process-summary.live .assistant-process-toggle');
   // One ink level up from the quiet chrome, so a live row reads as active.
   assert.match(live, /color: var\(--chat-fg-2\)/);
 
-  const spinner = ruleBody('.loopra-conversation .assistant-process-summary.live .assistant-process-toggle::before');
-  assert.match(spinner, /border-radius: 50%/);
-  assert.match(spinner, /border-top-color: var\(--accent\)/);
-  assert.match(spinner, /animation: chat-spin/);
-  // Painted, not rendered: a pseudo-element leaves the DOM alone, so the ticking
-  // 用时 timer still re-renders no message body (conversation-performance.test.mjs).
-  assert.match(spinner, /content: ''/);
+  // The loader mounts in the DOM gated on `streaming`, not painted as a
+  // pseudo-element: a settled or replayed turn renders no loader at all.
+  assert.match(conversation, /\{streaming && <PixelLoader \/>\}<TurnDuration/);
+  assert.doesNotMatch(css, /assistant-process-toggle::before/);
 
-  // Only a live turn spins — the tool rows' own `.spin` icons aside.
+  // The wavefront is one shared keyframe on each cell of the 3×3 grid.
+  assert.match(css, /@keyframes pixel-on \{/);
+  assert.match(ruleBody('.loopra-conversation .pixel-loader > span'), /animation: pixel-on/);
+
+  // Only the tool rows' own `.spin` icons keep chat-spin; the settled turn's
+  // summary row no longer spins anything.
   const spinning = css.split('\n').filter(line => line.includes('animation: chat-spin'));
-  assert.ok(spinning.some(line => line.includes('.live')), 'the live row must spin');
-  assert.ok(spinning.every(line => line.includes('.live') || line.includes('.spin')), 'a settled turn must not spin');
+  assert.ok(spinning.every(line => line.includes('.spin')), 'a settled turn must not spin');
 
-  // Reduced motion has to reach the pseudo-element too, or the spinner is the one
-  // thing still turning for users who asked for stillness.
-  assert.ok(css.includes('.loopra-conversation *, .loopra-conversation *::before { animation: none !important;'), 'the reduced-motion kill switch must cover ::before');
+  // The pixel cells are ordinary elements, and the transcript-wide reduced-motion
+  // kill switch still reaches them.
+  assert.ok(css.includes('.loopra-conversation *, .loopra-conversation *::before { animation: none !important;'), 'the reduced-motion kill switch must cover the loader');
 });
