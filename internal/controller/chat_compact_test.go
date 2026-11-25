@@ -70,7 +70,7 @@ func TestChatCompactCommandContract(t *testing.T) {
 			complete := ""
 			for _, event := range events {
 				switch event["type"] {
-				case "error", "tool_call", "tool_result":
+				case "error", "tool_call", "tool_result", "usage":
 					t.Fatalf("unexpected event: %v", event)
 				case "complete":
 					complete, _ = event["content"].(string)

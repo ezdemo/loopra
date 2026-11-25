@@ -47,9 +47,11 @@
 
 | type | data JSON |
 |---|---|
-| `usage`(Native) | `{promptTokens:int, completionTokens:int, totalTokens:int, cacheHit:int, cacheMiss:int, lastPromptTokens:int}`（每次模型调用后累计值） |
+| `usage`(Native) | `{promptTokens:int, completionTokens:int, totalTokens:int, cacheHit:int, cacheMiss:int, lastPromptTokens:int}`（主代理每次模型调用完成并上报用量后立即发送；前五项为本条流内累计值，lastPromptTokens 为本次请求的 prompt 用量，0 表示未上报） |
 | `usage`(外部 ACP) | `{used: long, size: long, cost?: double, currency?: string, model?: string}` |
 | `token_speed` | `{completionTokens: long, tokensPerSecond: double, avgTokensPerSecond: double, done: boolean}` |
+
+工作台收到 Native 的正数 prompt 用量后立即刷新当前会话的 GET /usage，保留会话级累计、构成和压缩后的实测新鲜度；不等待 complete 或 done。
 
 ### 1.4 HITL / 交互
 - `choice`（ask_choice/计划确认）：`{title?, description?, options: [{title, value}]}`。

@@ -44,7 +44,7 @@ type Props = {
   onEditQueued: (id: string) => boolean;
   onMoveQueued: (id: string, targetId: string) => void;
   remoteRunning: boolean; onStopRemote: () => void;
-  liveSpeed?: LiveSpeed;
+  liveSpeed?: LiveSpeed; usageRevision?: number;
   onNew: () => void; onTerminal: () => void; onManage: () => void; onOpen: () => void; notify: (text: string) => void;
   onExport: () => void; onSessions: () => void;
   onOpenConnectors?: () => void;
@@ -351,7 +351,7 @@ export default function Composer(props: Props) {
     void props.api.request('/prompt-presets', 'PUT', presetPayload(next))
       .catch((error: unknown) => notify(`常用要求同步失败：${error instanceof Error ? error.message : String(error)}`));
   }
-  useEffect(() => { setRemoteUsage(null); }, [props.workspaceHash, props.sessionName, props.agentId]);
+  useEffect(() => { setRemoteUsage(null); }, [props.api, props.workspaceHash, props.sessionName, props.agentId]);
   // 会话连接器开关：已有会话读服务端覆盖，新会话先保存在输入上下文随首条消息提交。
   const [sessionConnectors, setSessionConnectors] = useState<ConnectorSessionItem[]>([]);
   useEffect(() => {
@@ -375,17 +375,21 @@ export default function Composer(props: Props) {
     try { await props.api.request('/connectors/session', 'PUT', { sessionName: props.sessionName, workspaceHash: props.workspaceHash, id, enabled }); }
     catch (cause) { setSessionConnectors(previous); notify(`连接器设置失败：${cause instanceof Error ? cause.message : String(cause)}`); }
   }
-  // Usage and composition estimates for the active session, refreshed as it grows.
+  // A completed Native model call refreshes the persisted usage immediately.
+  // Keep the debounced refresh for session/history changes and the final snapshot.
   useEffect(() => {
     if (!props.workspaceHash || !props.sessionName) { setRemoteUsage(null); return; }
     const controller = new AbortController();
-    const timer = setTimeout(() => {
-      void props.api.request<UsageDTO>(usagePath(props.workspaceHash, props.sessionName), 'GET', undefined, controller.signal)
+    const path = usagePath(props.workspaceHash, props.sessionName);
+    const refresh = () => {
+      void props.api.request<UsageDTO>(path, 'GET', undefined, controller.signal)
         .then(data => { if (!controller.signal.aborted) setRemoteUsage(data); })
-        .catch(() => { if (!controller.signal.aborted) setRemoteUsage(null); });
-    }, 400);
+        .catch(() => { /* Keep the last snapshot for this session on a transient failure. */ });
+    };
+    const timer = props.usageRevision === undefined ? setTimeout(refresh, 400) : undefined;
+    if (timer === undefined) refresh();
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [props.api, props.workspaceHash, props.sessionName, props.agentId, props.agentConfig?.options, props.history.length, props.generating]);
+  }, [props.api, props.workspaceHash, props.sessionName, props.agentId, props.agentConfig?.options, props.history.length, props.generating, props.usageRevision]);
   useEffect(() => {
     const pointer = (event: PointerEvent) => {
       if (!menu || menu === 'model-settings') return;

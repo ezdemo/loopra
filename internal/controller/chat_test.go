@@ -1,11 +1,15 @@
 package controller
 
 import (
+	"bufio"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	agentctx "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
@@ -19,12 +23,22 @@ import (
 
 func newTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
+	return newChatTestServer(t, nil)
+}
+
+func newChatTestServer(t *testing.T, runTool func(agentctx.Context) error) (*httptest.Server, string) {
+	t.Helper()
 	echoTool, err := functiontool.New[struct {
 		Text string `json:"text"`
 	}, map[string]any](functiontool.Config{Name: "echo", Description: "echo"},
 		func(ctx agentctx.Context, in struct {
 			Text string `json:"text"`
 		}) (map[string]any, error) {
+			if runTool != nil {
+				if err := runTool(ctx); err != nil {
+					return nil, err
+				}
+			}
 			return map[string]any{"result": "echoed: " + in.Text}, nil
 		})
 	if err != nil {
@@ -98,8 +112,19 @@ func eventTypes(evs []map[string]any) []string {
 }
 
 func TestChatStreamContract(t *testing.T) {
-	ts, key := newTestServer(t)
-	req, _ := http.NewRequest("POST", ts.URL+"/api/chat/stream",
+	releaseTool := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(releaseTool) })
+	defer unblock()
+	ts, key := newChatTestServer(t, func(ctx agentctx.Context) error {
+		select {
+		case <-releaseTool:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	ts.Client().Timeout = 10 * time.Second
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/chat/stream",
 		strings.NewReader(`{"message":"hello","sessionName":"s1","requestId":"r1"}`))
 	req.Header.Set("X-Loopra-Key", key)
 	resp, err := ts.Client().Do(req)
@@ -110,8 +135,26 @@ func TestChatStreamContract(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		t.Fatalf("status = %d, ct = %q", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
-	body := readAll(t, resp)
-	events := parseSSE(t, body)
+	scanner := bufio.NewScanner(resp.Body)
+	// 工具阻塞期间，首个模型事件已经落盘并上报过实测 prompt 用量。
+	events, stop := readUntilEvent(t, scanner, "usage", "complete", "error", "done")
+	if stop["type"] != "usage" {
+		t.Fatalf("first stop event = %v, events=%v", stop, events)
+	}
+	if stop["promptTokens"] != float64(11) || stop["lastPromptTokens"] != float64(11) {
+		t.Fatalf("first usage = %v", stop)
+	}
+	code, env := call(t, ts, http.MethodGet, "/api/usage?workspaceHash=a1b2c3&sessionName=s1", key, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /api/usage status=%d env=%v", code, env)
+	}
+	data := env["data"].(map[string]any)
+	if data["lastPromptTokens"] != float64(11) || data["measuredFresh"] != true {
+		t.Fatalf("GET /api/usage data=%v", data)
+	}
+	unblock()
+	tail, _ := readUntilEvent(t, scanner, "done")
+	events = append(events, tail...)
 	types := eventTypes(events)
 
 	// 契约规定的顺序：snapshot → ... → complete → done。
@@ -119,7 +162,7 @@ func TestChatStreamContract(t *testing.T) {
 		t.Fatalf("first event = %q", types[0])
 	}
 	if types[len(types)-1] != "done" {
-		t.Fatalf("last event = %q, body=%s", types[len(types)-1], body)
+		t.Fatalf("last event = %q, events=%v", types[len(types)-1], events)
 	}
 	mustContain := []string{"snapshot", "reasoning_started", "reasoning", "tool_call", "tool_result", "usage", "complete", "done"}
 	for _, want := range mustContain {
@@ -130,8 +173,32 @@ func TestChatStreamContract(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Fatalf("missing %q event; got %v; body=%s", want, types, body)
+			t.Fatalf("missing %q event; got %v; events=%v", want, types, events)
 		}
+	}
+	// 两次模型调用各发一条 usage：本条流内累计 prompt，lastPromptTokens
+	// 始终是最近一次请求的实测值。
+	var usagePos []int
+	for i, typ := range types {
+		if typ == "usage" {
+			usagePos = append(usagePos, i)
+		}
+	}
+	if len(usagePos) != 2 {
+		t.Fatalf("usage events at %v, events=%v", usagePos, events)
+	}
+	first, second := events[usagePos[0]], events[usagePos[1]]
+	if first["promptTokens"] != float64(11) || second["promptTokens"] != float64(22) {
+		t.Fatalf("usage promptTokens: %v / %v", first, second)
+	}
+	if first["lastPromptTokens"] != float64(11) || second["lastPromptTokens"] != float64(11) {
+		t.Fatalf("usage lastPromptTokens: %v / %v", first, second)
+	}
+	if usagePos[0] > slices.Index(types, "tool_result") {
+		t.Fatalf("first usage must precede tool_result: %v", types)
+	}
+	if usagePos[1] > slices.Index(types, "complete") {
+		t.Fatalf("second usage must precede complete: %v", types)
 	}
 	// content/reasoning 的负载为裸 JSON 字符串；思考只发一次 —— 流式增量已经
 	// 送过，最终聚合事件不能把整段思考再补发一遍。
@@ -166,7 +233,7 @@ func TestChatStreamContract(t *testing.T) {
 		}
 	}
 	if complete != "all done" {
-		t.Fatalf("complete = %q, body=%s", complete, body)
+		t.Fatalf("complete = %q, events=%v", complete, events)
 	}
 }
 

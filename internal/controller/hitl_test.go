@@ -188,10 +188,17 @@ func TestChatHITLApprovalFlow(t *testing.T) {
 		t.Fatalf("choice options = %v", options)
 	}
 	// 做出选择之前，待处理的占位工具结果保持隐藏。
+	var beforeUsage []any
 	for _, e := range events {
 		if e["type"] == "tool_result" {
 			t.Fatalf("pending tool_result leaked before choice: %v", e)
 		}
+		if e["type"] == "usage" {
+			beforeUsage = append(beforeUsage, e["promptTokens"])
+		}
+	}
+	if len(beforeUsage) != 1 || beforeUsage[0] != float64(11) {
+		t.Fatalf("usage before approval = %v", beforeUsage)
 	}
 
 	permissionCh <- choice["permissionRequestId"].(string)
@@ -211,10 +218,17 @@ func TestChatHITLApprovalFlow(t *testing.T) {
 		}
 	}
 	var toolResult string
+	var afterUsage []any
 	for _, e := range events {
 		if e["type"] == "tool_result" {
 			toolResult, _ = e["result"].(string)
 		}
+		if e["type"] == "usage" {
+			afterUsage = append(afterUsage, e["promptTokens"])
+		}
+	}
+	if len(afterUsage) != 1 || afterUsage[0] != float64(22) {
+		t.Fatalf("usage after approval = %v", afterUsage)
 	}
 	if !strings.Contains(toolResult, "ran: boom") {
 		t.Fatalf("tool_result after approval = %q, events=%v", toolResult, events)

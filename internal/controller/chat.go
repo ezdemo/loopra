@@ -261,8 +261,9 @@ func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatReque
 		sse.done()
 	}()
 	content := userContent(req.Message, req.Images)
+	usage := &usageTotals{}
 	for {
-		pendings, final := s.driveTurn(ctx, sse, sess, req2Session(req), content)
+		pendings, final := s.driveTurn(ctx, sse, sess, req2Session(req), content, usage)
 		if len(pendings) == 0 {
 			completed = final
 			return
@@ -295,9 +296,8 @@ func (s *Controller) runTurn(ctx context.Context, sse *sseWriter, req *chatReque
 // driveTurn 消费一次 ADK 运行并转换其事件，返回该轮次
 // 暂停时所等待的审批请求（轮次完成时为空）；第二个返回值
 // 表示本轮是否观察到正常的最终响应（取消与出错都是 false）。
-func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session.Session, sessionName string, content *genai.Content) ([]*hitl.Request, bool) {
+func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session.Session, sessionName string, content *genai.Content, usage *usageTotals) ([]*hitl.Request, bool) {
 	started := time.Now()
-	usage := &usageTotals{}
 	toolCalls := 0
 	final := false
 	reasoningBytes := 0
@@ -314,8 +314,10 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 			lastErr = err
 			break
 		}
+		if usage.add(ev) {
+			sse.send("usage", usage.snapshot())
+		}
 		if ev.Content == nil {
-			usage.add(ev)
 			continue
 		}
 		if ev.Partial {
@@ -345,8 +347,6 @@ func (s *Controller) driveTurn(ctx context.Context, sse *sseWriter, sess session
 			partialReasoning.Reset()
 			invocationID = ev.InvocationID
 		}
-		usage.add(ev)
-		sse.send("usage", usage.snapshot())
 		// 只有非流式适配器（网关未返回增量）才在这里补发完整推理；
 		// 流式调用已逐 token 发过，再发一次会让前端出现第二段思考。
 		if !streamedReasoning {
@@ -546,18 +546,23 @@ type usageTotals struct {
 	LastPrompt int64 `json:"lastPromptTokens"`
 }
 
-func (u *usageTotals) add(ev *session.Event) {
-	if ev.UsageMetadata == nil {
-		return
+func (u *usageTotals) add(ev *session.Event) bool {
+	if ev.Partial || ev.Actions.Compaction != nil || ev.IsolationScope != "" || ev.UsageMetadata == nil {
+		return false
 	}
 	prompt := int64(ev.UsageMetadata.PromptTokenCount)
 	hit := int64(ev.UsageMetadata.CachedContentTokenCount)
+	completion := int64(ev.UsageMetadata.CandidatesTokenCount)
+	if prompt == 0 && completion == 0 && hit == 0 {
+		return false
+	}
 	u.Prompt += prompt
-	u.Completion += int64(ev.UsageMetadata.CandidatesTokenCount)
+	u.Completion += completion
 	u.Total = u.Prompt + u.Completion
 	u.CacheHit += hit
 	u.CacheMiss += prompt - hit
 	u.LastPrompt = prompt
+	return true
 }
 
 func (u *usageTotals) snapshot() map[string]any {

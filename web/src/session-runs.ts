@@ -3,7 +3,7 @@ import type { LiveSpeed } from './composer';
 
 export type SessionRun = {
   key: string; originKey: string; server: string; requestId: string; controller: AbortController;
-  workspaceHash?: string; session?: Session; stopping?: boolean; stopPromise?: Promise<void>;
+  workspaceHash?: string; session?: Session; stopping?: boolean; stopPromise?: Promise<void>; usageRevision?: number;
 };
 export type RunView = { server: string; activeId: string | null; draftKey?: string };
 export const sessionRunKey = (server: string, id: string) => JSON.stringify([server, 'session', id]);
@@ -48,6 +48,11 @@ export class SessionRuns {
   setSpeed(run: SessionRun, speed: LiveSpeed) {
     if (!this.owns(run)) return;
     this.speeds.set(run.key, speed); this.emit();
+  }
+  recordUsage(run: SessionRun, lastPromptTokens?: number) {
+    if (!this.owns(run) || lastPromptTokens === undefined || !Number.isFinite(lastPromptTokens) || lastPromptTokens <= 0) return;
+    run.usageRevision = (run.usageRevision ?? 0) + 1;
+    this.emit();
   }
   markRead(server: string, id: string) { if (this.unread.delete(sessionRunKey(server, id))) this.emit(); }
   finish(run: SessionRun, unread = false): boolean {

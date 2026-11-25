@@ -72,6 +72,25 @@ test('detaching a backend aborts its own subscriptions and ignores late cleanup 
   assert.equal(notifications, count);
 });
 
+test('live usage refreshes are scoped to the run and still invalidate for equal measurements', () => {
+  const runs = new SessionRuns();
+  const key = sessionRunKey(server, session.id);
+  const a = runs.claim(key, input({ session }));
+  const b = runs.claim(sessionRunKey('other', session.id), input({ server: 'other', session }));
+  for (const count of [undefined, 0, -1, NaN]) runs.recordUsage(a, count);
+  assert.equal(runs.get(key).usageRevision, undefined);
+  const revision = runs.getSnapshot();
+  runs.recordUsage(a, 500);
+  runs.recordUsage(a, 500);
+  assert.equal(runs.getSnapshot(), revision + 2);
+  assert.equal(runs.get(key).usageRevision, 2);
+  assert.equal(runs.get(b.key).usageRevision, undefined);
+  runs.finish(a);
+  runs.claim(key, input({ session }));
+  runs.recordUsage(a, 700);
+  assert.equal(runs.get(key).usageRevision, undefined);
+});
+
 test('four parallel streams leave a bounded admission limit and a finished owner releases its slot', () => {
   const runs = new SessionRuns();
   const active = Array.from({ length: 4 }, (_, i) => runs.claim(sessionRunKey(server, String(i)), input()));

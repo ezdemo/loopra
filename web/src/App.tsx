@@ -293,7 +293,8 @@ export default function App({ startupPending = false, initialServer }: { startup
   const homeRunKey = draftRunKey(server, workspace, agentId, agentDraftRevision);
   const currentRunKey = session ? sessionRunKey(server, session.id) : homeRunKey;
   composerViewRef.current = { server, activeId, draft, draftKey: homeRunKey };
-  const generatingId = runs.get(currentRunKey) ? session?.id || 'creating' : null;
+  const currentRun = runs.get(currentRunKey);
+  const generatingId = currentRun ? session?.id || 'creating' : null;
   const liveSpeed = runs.speed(currentRunKey);
   const anyGenerating = runs.hasActive(server);
   const runningIds = runs.runningIds(server);
@@ -1372,6 +1373,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         if (event.type === 'acp_plan') { setAcpPlans(current => ({ ...current, [id]: event.entries || [] })); return; }
         if (event.type === 'acp_commands') { setAcpCommands(current => ({ ...current, [id]: event.commands || [] })); return; }
         if (event.type === 'snapshot' && event.msgId) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === message.id ? { ...entry, rollbackId: event.msgId, ...(event.hasCodeSnapshot ? { snapshotId: event.msgId } : {}) } : entry) } : item));
+        if (event.type === 'usage' && sendAgentId === 'native') { runs.recordUsage(request, event.lastPromptTokens); return; }
         if (event.type === 'token_speed') { runs.setSpeed(request, { tokensPerSecond: event.tokensPerSecond, avgTokensPerSecond: event.avgTokensPerSecond, done: !!event.done, completionTokens: event.completionTokens }); return; }
         // Legacy `log` events only surface as floating INFO/WARN/ERROR bars.
         if (event.type === 'log') { if (visible()) chatLogs.push({ level: event.level, message: event.message, content: event.content }); return; }
@@ -1584,7 +1586,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     queue={session ? (queuedMessages[session.id] || []) : []} onRemoveQueued={removeQueuedMessage} onGuideQueued={guideQueuedMessage}
     onEditQueued={editQueuedMessage} onMoveQueued={moveQueuedMessage}
     remoteRunning={!!session && remoteRun?.id === session.id} onStopRemote={stopRemoteRun}
-    liveSpeed={liveSpeed}
+    liveSpeed={liveSpeed} usageRevision={currentRun?.usageRevision}
     onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} />}</BackgroundTasks>;
 
   const english = preferences.language === 'English';
