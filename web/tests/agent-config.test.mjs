@@ -194,11 +194,11 @@ test('missing external runtimes offer provider-specific copyable install prompts
   assert.match(home, /onRefreshEngines=\{onRefreshEngines\}/);
   assert.match(app, /onEnginesChanged=\{\(\) => setEnginesRevision/);
   const { agentAcpInstallPrompt } = await import(await moduleUrl('agent-install.ts'));
-  // Prompts stay minimal: the receiving Agent knows how to detect and install
-  // its own ACP dependencies.
-  assert.equal(agentAcpInstallPrompt('claude-code'), '帮我安装好 Claude Code 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
-  assert.equal(agentAcpInstallPrompt('codex'), '帮我安装好 Codex CLI 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
-  assert.equal(agentAcpInstallPrompt('devin'), '帮我安装好 Devin CLI 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它');
+  // Prompts stay scoped to dependency setup: the receiving Agent knows how to
+  // detect and install its own ACP dependencies, then leaves the rest to the user.
+  assert.equal(agentAcpInstallPrompt('claude-code'), '帮我安装好 Claude Code 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它。安装完成即可，接口调用、登录校验、ACP 客户端配置让用户自行完成。');
+  assert.equal(agentAcpInstallPrompt('codex'), '帮我安装好 Codex CLI 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它。安装完成即可，接口调用、登录校验、ACP 客户端配置让用户自行完成。');
+  assert.equal(agentAcpInstallPrompt('devin'), '帮我安装好 Devin CLI 和它的 ACP 适配器，让三方应用能通过 ACP 协议驱动它。安装完成即可，接口调用、登录校验、ACP 客户端配置让用户自行完成。');
   assert.equal(agentAcpInstallPrompt('native'), '');
   assert.equal(agentAcpInstallPrompt('unknown'), '');
 });
