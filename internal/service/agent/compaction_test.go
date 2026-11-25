@@ -429,3 +429,125 @@ func TestOriginalResultReaderRefusesSiblingIsolation(t *testing.T) {
 		t.Fatal("reader did not report its refusal")
 	}
 }
+
+func TestContextViewOf(t *testing.T) {
+	base := time.Now()
+	at := func(minutes int) time.Time { return base.Add(time.Duration(minutes) * time.Minute) }
+	text := func(id string, minutes int) *session.Event {
+		return &session.Event{ID: id, Author: "user", Timestamp: at(minutes),
+			Content: genai.NewContentFromText(id, genai.RoleUser)}
+	}
+	usage := func(id string, minutes int) *session.Event {
+		ev := text(id, minutes)
+		ev.Author = "model"
+		ev.UsageMetadata = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 100}
+		return ev
+	}
+	checkpoint := func(start, end int, summary string) *session.Event {
+		return &session.Event{ID: "ckpt", Author: "loopra", Timestamp: at(end + 1),
+			Actions: session.EventActions{Compaction: &session.EventCompaction{
+				StartTimestamp:   at(start),
+				EndTimestamp:     at(end),
+				CompactedContent: genai.NewContentFromText(summary, genai.RoleModel),
+			}}}
+	}
+
+	t.Run("no checkpoint keeps everything", func(t *testing.T) {
+		events := []*session.Event{text("a", 0), usage("b", 1)}
+		view := ContextViewOf(events)
+		if len(view.Events) != 2 || !view.MeasuredFresh {
+			t.Fatalf("events=%d fresh=%v", len(view.Events), view.MeasuredFresh)
+		}
+	})
+
+	t.Run("covered events fold into the summary", func(t *testing.T) {
+		events := []*session.Event{
+			text("early-1", 0), usage("early-2", 1), text("early-3", 2),
+			checkpoint(0, 2, "folded"),
+			text("tail-1", 3), usage("tail-2", 4),
+		}
+		view := ContextViewOf(events)
+		var ids []string
+		summaries := 0
+		for _, ev := range view.Events {
+			if ev.Content == nil {
+				continue
+			}
+			for _, part := range ev.Content.Parts {
+				if part != nil && part.Text == "folded" {
+					summaries++
+				}
+			}
+			ids = append(ids, ev.ID)
+		}
+		if summaries != 1 {
+			t.Fatalf("summary count=%d ids=%v", summaries, ids)
+		}
+		for _, id := range ids {
+			if id == "early-1" || id == "early-2" || id == "early-3" {
+				t.Fatalf("covered event leaked into view: %v", ids)
+			}
+		}
+		if len(ids) != 3 { // ckpt 摘要 + tail-1 + tail-2
+			t.Fatalf("ids=%v", ids)
+		}
+		if !view.MeasuredFresh {
+			t.Fatal("usage after the checkpoint should count as fresh")
+		}
+	})
+
+	t.Run("freshness fails right after compaction", func(t *testing.T) {
+		events := []*session.Event{
+			text("early", 0), usage("peak", 1),
+			checkpoint(0, 1, "folded"),
+			text("command", 2),
+		}
+		view := ContextViewOf(events)
+		if view.MeasuredFresh {
+			t.Fatal("measurement predates the checkpoint and must count as stale")
+		}
+	})
+
+	t.Run("isolation scoped events stay out", func(t *testing.T) {
+		private := text("private", 0)
+		private.IsolationScope = "task-1"
+		view := ContextViewOf([]*session.Event{private, text("main", 1)})
+		if len(view.Events) != 1 || view.Events[0].ID != "main" {
+			t.Fatalf("events=%v", view.Events)
+		}
+	})
+
+	t.Run("newest checkpoint wins", func(t *testing.T) {
+		first := checkpoint(0, 1, "old")
+		first.ID = "ckpt-1"
+		second := checkpoint(0, 3, "rolling")
+		second.ID = "ckpt-2"
+		events := []*session.Event{
+			text("e0", 0), usage("e1", 1), first,
+			text("e2", 2), usage("e3", 3), second,
+			text("tail", 4),
+		}
+		view := ContextViewOf(events)
+		texts := 0
+		for _, ev := range view.Events {
+			if ev.Content == nil {
+				continue
+			}
+			for _, part := range ev.Content.Parts {
+				if part == nil {
+					continue
+				}
+				if part.Text == "old" || part.Text == "e2" {
+					texts++
+				}
+				if part.Text == "rolling" {
+					texts += 100
+				}
+			}
+		}
+		// 只有最新摘要出现一次：旧摘要与其覆盖范围内的事件都被取代。
+		if texts != 100 {
+			t.Fatalf("texts=%d events=%v", texts, view.Events)
+		}
+	})
+}

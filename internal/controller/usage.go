@@ -11,11 +11,14 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/adk/session/jsonl"
 	"github.com/ezdemo/looprax/internal/model/config"
+	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 )
 
 type usageRecord struct {
@@ -146,7 +149,8 @@ func (s *Controller) usageController(w http.ResponseWriter, r *http.Request) {
 		}
 		if agentID != "" && agentID != "native" {
 			if acpView, ok := view.acpUsageView(meta, name); ok {
-				acpView["contextEstimate"] = view.contextEstimate(r.Context(), name)
+				estimate, _, _ := view.contextEstimate(r.Context(), name, false)
+				acpView["contextEstimate"] = estimate
 				writeOK(w, http.StatusOK, acpView)
 				return
 			}
@@ -172,21 +176,27 @@ func (s *Controller) usageController(w http.ResponseWriter, r *http.Request) {
 		total.Completion += record.Completion
 		total.CacheHit += record.CacheHit
 		total.CacheMiss += record.CacheMiss
-		total.LastPrompt = record.LastPrompt
 	}
 	model := view.cfg.Model
 	if name != "" {
 		model = strOr(view.sessionMetaRead(name), "model", model)
 	}
-	result := view.usageView(total, model)
 	if name == "" {
 		name = view.currentSession()
 	}
-	result["contextEstimate"] = view.contextEstimate(r.Context(), name)
+	estimate, lastPrompt, fresh := view.contextEstimate(r.Context(), name, true)
+	total.LastPrompt = lastPrompt
+	result := view.usageView(total, model)
+	result["contextEstimate"] = estimate
+	result["measuredFresh"] = fresh
 	writeOK(w, http.StatusOK, result)
 }
 
-func (s *Controller) contextEstimate(ctx context.Context, name string) map[string]any {
+// contextEstimate 估算下一轮 prompt 的构成。对话部分按压缩后的事件视图
+// 统计：被检查点覆盖的历史由摘要替代；native 会话还会应用已保存的工具
+// 结果投影（只读重放，不产生新记录）。后两个返回值是同一可见历史的
+// 最后一次实测 prompt 大小，以及实测是否仍反映当前结构。
+func (s *Controller) contextEstimate(ctx context.Context, name string, native bool) (map[string]any, int64, bool) {
 	instruction := s.turnInstruction(s.workspaceRoot())
 	estimate := map[string]any{"systemTokens": (len(instruction) + 3) / 4, "toolDefinitionTokens": 0, "userTokens": 0, "assistantTokens": 0, "toolResultTokens": 0, "exactTokenizer": false, "estimator": "utf8-text-approximation"}
 	if s.registry != nil {
@@ -202,24 +212,30 @@ func (s *Controller) contextEstimate(ctx context.Context, name string) map[strin
 			}
 		}
 	}
-	if name != "" {
-		for _, row := range s.sessionMessages(ctx, name) {
-			field := ""
-			switch row["role"] {
-			case "user":
-				field = "userTokens"
-			case "assistant":
-				field = "assistantTokens"
-			case "tool":
-				field = "toolResultTokens"
-			case "system":
-				field = "systemTokens"
+	var view agentpkg.ContextView
+	if name != "" && s.agent != nil {
+		if got, err := s.agent.Sessions.Get(ctx, &session.GetRequest{
+			AppName: s.agent.App(), UserID: s.agent.User(), SessionID: name,
+		}); err == nil && got.Session != nil {
+			var events []*session.Event
+			for ev := range got.Session.Events().All() {
+				events = append(events, ev)
 			}
-			if field == "" {
-				continue
+			if native {
+				view = s.agent.ContextView(events)
+			} else {
+				view = agentpkg.ContextViewOf(events)
 			}
-			raw, _ := json.Marshal(row["content"])
-			estimate[field] = estimate[field].(int) + (len(raw)+3)/4
+			chars := map[string]int{}
+			for _, ev := range view.Events {
+				if ev == nil || ev.Content == nil {
+					continue
+				}
+				countEstimateChars(ev.Content, chars)
+			}
+			for field, n := range chars {
+				estimate[field] = estimate[field].(int) + (n+3)/4
+			}
 		}
 	}
 	total := 0
@@ -227,7 +243,35 @@ func (s *Controller) contextEstimate(ctx context.Context, name string) map[strin
 		total += estimate[field].(int)
 	}
 	estimate["totalTokens"] = total
-	return estimate
+	return estimate, view.LastPromptTokens, view.MeasuredFresh
+}
+
+// countEstimateChars 按 prompt 中的角色归类事件的字符量：
+// 文本按内容角色计入用户或助手，函数调用计入助手，函数响应计入工具结果。
+// 与压缩预算同口径，内联媒体不按 base64 文本计入。
+func countEstimateChars(content *genai.Content, chars map[string]int) {
+	for _, part := range content.Parts {
+		if part == nil {
+			continue
+		}
+		if part.Text != "" && !part.Thought {
+			field := "assistantTokens"
+			if content.Role == genai.RoleUser {
+				field = "userTokens"
+			}
+			chars[field] += utf8.RuneCountInString(part.Text)
+		}
+		if part.FunctionCall != nil {
+			raw, _ := json.Marshal(part.FunctionCall)
+			chars["assistantTokens"] += utf8.RuneCount(raw)
+		}
+		if part.FunctionResponse != nil {
+			response := *part.FunctionResponse
+			response.Parts = nil
+			raw, _ := json.Marshal(&response)
+			chars["toolResultTokens"] += utf8.RuneCount(raw)
+		}
+	}
 }
 
 func (s *Controller) dashboardController(w http.ResponseWriter, r *http.Request) {

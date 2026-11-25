@@ -601,7 +601,7 @@ export default function Composer(props: Props) {
 
         {menu === 'context' && <div className="context-body">
           <div className="context-total">
-            <strong>{usage.source === 'loopra' ? '约 ' : ''}{formatTokens(usage.total)}<small> / {usage.windowKnown === false ? '窗口未知' : formatTokens(usage.limit)}</small></strong>
+            <strong>{!usage.measured && usage.source === 'loopra' ? '约 ' : ''}{formatTokens(usage.total)}<small> / {usage.windowKnown === false ? '窗口未知' : formatTokens(usage.limit)}</small></strong>
             <span className={usage.percent >= 80 ? 'context-high' : usage.percent >= 50 ? 'context-medium' : 'context-low'}>{usagePercent}</span>
           </div>
           {formatTokenSpeed(props.liveSpeed) && <p className="composer-note">生成速度 {formatTokenSpeed(props.liveSpeed)}{props.liveSpeed?.completionTokens ? ` · 已生成 ${formatTokens(props.liveSpeed.completionTokens)} tokens` : ''}</p>}

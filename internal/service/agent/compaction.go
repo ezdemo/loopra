@@ -343,6 +343,81 @@ func (r *ContextRuntime) summarizePrefix(ctx context.Context, req *model.LLMRequ
 	return result, ctx.Err()
 }
 
+// ContextView 是会话主作用域事件在压缩之后的近似视图，
+// 供用量估算还原"下一轮 prompt 实际由什么构成"。
+type ContextView struct {
+	// Events 是应用最新检查点之后的事件序列：覆盖范围内的事件被移除，
+	// 检查点以摘要内容（model 角色）出现在原记录位置。压缩记录本身
+	// 是簿记，不在视图中。
+	Events []*session.Event
+	// LastPromptTokens 来自仍保留的最后一次携带正数 prompt 用量的
+	// 对话事件；即使实测已过期（压缩刚完成）也返回该旧值，没有实测时为 0。
+	LastPromptTokens int64
+	// MeasuredFresh 表示最近一次携带正数用量的对话事件晚于最新检查点，
+	// 即实测 prompt 大小仍然反映当前上下文结构。压缩刚完成、还没有
+	// 新一轮对话，或历史中没有任何实测记录时为 false，此时应以估算为准。
+	MeasuredFresh bool
+}
+
+// ContextViewOf 按最新一条可用的压缩检查点折叠事件。
+// 滚动压缩在设计上只由最新记录生效（新检查点播种并取代前一个），
+// 因此这里不处理 ADK 完整语义里的修正链、排除空洞与嵌套范围；
+// 作为估算近似，这些分支的影响远小于字符/token 换算本身的误差。
+// 视图只含主作用域（无隔离标记）事件，与主代理 prompt 的组装口径一致。
+func ContextViewOf(events []*session.Event) ContextView {
+	scoped := make([]*session.Event, 0, len(events))
+	for _, ev := range events {
+		if ev != nil && ev.IsolationScope == "" {
+			scoped = append(scoped, ev)
+		}
+	}
+	checkpoint, lastUsage := -1, -1
+	var lastPrompt int64
+	for i, ev := range scoped {
+		if comp := ev.Actions.Compaction; comp != nil {
+			if comp.CompactedContent != nil && len(comp.CompactedContent.Parts) > 0 && !comp.EndTimestamp.Before(comp.StartTimestamp) {
+				checkpoint = i
+			}
+		} else if usage := ev.UsageMetadata; !ev.Partial && usage != nil && usage.PromptTokenCount > 0 {
+			lastUsage, lastPrompt = i, int64(usage.PromptTokenCount)
+		}
+	}
+	view := ContextView{Events: scoped, LastPromptTokens: lastPrompt, MeasuredFresh: lastUsage > checkpoint}
+	if checkpoint < 0 {
+		return view
+	}
+	rng := scoped[checkpoint].Actions.Compaction
+	out := make([]*session.Event, 0, len(scoped))
+	for i, ev := range scoped {
+		if i == checkpoint {
+			out = append(out, &session.Event{
+				ID: ev.ID, Author: "model", Timestamp: rng.EndTimestamp,
+				LLMResponse: model.LLMResponse{Content: rng.CompactedContent},
+			})
+		}
+		if ev.Actions.Compaction != nil {
+			continue
+		}
+		covered := i < checkpoint &&
+			!ev.Timestamp.Before(rng.StartTimestamp) && !ev.Timestamp.After(rng.EndTimestamp)
+		if covered {
+			continue
+		}
+		out = append(out, ev)
+	}
+	view.Events = out
+	return view
+}
+
+// ContextView estimates the Native prompt without creating new projection records.
+func (a *Agent) ContextView(events []*session.Event) ContextView {
+	view := ContextViewOf(events)
+	if a.context.toolResultProjectionEnabled(a.cfg) {
+		view.Events = withSavedToolProjections(view.Events, events)
+	}
+	return view
+}
+
 func cloneRequest(req *model.LLMRequest) (*model.LLMRequest, error) {
 	raw, err := json.Marshal(req)
 	if err != nil {

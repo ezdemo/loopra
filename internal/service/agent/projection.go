@@ -20,6 +20,8 @@ import (
 	"github.com/ezdemo/looprax/internal/model/config"
 )
 
+const toolProjectionPrefix = "loopra:toolProjection:"
+
 // projectedSessions is used only by runners. The application's original
 // service still returns the full transcript. Durable decisions store the
 // chosen payload, so changing budgets does not rewrite a warmed prefix.
@@ -28,16 +30,17 @@ type projectedSessions struct {
 	prune config.ToolResultPrune
 }
 
+func (r *ContextRuntime) toolResultProjectionEnabled(cfg *config.Loopra) bool {
+	return r.config != nil && cfg.ContextCompaction.ToolResultPrune.ThresholdChars >= 0
+}
+
 func (r *ContextRuntime) SessionService(base session.Service, cfg *config.Loopra) session.Service {
-	if r.config == nil {
+	if !r.toolResultProjectionEnabled(cfg) {
 		return base
 	}
 	prune := cfg.ContextCompaction.ToolResultPrune
 	if prune.ThresholdChars == 0 {
 		prune = config.ToolResultPrune{ThresholdChars: 8192, HeadChars: 4096, TailChars: 1024}
-	}
-	if prune.ThresholdChars < 0 {
-		return base
 	}
 	return &projectedSessions{Service: base, prune: prune}
 }
@@ -116,7 +119,7 @@ func (s *projectedSessions) ensure(ctx context.Context, current session.Session)
 
 func applyProjectionState(current session.Session, delta map[string]any) error {
 	for key, value := range delta {
-		if strings.HasPrefix(key, "loopra:toolProjection:") {
+		if strings.HasPrefix(key, toolProjectionPrefix) {
 			if err := current.State().Set(key, value); err != nil {
 				return err
 			}
@@ -182,6 +185,16 @@ func (e projectedEvents) All() iter.Seq[*session.Event] {
 func (e projectedEvents) At(i int) *session.Event { return e.project(e.events.At(i)) }
 
 func (e projectedEvents) project(event *session.Event) *session.Event {
+	return projectToolResponses(event, func(key string) any {
+		value, err := e.state.Get(key)
+		if err != nil {
+			return nil
+		}
+		return value
+	})
+}
+
+func projectToolResponses(event *session.Event, lookup func(string) any) *session.Event {
 	if event == nil || event.Content == nil {
 		return event
 	}
@@ -190,11 +203,7 @@ func (e projectedEvents) project(event *session.Event) *session.Event {
 		if part == nil || part.FunctionResponse == nil {
 			continue
 		}
-		value, err := e.state.Get(projectionKey(event, index))
-		if err != nil {
-			continue
-		}
-		decision, _ := value.(map[string]any)
+		decision, _ := lookup(projectionKey(event, index)).(map[string]any)
 		response, ok := decision["response"].(map[string]any)
 		if !ok {
 			continue
@@ -217,9 +226,29 @@ func (e projectedEvents) project(event *session.Event) *session.Event {
 	return event
 }
 
+// Decisions for old logs can be recorded after the tool events they apply to.
+func withSavedToolProjections(events, history []*session.Event) []*session.Event {
+	decisions := map[string]any{}
+	for _, ev := range history {
+		if ev == nil {
+			continue
+		}
+		for key, value := range ev.Actions.StateDelta {
+			if strings.HasPrefix(key, toolProjectionPrefix) {
+				decisions[key] = value
+			}
+		}
+	}
+	projected := make([]*session.Event, len(events))
+	for i, ev := range events {
+		projected[i] = projectToolResponses(ev, func(key string) any { return decisions[key] })
+	}
+	return projected
+}
+
 func projectionKey(event *session.Event, index int) string {
 	raw, _ := json.Marshal(event.Content.Parts[index].FunctionResponse)
-	return fmt.Sprintf("loopra:toolProjection:%x", sha256.Sum256(append([]byte(fmt.Sprintf("%s:%d:", event.ID, index)), raw...)))
+	return fmt.Sprintf("%s%x", toolProjectionPrefix, sha256.Sum256(append([]byte(fmt.Sprintf("%s:%d:", event.ID, index)), raw...)))
 }
 
 func pruneResponse(response map[string]any, cfg config.ToolResultPrune, callID string) (map[string]any, bool) {

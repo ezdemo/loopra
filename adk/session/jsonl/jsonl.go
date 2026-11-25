@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"path/filepath"
@@ -420,8 +421,16 @@ func (s *Service) loadEvents(app, id string) ([]*session.Event, time.Time, error
 			continue
 		}
 		var m map[string]any
-		if err := json.Unmarshal([]byte(line), &m); err != nil {
+		// UseNumber 保留整数的原始精度：adk_ts 是纳秒时间戳，
+		// 超出 float64 的精确整数范围，而压缩区间端点复制自事件
+		// 时间戳，精度损失会让边界事件在重启后漏出覆盖范围。
+		decoder := json.NewDecoder(strings.NewReader(line))
+		decoder.UseNumber()
+		if err := decoder.Decode(&m); err != nil {
 			continue // 与 Java 加载器一样容忍损坏行
+		}
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			continue
 		}
 		// A rich ADK event can render several rows for parallel tool results;
 		// every row carries the same complete event, which is replayed once.
@@ -495,7 +504,12 @@ func (s *Service) addUsage(app, id string, event *session.Event) error {
 	acc.Completion += int64(u.CandidatesTokenCount)
 	acc.CacheHit += hit
 	acc.CacheMiss += prompt - hit
-	acc.LastPromptTokens = prompt
+	// 压缩事件携带的是摘要调用自身的用量：计入累计成本，但不能
+	// 覆盖"最后一次对话 prompt 大小"，否则压缩刚完成时水位信号
+	// 反而显示压缩前的巨大上下文。
+	if event.Actions.Compaction == nil {
+		acc.LastPromptTokens = prompt
+	}
 	if err := writeJSONAtomic(upath, acc); err != nil {
 		return err
 	}

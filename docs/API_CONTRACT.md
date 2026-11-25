@@ -126,7 +126,7 @@ Fusion 执行代理和普通子代理的系统提示词均复用主代理当前�
 | GET `/models` | — | `{current, currentChannelId, models:[{name,active,channelId,channelName,displayName}]}` |
 | GET `/remote-models` | q: channelId? | `[s]`（GET `{baseUrl}/models` 取 `$.data[].id`） |
 | POST `/remote-models` | body `{channelId?, baseUrl?, apiKey?, apiProtocol?, specialCompatibility?}` | `[s]` |
-| GET `/usage` | q: workspaceHash*, sessionName? | `UsageDTO{promptTokens,completionTokens,cacheHit,cacheMiss,lastPromptTokens,maxContextTokens,totalTokens,model,hasPrice,inputCost,cacheCost,outputCost,totalCost,currency,contextEstimate:{...},contextSource,contextEstimateScope}` |
+| GET `/usage` | q: workspaceHash*, sessionName? | `UsageDTO{promptTokens,completionTokens,cacheHit,cacheMiss,lastPromptTokens,maxContextTokens,totalTokens,model,hasPrice,inputCost,cacheCost,outputCost,totalCost,currency,contextEstimate:{...},contextSource,contextEstimateScope,measuredFresh?:b}` Native 的 `lastPromptTokens` 来自所选会话（省略 `sessionName` 时取当前会话）仍保留的最后一次有正数 prompt 用量的对话事件；没有实测时为 0。`measuredFresh` 为 false 时以 `contextEstimate` 为准（例如刚压缩、还没有新实测）。累计用量和成本不随历史撤回；ACP 上报口径不变。 |
 | GET `/workspace` | — | s |
 | POST `/workspace` | body `{path*}` | `{message, workspace, currentSession:null}`（400 `"无效的工作目录路径: ..."`） |
 | GET `/workspaces` | — | `[{hash,name,path,createdAt,lastAccessedAt,sessionCount,displayName?,linkedProjectHashes?,linkedProjectPaths?}]` |

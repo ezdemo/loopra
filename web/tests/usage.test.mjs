@@ -29,7 +29,11 @@ test('context view keeps the server window and exposes metrics', () => {
   const view = contextFromUsage(usage, fallback);
   assert.equal(view.limit, 200000);
   assert.equal(foldThreshold(view.limit), 160000);
-  assert.equal(view.total, 3000);
+  // 实测 prompt 是接口返回的真实上下文大小，优先于字符估算。
+  assert.equal(view.total, 64000);
+  assert.equal(view.measured, true);
+  // 构成随实测总量缩放：系统指令固定，对话类占满残差。
+  assert.deepEqual(view.parts.map(part => part.tokens), [1000, 63000]);
   assert.equal(view.exact, true);
   assert.equal(view.metrics.cacheHitRate, 75);
   // Legacy UsagePanel 费用估算的三项明细随总费用一起暴露。
@@ -121,4 +125,60 @@ test('an unknown external window never falls back to the Native window', () => {
   assert.equal(view.windowKnown, false);
   assert.equal(view.percent, 0);
   assert.deepEqual(view.parts.map(part => contextPartPercent(part, view)), [10, 30, 60]);
+});
+
+test('native usage prefers the measured prompt, falling back to the estimate when stale or missing', () => {
+  const fallback = { parts: [], total: 0, limit: 128000, percent: 0 };
+  const base = {
+    promptTokens: 900, completionTokens: 100, cacheHit: 0, cacheMiss: 0, lastPromptTokens: 254000,
+    maxContextTokens: 1048000, totalTokens: 1000, model: 'demo', hasPrice: false, totalCost: 0, currency: 'CNY',
+    contextSource: 'loopra', contextEstimateScope: 'request',
+    contextEstimate: { systemTokens: 1400, toolDefinitionTokens: 6400, userTokens: 500, assistantTokens: 6000, toolResultTokens: 3000, totalTokens: 17300, exactTokenizer: false, estimator: 'utf8-text-approximation' },
+  };
+  // 正常对话中：实测为准。
+  const fresh = contextFromUsage({ ...base, measuredFresh: true }, fallback);
+  assert.equal(fresh.total, 254000);
+  assert.equal(fresh.measured, true);
+  // 压缩刚落盘：实测仍描述压缩前的结构，改用压缩感知的估算。
+  const stale = contextFromUsage({ ...base, measuredFresh: false }, fallback);
+  assert.equal(stale.total, 17300);
+  assert.equal(stale.measured, false);
+  // 估算总量与实测一致时缩放是恒等的，各部分之和等于总量。
+  assert.equal(stale.parts.reduce((sum, part) => sum + part.tokens, 0), stale.total);
+  // 实测缺失时同样退回估算。
+  assert.equal(contextFromUsage({ ...base, lastPromptTokens: 0, measuredFresh: true }, fallback).total, 17300);
+});
+
+test('native normalization scales estimate parts to the measured total', () => {
+  const base = {
+    ...externalUsage,
+    contextSource: 'loopra', contextEstimateScope: 'request', measuredFresh: true,
+  };
+  const withEstimate = (measured, estimate) => contextFromUsage({
+    ...base, lastPromptTokens: measured,
+    contextEstimate: { exactTokenizer: false, estimator: 'utf8-text-approximation', ...estimate },
+  }, externalFallback);
+  const sum = view => view.parts.reduce((value, part) => value + part.tokens, 0);
+  // 固定估算超过实测总量：所有部分一起缩放。
+  const packed = withEstimate(5, {
+    systemTokens: 4, toolDefinitionTokens: 4, userTokens: 4,
+    assistantTokens: 0, toolResultTokens: 0, totalTokens: 12,
+  });
+  assert.equal(packed.measured, true);
+  assert.equal(packed.total, 5);
+  assert.equal(sum(packed), 5);
+  assert.deepEqual(packed.parts.map(part => part.tokens), [2, 1, 2]);
+  // 对话部分为零时同样整体缩放。
+  const fixedOnly = withEstimate(5, {
+    systemTokens: 1, toolDefinitionTokens: 1, userTokens: 0,
+    assistantTokens: 0, toolResultTokens: 0, totalTokens: 2,
+  });
+  assert.equal(sum(fixedOnly), 5);
+  // 固定估算装得下：原值保留，对话类舍入补满残差。
+  const room = withEstimate(10, {
+    systemTokens: 2, toolDefinitionTokens: 0, userTokens: 1,
+    assistantTokens: 1, toolResultTokens: 1, totalTokens: 5,
+  });
+  assert.equal(room.parts[0].tokens, 2);
+  assert.equal(sum(room), 10);
 });

@@ -258,6 +258,15 @@ func TestUsageAccounting(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// 压缩事件的用量是摘要调用自身的开销：计入累计成本，
+	// 但不得把"最后一次对话 prompt"覆盖成压缩前的巨大上下文。
+	if err := svc.AppendEvent(context.Background(), sess, &session.Event{
+		ID: "ec", Author: "model", ModelVersion: "m-x",
+		UsageMetadata: &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 400, CandidatesTokenCount: 20},
+		Actions:       session.EventActions{Compaction: &session.EventCompaction{}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	raw, err := os.ReadFile(filepath.Join(root, "workspace", "a1b2c3", "sessions", "usage.usage"))
 	if err != nil {
 		t.Fatal(err)
@@ -266,8 +275,8 @@ func TestUsageAccounting(t *testing.T) {
 	if err := json.Unmarshal(raw, &u); err != nil {
 		t.Fatal(err)
 	}
-	// prompt 150，completion 50，hit 30，miss 120，lastPrompt 50。
-	if u["prompt"] != 150 || u["completion"] != 50 || u["cacheHit"] != 30 || u["cacheMiss"] != 120 || u["lastPromptTokens"] != 50 {
+	// prompt 550，completion 70，hit 30，miss 120+400，lastPrompt 仍为 50。
+	if u["prompt"] != 550 || u["completion"] != 70 || u["cacheHit"] != 30 || u["cacheMiss"] != 520 || u["lastPromptTokens"] != 50 {
 		t.Fatalf("usage = %+v", u)
 	}
 	mraw, err := os.ReadFile(filepath.Join(root, "workspace", "a1b2c3", "sessions", "usage.model_usage"))
@@ -278,7 +287,7 @@ func TestUsageAccounting(t *testing.T) {
 	if err := json.Unmarshal(mraw, &mu); err != nil {
 		t.Fatal(err)
 	}
-	if got := mu["m-x"]; got != [4]int64{150, 50, 30, 120} {
+	if got := mu["m-x"]; got != [4]int64{550, 70, 30, 520} {
 		t.Fatalf("model usage = %+v", got)
 	}
 }
@@ -393,5 +402,52 @@ func TestSnapshotIDRequiresCodeSnapshot(t *testing.T) {
 	}
 	if row["rollback_id"] != "msg00002" || row["snapshot_id"] != "msg00002" {
 		t.Fatalf("code snapshot line = %s", lines[1])
+	}
+}
+
+// 一行必须是完整的单个 JSON 值：首值解析成功后的尾随垃圾或
+// 拼接的第二个 JSON 值都让整行作废，而不是截断保留。
+func TestLoadEventsSkipsTrailingJSON(t *testing.T) {
+	root := t.TempDir()
+	svc := NewService(root)
+	sess := mustCreate(t, svc, "trailing")
+	path := svc.jsonlPath(sess.AppName(), sess.ID())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := `{"role":"user","content":"garbage"}broken
+{"role":"user","content":"concatenated"}{}
+{"role":"user","content":"kept"}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded := mustGet(t, NewService(root), sess.ID())
+	if loaded.Events().Len() != 1 {
+		t.Fatalf("events = %d", loaded.Events().Len())
+	}
+	if got := loaded.Events().At(0).Content.Parts[0].Text; got != "kept" {
+		t.Fatalf("kept event text = %q", got)
+	}
+}
+
+// 纳秒时间戳必须精确往返：压缩区间的端点复制自被覆盖事件的时间戳，
+// 任何精度损失都会让边界事件在重启后漏出覆盖范围，与摘要一起重复进入 prompt。
+func TestEventTimestampNanosecondRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	svc := NewService(root)
+	sess := mustCreate(t, svc, "ts-precision")
+	// 纳秒部分故意取 float64 无法精确表示大整数时会失真的值。
+	stamp := time.Unix(1764000000, 857350213)
+	ev := &session.Event{
+		ID: "ns-event", Author: "user", Timestamp: stamp,
+		Content: genai.NewContentFromText("hi", genai.RoleUser),
+	}
+	if err := svc.AppendEvent(context.Background(), sess, ev); err != nil {
+		t.Fatal(err)
+	}
+	restored := mustGet(t, NewService(root), sess.ID()).Events().At(0)
+	if !restored.Timestamp.Equal(stamp) {
+		t.Fatalf("timestamp round trip = %s, want %s", restored.Timestamp.Format(time.RFC3339Nano), stamp.Format(time.RFC3339Nano))
 	}
 }

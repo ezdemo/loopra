@@ -13,10 +13,11 @@ export type UsageDTO = {
   inputCost?: number; cacheCost?: number; outputCost?: number;
   contextSource?: 'agent' | 'loopra' | null;
   contextEstimateScope?: 'request' | 'transcript' | null;
+  measuredFresh?: boolean | null;
 };
 
 export type ContextPart = { name: string; tokens: number; color: string };
-export type ContextUsage = { parts: ContextPart[]; total: number; limit: number; percent: number; exact?: boolean; metrics?: UsageMetrics; source?: 'agent' | 'loopra'; estimatedComposition?: boolean; windowKnown?: boolean };
+export type ContextUsage = { parts: ContextPart[]; total: number; limit: number; percent: number; exact?: boolean; metrics?: UsageMetrics; source?: 'agent' | 'loopra'; estimatedComposition?: boolean; windowKnown?: boolean; measured?: boolean };
 export type UsageMetrics = { promptTokens: number; completionTokens: number; totalCost: number; hasPrice: boolean; currency: string; cacheHitRate: number | null; inputCost: number; cacheCost: number; outputCost: number };
 
 const colors = { system: '#566274', tools: '#8b6048', user: '#42b7a0', assistant: '#e4b467', result: '#d9695f' };
@@ -57,18 +58,51 @@ function cacheHitRate(usage: UsageDTO) {
 export function contextFromUsage(usage: UsageDTO | null | undefined, fallback: ContextUsage): ContextUsage {
   const estimate = usage?.contextEstimate;
   const reported = usage?.contextSource === 'agent';
-  const total = reported ? usage.lastPromptTokens : estimate?.totalTokens || usage?.lastPromptTokens || 0;
+  const partial = usage?.contextEstimateScope === 'transcript';
+  const measured = usage?.lastPromptTokens || 0;
+  // 压缩刚落盘时实测值仍是压缩前的旧结构（measuredFresh=false），
+  // 此时压缩感知的估算比实测更接近下一轮 prompt。
+  const fresh = usage?.measuredFresh !== false;
+  let total: number;
+  let exactTotal = false;
+  if (reported) {
+    total = usage?.lastPromptTokens || 0;
+    exactTotal = total > 0;
+  } else if (!partial && measured > 0 && fresh) {
+    total = measured;
+    exactTotal = true;
+  } else {
+    total = estimate?.totalTokens || measured || 0;
+  }
   if (!usage || (!usage.contextSource && total <= 0)) return fallback;
-  const parts: ContextPart[] = estimate && estimate.totalTokens > 0
-    ? [
-        { name: '系统指令', tokens: estimate.systemTokens, color: colors.system },
-        { name: '工具定义', tokens: estimate.toolDefinitionTokens, color: colors.tools },
-        { name: '用户消息', tokens: estimate.userTokens, color: colors.user },
-        { name: '助手消息', tokens: estimate.assistantTokens, color: colors.assistant },
-        { name: '工具结果', tokens: estimate.toolResultTokens, color: colors.result },
-      ].filter(part => part.tokens > 0)
-    : total > 0 ? [{ name: '会话上下文', tokens: total, color: colors.system }] : [];
-  const partial = usage.contextEstimateScope === 'transcript';
+  // 构成以估算为骨架。Native：系统指令与工具定义不随压缩变化，
+  // 固定项不超过实测且有对话类时，保留固定项原值，对话类占满残差；
+  // 装不下（或对话为空）时所有部分一起缩放，使各部分之和等于总量。
+  // 外部 Agent 的构成只是转录比例（estimatedComposition），不随总量缩放。
+  let parts: ContextPart[];
+  if (estimate && estimate.totalTokens > 0) {
+    const fixed = [
+      { name: '系统指令', tokens: estimate.systemTokens, color: colors.system },
+      { name: '工具定义', tokens: estimate.toolDefinitionTokens, color: colors.tools },
+    ];
+    const conversation = [
+      { name: '用户消息', tokens: estimate.userTokens, color: colors.user },
+      { name: '助手消息', tokens: estimate.assistantTokens, color: colors.assistant },
+      { name: '工具结果', tokens: estimate.toolResultTokens, color: colors.result },
+    ];
+    parts = [...fixed, ...conversation];
+    if (!partial && !reported) {
+      const fixedTotal = estimate.systemTokens + estimate.toolDefinitionTokens;
+      if (fixedTotal <= total && conversation.some(part => part.tokens > 0)) {
+        scaleContextParts(conversation, total - fixedTotal);
+      } else {
+        scaleContextParts(parts, total);
+      }
+    }
+    parts = parts.filter(part => part.tokens > 0);
+  } else {
+    parts = total > 0 ? [{ name: '会话上下文', tokens: total, color: colors.system }] : [];
+  }
   const limit = usage.maxContextTokens > 0 ? usage.maxContextTokens : partial ? 0 : fallback.limit;
   return {
     parts,
@@ -76,6 +110,7 @@ export function contextFromUsage(usage: UsageDTO | null | undefined, fallback: C
     limit,
     percent: limit > 0 ? Math.min(100, total / limit * 100) : 0,
     exact: !!estimate?.exactTokenizer,
+    measured: exactTotal,
     source: usage.contextSource || (estimate ? 'loopra' : 'agent'),
     estimatedComposition: partial && !!estimate && estimate.totalTokens > 0,
     windowKnown: limit > 0,
@@ -92,6 +127,20 @@ export function contextFromUsage(usage: UsageDTO | null | undefined, fallback: C
       outputCost: usage.outputCost || 0,
     },
   };
+}
+
+function scaleContextParts(parts: ContextPart[], total: number) {
+  const sum = parts.reduce((value, part) => value + part.tokens, 0);
+  if (sum <= 0) return;
+  let cumulative = 0;
+  let allocated = 0;
+  // Round cumulative shares so individually displayed counts add up to the total.
+  for (const part of parts) {
+    cumulative += part.tokens;
+    const next = Math.round(cumulative / sum * total);
+    part.tokens = next - allocated;
+    allocated = next;
+  }
 }
 
 export function contextPartPercent(part: ContextPart, usage: ContextUsage) {

@@ -437,8 +437,12 @@ func toInt64(v any) (int64, bool) {
 	case int64:
 		return n, true
 	case json.Number:
-		i, err := n.Int64()
-		return i, err == nil
+		if i, err := n.Int64(); err == nil {
+			return i, true
+		}
+		if f, err := strconv.ParseFloat(n.String(), 64); err == nil {
+			return int64(f), true
+		}
 	}
 	return 0, false
 }
