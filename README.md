@@ -26,10 +26,6 @@
 
 ---
 
-<p align="center">
-  <img src="docs/assets/workbench.png" alt="Loopra workbench" width="100%"/>
-</p>
-
 ## Highlights
 
 - **持续执行**：检索、编辑、运行命令、读取结果，然后继续推理，直到交付或需要你决策。
