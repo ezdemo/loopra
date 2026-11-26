@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	acpsdk "github.com/coder/acp-go-sdk"
 	"google.golang.org/genai"
 
 	"github.com/ezdemo/looprax/internal/service/acp"
@@ -358,8 +360,9 @@ func TestSessionSeededSameEngineBranchCopiesLocally(t *testing.T) {
 	})
 }
 
-// 新远端会话在第一条提示词里收到本地历史；种子标记只在该轮成功后落盘。
-func TestSessionConvertSeedsFirstACPTurn(t *testing.T) {
+// 跨引擎转换的会话首轮把本地历史作为独立上下文块交接给远端，
+// 当前用户消息原样发送；后续轮次和普通会话只发当前输入。
+func TestSessionConvertSendsACPHistoricalContextSeparately(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "prompts.log")
 	previous := acp.Providers
 	acp.Providers = []acp.Provider{{
@@ -376,44 +379,80 @@ func TestSessionConvertSeedsFirstACPTurn(t *testing.T) {
 	t.Cleanup(func() { acp.Providers = previous })
 	ts, key, s, _ := parityServer(t, "")
 	seedConvertSource(t, s, "src", "native", convertRows[:2])
+	seedConvertSource(t, s, "plain", "codex", nil)
 	code, env := call(t, ts, http.MethodPost, "/api/sessions/src/fork?agentId=codex", key, nil)
 	if code != http.StatusOK {
 		t.Fatalf("fork = %d %v", code, env)
 	}
 	newName := env["data"].(map[string]any)["sessionName"].(string)
 	if got := s.sessionMetaRead(newName)["acpHistorySeed"]; got != true {
-		t.Fatalf("seed marker = %#v", got)
+		t.Fatalf("history handoff marker = %#v", got)
 	}
-	recorder := httptest.NewRecorder()
-	s.runACPTurn(contextBG(), newSSEWriter(recorder), &chatRequest{
-		SessionName: newName, AgentID: "codex", Message: "继续",
-	}, "msg-1", false)
-	if body := recorder.Body.String(); strings.Contains(body, "event: error") {
-		t.Fatalf("turn failed: %s", body)
+	const message = "  继续\n\n"
+	const next = "下一句"
+	const ordinary = "普通新会话"
+	turn := func(session, msg, id string) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		s.runACPTurn(contextBG(), newSSEWriter(recorder), &chatRequest{
+			SessionName: session, AgentID: "codex", Message: msg,
+		}, id, false)
+		if body := recorder.Body.String(); strings.Contains(body, "event: error") {
+			t.Fatalf("turn %s failed: %s", session, body)
+		}
 	}
+	turn(newName, message, "msg-1")
+	turn(newName, next, "msg-2")
+	turn("plain", ordinary, "msg-3")
 	meta := s.sessionMetaRead(newName)
 	remote, _ := meta["acpSessionId"].(string)
 	if remote == "" || meta["acpHistorySeededSessionId"] != remote {
 		t.Fatalf("seeded marker = %#v remote=%q", meta["acpHistorySeededSessionId"], remote)
 	}
+	if _, ok := meta["acpDisplayConventionSessionId"]; ok {
+		t.Fatalf("display convention marker written: %#v", meta)
+	}
 	raw, err := os.ReadFile(log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	prompt := strings.TrimSuffix(string(raw), "\n---\n")
-	if !strings.HasPrefix(prompt, "Continue from the conversation history below.") ||
-		!strings.Contains(prompt, "first question") || !strings.Contains(prompt, "first answer") ||
-		!strings.HasSuffix(prompt, "Current user request:\n继续") {
-		t.Fatalf("prompt = %q", prompt)
+	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("logged turns = %d: %s", len(lines), raw)
 	}
-	// 本地转录只记录用户消息本身，不记录注入的合成上下文。
+	blocksAt := func(index int) []acpsdk.ContentBlock {
+		t.Helper()
+		var blocks []acpsdk.ContentBlock
+		if err := json.Unmarshal([]byte(lines[index]), &blocks); err != nil {
+			t.Fatal(err)
+		}
+		return blocks
+	}
+	first := blocksAt(0)
+	if len(first) != 2 || first[0].Text == nil || first[1].Text == nil {
+		t.Fatalf("first turn blocks = %s", lines[0])
+	}
+	if !strings.HasPrefix(first[0].Text.Text, "Prior conversation (transcript data):\n") ||
+		!strings.Contains(first[0].Text.Text, "first question") || !strings.Contains(first[0].Text.Text, "first answer") {
+		t.Fatalf("history context block = %q", first[0].Text.Text)
+	}
+	if first[1].Text.Text != message {
+		t.Fatalf("user message block = %q", first[1].Text.Text)
+	}
+	if second := blocksAt(1); len(second) != 1 || second[0].Text == nil || second[0].Text.Text != next {
+		t.Fatalf("second turn blocks = %s", lines[1])
+	}
+	if third := blocksAt(2); len(third) != 1 || third[0].Text == nil || third[0].Text.Text != ordinary {
+		t.Fatalf("ordinary turn blocks = %s", lines[2])
+	}
+	// 本地转录只保留用户消息本身，交接的历史不会落成新的用户行。
 	users := []string{}
 	for _, row := range sessionMessagesOf(t, s.agent, newName) {
 		if row["role"] == "user" {
 			users = append(users, strOr(row, "content", ""))
 		}
 	}
-	if len(users) != 2 || users[1] != "继续" {
+	if len(users) != 3 || users[0] != "first question" || users[1] != message || users[2] != next {
 		t.Fatalf("transcript user rows = %v", users)
 	}
 }

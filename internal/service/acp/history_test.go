@@ -23,14 +23,14 @@ func TestPortableHistoryRowProjectsPortableFields(t *testing.T) {
 		{"role": "tool", "tool_call_id": "call-1", "tool_name": "Read", "content": "file body", "usage": map[string]any{"tokens": 3}},
 		{"role": "user", "content": "然后呢", "web_hidden": true},
 	}
-	prompt, err := historyPrompt(rows, "继续")
+	prompt, err := historyContext(rows)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(prompt, historyPromptPrefix) || !strings.HasSuffix(prompt, "\n</conversation_history>\n\nCurrent user request:\n继续") {
+	if !strings.HasPrefix(prompt, historyContextPrefix) {
 		t.Fatalf("prompt = %q", prompt)
 	}
-	body := strings.TrimSuffix(strings.TrimPrefix(prompt, historyPromptPrefix), "\n</conversation_history>\n\nCurrent user request:\n继续")
+	body := strings.TrimSpace(strings.TrimPrefix(prompt, historyContextPrefix))
 	var decoded []map[string]any
 	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
 		t.Fatalf("history rows are not JSON: %v", err)
@@ -68,43 +68,43 @@ func TestPortableHistoryRowProjectsPortableFields(t *testing.T) {
 	}
 }
 
-func TestHistoryPromptWithoutHistoryReturnsMessage(t *testing.T) {
+func TestHistoryContextWithoutHistoryReturnsEmpty(t *testing.T) {
 	for _, rows := range [][]map[string]any{nil, {}, {{"role": "user", "content": "x", "web_hidden": true}}} {
-		got, err := historyPrompt(rows, "hello")
-		if err != nil || got != "hello" {
+		got, err := historyContext(rows)
+		if err != nil || got != "" {
 			t.Fatalf("rows=%#v got=%q err=%v", rows, got, err)
 		}
 	}
 }
 
-func TestHistorySeedPromptSkipsUnseededAndSeededRemotes(t *testing.T) {
+func TestHistorySeedBlockSkipsUnseededAndSeededRemotes(t *testing.T) {
 	host := &seedHost{reuseHost: reuseHost{app: "app", workspace: t.TempDir()}, history: []map[string]any{{"role": "user", "content": "旧对话"}}}
 	host.SetMeta("s", map[string]any{"acpHistorySeed": true})
 
-	got, seeding, err := historySeedPrompt(host, "s", "remote-1", "hi")
+	got, seeding, err := historySeedBlock(host, "s", "remote-1")
 	if err != nil || !seeding || !strings.Contains(got, "旧对话") {
 		t.Fatalf("first remote: got=%q seeding=%v err=%v", got, seeding, err)
 	}
 	host.SetMeta("s", map[string]any{"acpHistorySeededSessionId": "remote-1"})
-	got, seeding, err = historySeedPrompt(host, "s", "remote-1", "hi")
-	if err != nil || seeding || got != "hi" {
+	got, seeding, err = historySeedBlock(host, "s", "remote-1")
+	if err != nil || seeding || got != "" {
 		t.Fatalf("seeded remote re-seeded: got=%q seeding=%v err=%v", got, seeding, err)
 	}
-	got, seeding, err = historySeedPrompt(host, "s", "remote-2", "hi")
+	got, seeding, err = historySeedBlock(host, "s", "remote-2")
 	if err != nil || !seeding || !strings.Contains(got, "旧对话") {
 		t.Fatalf("new remote did not re-seed: got=%q seeding=%v err=%v", got, seeding, err)
 	}
 	host.SetMeta("s", map[string]any{"acpHistorySeed": false})
-	got, seeding, err = historySeedPrompt(host, "s", "remote-3", "hi")
-	if err != nil || seeding || got != "hi" {
+	got, seeding, err = historySeedBlock(host, "s", "remote-3")
+	if err != nil || seeding || got != "" {
 		t.Fatalf("unseeded session seeded: got=%q seeding=%v err=%v", got, seeding, err)
 	}
 }
 
-func TestHistorySeedPromptPropagatesHistoryReadFailure(t *testing.T) {
+func TestHistorySeedBlockPropagatesHistoryReadFailure(t *testing.T) {
 	host := &seedHost{reuseHost: reuseHost{app: "app", workspace: t.TempDir()}, historyErr: errors.New("disk gone")}
 	host.SetMeta("s", map[string]any{"acpHistorySeed": true})
-	if _, _, err := historySeedPrompt(host, "s", "remote", "hi"); err == nil || err.Error() != "disk gone" {
+	if _, _, err := historySeedBlock(host, "s", "remote"); err == nil || err.Error() != "disk gone" {
 		t.Fatalf("err = %v", err)
 	}
 }

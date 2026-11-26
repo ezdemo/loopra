@@ -499,8 +499,8 @@ func (s *Controller) branchAgents(w http.ResponseWriter, r *http.Request, name s
 
 // sessionConvert 把源会话的可见转录前缀复制到绑定其他引擎的新会话。
 // 复制的是 /api/agent/history 的同一批行（附件与工具记录原样保留），
-// 两侧适配器都不参与：外部源没有远端记录也能分支；外部目标在第一条
-// 用户消息发出时才接收这段历史（.meta acpHistorySeed）。
+// 两侧适配器都不参与：外部源没有远端记录也能分支；外部目标在第一轮
+// 发送时把这段历史作为独立上下文块交接。
 func (s *Controller) sessionConvert(w http.ResponseWriter, r *http.Request, name, targetID string, count int) {
 	if _, err := s.agent.Sessions.Get(r.Context(), getSessionRequest(s.agent, name)); err != nil {
 		writeFail(w, http.StatusBadRequest, "会话不存在: "+name)
@@ -537,8 +537,8 @@ func (s *Controller) sessionConvert(w http.ResponseWriter, r *http.Request, name
 	newMeta := sessfiles.ConvertedBranchMeta(meta, targetID, prefix+title)
 	sourceID := strOr(meta, "agentId", "native")
 	if sourceID == targetID {
-		// 待注入历史的回复只存在于本地转录，远端按指纹分叉找不到它们；
-		// 同引擎复刻保留模型与配置，但绝不沿用源远端身份。
+		// 交接的旧回复不是远端独立消息，按指纹分叉找不到。
+		// 本地复刻保留模型与配置，但不沿用源远端身份。
 		newMeta = inheritedSessionMeta(meta, targetID, "", s.workspaceRoot(), prefix+title)
 		newMeta["worktreeMode"] = false
 	}

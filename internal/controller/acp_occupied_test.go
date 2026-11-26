@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -84,19 +85,23 @@ func (a *writerTestAgent) SetSessionConfigOption(context.Context, acpsdk.SetSess
 }
 
 func (a *writerTestAgent) Prompt(ctx context.Context, req acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
-	// LOOPRA_TEST_ACP_PROMPT_LOG 记录每次提示词的用户文本块，供
-	// 历史注入测试断言远端实际收到的内容。
+	// LOOPRA_TEST_ACP_PROMPT_LOG 记录每次提示词的全部内容块（每行一段
+	// JSON），供测试断言远端实际收到的内容。
 	if log := os.Getenv("LOOPRA_TEST_ACP_PROMPT_LOG"); log != "" {
-		var text strings.Builder
-		for _, block := range req.Prompt {
-			if block.Text != nil && !strings.HasPrefix(block.Text.Text, "[Loopra 回复展示约定]") {
-				text.WriteString(block.Text.Text)
-			}
+		encoded, err := json.Marshal(req.Prompt)
+		if err != nil {
+			return acpsdk.PromptResponse{}, err
 		}
-		text.WriteString("\n---\n")
-		if file, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
-			_, _ = file.WriteString(text.String())
+		file, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return acpsdk.PromptResponse{}, err
+		}
+		if _, err := file.Write(append(encoded, '\n')); err != nil {
 			_ = file.Close()
+			return acpsdk.PromptResponse{}, err
+		}
+		if err := file.Close(); err != nil {
+			return acpsdk.PromptResponse{}, err
 		}
 	}
 	if err := writerTestConflict(string(req.SessionId)); err != nil {

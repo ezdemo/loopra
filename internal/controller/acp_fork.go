@@ -123,9 +123,8 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 	}
 	meta := s.sessionMetaRead(name)
 	if target != source || meta["acpHistorySeed"] == true {
-		// 跨引擎转换复制本地可见转录，源不需要远端记录，
-		// 目标也不需要立即建立远端会话。带注入历史的会话同引擎也走
-		// 本地复刻：注入的回复只在提示词里存在，远端按指纹找不到它们。
+		// 跨引擎转换和带历史交接的会话不依赖远端回复定位：
+		// 交接的旧回复只是上下文，远端不能按指纹找到这些原始消息。
 		s.sessionConvert(w, r, name, target, count)
 		return
 	}
@@ -210,7 +209,6 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 // forked 为空表示远端没有分叉成功，不能沿用源会话的 acpSessionId。
 // acpHistorySeededSessionId 记录的是源远端已接收的历史，新远端从未
 // 收到过，一律不带；acpHistorySeed 表达新远端首条提示词要补种历史。
-// 展示约定同样按新远端重新发送，避免分叉点早于它首次注入的轮次。
 func inheritedSessionMeta(source map[string]any, agentID, forked, cwd, title string) map[string]any {
 	meta := map[string]any{}
 	for key, value := range source {

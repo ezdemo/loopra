@@ -566,7 +566,7 @@ loopra acp
 | `LOOPRA_CODEX_ACP_SCRIPT` | Codex ACP 适配脚本。 |
 | `LOOPRA_DEVIN_EXECUTABLE` | Devin CLI 可执行文件。 |
 
-启动外部 Agent 时会把 `127.0.0.1`、`localhost` 和 `::1` 合并进子进程的 `NO_PROXY`，避免继承来的 `HTTP(S)_PROXY` 把发往本机推理网关的请求转走。会话通过 `.meta` 的 `agentId` 绑定引擎，ACP 转录写入同一份 `.jsonl` / `.events`。任意回复都可以「继续到新会话」并换用其他引擎：跨引擎分支复制本地可见历史，转成外部引擎的会话在首次发送时把这段历史注入远端。
+启动外部 Agent 时会把 `127.0.0.1`、`localhost` 和 `::1` 合并进子进程的 `NO_PROXY`，避免继承来的 `HTTP(S)_PROXY` 把发往本机推理网关的请求转走。会话通过 `.meta` 的 `agentId` 绑定引擎，ACP 转录写入同一份 `.jsonl` / `.events`。任意回复都可以「继续到新会话」并换用其他引擎：跨引擎分支复制本地可见历史；转到外部引擎后，首轮把旧对话作为独立上下文块交接，用户消息原样发送。
 
 ### Java 兼容后端
 

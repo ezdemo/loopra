@@ -107,7 +107,7 @@ func TestRunTurnSeedsHistoryIntoFreshRemoteOnlyOnce(t *testing.T) {
 		t.Fatalf("failures = %v", sink.failures)
 	}
 	prompts := promptLog(t, log)
-	if len(prompts) != 1 || !strings.HasPrefix(prompts[0], historyPromptPrefix) || !strings.HasSuffix(prompts[0], "\n</conversation_history>\n\nCurrent user request:\n继续") {
+	if len(prompts) != 1 || !strings.HasPrefix(prompts[0], historyContextPrefix) || !strings.HasSuffix(prompts[0], "\n\n继续") {
 		t.Fatalf("first prompt = %#v", prompts)
 	}
 	if !strings.Contains(prompts[0], "旧问题") || !strings.Contains(prompts[0], "旧答复") {
@@ -126,7 +126,7 @@ func TestRunTurnSeedsHistoryIntoFreshRemoteOnlyOnce(t *testing.T) {
 	conn.acpSession = "session-new"
 	seedTurn(t, manager, host, conn, sink, "换远端")
 	prompts = promptLog(t, log)
-	if len(prompts) != 3 || !strings.Contains(prompts[2], "旧问题") || !strings.HasSuffix(prompts[2], "Current user request:\n换远端") {
+	if len(prompts) != 3 || !strings.Contains(prompts[2], "旧问题") || !strings.HasSuffix(prompts[2], "\n\n换远端") {
 		t.Fatalf("third prompt = %#v", prompts)
 	}
 	if got := host.Meta("s")["acpHistorySeededSessionId"]; got != "session-new" {

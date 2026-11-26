@@ -53,6 +53,9 @@ func TestInheritedSessionMetaKeepsAgentAndModel(t *testing.T) {
 	if _, ok := withoutRemote["acpSessionId"]; ok {
 		t.Fatal("unavailable fork reused the source ACP session")
 	}
+	if withoutRemote["acpHistorySeed"] != true {
+		t.Fatalf("unavailable fork missing history handoff marker: %#v", withoutRemote)
+	}
 }
 
 func TestACPForkPointWithoutMessageID(t *testing.T) {

@@ -14,8 +14,6 @@ import (
 	"github.com/ezdemo/looprax/internal/service/hitl"
 )
 
-const reqPlaceholder = "(plan execution)"
-
 // EventSink 接收一轮外部 Agent 要推给前端的事件。
 type EventSink interface {
 	Send(event string, payload any)
@@ -982,6 +980,11 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		sink.SendError("Agent 引擎不可用: native")
 		return
 	}
+	blocks := promptBlocks(in.Message, in.Images)
+	if len(blocks) == 0 {
+		sink.SendError("message 不能为空")
+		return
+	}
 	started := time.Now()
 	logging.Infof("chat", "turn start session=%s agent=%s chars=%d", name, agentID, len([]rune(in.Message)))
 	conn, err := m.Acquire(ctx, host, name, agentID, version)
@@ -997,13 +1000,13 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 	}
 	host.EnsureTitle(ctx, name, in.Message)
 	remote := conn.SessionID()
-	displayConvention := strOr(host.Meta(name), "acpDisplayConventionSessionId", "") != remote
-	// 跨引擎转换来的会话把待移植历史注进第一条提示词，只在真正发送时
-	// 进行：配置准备（prepare/config）建立远端但不消耗这个标记。
-	message, seeding, err := historySeedPrompt(host, name, remote, in.Message)
+	history, seeding, err := historySeedBlock(host, name, remote)
 	if err != nil {
 		sendFailure(sink, err)
 		return
+	}
+	if history != "" {
+		blocks = append([]ContentBlock{{Type: "text", Text: history}}, blocks...)
 	}
 	runCtx, cancelTurn := context.WithCancelCause(ctx)
 	defer cancelTurn(nil)
@@ -1019,7 +1022,6 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 	defer conn.bindTurn(nil)
 
 	conn.Use()
-	blocks := promptBlocks(message, in.Images, displayConvention)
 	result, promptErr := conn.client.Prompt(runCtx, blocks)
 	if queueErr := turn.events.finish(); queueErr != nil {
 		promptErr = queueErr
@@ -1027,21 +1029,6 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		_ = conn.client.Close()
 	}
 	turn.finish()
-	// 提示词真正送达且事件队列排空后才标记已注入；失败或取消的轮次
-	// 保留待注入状态，重试时仍携带历史或展示约定。
-	if promptErr == nil && ctx.Err() == nil && context.Cause(runCtx) == nil && (seeding || displayConvention) {
-		patch := map[string]any{}
-		if seeding {
-			patch["acpHistorySeededSessionId"] = remote
-		}
-		if displayConvention {
-			patch["acpDisplayConventionSessionId"] = remote
-		}
-		if err := host.SetMeta(name, patch); err != nil {
-			sendFailure(sink, err)
-			return
-		}
-	}
 	elapsed := time.Since(started).Round(time.Millisecond)
 	if promptErr != nil {
 		turn.endActiveSubAgents("aborted")
@@ -1065,6 +1052,13 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		return
 	}
 	status, notice := acpStopStatus(result.StopReason)
+	// 仅在提示词成功送达并完成事件处理后记录交接；失败或取消时仍可重试。
+	if seeding && status != "cancelled" && ctx.Err() == nil && context.Cause(runCtx) == nil {
+		if err := host.SetMeta(name, map[string]any{"acpHistorySeededSessionId": remote}); err != nil {
+			sendFailure(sink, err)
+			return
+		}
+	}
 	if notice != "" {
 		logging.Infof("chat", "turn limited session=%s agent=%s reason=%s", name, agentID, result.StopReason)
 		sink.Send("log", map[string]any{"level": "WARN", "message": notice})

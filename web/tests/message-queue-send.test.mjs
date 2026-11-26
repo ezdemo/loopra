@@ -549,11 +549,30 @@ test('an attachment-only queued turn does not pick up the current composer draft
   h.shared.queuedRef.current = queue.enqueue({}, original.id, { id: 'attachment', text: '', context: { ...context, attachments: [{ name: 'image.png', image: 'data:image/png;base64,abc' }] } });
   const sending = h.render(other).sendQueuedMessage(original.id);
   await until(() => h.streams.length === 1);
-  assert.equal(h.streams[0].body.message, '请查看附件');
+  assert.equal(h.streams[0].body.message, '');
   assert.deepEqual(h.streams[0].body.images, ['data:image/png;base64,abc']);
   assert.deepEqual(h.drafts, []);
   h.streams[0].finish();
   await sending;
+});
+
+test('external ACP sends a long draft verbatim, directly and through the queue', async () => {
+  const h = harness();
+  h.shared.composeOutgoing = composeOutgoing;
+  h.shared.sessionsRef.current = [original];
+  const draft = `  ${'x'.repeat(10001)}\n\n`;
+  const direct = h.render(original, draft).sendMessage();
+  await until(() => h.streams.length === 1);
+  assert.equal(h.streams[0].body.message, draft);
+  h.streams[0].finish();
+  await direct;
+  assert.equal(h.render(original, draft).queueMessage(), true);
+  const queued = h.render(other).sendQueuedMessage(original.id);
+  await until(() => h.streams.length === 2);
+  assert.equal(h.streams[1].body.message, draft);
+  assert.equal(h.requests.some(item => item.path === '/files/paste'), false);
+  h.streams[1].finish();
+  await queued;
 });
 
 test('loading Agent configuration blocks sending without clearing the draft, then allows it when ready', async () => {
@@ -645,7 +664,8 @@ test('editing restores text, images and documents; resubmitting queues them toge
 for (const mutation of ['withdraw', 'edit', 'reorder']) {
   test(`${mutation} during large-input preparation never sends the stale queued content`, async () => {
     const h = harness();
-    h.shared.sessionsRef.current = [original];
+    const nativeSession = { ...original, agentId: 'native' };
+    h.shared.sessionsRef.current = [nativeSession];
     h.enqueue('first', 'x'.repeat(10001)); h.enqueue('second', 'later');
     const paste = deferred();
     let preparing = false;
@@ -654,8 +674,8 @@ for (const mutation of ['withdraw', 'edit', 'reorder']) {
       if (path === '/files/paste') { preparing = true; await paste.promise; return { path: '.loopra/paste/input.txt', chars: 10001 }; }
       return request(path, ...args);
     };
-    const view = h.render(original);
-    const sending = view.sendQueuedMessage(original.id);
+    const view = h.render(nativeSession);
+    const sending = view.sendQueuedMessage(nativeSession.id);
     await until(() => preparing);
     if (mutation === 'withdraw') view.removeQueuedMessage('first');
     if (mutation === 'edit') view.editQueuedMessage('first');

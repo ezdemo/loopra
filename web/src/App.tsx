@@ -1183,7 +1183,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   function queueMessage(): boolean {
     if (!session) return false;
     if (!draft.trim() && !composerContext.files.length) return false;
-    replaceQueue(enqueue(queuedRef.current, session.id, { id: crypto.randomUUID(), text: draft.trim(), context: composerContext }));
+    replaceQueue(enqueue(queuedRef.current, session.id, { id: crypto.randomUUID(), text: agentId === 'native' ? draft.trim() : draft, context: composerContext }));
     setDraft(''); setComposerContext(emptyContext); setMenu(null);
     notify('已加入队列，当前回复结束后自动发送');
     return true;
@@ -1263,13 +1263,14 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (override === undefined && !draft.trim() && !composerContext.files.length) return false;
     if (backend.status !== 'connected' || !backend.ready || !sendWorkspace) { notify('请先连接 Loopra 并选择工作区'); return false; }
     if (runs.count(server) >= runs.limit) { if (!queuedSession) notify(`已有 ${runs.limit} 个会话正在运行，请等待其中一个结束后再发送`); return false; }
-    let prompt = (override ?? draft.trim()) || '请查看附件';
+    let prompt = override ?? (sendAgentId === 'native' ? draft.trim() : draft);
+    if (sendAgentId === 'native' && !prompt) prompt = '请查看附件';
     const titleSource = prompt;
     // Oversized directly-typed bodies are saved into the project and replaced by
     // a reference block before sending, matching legacy ChatInput.vue. The paste
     // handler already externalizes clipboard text; this covers typed/edited text.
     let savedInput: string | undefined;
-    if (sendWorkspace && !isChatScoped(sendWorkspace) && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
+    if (sendAgentId === 'native' && !isChatScoped(sendWorkspace) && prompt.length > LARGE_PASTE_THRESHOLD_CHARS) {
       try {
         const saved = await api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: sendWorkspace.hash, content: prompt });
         if (!saved?.path) throw new Error('服务端未返回文件路径');

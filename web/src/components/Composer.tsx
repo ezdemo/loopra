@@ -307,7 +307,7 @@ export default function Composer(props: Props) {
     }
     if (files.length) { event.preventDefault(); await addFiles(files); return; }
     const text = event.clipboardData?.getData('text/plain') || '';
-    if (chatMode || !props.workspaceHash || text.length <= LARGE_PASTE_THRESHOLD_CHARS) return;
+    if (external || chatMode || !props.workspaceHash || text.length <= LARGE_PASTE_THRESHOLD_CHARS) return;
     event.preventDefault();
     try {
       const saved = await props.api.request<{ path: string; chars?: number }>('/files/paste', 'POST', { workspaceHash: props.workspaceHash, content: text });
