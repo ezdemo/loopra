@@ -272,9 +272,7 @@
    derived from `--effort-level` (the tier index, written by ReasoningControl), so the higher
    the level the tighter, brighter and quicker the stream — and the fill it lives in
    widens at the same time. */
-/* Match the track's endpoint centres to the first and last label cells, accounting
-   for the track's transparent 0.25rem borders. Both rows share the same scale. */
-.effort-slider { --effort-level: 0; --effort-snap: 160ms cubic-bezier(.22, .75, .25, 1); padding: 0.1875rem max(0px, calc(50% / var(--effort-count) - 0.25rem)); }
+.effort-slider { --effort-level: 0; --effort-snap: 160ms cubic-bezier(.22, .75, .25, 1); padding: 0.1875rem 0; }
 .effort-slider[data-sliding] { --effort-snap: 0ms; }
 /* Saving disables input, but must not flash the selected strength at half opacity. */
 .effort-slider .effort-range { opacity: 1; }
