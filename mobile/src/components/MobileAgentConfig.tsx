@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@nextui-org/react';
 import { ChevronRight, LoaderCircle, RotateCcw } from 'lucide-react';
+import { friendlyFailureText } from '@web/backend';
 import { agentEffortLevels, agentModelGroups, agentOptionDescription, agentOptionLabel, configValue, findAgentOption, type AgentConfigOption, type AgentConfigValue } from '@web/agent-config';
 
 type Props = {
@@ -50,7 +51,7 @@ export default function MobileAgentConfig({ label = '智能体配置', options, 
     if (disabled || busy) return false;
     setBusy(option.id); setActionError('');
     try { await onChange(option.id, value); return true; }
-    catch (cause) { setActionError(cause instanceof Error ? cause.message : String(cause)); return false; }
+    catch (cause) { setActionError(friendlyFailureText(cause instanceof Error ? cause.message : String(cause))); return false; }
     finally { setBusy(''); }
   }
 

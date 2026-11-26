@@ -1,4 +1,4 @@
-import { LoopraClient, applyEvent, historyMessages, withChatWorkspace } from '@web/backend';
+import { LoopraClient, applyEvent, friendlyFailureText, historyMessages, withChatWorkspace } from '@web/backend';
 import type { AgentEngine, HistoryMessage, RemoteConfig, RemoteSession, StreamEvent, Workspace } from '@web/backend';
 import type { AgentConfigOption } from '@web/agent-config';
 import type { Message, ChoiceBlockData } from '@web/chat';
@@ -27,7 +27,7 @@ export function modelChoices(config?: RemoteConfig): ModelChoice[] {
     label: model.displayName || model.name,
   })));
 }
-const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error);
+const messageOf = (error: unknown) => friendlyFailureText(error instanceof Error ? error.message : String(error));
 
 /** Owns phone navigation and streams independently of the desktop workbench. */
 export class MobileSessionStore {

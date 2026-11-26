@@ -41,9 +41,42 @@ export function serverAddress(value: string) {
   return url.href.replace(/\/+$/, '');
 }
 
+// ACP Agent 的 JSON-RPC 错误经 Go 的 RequestError.Error() 序列化后会以整个
+// JSON 对象作为错误文本（可能带调用方前缀）。展示时只提取其中的 message；
+// 结构化信息（errorKind、retryable 等）仍可从原始文本或 reason 获取。
+export function friendlyFailureText(message: string): string {
+  const start = message.indexOf('{"code"');
+  if (start < 0) return message;
+  let depth = 0;
+  let end = -1;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < message.length; index += 1) {
+    const char = message[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '{') depth += 1;
+    else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) { end = index; break; }
+    }
+  }
+  if (end < 0) return message;
+  try {
+    const parsed = JSON.parse(message.slice(start, end + 1)) as { message?: unknown };
+    if (typeof parsed.message === 'string' && parsed.message) return parsed.message;
+  } catch { /* 保持原文 */ }
+  return message;
+}
+
 export class LoopraApiError extends Error {
   constructor(message: string, readonly status?: number, readonly reason?: string) {
-    super(message);
+    super(friendlyFailureText(message));
     this.name = 'LoopraApiError';
   }
 }
