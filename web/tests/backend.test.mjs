@@ -8,7 +8,7 @@ const diffModuleUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileM
 const source = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 outputText = outputText.replaceAll("'./diff'", JSON.stringify(diffModuleUrl)).replaceAll('"./diff"', JSON.stringify(diffModuleUrl));
-const { acpStopMessage, SseParser, StreamEventBuffer, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { acpStopMessage, friendlyFailureText, SseParser, StreamEventBuffer, LoopraClient, LoopraApiError, isSessionOccupiedError, applyEvent, historyMessages, hasEncryptedReasoning, remoteSession, configProviders, providerChannels, sessionRoute, permissionLabel, permissionValue, CHAT_WORKSPACE, isChatWorkspace, withChatWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const chatUrl = 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText).toString('base64');
 const { runningBackgroundTools } = await import(chatUrl);
@@ -917,4 +917,19 @@ test('web sources skip failed, unrelated and unsafe URLs and include nested code
   assert.deepEqual(messageWebSources(blocks), [
     { url: 'https://url.spec.whatwg.org/?expr=(a)&b=2', hostname: 'url.spec.whatwg.org', title: 'URL Standard' },
   ]);
+});
+
+test('friendlyFailureText extracts the message from serialized JSON-RPC errors', () => {
+  const raw = '{"code":-32015,"message":"Session \'careful-education\' is already open in another process. Close the other instance before opening it here.","data":{"cognition.ai/errorKind":"session_locked","cognition.ai/retryable":true}}';
+  assert.equal(friendlyFailureText(raw), "Session 'careful-education' is already open in another process. Close the other instance before opening it here.");
+  assert.equal(friendlyFailureText(`load config: ${raw}`), "Session 'careful-education' is already open in another process. Close the other instance before opening it here.");
+  assert.equal(new LoopraApiError(raw).message.includes('session_locked'), false);
+});
+
+test('friendlyFailureText keeps ordinary and malformed messages unchanged', () => {
+  assert.equal(friendlyFailureText('offline'), 'offline');
+  assert.equal(friendlyFailureText('{"code":-32015,"message":'), '{"code":-32015,"message":');
+  assert.equal(friendlyFailureText('{"code":1,"data":{"nested":{}}}'), '{"code":1,"data":{"nested":{}}}');
+  // 正数 code 多为网关 HTTP 状态类错误，不做 JSON-RPC 折叠
+  assert.equal(friendlyFailureText('{"code":429,"message":"rate limited"}'), '{"code":429,"message":"rate limited"}');
 });
