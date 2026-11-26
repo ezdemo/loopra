@@ -443,8 +443,6 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 手机直接复用原生 HTTP/SSE 接口，提供项目与会话切换、流式聊天、停止、工具审批、Agent 提问、折叠思考/工具/子代理和消息内文件差异；字号和主题独立设置。终端、完整编辑器、插件界面、历史回滚和桌面设置未移植。手机断线不取消后台 Agent，重连后读取现有历史和状态。停用保留设置，重置配对使旧二维码失效。
 
-`mobile/android/` 还有一个原生 Jetpack Compose + Backdrop 液态玻璃客户端（`app.loopra.android`，无 WebView，纯 Kotlin OkHttp/JCA 传输，与 `loopra-relay` 协议互通），可与 Tauri 版并存安装，见 [mobile/android/README.md](mobile/android/README.md)。
-
 默认关闭。`LOOPRA_ALMA_RELAY_URL`、`LOOPRA_ALMA_RELAY_KEY` 可以提供初始设置；页面保存的配置优先，继续保存在 Loopra 数据目录的 `alma-relay.json`。管理接口为 `/api/remote/relay`，注册密钥不回显。当前「中继已连接」不代表手机 WSS 已连接。
 
 移动端开发、Android/iOS 构建见 [mobile/README.md](mobile/README.md)，协议和互操作测试见 [MOBILE.md](docs/MOBILE.md)。
