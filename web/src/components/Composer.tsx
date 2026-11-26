@@ -119,7 +119,7 @@ export default function Composer(props: Props) {
   const usageMetricsNote = usage.metrics
     ? [
         usage.metrics.promptTokens + usage.metrics.completionTokens > 0
-          ? t('composer.totalTokens', { count: formatTokens(usage.metrics.promptTokens + usage.metrics.completionTokens) }) : '',
+          ? t('composer.totalTokens', { value: formatTokens(usage.metrics.promptTokens + usage.metrics.completionTokens) }) : '',
         usage.metrics.hasPrice ? t('composer.cost', { cost: formatUsageCost(usage.metrics.totalCost, usage.metrics.currency) }) : '',
         usage.metrics.cacheHitRate != null ? t('composer.cacheHitRate', { rate: usage.metrics.cacheHitRate.toFixed(1) }) : '',
       ].filter(Boolean).join(' · ')
@@ -148,6 +148,11 @@ export default function Composer(props: Props) {
   const planActive = !!agentPlan && configValue(agentPlan) === planOn;
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
+  const localizedNativePermission = (value: { value: string; name: string; description?: string }) => !external ? ({
+    approval: { name: t('composer.permissionApproval'), description: t('composer.permissionApprovalDescription') },
+    auto: { name: t('composer.permissionAuto'), description: t('composer.permissionAutoDescription') },
+    free: { name: t('composer.permissionFree'), description: t('composer.permissionFreeDescription') },
+  })[value.value] || null : null;
   const localizedPermissionMode = (mode: string) => mode === '完全自动' ? t('composer.permissionFree') : mode === '按需审批' ? t('composer.permissionApproval') : mode === '自动审批' ? t('composer.permissionAuto') : mode;
   const localizedUsagePart = (name: string) => ({
     '系统指令': t('usage.part.system'), '工具定义': t('usage.part.tools'), '用户消息': t('usage.part.user'), '助手消息': t('usage.part.assistant'),
@@ -528,7 +533,7 @@ export default function Composer(props: Props) {
       {contextFiles.map(file => <Chip size="sm" variant="flat" key={`files:${file.name}`} classNames={{ base: 'context-chip chip-files' }}
         startContent={<Paperclip size="0.8125rem" />}
         endContent={<button className="context-chip-remove" aria-label={t('composer.removeAttachment', { name: file.name })} onClick={() => removeAttachment(file.name)}><X size="0.75rem" /></button>}>
-        {file.name}{file.chars != null ? <small className="context-chip-size">{t('composer.characters', { count: file.chars.toLocaleString() })}</small> : file.size != null ? <small className="context-chip-size">{formatFileSize(file.size)}</small> : null}
+        {file.name}{file.chars != null ? <small className="context-chip-size">{t('composer.characters', { value: file.chars.toLocaleString() })}</small> : file.size != null ? <small className="context-chip-size">{formatFileSize(file.size)}</small> : null}
       </Chip>)}
       {planActive && agentPlan && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label={t('composer.exitPlanMode')} disabled={agentBusy} onClick={() => changeAgent(agentPlan.id, planOff)}><X size="0.75rem" /></button>}>{t('composer.planMode')}</Chip>}
       {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>{t('composer.clearAll')}</button>}
@@ -551,7 +556,7 @@ export default function Composer(props: Props) {
       <div className="composer-left">
         <Tooltip content={t('composer.attachmentsProjectsTools')} delay={600}><Button isIconOnly variant="light" aria-label={t('composer.addAttachmentOrTool')} aria-expanded={menu === 'tools'} className={`composer-icon ${menu === 'tools' ? 'is-active' : ''}`} onPress={() => open('tools')}><Plus size="1.125rem" strokeWidth={1.75} /></Button></Tooltip>
         {agentMode ? <Tooltip content={agentOptionDescription(agentMode)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-permission ${isDangerousAgentMode(agentMode) ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
-          {isDangerousAgentMode(agentMode) ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{agentOptionLabel(agentMode)}</span>
+          {isDangerousAgentMode(agentMode) ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{localizedNativePermission({ value: agentModeValue, name: agentOptionLabel(agentMode) })?.name || agentOptionLabel(agentMode)}</span>
         </Button></Tooltip> : !props.agentConfig && <Button isDisabled={external} variant="light" className={`composer-permission ${!external && options.mode === '完全自动' ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
           {!external && options.mode === '完全自动' ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{external ? t('composer.agentApproval') : localizedPermissionMode(options.mode)}</span>
         </Button>}
@@ -587,7 +592,7 @@ export default function Composer(props: Props) {
           {!chatMode && <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>{t('composer.menu.projects')}</strong><small>{t('composer.projectsDescription')}</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>{t('composer.skills')}</strong><small>{t('composer.skillsDescription')}</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
           {!external && <button onClick={() => open('connectors')}><Cable size="1.125rem" /><span><strong>{t('composer.connectors')}</strong><small>{t('composer.connectorsDescription')}</small></span>{!!connectorEnabledCount && <em>{connectorEnabledCount}</em>}<ChevronRight size="0.9375rem" /></button>}
-          {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>{t('composer.permissionMode')}</strong><small>{agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
+          {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>{t('composer.permissionMode')}</strong><small>{localizedNativePermission({ value: agentModeValue, name: agentOptionLabel(agentMode) })?.name || agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
             : !external && !props.agentConfig && <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>{t('composer.permissionMode')}</strong><small>{localizedPermissionMode(options.mode)}</small></span><ChevronRight size="0.9375rem" /></button>}
           <div className="composer-menu-divider" />
           <button onClick={() => { close(); props.onTerminal(); }}><SquareTerminal size="1.0625rem" /><span>{t('composer.openTerminal')}</span><ChevronRight size="0.9375rem" /></button>
@@ -610,7 +615,7 @@ export default function Composer(props: Props) {
             const danger = /bypass|free/i.test(value.value) || /bypass|完全自动/i.test(value.name);
             return <button key={value.value} role="radio" aria-checked={selected} disabled={agentBusy} className={danger ? 'is-danger' : undefined} onClick={() => { changeAgent(agentMode.id, value.value); close(); }}>
               {danger ? <ShieldAlert size="1.125rem" /> : <ShieldCheck size="1.125rem" />}
-              <span><strong>{value.name}</strong>{value.description && <small>{value.description}</small>}</span>{selected && <Check size="1rem" />}
+              <span><strong>{localizedNativePermission(value)?.name || value.name}</strong>{value.description && <small>{localizedNativePermission(value)?.description || value.description}</small>}</span>{selected && <Check size="1rem" />}
             </button>;
           })}
           <p className="composer-note">{t('composer.agentOptionsNote', { agent: agentEngineName })}</p>
@@ -641,13 +646,13 @@ export default function Composer(props: Props) {
             <strong>{!usage.measured && usage.source === 'loopra' ? t('composer.approximate') : ''}{formatTokens(usage.total)}<small> / {usage.windowKnown === false ? t('composer.windowUnknown') : formatTokens(usage.limit)}</small></strong>
             <span className={usage.percent >= 80 ? 'context-high' : usage.percent >= 50 ? 'context-medium' : 'context-low'}>{usagePercent}</span>
           </div>
-          {formatTokenSpeed(props.liveSpeed) && <p className="composer-note">{t('composer.generationSpeed', { speed: formatTokenSpeed(props.liveSpeed) })}{props.liveSpeed?.completionTokens ? ` · ${t('composer.generatedTokens', { count: formatTokens(props.liveSpeed.completionTokens) })}` : ''}</p>}
+          {formatTokenSpeed(props.liveSpeed) && <p className="composer-note">{t('composer.generationSpeed', { speed: formatTokenSpeed(props.liveSpeed) })}{props.liveSpeed?.completionTokens ? ` · ${t('composer.generatedTokens', { value: formatTokens(props.liveSpeed.completionTokens) })}` : ''}</p>}
           {usage.windowKnown !== false && <>
             <div className="context-gauge" role="img" aria-label={`${t('composer.contextGauge', { percent: usagePercent })}${external ? '' : t('composer.foldThresholdGauge', { threshold: FOLD_THRESHOLD_RATIO * 100 })}`}>
               {usage.parts.map(part => <span key={part.name} style={{ background: part.color, width: `${contextPartPercent(part, usage) / 100 * usage.percent}%` }} />)}
               {!external && <span className="context-gauge-threshold" style={{ left: `${FOLD_THRESHOLD_RATIO * 100}%` }} title={`${t('composer.foldThreshold')} (${FOLD_THRESHOLD_RATIO * 100}%)`} />}
             </div>
-            <div className="context-gauge-scale"><span>{t('composer.currentTokens', { count: formatTokens(usage.total) })}</span><span>{t('composer.windowTokens', { count: formatTokens(usage.limit) })}</span></div>
+            <div className="context-gauge-scale"><span>{t('composer.currentTokens', { value: formatTokens(usage.total) })}</span><span>{t('composer.windowTokens', { value: formatTokens(usage.limit) })}</span></div>
             {!external && <p className="composer-note context-threshold-note">{t('composer.foldThresholdNote', { tokens: formatTokens(foldThreshold(usage.limit)), percent: FOLD_THRESHOLD_RATIO * 100 })}</p>}
           </>}
           {usage.parts.map(part => <div className="context-breakdown" key={part.name}>

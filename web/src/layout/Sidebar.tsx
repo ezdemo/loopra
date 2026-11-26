@@ -70,7 +70,7 @@ function SessionTitle({ text }: { text: string }) {
 
 export default function Sidebar(props: SidebarProps) {
   const { workspaces, sessions, activeId, workspace, isHome, expanded, onExpanded } = props;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [dragging, setDragging] = useState('');
   const [dragOver, setDragOver] = useState('');
   const [draggingSession, setDraggingSession] = useState('');
@@ -214,7 +214,7 @@ export default function Sidebar(props: SidebarProps) {
                   {props.runningIds?.has(entry.id) ? <span className="session-run-indicator running" role="img" aria-label={t('nav.running')} title={t('nav.running')} /> : props.unreadIds?.has(entry.id) && <span className="session-run-indicator" role="img" aria-label={t('nav.newReply')} title={t('nav.newReply')} />}
                   {entry.mode === 'tui' && <Terminal className="session-tui-badge" size="0.75rem" aria-label={t('nav.tuiSession')} />}
                   {entry.worktreeMode && <i className="wt-badge" title={t('nav.worktreeMode')}>🌲</i>}
-                  <time>{sessionDate(entry.mtime)}</time>
+                  <time>{sessionDate(entry.mtime, Date.now(), t, i18n.language === 'en' ? 'en' : 'zh-CN')}</time>
                 </button>
                 <span className="session-row-tools">
                   <IconButton label={t('nav.refreshSession', { title: entry.title })} onClick={() => props.onRefreshSession(entry)}><RefreshCw size="0.75rem" /></IconButton>

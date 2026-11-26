@@ -103,7 +103,7 @@ export default function Settings(props: Props) {
       const row = Array.from(document.querySelectorAll<HTMLElement>('.settings-content [data-setting-title], .settings-content label, .settings-content h2, .settings-content h3'))
         .find(element => (element.dataset.settingTitle || element.textContent?.trim()) === focusTarget);
       row?.scrollIntoView({ block: 'center' });
-      const control = row?.closest('.settings-field')?.querySelector<HTMLElement>('input, textarea, button');
+      const control = row?.closest('.settings-field, .setting-row')?.querySelector<HTMLElement>('input, textarea, button');
       (control || row)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);

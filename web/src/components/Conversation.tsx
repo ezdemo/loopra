@@ -74,7 +74,7 @@ function TurnDuration({ startedAt, finishedAt, streaming, showDuration }: { star
     return () => clearInterval(timer);
   }, [streaming, showDuration, startedAt, finishedAt]);
   const elapsed = showDuration && startedAt ? Math.max(0, (finishedAt || clock) - startedAt) : null;
-  return <span>{elapsed === null ? t('chat.thinkingProcess') : t('chat.duration', { duration: formatTurnDuration(elapsed) })}</span>;
+  return <span>{elapsed === null ? t('chat.thinkingProcess') : t('chat.duration', { duration: formatTurnDuration(elapsed, t) })}</span>;
 }
 
 const AssistantMessage = memo(function AssistantMessage({ message, streaming, showDuration = true, canBranch, ...actions }: { message: Message; streaming: boolean; showDuration?: boolean; canBranch: boolean } & MessageActions) {
