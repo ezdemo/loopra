@@ -96,7 +96,7 @@
       <p class="hero-desc" data-i18n="hero.desc">
         Loopra 把一次编码任务收成一条循环：阅读项目，调用受控工具，把结果收回来再推理，直到完成，或停在需要你决定的地方。
         新建会话默认使用 Loopra Native，也可以改接 Claude Code、Codex 或 Devin。
-        Web 与桌面打开同一套界面，配置和会话与 Loopra 共用 <code>~/.loopra</code>。
+        Web 与桌面打开同一套界面；配置和 JSONL 会话保存在 <code>~/.loopra</code>，并可与旧版 Java Loopra 继续共用。
       </p>
 
       <div class="hero-actions">
@@ -126,8 +126,8 @@
           <span class="t-title" data-i18n="hero.termTitle">Loopra Native · 执行流程示例</span>
         </div>
         <div class="terminal-body">
-          <div class="t-line"><span class="t-prompt">$</span> <span class="t-cmd">loopra</span></div>
-          <div class="t-line"><span class="t-info" data-i18n="hero.termStarted">[Loopra] 已启动 · 打开控制台打印的访问地址</span></div>
+          <div class="t-line"><span class="t-prompt">$</span> <span class="t-cmd">loopra tui</span></div>
+          <div class="t-line"><span class="t-info" data-i18n="hero.termStarted">[Loopra] 终端会话已启动</span></div>
           <div class="t-line"> </div>
           <div class="t-line"><span class="t-you">You</span> <span class="t-tool" data-i18n="hero.termUser">修复登录失败，并跑一遍相关测试</span></div>
           <div class="t-line"><span class="t-ai">AI</span> <span class="t-tool" data-i18n="hero.termAi1">rg "login failed" → 定位处理函数</span></div>
@@ -228,7 +228,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
           <h3 data-i18n="overview.c3t">安全地协作</h3>
-          <p data-i18n="overview.c3d">工具权限分类、HITL 审批、路径边界与独立校验模型。</p>
+          <p data-i18n="overview.c3d">工具权限分类、HITL 审批、路径边界与可选工具模型预审。</p>
         </div>
         <div class="card">
           <div class="card-icon">
@@ -253,7 +253,7 @@
         <table>
           <thead><tr><th data-i18n="agents.engine">引擎</th><th data-i18n="agents.setup">配置与能力范围</th><th data-i18n="agents.docs">接入文档</th></tr></thead>
           <tbody>
-            <tr><td>Loopra Native</td><td data-i18n="agents.native">内置引擎。模型渠道、工具、技能、子代理、计划和审批都由 Loopra 提供。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">架构说明 ↗</a></td></tr>
+            <tr><td>Loopra Native</td><td data-i18n="agents.native">内置引擎。模型渠道、工具、技能、子代理、Goal / Checklist 和审批都由 Loopra 提供。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">架构说明 ↗</a></td></tr>
             <tr><td>Claude Code</td><td data-i18n="agents.claude">需要本机 Node.js 与 <code>@agentclientprotocol/claude-agent-acp</code>，并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/USER_GUIDE.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
             <tr><td>Codex</td><td data-i18n="agents.codex">需要本机 Node.js 与 <code>@agentclientprotocol/codex-acp</code>，并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/USER_GUIDE.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
             <tr><td>Devin</td><td data-i18n="agents.devin">需要本机安装的 <code>devin</code> CLI（无需 Node 适配器），并完成本机认证。</td><td><a href="https://github.com/ezdemo/loopra/blob/main/docs/USER_GUIDE.md#acp" target="_blank" rel="noopener">接入说明 ↗</a></td></tr>
@@ -280,7 +280,7 @@
           <div class="qs-rail"><span class="qs-num">1</span></div>
           <div class="qs-body">
             <div class="qs-step-head"><h3 data-i18n="qs.s1.title">安装</h3></div>
-            <p data-i18n="qs.s1.desc">安装包在 <a href="https://github.com/ezdemo/loopra-release/releases/latest" target="_blank" rel="noopener">Releases</a>。命令行装到 <code>~/.loopra/bin</code>（Windows 为 <code>%LOCALAPPDATA%\Loopra\bin</code>），macOS 桌面端解压到 <code>~/Applications/Loopra.app</code>。配置和会话在 <code>~/.loopra</code>，已有 Loopra 数据可以直接接着用。</p>
+            <p data-i18n="qs.s1.desc">安装包在 <a href="https://github.com/ezdemo/loopra-release/releases/latest" target="_blank" rel="noopener">Releases</a>。命令行装到 <code>~/.loopra/bin</code>（Windows 为 <code>%LOCALAPPDATA%\Loopra\bin</code>），macOS 桌面端解压到 <code>~/Applications/Loopra.app</code>。配置和会话在 <code>~/.loopra</code>，旧版 Java Loopra 数据可以直接接着用。</p>
 
             <div class="download-source-control install-source-control">
               <label for="install-source" data-i18n="download.sourceLabel">下载源</label>
@@ -326,7 +326,7 @@
           <div class="qs-rail"><span class="qs-num">2</span></div>
           <div class="qs-body">
             <div class="qs-step-head"><h3 data-i18n="qs.s2.title">启动服务</h3></div>
-            <p data-i18n="qs.s2.desc"><code>loopra</code> 与 <code>loopra web</code> 相同。省略端口或写成 <code>0</code> 时，由系统分配空闲端口。打开控制台打印的访问地址；页面上的 API 请求携带 <code>X-Loopra-Key</code>。未设置 <code>LOOPRA_ACCESS_KEY</code> 时，每次重启都会更换密钥。桌面端打开同一套工作台，地址里带好密钥。<code>loopra acp</code> 只在标准输入输出上提供 ACP，不启动网页。</p>
+            <p data-i18n="qs.s2.desc"><code>loopra</code> 与 <code>loopra web</code> 相同。省略端口或写成 <code>0</code> 时，由系统分配空闲端口。打开控制台打印的访问地址；页面上的 API 请求携带 <code>X-Loopra-Key</code>。未设置 <code>LOOPRA_ACCESS_KEY</code> 时，每次重启都会更换密钥。桌面端打开同一套工作台，地址里带好密钥。<code>loopra tui</code> 在当前目录打开终端聊天，<code>loopra acp</code> 只在标准输入输出上提供 ACP，二者都不启动网页。</p>
             <div class="cmd-group">
               <div class="codeblock">
                 <button class="copy-btn" data-copy="" data-copy-from="#start-cmds">
@@ -335,6 +335,7 @@
                 </button>
                 <pre id="start-cmds">loopra
 loopra web 4567
+loopra tui
 loopra acp</pre>
               </div>
             </div>
@@ -431,7 +432,7 @@ loopra acp</pre>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           </div>
           <h3 data-i18n="features.f5t">代码库操作</h3>
-          <p data-i18n="features.f5d">在项目边界内读取、搜索、编辑文件，运行一次性或交互式命令。</p>
+          <p data-i18n="features.f5d">读取、搜索和编辑项目文件；需要时可访问项目外上下文，写入范围可在设置中收紧到授权项目。命令支持一次性和交互式执行。</p>
         </div>
         <div class="card reveal">
           <div class="card-icon">
@@ -478,7 +479,7 @@ loopra acp</pre>
         </div>
         <div class="card reveal">
           <h3 data-i18n="features.f13t">纯聊天与联网查询</h3>
-          <p data-i18n="features.f13d">选择「纯聊天」后不暴露项目、文件、终端或 Git 能力，仅启用联网查询类工具；会话仍独立持久化。</p>
+          <p data-i18n="features.f13d">选择「纯聊天」后不关联项目；支持联网查询、已安装技能，以及一次性命令和交互终端，会话仍独立持久化。</p>
         </div>
       </div>
       <div class="qs-note reveal"><span data-i18n="features.boundary">审批发生在应用层，工具自身的路径与参数校验仍然生效，它不替代操作系统沙箱。文件、命令和 Git 都发生在运行后端的那台机器上。</span></div>
@@ -530,7 +531,7 @@ loopra acp</pre>
       </div>
       <div class="grid grid-2 extension-grid">
         <div class="card reveal">
-          <h3 data-i18n="tools.pluginsTitle">技能</h3>
+          <h3 data-i18n="tools.pluginsTitle">技能与插件</h3>
           <p data-i18n="tools.plugins">内置 SelfSkill 介绍能力入口和排查方式。同名技能用完整标识区分。目录可以在启动后创建，调用 <code>skillrefresh</code> 即可发现。技能市场安装到 <code>~/.loopra/skills</code>。插件从 npm 包或 GitHub 地址安装，由 moejs 执行。</p>
         </div>
         <div class="card reveal">
@@ -546,7 +547,7 @@ loopra acp</pre>
     <div class="container">
       <div class="section-head reveal">
         <span class="section-tag" data-i18n="arch.tag">架构</span>
-        <h2 data-i18n="arch.title">一个入口，同一套工作台</h2>
+        <h2 data-i18n="arch.title">一个本地 Runtime，多种入口</h2>
         <p data-i18n="arch.desc">工作台通过 HTTP / SSE 进入。Loopra Native 在本进程里完成推理和工具调用；外部引擎由本进程以 ACP 客户端驱动。<code>loopra acp</code> 则把 Loopra 提供给外部编辑器。</p>
       </div>
 
@@ -554,7 +555,7 @@ loopra acp</pre>
         <div class="card arch-card reveal">
           <span class="card-badge" data-i18n="arch.b1">入口</span>
           <h3>cmd/looprax</h3>
-          <p data-i18n="arch.p1">Web、桌面和 ACP 的启动入口。不写子命令时启动工作台，<code>loopra acp</code> 只占用标准输入输出。</p>
+          <p data-i18n="arch.p1">Web、TUI 和 ACP 的启动入口；桌面窗口由 <code>cmd/looprax-desktop</code> 启动。不写子命令时启动工作台，<code>loopra acp</code> 只占用标准输入输出。</p>
         </div>
         <div class="card arch-card reveal">
           <span class="card-badge" data-i18n="arch.b2">应用</span>
@@ -574,8 +575,8 @@ loopra acp</pre>
       </div>
 
       <div class="arch-dep reveal">
-<pre data-i18n="arch.dep">Web / 桌面 → HTTP / SSE → Loopra Native → 工具、技能、MCP
-                         → 外部 Agent
+<pre data-i18n="arch.dep">Web / 桌面 → HTTP / SSE ─┬→ Loopra Native → 工具、技能、MCP
+                         └→ 外部 Agent（ACP 适配器）
 外部编辑器 → loopra acp → Loopra Native</pre>
       </div>
 
@@ -586,7 +587,7 @@ loopra acp</pre>
         </li>
         <li>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          <span data-i18n="arch.pt2">配置和会话在 <b>~/.loopra</b>，与 Loopra 共用。插件从 npm 或 GitHub 安装，由 moejs 执行。</span>
+          <span data-i18n="arch.pt2">配置和 JSONL 会话保存在 <b>~/.loopra</b>，并与旧版 Java Loopra 保持兼容。插件从 npm 或 GitHub 安装，由 moejs 执行。</span>
         </li>
         <li>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -609,11 +610,11 @@ loopra acp</pre>
             <tr><th style="width:140px" data-i18n="stack.thLayer">层</th><th data-i18n="stack.thTech">技术</th></tr>
           </thead>
           <tbody>
-            <tr><td data-i18n="stack.l1">核心</td><td data-i18n="stack.l1d">推理循环、依赖装配</td></tr>
+            <tr><td data-i18n="stack.l1">核心</td><td data-i18n="stack.l1d">Go、持续推理循环、构造器注入</td></tr>
             <tr><td>Web</td><td>HTTP、SSE</td></tr>
             <tr><td data-i18n="stack.l3">工作台</td><td>React、TypeScript、NextUI、Vite、Monaco</td></tr>
-            <tr><td data-i18n="stack.l4">桌面</td><td data-i18n="stack.l4d">原生窗口</td></tr>
-            <tr><td data-i18n="stack.l5">协议</td><td>MCP、OpenAPI、ACP、Chat Completions、OpenCode、Responses、Anthropic Messages</td></tr>
+            <tr><td data-i18n="stack.l4">桌面</td><td data-i18n="stack.l4d">原生窗口与系统托盘</td></tr>
+            <tr><td data-i18n="stack.l5">协议</td><td>MCP、OpenAPI、ACP、Chat Completions、OpenCode 兼容网关、Responses、Anthropic Messages</td></tr>
             <tr><td data-i18n="stack.l6">持久化</td><td data-i18n="stack.l6d">JSONL 会话、<code>~/.loopra</code> JSON 配置、项目 Markdown</td></tr>
           </tbody>
         </table>
@@ -745,7 +746,7 @@ pnpm build</pre>
   </div>
 </footer>
 
-<script src="i18n.js?v=20261106-2"></script>
+<script src="i18n.js?v=20261126-1"></script>
 <script src="main.js?v=20261030-1"></script>
 <script src="release.js?v=20261030-3"></script>
 <script src="mirrors.js?v=20261030-1"></script>
