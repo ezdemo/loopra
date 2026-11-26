@@ -5,51 +5,64 @@
 <h1 align="center">Loopra</h1>
 
 <p align="center">
-  <strong>面向本地代码库的 AI 编码代理与工作台</strong><br/>
-  持续推理、调用工具、保留会话。
+  <strong>本地代码库的 AI 编码中枢</strong><br/>
+  推理、执行、审批、记忆，一次闭环。
 </p>
 
 <p align="center">
   <a href="https://loopra.cn"><img alt="Website" src="https://img.shields.io/badge/website-loopra.cn-2F80ED"/></a>
-  <img alt="React 18" src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black"/>
+  <a href="https://github.com/ezdemo/loopra-release/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/ezdemo/loopra-release?display_name=tag&sort=semver&label=release"/></a>
+  <a href="https://github.com/ezdemo/loopra/actions/workflows/backend.yml"><img alt="Backend CI" src="https://img.shields.io/github/actions/workflow/status/ezdemo/loopra/backend.yml?branch=main&label=backend%20ci"/></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green"/></a>
+</p>
+
+<p align="center">
+  Web · Desktop · Terminal · Mobile · Editor ACP · Feishu Bot
 </p>
 
 <p align="center">
   <a href="#快速开始">快速开始</a>
   &nbsp;·&nbsp;
-  <a href="#特性">特性</a>
+  <a href="#能力全景">能力全景</a>
+  &nbsp;·&nbsp;
+  <a href="#它适合干什么">场景</a>
   &nbsp;·&nbsp;
   <a href="#架构">架构</a>
   &nbsp;·&nbsp;
-  <a href="#工具与扩展">工具与扩展</a>
-  &nbsp;·&nbsp;
-  <a href="#协作与审批">协作与审批</a>
-  &nbsp;·&nbsp;
-  <a href="#使用">使用</a>
+  <a href="#工具与扩展">工具生态</a>
   &nbsp;·&nbsp;
   <a href="#配置">配置</a>
-  &nbsp;·&nbsp;
-  <a href="#从源码开发">开发</a>
   &nbsp;·&nbsp;
   <a href="#文档">文档</a>
 </p>
 
 ---
 
-Loopra 把一次编码任务收成一条循环：阅读项目上下文，搜索、编辑或构建，把执行结果收回来再推理，直到完成，或停在需要你决定的地方。
+大多数 AI 编码工具停在“回答”。Loopra 继续往前一步：它在你的仓库里检索、编辑、运行命令、调用 MCP 和插件，把执行结果送回推理循环；遇到风险动作，它停下来等你批准；任务结束后，会话、记忆和审计记录仍然保留。
 
-它与旧版 Java Loopra 读写同一套 `~/.loopra` 配置和 JSONL 会话。工作台、模型渠道、审批和外部 Agent 沿用同一套用法，已有数据可以直接接着用。插件从 npm 包或 GitHub 地址安装，由 [moejs](https://github.com/MoeForge/moejs) 执行，见[插件](#插件)。
-
-新建会话默认使用 Loopra Native。也可以改接 Claude Code、Codex 或 Devin。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
+一句话：你定义目标，Loopra 组织模型、工具和上下文，把过程变成可观察、可接管、可恢复的交付。
 
 ```text
-任务 → 模型推理 → 工具调用 → 结果反馈 → 模型推理 → … → 完成
+目标 → 推理 → 行动 → 观察 → 修正 → 交付
+          ↺ 根据执行结果持续修正
 ```
+
+它与旧版 Java Loopra 读写同一套 `~/.loopra` 配置和 JSONL 会话，已有数据可以直接接着用。新建会话默认使用 Loopra Native；也可以改接 Claude Code、Codex 或 Devin。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
+
+## 为什么是 Loopra
+
+| 维度 | Loopra 的打法 |
+|---|---|
+| **本地执行** | 文件、命令、Git 和系统目录操作发生在后端所在机器；业务配置与会话落在 `~/.loopra`。 |
+| **可控自动化** | `free` / `approval` / `auto` 三档审批，配合工作区写入限制、受限路径和隔离工作树。 |
+| **持续上下文** | JSONL 会话、循环内压缩、Goal / Checklist、全局与项目记忆，让长任务不靠一次性提示词硬撑。 |
+| **开放生态** | 多模型渠道、MCP、OpenAPI、连接器、技能、JS/TS 插件，能力可以一路接到真实业务系统。 |
+| **多端入口** | Web、桌面、移动端和飞书 Bot 连接工作台运行时；终端和编辑器 ACP 拉起独立的 `loopra acp` 进程，沿用 `~/.loopra` 配置。 |
+| **引擎自由** | Loopra Native 之外，还能把 Claude Code、Codex 或 Devin 接进同一个工作台。 |
 
 ## 快速开始
 
-安装、启动，并配好一个模型渠道，就可以在浏览器里打开工作台。从源码运行见 [从源码开发](#从源码开发)。
+三分钟进场：**安装 → 启动 → 配模型**。浏览器和原生窗口共享同一个工作台进程；终端会在当前项目目录拉起独立的 `loopra acp` 会话，沿用 `~/.loopra` 配置。从源码运行见 [从源码开发](#从源码开发)。
 
 ### 安装
 
@@ -202,64 +215,35 @@ Windows、macOS 和 Linux 的 amd64/arm64 命令行构建（包括普通 `go bui
 
 完整字段见 [配置](#配置)。
 
-## 特性
+## 能力全景
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>持续推理</strong><br/>
-      流式输出推理、工具调用和结果，读到执行反馈后进入下一轮。
-    </td>
-    <td width="50%" valign="top">
-      <strong>会话不断</strong><br/>
-      JSONL 持久化、自动折叠、会话级模型，以及项目里的记忆文件。重开会话时恢复上次选择。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>多渠道模型</strong><br/>
-      Chat Completions、OpenAI Responses、Anthropic Messages，以及 OpenCode 兼容网关。地址、密钥、协议和模型能力按渠道分开。
-    </td>
-    <td width="50%" valign="top">
-      <strong>受控工具</strong><br/>
-      项目内读写、内置 <code>rg</code>、系统 shell、联网查询、技能和 MCP。工具可启用或禁用，自定义工具可标成只读或写入。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>子代理与计划</strong><br/>
-      <code>explore</code>、<code>implement</code>、<code>test</code>、<code>review</code>、<code>plan</code> 五种角色，各自独立上下文；探索、审查与规划角色使用只读工具。
-    </td>
-    <td width="50%" valign="top">
-      <strong>审批边界</strong><br/>
-      <code>free</code>、<code>approval</code>、<code>auto</code> 三种模式。<code>auto</code> 可由工具模型预审；无法自动放行时转人工。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>需求与定时</strong><br/>
-      用看板管理需求、评论和执行记录，按需求配置模型和审批，并支持定时调度。
-    </td>
-    <td width="50%" valign="top">
-      <strong>隔离工作树</strong><br/>
-      会话可以换到独立工作树里执行。Git 面板查看分支和差异，并负责提交与环境信息。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>工作台</strong><br/>
-      项目、会话、聊天、模型、文件预览和 Git 在同一套 React 界面里。桌面端用原生窗口打开它。纯聊天只保留联网查询。在「设置 → 通用 → 外观与显示」里可以切换强调色。点击色点立即应用；点击「+」可自定义，选择「默认靛蓝」可恢复。强调色独立于明暗外观，保存到服务端。
-    </td>
-    <td width="50%" valign="top">
-      <strong>外部引擎</strong><br/>
-      新建会话可以改用 Claude Code、Codex 或 Devin。适配器装在后端所在机器上，并完成本机认证。
-    </td>
-  </tr>
-</table>
+| 能力 | 杀伤力 |
+|---|---|
+| **持续推理内核** | 流式输出推理、工具调用和执行反馈；读到结果后继续下一轮，直到交付、取消或需要你决策。 |
+| **长任务续航** | JSONL 持久化、循环内压缩、会话级模型、项目记忆、Goal / Checklist，重开后还能接上。 |
+| **多模型自由** | Chat Completions、OpenAI Responses、Anthropic Messages 和 OpenCode 兼容网关；模型、渠道、推理强度可到会话级切换。 |
+| **工具即战斗力** | 文件读写、内置 `rg`、系统 shell、联网查询、技能、MCP、OpenAPI、连接器和插件，统一纳入审批与权限边界。 |
+| **多代理编排** | `explore` / `implement` / `test` / `review` / `plan` 独立上下文分工；Fusion 把主代理决策与边缘执行串起来。 |
+| **人工控制点** | `free` / `approval` / `auto` 三档审批，工具模型预审；无法自动放行时转人工，边界清楚。 |
+| **项目级工作台** | 项目、会话、聊天、模型、文件预览、Git、需求、定时任务和终端在同一套 React 界面里。 |
+| **隔离交付** | 会话可切到独立 Git 工作树执行；分支、差异、提交和环境信息在同一个面板里收口。 |
+| **引擎可替换** | 默认 Loopra Native，也能把 Claude Code、Codex 或 Devin 接进来，用同一个工作台观察和管理。 |
+| **全端触达** | Web、桌面、TUI、ACP 编辑器、Android / iOS、飞书 Bot：同一套本地能力，不锁死入口。 |
+
+## 它适合干什么
+
+| 场景 | 打开方式 |
+|---|---|
+| **改造真实仓库** | 让探索子代理先读代码，主代理定方案，实现与验证在隔离工作树里完成。 |
+| **跨项目排障** | 长期关联多个项目，配合 `rg`、日志读取、shell 和联网检索，把线索收进同一条会话。 |
+| **接业务系统** | 用连接器、MCP 或 OpenAPI 把 Notion、Gmail、钉钉、内部 API 等能力接进工具调用。 |
+| **跑长期需求** | 用需求看板、评论、执行记录和定时调度管理任务，按需求配置模型与审批。 |
+| **扩展自己的 Agent** | 写 JS/TS 插件注入工具、钩子和右侧面板；或发布 Loopra 工具给其它 MCP 客户端。 |
+| **在团队入口使用** | 通过飞书 Bot 把项目会话带进单聊和群聊，审批仍回到工作台确认。 |
 
 ## 架构
 
-工作台通过 HTTP / SSE 进入进程。Loopra Native 在本进程里完成推理和工具调用；选择外部引擎时，由本进程以 ACP v1 stdio 客户端驱动本机适配器。`loopra acp` 则把 Loopra 自己暴露给外部编辑器，这条路径不启动网页。
+Loopra 的核心不是网页，而是一个本地 Agent Runtime：工作台通过 HTTP / SSE 进入进程；Loopra Native 在进程内完成推理、工具调用、审批和持久化；选择外部引擎时，同一进程以 ACP v1 stdio 客户端驱动本机适配器。反过来，`loopra acp` 也能把 Loopra 自己暴露给外部编辑器——这条路径不启动网页。
 
 ```mermaid
 flowchart TB
@@ -301,14 +285,16 @@ loopra/
 
 | 层 | 技术 |
 |---|---|
-| 核心 | 推理循环、依赖装配 |
-| Web | HTTP、SSE |
-| 工作台 | React、TypeScript、NextUI、Vite、Monaco |
-| 桌面 | 原生窗口 |
-| 协议 | MCP、OpenAPI、ACP、Chat Completions、OpenCode 兼容网关、Responses、Anthropic Messages |
-| 持久化 | JSONL 会话、`~/.loopra` JSON 配置、项目 Markdown |
+| Agent Runtime | Go、构造器注入、持续推理循环、工具编排、审批链 |
+| API / 流 | HTTP、SSE、访问密钥、工作区上下文 |
+| 工作台 | React 18、TypeScript、Vite、NextUI、Tailwind CSS、Monaco |
+| 桌面 / 终端 / 移动 | 原生窗口与托盘、内嵌 micro-acp TUI、Tauri v2 / Android 客户端 |
+| 协议 | MCP、OpenAPI、ACP、Chat Completions、Responses、Anthropic Messages、OpenCode 兼容网关 |
+| 持久化 | JSONL 会话与审计事件、`~/.loopra` JSON 配置、项目 Markdown |
 
 ## 工具与扩展
+
+Loopra 默认把编码 Agent 最需要的手脚装好：文件读写、代码检索、系统 shell、联网查询、子代理和技能。真正的上限来自开放生态——MCP、OpenAPI、连接器和 JS/TS 插件都能进入同一条工具链，并统一接受审批、工作区边界和会话记录约束。
 
 AI 可以在回复正文中直接展示图片，例如 `![二维码](<C:/project/qr.png>)`。支持本地绝对路径、基于会话工作目录的相对路径和 HTTP/HTTPS 图片，点击可放大。本地图片支持 PNG、JPEG、GIF、WebP、BMP、AVIF，单张不超过 5 MiB；历史会话引用原文件，需保留文件供后续查看。图片展示无需模型具备视觉输入能力。
 
@@ -461,6 +447,8 @@ Loopra 也可以对外发布自己的工具。设置页进入「MCP 服务器 �
 
 ## 协作与审批
 
+自动化不等于失控。Loopra 把长任务拆成可观察的执行链：主代理掌握目标与决策，子代理或 Fusion 执行具体调查、实现和验证；每一次写文件、跑命令或访问外部服务，都可以进入明确的审批边界。
+
 ### 子代理
 
 子代理通过 `sub_agent` 派生。默认配置中，`explore`、`review` 和 `plan` 只读；`implement` 与 `test` 可按配置执行写操作。角色定义在 `~/.loopra/sub-agents.json`，可在智能体设置中调整启用状态、说明、工具范围和渠道模型。内置角色的正文在启动时还原，启用状态会保留。
@@ -494,6 +482,8 @@ Loopra Agent 直接按任务和工具审批策略执行，不提供独立计划�
 工具模型（`toolModel` / `toolModelChannelId`）用于生成会话标题，也用于 `auto` 模式下的命令校验。`blockedPaths` 中的路径一律转人工。这是应用层审核，工具自身的路径与参数校验仍然生效，它不替代操作系统沙箱。旧配置里的布尔值会迁移：`true` 视为 `approval`，`false` 视为 `free`。
 
 ## 使用
+
+入口不止一个，但核心是同一个：浏览器工作台负责完整管理，桌面端提供原生窗口和托盘，终端适合留在项目目录里，ACP 把能力交给编辑器，移动端和飞书 Bot 把会话带离工位。
 
 ### 工作台
 
