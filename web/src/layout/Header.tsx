@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Check, ChevronDown, Copy, Download, FileCode2, FolderClosed, GitBranch, MessageCirclePlus, MoreHorizontal, PanelLeft, PanelRight, ScrollText, SquareTerminal, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton } from '../components/ui';
 import { Popup } from '../components/Motion';
@@ -41,13 +42,14 @@ export type HeaderProps = {
   desktopUpdate?: DesktopUpdateState;
 };
 
-function statusLabel(backend: HeaderProps['backend']) {
-  if (backend.status === 'connecting') return '连接中';
-  if (backend.status === 'error') return '连接失败';
-  return backend.ready ? 'Loopra 已连接' : '需要配置模型';
+function statusLabel(backend: HeaderProps['backend'], t: (key: string) => string) {
+  if (backend.status === 'connecting') return t('header.status.connecting');
+  if (backend.status === 'error') return t('header.status.error');
+  return backend.ready ? t('header.status.connected') : t('header.status.needsModel');
 }
 
 export default function Header(p: HeaderProps) {
+  const { t } = useTranslation();
   const { session, menu, backend } = p;
   const version = backend.version.replace(/^v/i, '');
   const latestVersion = p.latestVersion?.replace(/^v/i, '');
@@ -59,33 +61,33 @@ export default function Header(p: HeaderProps) {
   // Manual-update builds also need a badge, even when the core is already current.
   const hasNewVersion = !desktop?.development && !!releaseVersion && /^\d+(?:\.\d+)*$/.test(installedVersion)
     && /^\d+(?:\.\d+)*$/.test(releaseVersion) && compareVersions(releaseVersion, installedVersion) > 0;
-  const desktopText = desktop?.development ? '' : desktop?.status === 'downloading' ? `下载中 ${Math.floor(desktop.percent)}%`
-    : desktop?.status === 'verifying' ? '正在验证更新…'
-    : desktop?.status === 'downloaded' ? '重启并安装'
-    : desktop?.status === 'installing' ? '正在安装…'
-    : desktop?.status === 'checking' ? '检查更新…'
-    : desktop?.status === 'error' ? '更新失败，重试'
-    : desktop?.status === 'available' || hasNewVersion ? '发现新版' : '';
-  const updateText = desktop ? desktopText : hasNewVersion ? '发现新版' : '';
-  const updateTitle = desktop ? `桌面端 ${desktopVersion}${desktop.development ? ' · 开发构建' : ''}${hasNewVersion ? ` · 最新 v${releaseVersion}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
-    : hasNewVersion ? `当前版本 ${versionLabel}，发现新版本 v${latestVersion}` : `当前版本 ${versionLabel}`;
+  const desktopText = desktop?.development ? '' : desktop?.status === 'downloading' ? t('header.downloading', { percent: Math.floor(desktop.percent) })
+    : desktop?.status === 'verifying' ? t('header.verifying')
+    : desktop?.status === 'downloaded' ? t('header.restartInstall')
+    : desktop?.status === 'installing' ? t('header.installing')
+    : desktop?.status === 'checking' ? t('header.checking')
+    : desktop?.status === 'error' ? t('header.updateFailed')
+    : desktop?.status === 'available' || hasNewVersion ? t('header.updateAvailable') : '';
+  const updateText = desktop ? desktopText : hasNewVersion ? t('header.updateAvailable') : '';
+  const updateTitle = desktop ? `${t('header.desktopVersion', { version: desktopVersion })}${desktop.development ? ` · ${t('header.developmentBuild')}` : ''}${hasNewVersion ? ` · ${t('header.latestVersion', { version: releaseVersion })}` : ''}${desktopText ? ` · ${desktopText}` : ''}`
+    : hasNewVersion ? t('header.currentVersionWithUpdate', { version: versionLabel, latest: latestVersion }) : t('header.currentVersion', { version: versionLabel });
   return <header className={`conversation-header ${p.isHome ? 'home-header' : ''}`}>
     <div className="header-leading">
     {p.returnToChat ? <>
       <IconButton label={p.returnToChat.label} onClick={p.returnToChat.onClick}><ArrowLeft size="1rem" /></IconButton>
       <span className="surface-header-brand">Loopra</span>
-    </> : !p.sidebarOpen && <IconButton label="展开侧边栏" className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
+    </> : !p.sidebarOpen && <IconButton label={t('nav.expandSidebar')} className="sidebar-reopen" onClick={p.onOpenSidebar}><PanelLeft size="1.0625rem" /></IconButton>}
     {!p.isHome && session && <div className="breadcrumb">
       <span>{p.workspaceName}</span><span className="breadcrumb-divider">/</span><strong title={session.title}>{session.title}</strong>
       <div data-popover="session" className="menu-anchor">
-        <IconButton label="会话选项" onClick={() => p.onToggleMenu('session')}><MoreHorizontal size="1rem" /></IconButton>
+        <IconButton label={t('header.sessionOptions')} onClick={() => p.onToggleMenu('session')}><MoreHorizontal size="1rem" /></IconButton>
         <Popup open={menu === 'session'} className="popup session-menu" role="menu">
-          <button role="menuitem" onClick={p.onRename}><FileCode2 size="1rem" />重命名会话</button>
-          <button role="menuitem" onClick={p.onRecords}><ScrollText size="1rem" />会话记录</button>
-          <button role="menuitem" onClick={p.onClear}><MessageCirclePlus size="1rem" />清空当前对话</button>
-          <button role="menuitem" onClick={p.onExport}><Download size="1rem" />导出对话</button>
-          <button role="menuitem" onClick={p.onDelete}><Trash2 size="1rem" />删除会话</button>
-          <button role="menuitem" onClick={p.onCopyTitle}><Copy size="1rem" />复制会话标题</button>
+          <button role="menuitem" onClick={p.onRename}><FileCode2 size="1rem" />{t('header.renameSession')}</button>
+          <button role="menuitem" onClick={p.onRecords}><ScrollText size="1rem" />{t('header.sessionRecords')}</button>
+          <button role="menuitem" onClick={p.onClear}><MessageCirclePlus size="1rem" />{t('header.clearConversation')}</button>
+          <button role="menuitem" onClick={p.onExport}><Download size="1rem" />{t('header.exportConversation')}</button>
+          <button role="menuitem" onClick={p.onDelete}><Trash2 size="1rem" />{t('header.deleteConversation')}</button>
+          <button role="menuitem" onClick={p.onCopyTitle}><Copy size="1rem" />{t('header.copySessionTitle')}</button>
         </Popup>
       </div>
     </div>}
@@ -93,7 +95,7 @@ export default function Header(p: HeaderProps) {
     <div className="header-drag" aria-hidden="true" />
     </div>
     <DesktopHeaderActions>
-      {!version && !desktop?.currentVersion && backend.status === 'connecting' ? <div className="header-version-loading" role="status" aria-label="正在加载版本"><LoadingSkeleton className="skeleton-version" /></div> : <button type="button" className={`app-version${updateText ? ' has-update' : ''}`}
+      {!version && !desktop?.currentVersion && backend.status === 'connecting' ? <div className="header-version-loading" role="status" aria-label={t('header.loadingVersion')}><LoadingSkeleton className="skeleton-version" /></div> : <button type="button" className={`app-version${updateText ? ' has-update' : ''}`}
         title={updateTitle}
         aria-label={updateTitle}
         onClick={p.onVersion}>
@@ -101,26 +103,26 @@ export default function Header(p: HeaderProps) {
           ? <span className="app-version-update"><Download size="0.75rem" strokeWidth={1.8} aria-hidden="true" /><span>{updateText}</span></span>
           : <span className="app-version-number">{desktopVersion}</span>}
       </button>}
-      <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend)}</button>
+      <button className={`backend-status ${backend.status} ${backend.status === 'connected' && backend.ready ? 'is-ok' : ''}`} title={backend.error || `${statusLabel(backend, t)} · ${p.server} · ${versionLabel}`} onClick={p.onStatus}><span />{statusLabel(backend, t)}</button>
       {(p.workspaceActions ?? !p.isHome) && !p.chatMode && <>
         <div data-popover="folder" className="menu-anchor">
           <div className="folder-split">
-            <button aria-label="在系统应用中打开项目" onClick={() => p.onOpenWorkspace()}><FolderClosed /></button>
-            <button aria-label="打开方式" onClick={() => p.onToggleMenu('folder')}><ChevronDown /></button>
+            <button aria-label={t('header.openInSystemApp')} onClick={() => p.onOpenWorkspace()}><FolderClosed /></button>
+            <button aria-label={t('header.openWith')} onClick={() => p.onToggleMenu('folder')}><ChevronDown /></button>
           </div>
           <Popup open={menu === 'folder'} className="popup folder-menu" role="menu">
             {p.applications.map(item => <button key={item.application} role="menuitem" onClick={() => p.onOpenWorkspace(item.name)}>{item.application === 'folder' ? <FolderClosed size="1rem" /> : <SquareTerminal size="1rem" />}{item.label}</button>)}
             <hr />
-            <button role="menuitem" onClick={p.onCopyPath}><Copy size="1rem" />复制路径</button>
+            <button role="menuitem" onClick={p.onCopyPath}><Copy size="1rem" />{t('header.copyPath')}</button>
           </Popup>
         </div>
         <div data-popover="branch" className="menu-anchor">
           <button className="branch-button" onClick={() => p.onToggleMenu('branch')}><GitBranch />{p.gitBranch}</button>
-          <Popup open={menu === 'branch'} className="popup branch-menu"><h3>当前分支</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
+          <Popup open={menu === 'branch'} className="popup branch-menu"><h3>{t('header.currentBranch')}</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
         </div>
       </>}
-      {p.panelAvailable !== false && <IconButton label={p.shellOpen ? '隐藏终端' : '打开终端'} active={p.shellOpen} onClick={p.onToggleShell}><SquareTerminal size="1.0625rem" /></IconButton>}
-      {p.panelAvailable !== false && <IconButton label={p.chatMode ? p.changesOpen ? '关闭能力面板' : '打开能力面板' : p.changesOpen ? '关闭改动面板' : '打开改动面板'} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>}
+      {p.panelAvailable !== false && <IconButton label={p.shellOpen ? t('header.hideTerminal') : t('header.openTerminal')} active={p.shellOpen} onClick={p.onToggleShell}><SquareTerminal size="1.0625rem" /></IconButton>}
+      {p.panelAvailable !== false && <IconButton label={p.chatMode ? p.changesOpen ? t('header.closeCapabilityPanel') : t('header.openCapabilityPanel') : p.changesOpen ? t('header.closeChangesPanel') : t('header.openChangesPanel')} active={p.changesOpen} onClick={p.onToggleChanges}><PanelRight size="1.0625rem" /></IconButton>}
     </DesktopHeaderActions>
   </header>;
 }

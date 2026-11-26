@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronRight, CopyMinus, CopyPlus, FolderClosed, FolderOpen, FolderPlus, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeft, Pencil, Plus, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 import { IconButton, LoadingSkeleton } from '../components/ui';
 import { Collapse, SelectionIndicator, SidebarSurface } from '../components/Motion';
@@ -12,13 +13,13 @@ import AgentIcon, { PersonaIcon } from '../components/AgentIcon';
 const SESSION_GROUP_LIMIT = 6;
 
 function SessionListSkeleton() {
-  return <div className="sidebar-loading-sessions" role="status" aria-label="正在加载会话">{[0, 1, 2, 3].map(row => <div className="sidebar-loading-row" key={row}><LoadingSkeleton className="skeleton-session-title" /><LoadingSkeleton className="skeleton-session-time" /></div>)}</div>;
+  const { t } = useTranslation();
+  return <div className="sidebar-loading-sessions" role="status" aria-label={t('nav.loadingSessions')}>{[0, 1, 2, 3].map(row => <div className="sidebar-loading-row" key={row}><LoadingSkeleton className="skeleton-session-title" /><LoadingSkeleton className="skeleton-session-time" /></div>)}</div>;
 }
 
 export type SidebarProps = {
   /** Drives the slide; the element stays mounted while it closes (see `usePresence`). */
   open: boolean;
-  english: boolean;
   workspaces: Workspace[];
   sessions: Session[];
   workspacesLoading?: boolean;
@@ -68,7 +69,8 @@ function SessionTitle({ text }: { text: string }) {
 }
 
 export default function Sidebar(props: SidebarProps) {
-  const { english, workspaces, sessions, activeId, workspace, isHome, expanded, onExpanded } = props;
+  const { workspaces, sessions, activeId, workspace, isHome, expanded, onExpanded } = props;
+  const { t } = useTranslation();
   const [dragging, setDragging] = useState('');
   const [dragOver, setDragOver] = useState('');
   const [draggingSession, setDraggingSession] = useState('');
@@ -97,8 +99,8 @@ export default function Sidebar(props: SidebarProps) {
   const agentWorkspaces = workspaces.filter(item => item.kind === 'chat' || item.kind === 'agent');
   const projectWorkspaces = workspaces.filter(item => item.kind === 'project' || !item.kind);
   const sections = [
-    { id: 'agents', title: english ? 'Agents' : '智能体', items: agentWorkspaces },
-    { id: 'projects', title: english ? 'Projects' : '项目', items: projectWorkspaces },
+    { id: 'agents', title: t('nav.agents'), items: agentWorkspaces },
+    { id: 'projects', title: t('nav.projects'), items: projectWorkspaces },
   ];
   const allCollapsed = projectWorkspaces.length > 0 && projectWorkspaces.every(item => !expanded.includes(item.hash));
   const toggleProjects = () => onExpanded(current => {
@@ -137,13 +139,13 @@ export default function Sidebar(props: SidebarProps) {
 
   return <SidebarSurface key="sidebar" open={props.open} width={sidebarWidth}>
     <div className={`sidebar-resize-handle${resizing ? ' resizing' : ''}`} role="separator" aria-orientation="vertical"
-      aria-label="拖动调整侧边栏宽度" title="拖动调整侧边栏宽度" onMouseDown={startResize} />
+      aria-label={t('nav.resizeSidebar')} title={t('nav.resizeSidebar')} onMouseDown={startResize} />
     <div className="sidebar-brand">
       <span>Loopra</span>
-      <IconButton label="收起侧边栏" onClick={props.onClose}><PanelLeft size="1rem" /></IconButton>
+      <IconButton label={t('nav.collapseSidebar')} onClick={props.onClose}><PanelLeft size="1rem" /></IconButton>
     </div>
     <div className="sidebar-actions">
-      <button onClick={() => props.onNewSession()}><MessageCirclePlus />{english ? 'New chat' : '新建会话'}</button>
+      <button onClick={() => props.onNewSession()}><MessageCirclePlus />{t('nav.newChat')}</button>
     </div>
     <div className="session-section">
       {sections.map(section => <section key={section.id} className="sidebar-section" aria-label={section.title}>
@@ -152,16 +154,16 @@ export default function Sidebar(props: SidebarProps) {
             <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="m4 2 4 4-4 4Z" /></svg><span>{section.title}</span>
           </button>
           {section.id === 'agents' && <div>
-            <IconButton label={english ? 'New agent' : '新建智能体'} onClick={() => props.onNewAgent?.()}><Plus size="0.875rem" /></IconButton>
+            <IconButton label={t('nav.newAgent')} onClick={() => props.onNewAgent?.()}><Plus size="0.875rem" /></IconButton>
           </div>}
           {section.id === 'projects' && <div>
-            <IconButton label="添加项目" onClick={props.onManageProjects}><FolderPlus size="0.875rem" /></IconButton>
-            <IconButton label={allCollapsed ? '展开全部工作区' : '折叠全部工作区'} onClick={toggleProjects}>{allCollapsed ? <CopyPlus size="0.875rem" /> : <CopyMinus size="0.875rem" />}</IconButton>
-            <IconButton label="刷新项目列表" onClick={() => void props.onRefreshAll()}><RefreshCw size="0.875rem" /></IconButton>
+            <IconButton label={t('nav.addProject')} onClick={props.onManageProjects}><FolderPlus size="0.875rem" /></IconButton>
+            <IconButton label={allCollapsed ? t('nav.expandAllWorkspaces') : t('nav.collapseAllWorkspaces')} onClick={toggleProjects}>{allCollapsed ? <CopyPlus size="0.875rem" /> : <CopyMinus size="0.875rem" />}</IconButton>
+            <IconButton label={t('nav.refreshProjects')} onClick={() => void props.onRefreshAll()}><RefreshCw size="0.875rem" /></IconButton>
           </div>}
         </div>
         <Collapse open={!collapsedSections.includes(section.id)} id={`sidebar-${section.id}`}>
-        {props.workspacesLoading ? <div className="sidebar-loading-workspaces" aria-label={english ? `Loading ${section.title.toLowerCase()}` : `正在加载${section.title}`} aria-busy="true">{(section.id === 'agents' ? [0] : [0, 1, 2]).map(group => <div className="sidebar-loading-group" key={group}><div className="sidebar-loading-heading"><LoadingSkeleton className="skeleton-workspace-icon" /><LoadingSkeleton className="skeleton-workspace-title" /></div><SessionListSkeleton /></div>)}</div> : section.items.map(item => {
+        {props.workspacesLoading ? <div className="sidebar-loading-workspaces" aria-label={t('nav.loadingGroup', { group: section.title.toLowerCase() })} aria-busy="true">{(section.id === 'agents' ? [0] : [0, 1, 2]).map(group => <div className="sidebar-loading-group" key={group}><div className="sidebar-loading-heading"><LoadingSkeleton className="skeleton-workspace-icon" /><LoadingSkeleton className="skeleton-workspace-title" /></div><SessionListSkeleton /></div>)}</div> : section.items.map(item => {
           const open = expanded.includes(item.hash);
           const own = sessions.filter(entry => entry.workspaceHash === item.hash);
           const showAll = expandedGroups.includes(item.hash);
@@ -172,18 +174,18 @@ export default function Sidebar(props: SidebarProps) {
           const locked = chat || agent;
           return <div key={item.hash} className={`workspace-group ${dragging === item.hash ? 'dragging' : ''} ${dragOver === item.hash && dragging !== item.hash ? 'drag-over' : ''}`} {...groupProps(item.hash, locked)}>
             <div className="workspace-heading-row">
-              <button type="button" title={item.path || (agent ? (item.agent?.projectHash ? `${english ? 'Bound to' : '绑定'}：${workspaces.find(entry => entry.hash === item.agent?.projectHash)?.name || item.agent.projectHash}` : (english ? 'No project' : '不绑定工作区')) : chat ? '不绑定工作区' : item.name)} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? '折叠' : '展开'} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
+              <button type="button" title={item.path || (agent ? (item.agent?.projectHash ? `${t('nav.boundTo')}: ${workspaces.find(entry => entry.hash === item.agent?.projectHash)?.name || item.agent.projectHash}` : t('nav.noProject')) : chat ? t('nav.noProject') : item.name)} className={`workspace-heading ${isHome && workspace === item.hash ? 'selected' : ''}`} aria-label={`${open ? t('nav.collapse') : t('nav.expand')} ${item.name}`} aria-expanded={open} onClick={() => toggle(item.hash)}>
                 <ChevronRight className="workspace-chevron" />{agent ? <PersonaIcon icon={item.agent?.icon} className="workspace-chat-icon" size="0.875rem" /> : chat ? <MessageSquare className="workspace-chat-icon" aria-hidden="true" /> : open ? <FolderOpen /> : <FolderClosed />}<span>{item.name}</span>
               </button>
               <span className="workspace-tools">
-                <IconButton label={`在 ${item.name} 新建会话`} onClick={() => props.onNewSession(item.hash)}><Plus size="0.8125rem" /></IconButton>
-                <IconButton label={`刷新 ${item.name} 的会话`} onClick={() => props.onRefreshProject(item.hash)}><RefreshCw size="0.8125rem" /></IconButton>
-                <IconButton label={`管理 ${item.name} 的会话`} onClick={() => props.onManageProject(item)}><MoreHorizontal size="0.9375rem" /></IconButton>
-                {agent && <IconButton label={english ? `Edit agent ${item.name}` : `编辑智能体 ${item.name}`} onClick={() => props.onEditAgent?.(item)}><Pencil size="0.8125rem" /></IconButton>}
+                <IconButton label={t('nav.newSessionIn', { name: item.name })} onClick={() => props.onNewSession(item.hash)}><Plus size="0.8125rem" /></IconButton>
+                <IconButton label={t('nav.refreshSessionsIn', { name: item.name })} onClick={() => props.onRefreshProject(item.hash)}><RefreshCw size="0.8125rem" /></IconButton>
+                <IconButton label={t('nav.manageSessionsIn', { name: item.name })} onClick={() => props.onManageProject(item)}><MoreHorizontal size="0.9375rem" /></IconButton>
+                {agent && <IconButton label={t('nav.editAgent', { name: item.name })} onClick={() => props.onEditAgent?.(item)}><Pencil size="0.8125rem" /></IconButton>}
               </span>
             </div>
             <Collapse open={open} className="workspace-sessions">
-              {!own.length && (props.sessionsLoading ? <SessionListSkeleton /> : <p className="no-conversation">暂无对话</p>)}
+              {!own.length && (props.sessionsLoading ? <SessionListSkeleton /> : <p className="no-conversation">{t('nav.noConversations')}</p>)}
               {shown.map(entry => <div key={entry.id} data-session-key={entry.id} draggable
                 onDragStart={event => {
                   // A session drag must not start the project drag on the parent row.
@@ -205,23 +207,23 @@ export default function Sidebar(props: SidebarProps) {
                 onDragEnd={() => { setDraggingSession(''); setDragOverSession(''); }}
                 className={`session-row ${activeId === entry.id ? 'selected' : ''}${draggingSession === entry.id ? ' dragging' : ''}${dragOverSession === entry.id && draggingSession !== entry.id ? ' drag-over' : ''}`}>
                 <button className={`session-item ${activeId === entry.id ? 'selected' : ''}`} onClick={() => props.onSelectSession(entry.id)}
-                  title={entry.customAgentId ? `${entry.title} · ${workspaces.find(ws => ws.hash === entry.customAgentId)?.name || '自定义智能体'}` : entry.title}>
+                  title={entry.customAgentId ? `${entry.title} · ${workspaces.find(ws => ws.hash === entry.customAgentId)?.name || t('nav.customAgent')}` : entry.title}>
                   {activeId === entry.id && <SelectionIndicator />}
                   {entry.customAgentId ? <PersonaIcon icon={workspaces.find(ws => ws.hash === entry.customAgentId)?.agent?.icon} size="0.875rem" /> : <AgentIcon agentId={entry.agentId || 'native'} />}
                   <SessionTitle text={entry.title} />
-                  {props.runningIds?.has(entry.id) ? <span className="session-run-indicator running" role="img" aria-label="正在运行" title="正在运行" /> : props.unreadIds?.has(entry.id) && <span className="session-run-indicator" role="img" aria-label="有新回复" title="有新回复" />}
-                  {entry.mode === 'tui' && <Terminal className="session-tui-badge" size="0.75rem" aria-label="TUI 会话" />}
-                  {entry.worktreeMode && <i className="wt-badge" title="隔离分支模式">🌲</i>}
+                  {props.runningIds?.has(entry.id) ? <span className="session-run-indicator running" role="img" aria-label={t('nav.running')} title={t('nav.running')} /> : props.unreadIds?.has(entry.id) && <span className="session-run-indicator" role="img" aria-label={t('nav.newReply')} title={t('nav.newReply')} />}
+                  {entry.mode === 'tui' && <Terminal className="session-tui-badge" size="0.75rem" aria-label={t('nav.tuiSession')} />}
+                  {entry.worktreeMode && <i className="wt-badge" title={t('nav.worktreeMode')}>🌲</i>}
                   <time>{sessionDate(entry.mtime)}</time>
                 </button>
                 <span className="session-row-tools">
-                  <IconButton label={`刷新 ${entry.title}`} onClick={() => props.onRefreshSession(entry)}><RefreshCw size="0.75rem" /></IconButton>
-                  <IconButton label={`删除 ${entry.title}`} onClick={() => props.onDeleteSession(entry)}><Trash2 size="0.75rem" /></IconButton>
+                  <IconButton label={t('nav.refreshSession', { title: entry.title })} onClick={() => props.onRefreshSession(entry)}><RefreshCw size="0.75rem" /></IconButton>
+                  <IconButton label={t('nav.deleteSession', { title: entry.title })} onClick={() => props.onDeleteSession(entry)}><Trash2 size="0.75rem" /></IconButton>
                 </span>
               </div>)}
               {foldable && <button type="button" className="session-more" aria-expanded={showAll}
-                title={`${own.length} 个会话`} onClick={() => toggleExpanded(item.hash)}>
-                {showAll ? '收起显示' : '展开显示'}
+                title={t('nav.sessionCount', { count: own.length })} onClick={() => toggleExpanded(item.hash)}>
+                {showAll ? t('nav.showLess') : t('nav.showMore')}
               </button>}
             </Collapse>
           </div>;

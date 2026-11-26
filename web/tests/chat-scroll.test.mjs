@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { reactI18nextStubUrl } from './i18n-test-utils.mjs';
 
 // Legacy Chat.vue keeps three message-scroller affordances: auto-follow until
 // the user scrolls away, a "back to bottom" button, a user-message thumbnail
@@ -30,7 +31,7 @@ const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toStr
 async function sourceUrl(name, dependencies = {}) {
   const source = await readFile(new URL(`../src/${name}`, import.meta.url), 'utf8');
   let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } });
-  for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), ...dependencies })) {
+  for (const [specifier, url] of Object.entries({ react: reactUrl, 'react-i18next': reactI18nextStubUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), ...dependencies })) {
     outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
   }
   return dataUrl(outputText);

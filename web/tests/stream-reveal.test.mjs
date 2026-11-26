@@ -3,6 +3,7 @@ import { after, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { reactI18nextStubUrl } from './i18n-test-utils.mjs';
 
 // While a reply streams, markdown-reveal.ts wraps the characters of the live
 // block so CSS can fade each one in as React mounts it. These tests mount the
@@ -26,7 +27,7 @@ const transpile = (source, jsx = false) => ts.transpileModule(source, {
 
 const uiStub = dataUrl(`const { createElement } = await import(${JSON.stringify(reactUrl)});\nexport const IconButton = ({ children }) => createElement('button', null, children);\n`);
 const moduleUrl = async path => dataUrl(transpile(await readFile(new URL(path, import.meta.url), 'utf8')));
-const jsxImports = { react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'react-dom': import.meta.resolve('react-dom'), 'lucide-react': import.meta.resolve('lucide-react') };
+const jsxImports = { react: reactUrl, 'react-i18next': reactI18nextStubUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'react-dom': import.meta.resolve('react-dom'), 'lucide-react': import.meta.resolve('lucide-react') };
 const rewrite = (code, imports) => {
   let result = code;
   for (const [specifier, url] of Object.entries(imports)) result = result.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
@@ -43,6 +44,8 @@ const chatImageUrl = dataUrl(rewrite(transpile(await readFile(new URL('../src/co
 
 const specifiers = {
   react: reactUrl,
+  'react-i18next': reactI18nextStubUrl,
+  '../i18n': reactI18nextStubUrl,
   'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'),
   '../markdown-math': await moduleUrl('../src/markdown-math.ts'),
   '../markdown-alert': await moduleUrl('../src/markdown-alert.ts'),

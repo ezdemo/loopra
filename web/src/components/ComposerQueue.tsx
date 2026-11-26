@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, CornerDownRight, ListEnd, MoreHorizontal, Paperclip, Pencil, Trash2 } from 'lucide-react';
 import type { QueuedMessage } from '../composer';
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export default function ComposerQueue({ queue, onRemove, onGuide, onEdit, onMove }: Props) {
+  const { t } = useTranslation();
   const [menu, setMenu] = useState<{ id: string; left: number; top: number; above: boolean } | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -69,8 +71,8 @@ export default function ComposerQueue({ queue, onRemove, onGuide, onEdit, onMove
 
   if (!queue.length) return null;
   const menuIndex = queue.findIndex(item => item.id === menu?.id);
-  return <section className="composer-queue" aria-label={`排队消息 ${queue.length} 条`}>
-    <span className="sr-only">当前回复结束后按顺序自动发送，可拖拽调整顺序</span>
+  return <section className="composer-queue" aria-label={t('composer.queuedMessages', { count: queue.length })}>
+    <span className="sr-only">{t('composer.queueDescription')}</span>
       <ol className="composer-queue-list">
         {queue.map((item, index) => {
           const files = [...new Set([...item.context.files, ...(item.context.attachments || []).map(file => file.name)])];
@@ -95,22 +97,22 @@ export default function ComposerQueue({ queue, onRemove, onGuide, onEdit, onMove
             <div className="composer-queue-row">
               <ListEnd size="0.9375rem" className="composer-queue-item-icon" aria-hidden="true" />
               <div className="composer-queue-preview">
-                <span className="composer-queue-text">{item.text ? item.text.slice(0, 160) : '仅附件消息'}</span>
+                <span className="composer-queue-text">{item.text ? item.text.slice(0, 160) : t('composer.attachmentOnlyMessage')}</span>
                 {files.length > 0 && <span className="composer-queue-attachments" title={files.join('\n')}><Paperclip size="0.75rem" />{files.length}</span>}
               </div>
               <div className="composer-queue-actions">
-                <button type="button" className="composer-queue-guide" title="停止当前生成，优先发送这条消息" onClick={() => onGuide(item.id)}><CornerDownRight size="0.9375rem" />引导</button>
-                <button type="button" className="composer-queue-action composer-queue-remove" title="撤回，不再发送" aria-label={`撤回第 ${index + 1} 条消息`} onClick={() => onRemove(item.id)}><Trash2 size="0.9375rem" /></button>
-                <button type="button" className="composer-queue-action composer-queue-more" title="更多操作" aria-label={`第 ${index + 1} 条消息的更多操作`} aria-haspopup="menu" aria-expanded={menu?.id === item.id} aria-controls={menu?.id === item.id ? `${listId}-menu` : undefined} onClick={event => openMenu(event, item.id)}><MoreHorizontal size="1rem" /></button>
+                <button type="button" className="composer-queue-guide" title={t('composer.guideMessage')} onClick={() => onGuide(item.id)}><CornerDownRight size="0.9375rem" />{t('composer.guide')}</button>
+                <button type="button" className="composer-queue-action composer-queue-remove" title={t('composer.withdraw')} aria-label={t('composer.withdrawMessage', { index: index + 1 })} onClick={() => onRemove(item.id)}><Trash2 size="0.9375rem" /></button>
+                <button type="button" className="composer-queue-action composer-queue-more" title={t('composer.moreActions')} aria-label={t('composer.moreActionsFor', { index: index + 1 })} aria-haspopup="menu" aria-expanded={menu?.id === item.id} aria-controls={menu?.id === item.id ? `${listId}-menu` : undefined} onClick={event => openMenu(event, item.id)}><MoreHorizontal size="1rem" /></button>
               </div>
             </div>
           </li>;
         })}
       </ol>
-    {menu && menuIndex >= 0 && createPortal(<div ref={menuRef} id={`${listId}-menu`} className="composer-queue-menu" role="menu" aria-label="排队消息操作" data-above={menu.above} style={{ left: menu.left, top: menu.top }} onKeyDown={menuKeys}>
-      <button type="button" role="menuitem" onClick={() => startEdit(queue[menuIndex])}><Pencil size="1rem" />编辑消息</button>
-      <button type="button" role="menuitem" disabled={menuIndex === 0} onClick={() => { onMove(menu.id, queue[menuIndex - 1].id); setMenu(null); menuTrigger.current?.focus(); }}><ArrowUp size="1rem" />上移</button>
-      <button type="button" role="menuitem" disabled={menuIndex === queue.length - 1} onClick={() => { onMove(menu.id, queue[menuIndex + 1].id); setMenu(null); menuTrigger.current?.focus(); }}><ArrowDown size="1rem" />下移</button>
+    {menu && menuIndex >= 0 && createPortal(<div ref={menuRef} id={`${listId}-menu`} className="composer-queue-menu" role="menu" aria-label={t('composer.queueActions')} data-above={menu.above} style={{ left: menu.left, top: menu.top }} onKeyDown={menuKeys}>
+      <button type="button" role="menuitem" onClick={() => startEdit(queue[menuIndex])}><Pencil size="1rem" />{t('composer.editMessage')}</button>
+      <button type="button" role="menuitem" disabled={menuIndex === 0} onClick={() => { onMove(menu.id, queue[menuIndex - 1].id); setMenu(null); menuTrigger.current?.focus(); }}><ArrowUp size="1rem" />{t('composer.moveUp')}</button>
+      <button type="button" role="menuitem" disabled={menuIndex === queue.length - 1} onClick={() => { onMove(menu.id, queue[menuIndex + 1].id); setMenu(null); menuTrigger.current?.focus(); }}><ArrowDown size="1rem" />{t('composer.moveDown')}</button>
     </div>, document.body)}
   </section>;
 }

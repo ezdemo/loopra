@@ -32,5 +32,5 @@ test('the record window has only records and prompt tabs, and its menu has an ic
   assert.match(details, /label: '原始记录'/);
   assert.match(details, /label: '系统提示词'/);
   assert.match(details, /<RawSessionRecords messages=\{events.data\}/);
-  assert.match(header, /<ScrollText size="1rem" \/>会话记录/);
+  assert.match(header, /header\.sessionRecords/);
 });

@@ -1,6 +1,7 @@
 import { Accordion, AccordionItem, Button, Input, Select, SelectItem, SelectSection, Switch, Tab, Tabs, Textarea } from '@nextui-org/react';
 import type { InputProps, SelectProps, TextAreaProps } from '@nextui-org/react';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Blocks, Braces, Package, Plug, Sparkles, Wrench } from 'lucide-react';
 import { modelLabel, type ModelOption } from '../composer';
 import { useAppMotion } from './Motion';
@@ -59,25 +60,29 @@ export function TextField({ label, value, onChange, placeholder, rows = 3, requi
   return <Textarea {...props} isRequired={required || props.isRequired} isDisabled={disabled || props.isDisabled} validationBehavior="native" size="md" radius="lg" label={label} labelPlacement="outside" value={value} onValueChange={onChange} placeholder={placeholder || ' '} minRows={rows} maxRows={Math.max(rows, 12)} variant="bordered" className={`settings-field ${className}`} />;
 }
 export function SelectField({ label, value, onChange, options, compact = false, startContent, required, disabled }: { label: string; value: string; onChange: (value: string) => void; options: (string | { value: string; label: string })[]; compact?: boolean; startContent?: ReactNode; required?: boolean; disabled?: boolean }) {
+  const { t } = useTranslation();
   const popover = useSelectPopover();
   const items = options.map(option => typeof option === 'string' ? { value: option, label: option } : option);
-  return <Select {...popover} isRequired={required} isDisabled={disabled} validationBehavior="native" aria-label={compact ? label : undefined} label={compact ? undefined : label} labelPlacement="outside" placeholder="请选择" size="md" variant="bordered" radius="lg" startContent={startContent} disallowEmptySelection selectedKeys={items.some(item => item.value === value) && (!required || value !== '') ? [`option:${value}`] : []} onSelectionChange={keys => { const key = Array.from(keys)[0]; if (key !== undefined) onChange(String(key).slice(7)); }} className={`settings-next-select ${compact ? 'settings-compact-select' : ''}`}>
+  return <Select {...popover} isRequired={required} isDisabled={disabled} validationBehavior="native" aria-label={compact ? label : undefined} label={compact ? undefined : label} labelPlacement="outside" placeholder={t('settings.selectPlaceholder')} size="md" variant="bordered" radius="lg" startContent={startContent} disallowEmptySelection selectedKeys={items.some(item => item.value === value) && (!required || value !== '') ? [`option:${value}`] : []} onSelectionChange={keys => { const key = Array.from(keys)[0]; if (key !== undefined) onChange(String(key).slice(7)); }} className={`settings-next-select ${compact ? 'settings-compact-select' : ''}`}>
     {items.map(item => <SelectItem key={`option:${item.value}`} textValue={item.label}>{item.label}</SelectItem>)}
   </Select>;
 }
-export function ModelSelect({ label, value, onChange, models, optional = false, emptyLabel = '不启用 / 继承主模型' }: { label: string; value: string; onChange: (value: string) => void; models: ModelOption[]; optional?: boolean; emptyLabel?: string }) {
+export function ModelSelect({ label, value, onChange, models, optional = false, emptyLabel }: { label: string; value: string; onChange: (value: string) => void; models: ModelOption[]; optional?: boolean; emptyLabel?: string }) {
+  const { t } = useTranslation();
   const popover = useSelectPopover();
   const groups = [...new Set(models.map(model => model.providerId))];
   const hasValue = models.some(model => model.id === value);
-  return <Select {...popover} label={label} labelPlacement="outside" placeholder="请选择模型" size="md" variant="bordered" radius="lg" disallowEmptySelection selectedKeys={hasValue ? [`model:${value}`] : optional ? ['none'] : []} onSelectionChange={keys => { const key = Array.from(keys)[0]; if (key !== undefined) onChange(key === 'none' ? '' : String(key).slice(6)); }} className="settings-next-select">
+  const noneLabel = emptyLabel || t('settings.noModelInherit');
+  return <Select {...popover} label={label} labelPlacement="outside" placeholder={t('settings.selectModelPlaceholder')} size="md" variant="bordered" radius="lg" disallowEmptySelection selectedKeys={hasValue ? [`model:${value}`] : optional ? ['none'] : []} onSelectionChange={keys => { const key = Array.from(keys)[0]; if (key !== undefined) onChange(key === 'none' ? '' : String(key).slice(6)); }} className="settings-next-select">
     {[
-      ...(optional ? [<SelectItem key="none" textValue={emptyLabel}>{emptyLabel}</SelectItem>] : []),
+      ...(optional ? [<SelectItem key="none" textValue={noneLabel}>{noneLabel}</SelectItem>] : []),
       ...groups.map(id => <SelectSection key={id} title={models.find(model => model.providerId === id)?.provider}>{models.filter(model => model.providerId === id).map(model => <SelectItem key={`model:${model.id}`} textValue={modelLabel(model)}><span className="model-select-label" title={model.name}>{modelLabel(model)}</span></SelectItem>)}</SelectSection>),
     ]}
   </Select>;
 }
-export function SettingSegments({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (value: string) => void }) {
-  return <Tabs aria-label={label} selectedKey={value} onSelectionChange={key => onChange(String(key))} size="sm" radius="lg" className="settings-next-tabs">{options.map(option => <Tab key={option} title={option} />)}</Tabs>;
+export function SettingSegments({ label, options, value, onChange }: { label: string; options: (string | { value: string; label: string })[]; value: string; onChange: (value: string) => void }) {
+  const items = options.map(option => typeof option === 'string' ? { value: option, label: option } : option);
+  return <Tabs aria-label={label} selectedKey={value} onSelectionChange={key => onChange(String(key))} size="sm" radius="lg" className="settings-next-tabs">{items.map(option => <Tab key={option.value} title={option.label} />)}</Tabs>;
 }
 export function SettingDisclosure({ heading, children, className = '', defaultExpanded = false }: { heading: string; children: ReactNode; className?: string; defaultExpanded?: boolean }) {
   const { enabled } = useAppMotion();
@@ -92,7 +97,9 @@ export function ResourceIcon({ kind }: { kind: ResourceKind }) {
 export function ResourceEmpty({ kind, title, children }: { kind: ResourceKind; title: string; children: ReactNode }) {
   return <div className="resource-empty"><ResourceIcon kind={kind} /><h3>{title}</h3><p>{children}</p></div>;
 }
-export function PageActions({ title, children, onBack, backLabel = '返回列表' }: { title: string; children?: ReactNode; onBack?: () => void; backLabel?: string }) {
-  return <header className="resource-page-heading">{onBack ? <div className="resource-page-navigation"><Button size="sm" variant="light" className="resource-page-back" startContent={<ArrowLeft size="1rem" />} aria-label={backLabel} onPress={onBack}>返回列表</Button><h2>{title}</h2></div> : <h2>{title}</h2>}{children && <div className="resource-page-actions">{children}</div>}</header>;
+export function PageActions({ title, children, onBack, backLabel }: { title: string; children?: ReactNode; onBack?: () => void; backLabel?: string }) {
+  const { t } = useTranslation();
+  const label = backLabel || t('settings.backToList');
+  return <header className="resource-page-heading">{onBack ? <div className="resource-page-navigation"><Button size="sm" variant="light" className="resource-page-back" startContent={<ArrowLeft size="1rem" />} aria-label={label} onPress={onBack}>{label}</Button><h2>{title}</h2></div> : <h2>{title}</h2>}{children && <div className="resource-page-actions">{children}</div>}</header>;
 }
 export function EmptySetting({ children }: { children: ReactNode }) { return <div className="rich-settings-empty">{children}</div>; }

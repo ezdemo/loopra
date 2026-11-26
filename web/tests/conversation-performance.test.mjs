@@ -3,6 +3,7 @@ import { after, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { reactI18nextStubUrl } from './i18n-test-utils.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
 const globals = {
@@ -48,6 +49,7 @@ const blockUrl = dataUrl(`
 const { renders } = await import(blockUrl);
 const specifiers = {
   react: reactUrl,
+  'react-i18next': reactI18nextStubUrl,
   'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'),
   'lucide-react': import.meta.resolve('lucide-react'),
   '../chat': dataUrl(transpile(await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8'))),
