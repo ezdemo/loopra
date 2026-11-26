@@ -17,8 +17,8 @@ type Props = {
   defaultModel: string; onDefaultModel: (id: string) => void; onManage: () => void; notify: (text: string) => void;
 };
 
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
-  return <Switch size="sm" aria-label={label} isSelected={value} onValueChange={onChange} classNames={{ label: 'sr-only' }}>{label}</Switch>;
+function Toggle({ labelId, value, onChange }: { labelId: string; value: boolean; onChange: (value: boolean) => void }) {
+  return <Switch size="sm" aria-labelledby={labelId} isSelected={value} onValueChange={onChange} />;
 }
 
 export default function ModelReasoningSelector(props: Props) {
@@ -34,6 +34,7 @@ export default function ModelReasoningSelector(props: Props) {
   const fusionRow = useRef<HTMLButtonElement>(null);
   const fusionEffortRow = useRef<HTMLButtonElement>(null);
   const panelId = useId();
+  const fastLabelId = useId();
   const flyout = useRef<HTMLDivElement>(null);
   const hoverClose = useRef<ReturnType<typeof setTimeout>>();
   const placement = useMenuPlacement(props.open, anchor);
@@ -149,7 +150,7 @@ export default function ModelReasoningSelector(props: Props) {
             </button>}
             {hasReasoning && <button ref={effortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('effort'); }} onClick={() => openPage('effort', true)} disabled={agentBusy}
               aria-haspopup="dialog" aria-expanded={menu === 'effort'} aria-controls={menu === 'effort' ? `${panelId}-effort` : undefined}>
-              <span>{fusionActive ? t('modelSelector.mainReasoning') : t('modelSelector.reasoning')}</span><span className="model-reasoning-value">{reasoningName || (fast ? t('modelSelector.fastMode') : t('effort.default.label'))}{fast && reasoningName && <Zap size="0.875rem" aria-label={t('modelSelector.fastModeOn')} />}</span>
+              <span>{fusionActive ? t('modelSelector.mainReasoning') : t('modelSelector.reasoning')}</span><span className="model-reasoning-value model-reasoning-effort-value"><span>{reasoningName || (fast ? t('modelSelector.fastMode') : t('effort.default.label'))}</span>{fast && reasoningName && <Zap size="0.875rem" aria-label={t('modelSelector.fastModeOn')} />}</span>
             </button>}
             {!!fusion && <button ref={fusionRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion'); }} onClick={() => openPage('fusion', true)} disabled={agentBusy || props.busy}
               aria-haspopup="dialog" aria-expanded={menu === 'fusion'} aria-controls={menu === 'fusion' ? `${panelId}-fusion` : undefined}>
@@ -221,10 +222,10 @@ export default function ModelReasoningSelector(props: Props) {
         </div>}
         {menu === 'effort' && (agentEffort || agentFast ? <div className="effort-body">
           {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} localizeLevels={!external} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
-          {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />{t('modelSelector.fastMode')}</span><small>{external ? agentOptionDescription(agentFast) || t('modelSelector.fastModeDescription') : t('modelSelector.fastModeDescription')}</small></div><Toggle label={t('modelSelector.fastMode')} value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
+          {agentFast && <div className="composer-toggle-row"><span id={fastLabelId}>{t('modelSelector.fastMode')}</span><Toggle labelId={fastLabelId} value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
         </div> : <div className="effort-body">
           {nativeLevels.length > 0 && <ReasoningControl value={nativeEffort} levels={nativeLevels} allowCustom={selected?.reasoningEfforts === undefined} disabled={props.busy} onCommit={value => update('effort', value)} onClose={close} />}
-          <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />{t('modelSelector.fastMode')}</span><small>{t('modelSelector.fastModeDescription')}</small></div><Toggle label={t('modelSelector.fastMode')} value={options.fast} onChange={value => update('fast', value)} /></div>
+          <div className="composer-toggle-row"><span id={fastLabelId}>{t('modelSelector.fastMode')}</span><Toggle labelId={fastLabelId} value={options.fast} onChange={value => update('fast', value)} /></div>
         </div>)}
         </section>
       </div>}

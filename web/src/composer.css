@@ -123,7 +123,9 @@
 .model-reasoning-rows > button[aria-expanded="true"] { background: var(--hover); }
 .model-reasoning-rows > button > span:not(.model-reasoning-value) { flex-shrink: 0; }
 .model-reasoning-value { display: block; min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary); }
-.model-reasoning-value > svg { display: inline; margin-left: .375rem; vertical-align: middle; }
+.model-reasoning-effort-value { display: flex; align-items: center; gap: .375rem; }
+.model-reasoning-effort-value > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-reasoning-effort-value > svg { flex: none; }
 .model-reasoning-rows > button:disabled { opacity: .5; cursor: default; }
 .model-reasoning-flyout .effort-body { flex: 0 1 auto; min-height: 0; --effort-body-inline-padding: 1.25rem; overflow-y: auto; overflow-x: hidden; }
 @container (max-width: 43rem) {
@@ -406,13 +408,7 @@
 .custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.5rem; }
 .custom-effort > div { flex: 1; }
 .custom-effort button { min-width: 3.125rem; }
-/* Rows are deliberately one line tall: with the hint stacked under the label each row
-   ran to 65px and the two of them plus the custom-value field took over half the panel.
-   The hint now rides beside its label and truncates rather than wrapping. */
 .composer-toggle-row { border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.5rem 0; }
-.composer-toggle-row > div:first-child { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
-.composer-toggle-row span { display: flex; align-items: center; gap: 0.3125rem; flex-shrink: 0; }
-.composer-toggle-row small { color: var(--muted); font-size: 0.6875rem; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-tool-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .composer-tool-list > button, .composer-tool-list > .agent-option > button:first-child, .composer-tool-plan, .composer-selection-list > button { display: flex; align-items: center; width: 100%; gap: 0.6875rem; padding: 0.6875rem 0.625rem; text-align: left; }
 .composer-tool-list > button > svg:first-child, .composer-tool-list > .agent-option > button:first-child > svg:first-child:not(.composer-agent-icon), .composer-tool-plan > svg, .composer-selection-list > button > svg:first-child { flex-shrink: 0; color: var(--secondary); }
