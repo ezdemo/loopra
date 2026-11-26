@@ -213,7 +213,7 @@ GET `` → `[]`。POST `/install` 及其他写操作返回 400，提示改到插
 
 ### 3.10 Git（/api/git）
 `GitStatusDTO={gitAvailable,initialized,branch,workspacePath,changed:[GitFileChange],untracked:[GitFileChange],model,modelChannelId,ahead:i,behind:i,upstream?}`；`GitFileChange={path,index,workTree,status}`（未跟踪项为 `index:"?"`, `workTree:"?"`, `status:"U"`）。
-主要端点：GET `/branch|diff|status|diff-content|file-content|working-file-content|log(limit 50)|config`、POST `/init|commit|toggle|config|generate-commit-message|generate-environment-commit-message`、GET `/environment(+/status|/log)`、POST `/environment/commit|push|toggle`、GET `/environment/diff-content|working-file-content`、POST `/worktree/create`（`{workspaceHash*, sessionName*, discardChanges?}`，幂等）。workspaceHash 大多可选（空=当前项目）。
+主要端点：GET `/branch|diff|status|diff-content|file-content|working-file-content|log(limit 50)|config`、POST `/init|commit|toggle|config|generate-commit-message|generate-environment-commit-message`、GET `/environment(+/status|/log)`、POST `/environment/commit|push|toggle`、GET `/environment/diff-content|working-file-content`、POST `/worktree/create`（`{workspaceHash*, sessionName*, discardChanges?}`，幂等）。workspaceHash 大多可选（空=当前项目）。`working-file-content` 的 `path` 接受项目内相对路径，也接受项目外的只读绝对路径；前者继续受工作区边界校验，后者沿用图片预览的本地绝对路径语义，但最多读取 1 MB。
 
 ### 3.11 Snapshots（/api/snapshots）
 POST `/checkpoint`（q: msgId*）→ `{msgId,commitHash,treeHash,createdAt:l}`；POST `/rollback`（JSON 或 query：msgId? / rollbackTimestamp? / rollbackCode:b=true；纯聊天忽略 rollbackCode，只撤回消息）→ `{msgId,commitHash,treeHash,success,message,rollbackUserText?}`；GET ``；GET `/status`；DELETE `/{msgId}`。
