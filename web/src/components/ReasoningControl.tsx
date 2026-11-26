@@ -106,7 +106,7 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
   }
 
   return <>
-    <div className="effort-summary"><span className="effort-symbol"><Brain size="1.375rem" /></span><div><strong>{effort?.label || (allowCustom ? '自定义' : displayed)}强度</strong><p>{effort?.description || displayed}</p></div></div>
+    <div className="effort-summary"><span className="effort-symbol"><Brain size="1.375rem" /></span><div><strong>{t('effort.summary', { label: effort?.label || (allowCustom ? t('effort.custom') : displayed) })}</strong><p>{effort?.description || displayed}</p></div></div>
     <div className="effort-scale" style={{ '--effort-count': Math.max(1, levels.length) } as CSSProperties}>
       {/* The wrapper carries the level so composer.css can scale the track's spark field with it. */}
       {levels.length > 1 && singleRow && <div className="effort-slider" data-at-max={atMax || undefined} data-sliding={dragPosition !== null || undefined}
@@ -114,12 +114,12 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
         onKeyDownCapture={handleSliderKey} onChangeCapture={handleNativeSliderChange}
         onPointerDownCapture={event => { if (event.isPrimary) cancelDrag.current = false; }}
         onPointerCancelCapture={event => { if (event.isPrimary) { cancelDrag.current = true; setDragPosition(null); } }}>
-        <Slider aria-label="推理强度" className="effort-range" size="sm" minValue={0} maxValue={lastIndex} step={pointerStep} value={dragPosition ?? sparkLevel} isDisabled={disabled}
+        <Slider aria-label={t('effort.aria')} className="effort-range" size="sm" minValue={0} maxValue={lastIndex} step={pointerStep} value={dragPosition ?? sparkLevel} isDisabled={disabled}
           onChange={position => { if (!disabled && !cancelDrag.current) setDragPosition(sliderPosition(position)); }}
           onChangeEnd={position => { if (!disabled && !cancelDrag.current) selectPosition(sliderPosition(position)); }} />
       </div>}
-      <div className={`effort-levels${singleRow ? '' : ' effort-levels-wrap'}`}>{levels.map(level => <button key={level.value} disabled={disabled} aria-label={`推理强度：${level.label}`} aria-pressed={level.value === displayed} onClick={() => { void commit(level.value); }}>{level.label}</button>)}</div>
+      <div className={`effort-levels${singleRow ? '' : ' effort-levels-wrap'}`}>{levels.map(level => <button key={level.value} disabled={disabled} aria-label={t('effort.levelAria', { label: level.label })} aria-pressed={level.value === displayed} onClick={() => { void commit(level.value); }}>{level.label}</button>)}</div>
     </div>
-    {allowCustom && <form className="custom-effort" onSubmit={event => { event.preventDefault(); if (custom.trim()) { void commit(custom.trim()); onClose(); } }}><Input size="sm" variant="bordered" aria-label="自定义推理强度" placeholder="自定义值，如 xhigh" maxLength={24} value={custom} onValueChange={setCustom} isDisabled={disabled} /><Button size="sm" variant="flat" type="submit" isDisabled={disabled || !custom.trim()}>应用</Button></form>}
+    {allowCustom && <form className="custom-effort" onSubmit={event => { event.preventDefault(); if (custom.trim()) { void commit(custom.trim()); onClose(); } }}><Input size="sm" variant="bordered" aria-label={t('effort.customAria')} placeholder={t('effort.customPlaceholder')} maxLength={24} value={custom} onValueChange={setCustom} isDisabled={disabled} /><Button size="sm" variant="flat" type="submit" isDisabled={disabled || !custom.trim()}>{t('effort.apply')}</Button></form>}
   </>;
 }
