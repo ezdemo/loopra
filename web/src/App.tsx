@@ -1,5 +1,6 @@
 import { SessionImageSourceProvider } from './components/ChatImage';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Check } from 'lucide-react';
 import { applyDocumentAccent, applyDocumentTheme, bootTheme, documentThemeIsDark } from './document-theme';
@@ -81,8 +82,10 @@ import { SessionRuns, sessionRunKey, draftRunKey, isRunView } from './session-ru
 import { orderWithNewSessionFirst } from './session-order';
 import { useWorkspaceSelection } from './useWorkspaceSelection';
 import { initialOpenWorkspace } from './workspace-open';
+import { languageFromPreference, setAppLanguage } from './i18n';
 
 export default function App({ startupPending = false, initialServer }: { startupPending?: boolean; initialServer?: string } = {}) {
+  const { t } = useTranslation();
   const [server, setServer] = useLocalState('backend-server', DEFAULT_SERVER);
   const [appliedInitialServer, setAppliedInitialServer] = useState<string>();
   const backend = useLoopra(server, !startupPending && initialServer === appliedInitialServer);
@@ -94,6 +97,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const [preferences, setPreferences] = useLocalState<Preferences>('preferences', initialTheme ? { ...defaultPreferences, theme: initialTheme } : defaultPreferences);
   const preferencesRef = useRef(preferences);
   preferencesRef.current = preferences;
+  useEffect(() => { void setAppLanguage(languageFromPreference(preferences.language)); }, [preferences.language]);
   const uiPreferenceSave = useRef(0);
   const uiPreferenceDirty = useRef(false);
   const { profile, ready: profileReady, saveProfile: writeProfileLocal } = useLocalProfile();
@@ -1572,7 +1576,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const asyncTools = session && (generatingId === session.id || remoteRun?.id === session.id) ? runningBackgroundTools(session.messages.at(-1)) : [];
   const composer = <BackgroundTasks key={session?.id || workspace} api={api} workspaceHash={session?.workspaceHash || workspace} sessionName={session?.name} connected={backend.status === 'connected' && backend.ready} open={terminal} onOpenChange={setTerminal} notify={notify} asyncTools={asyncTools} toolbarTarget={isHome ? homeTaskToolbar : null} actions={!chatMode && !isHome && session ? <SessionProgress api={api} session={session} revision={progressRevision} externalPlan={generatingId === session.id ? acpPlans[session.id] : undefined} streaming={!!generatingId && generatingId === session.id} /> : undefined}>{session && isSessionOccupied(session.id)
     ? <SessionOccupiedNotice busy={composerConfigBusy} forking={forkBusy === `${server}::${session.id}`} disabled={backend.status !== 'connected' || !backend.ready} onRetry={retryAgentConfig} onFork={() => void forkOccupiedSession()} />
-    : <Composer home={isHome} loading={workspaceLoading} language={preferences.language} draft={draft} onDraft={setDraft} inputRef={textarea}
+    : <Composer home={isHome} loading={workspaceLoading} draft={draft} onDraft={setDraft} inputRef={textarea}
     agentConfig={{ options: composerAgentOptions, busy: composerConfigBusy, error: (!session && (agentPreferencesError || enginesError || (selectedEngineAvailable === false ? engines.find(item => item.id === agentId)?.detail || '所选 Agent 不可用，请检查安装与模型配置' : ''))) || agentConfigError, onPrepare: retryAgentConfig, onChange: changeAgentConfig }}
     agentId={agentId} agentName={agentPersonaId ? backend.agents.find(item => item.id === agentPersonaId)?.name : undefined} engines={engines} acpCommands={session ? acpCommands[session.id] : undefined}
     options={composerOptions} onOptions={saveOptions} context={composerContext} onContext={setComposerContext}
@@ -1592,7 +1596,6 @@ export default function App({ startupPending = false, initialServer }: { startup
     liveSpeed={liveSpeed} usageRevision={currentRun?.usageRevision}
     onOpen={() => { setMenu(null); setTerminal(false); }} notify={notify} />}</BackgroundTasks>;
 
-  const english = preferences.language === 'English';
   const showHome = () => {
     if (!isHome) { newSession(); return; }
     closeSurface();
@@ -1605,7 +1608,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   return <AppMotion enabled={preferences.animations}><div className={`desktop-app${desktopShell ? ' is-desktop-shell' : ''}${nativeWindowControls ? ' is-native-controls' : ''}`} data-sidebar={sidebar && !surfaceOpen ? 'open' : 'closed'} data-panel={changes ? 'open' : 'closed'}>
     {desktopShell && <DesktopTitleBar />}
     <div className="workbench-shell">
-    <ActivityRail english={english} home={!surfaceOpen} utilityOpen={schedulesOpen || botsOpen || !!pluginPage} skillsOpen={skillsOpen} settingsOpen={settingsOpen} profile={profile} api={api} plugins={pluginNav}
+    <ActivityRail home={!surfaceOpen} utilityOpen={schedulesOpen || botsOpen || !!pluginPage} skillsOpen={skillsOpen} settingsOpen={settingsOpen} profile={profile} api={api} plugins={pluginNav}
       onHome={showHome} onSearch={openSearch}
       onSkills={() => openSettings('技能与插件')}
       onSchedules={() => { closeSurface(); setSchedulesOpen(true); }}
@@ -1614,7 +1617,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       onHelp={() => setHelpOpen(true)} onSettings={() => openSettings()} onProfile={() => setProfileOpen(true)} />
     <div className="app-body" data-surface={surfaceOpen ? 'utility' : undefined}>
       {narrow && <button className="sidebar-backdrop" data-open={sidebar} aria-label="关闭侧边栏遮罩" onClick={() => setSidebar(false)} />}
-      {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} english={english} workspaces={workspaces} sessions={sessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
+      {sidebarMounted && <Sidebar open={sidebar} workspacesLoading={workspaceLoading} sessionsLoading={startupPending || backend.sessionsLoading} workspaces={workspaces} sessions={sessions} runningIds={runningIds} unreadIds={unreadIds} activeId={surfaceOpen ? '' : activeId ?? ''} workspace={workspace} isHome={!surfaceOpen && isHome} expanded={expandedWorkspaces} onExpanded={setExpandedWorkspaces}
         onClose={() => setSidebar(false)} onNewSession={hash => newSession(hash)}
         onRefreshAll={() => void backend.refresh()} onRefreshProject={hash => void refreshProject(hash)} onRefreshSession={entry => void refreshSessionChat(entry)} onManageProject={setProjectDialog}
         onManageProjects={() => { setMenu(null); setProjectsOpen(true); if (narrow) setSidebar(false); }}
@@ -1623,7 +1626,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       <main className={`main-area ${changes ? 'has-changes' : ''}`}>
         <Header sidebarOpen={sidebar} onOpenSidebar={() => setSidebar(true)} isHome={surfaceOpen || isHome} workspaceName={workspaceName} session={session} menu={menu} onToggleMenu={toggleMenu}
           chatMode={chatMode} panelAvailable={!surfaceOpen} workspaceActions={!surfaceOpen}
-          returnToChat={surfaceOpen ? { label: english ? 'Back to chat' : '返回会话', onClick: closeSurface } : undefined}
+          returnToChat={surfaceOpen ? { label: t('header.backToChat'), onClick: closeSurface } : undefined}
           backend={{ status: backend.status, ready: backend.ready, error: backend.error, version: backend.version }} server={server} onStatus={() => openSettings('服务器')}
           latestVersion={backend.updateCheck?.latestVersion} desktopUpdate={desktopUpdate.state}
           onVersion={desktopUpdate.available ? desktopUpdate.show : openCoreUpdate}
@@ -1677,7 +1680,7 @@ export default function App({ startupPending = false, initialServer }: { startup
         <div className="app-chat-workspace" hidden={surfaceOpen}>
         <WorkspaceTabs key={editorKey} api={api} workspaceHash={workspace} state={chatMode ? emptyWorkspaceTabs : sessionTabs} onSelect={selectMainTab} onClose={closeFile} onOpen={openFile} notify={notify} onCloseSubAgent={closeSubAgent}><div className={`main-content ${isHome ? 'home-content' : ''}`}>{(!!generatingId || (!!session && remoteRun?.id === session.id)) && <div className="streaming-bar" role="status" aria-label="会话正在执行"><div className="streaming-bar-inner" /></div>}
           <ChatLogs logs={chatLogs.logs} onDismiss={chatLogs.dismiss} onCopy={text => { void navigator.clipboard?.writeText(text).then(() => chatLogs.push({ text: '✅ 日志已复制' })).catch(() => chatLogs.push({ level: 'ERROR', message: '复制失败，请手动选择日志' })); }} />
-          {backend.status === 'error' && <div className="backend-error" role="alert"><span>无法连接 Loopra：{backend.error}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>重新连接</Button></div>}
+          {backend.status === 'error' && <div className="backend-error" role="alert"><span>{t('app.backendError', { error: backend.error })}</span><Button size="sm" variant="flat" onPress={() => void backend.refresh()}>{t('app.reconnect')}</Button></div>}
           {tuiOn ? <AgentTui key={`${workspace}/${session.agentId}/${session.name}`} api={api} workspaceHash={session.workspaceHash || workspace} agentId={session.agentId || agentId} sessionName={session.name || ''} /> : isHome ? <HomeView workspacesLoading={workspaceLoading} enginesLoading={workspaceLoading || (enginesLoading && !engines.length)} workspaces={workspaces} workspace={workspace} workspaceName={workspaceName} chatMode={chatMode} menuOpen={menu === 'workspace'} onToggleMenu={() => toggleMenu('workspace')}
             onSelect={selectWorkspace} onManage={() => { setMenu(null); setProjectsOpen(true); }}
             engines={chatMode || agentLocked ? engines.filter(engine => engine.id === 'native') : engines} agentId={agentId} agentDisabled={!!generatingId || !!remoteRun || !agentPreferencesReady || agentSelectionBusy || chatMode || agentLocked} disabledReason={agentLocked ? '自定义智能体仅支持 Loopra Native' : undefined} onAgent={switchAgent}
@@ -1703,7 +1706,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     </div>
     </div>
     {sessionDetails && session && <SessionDetails api={api} session={session} initialTab={sessionDetailsTab} onClose={() => setSessionDetails(false)} notify={notify} />}
-    {deleteSession && <ConfirmAction title="删除会话" onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>删除 {deleteSession.title} 及其在 Loopra 服务端的记录？此操作不可恢复。</p></ConfirmAction>}
+    {deleteSession && <ConfirmAction title={t('app.deleteSessionTitle')} onClose={() => setDeleteSession(undefined)} action={() => removeSession(deleteSession)}><p>{t('app.deleteSessionBody', { title: deleteSession.title })}</p></ConfirmAction>}
     {projectDialog && <ProjectSessions key={`${server}/${projectDialog.hash}`} api={api} workspace={projectDialog} workspaces={projectWorkspaces} count={sessions.filter(item => item.workspaceHash === projectDialog.hash).length} sessions={sessions.filter(item => item.workspaceHash === projectDialog.hash)} onClose={() => setProjectDialog(undefined)} onRefresh={async () => { await backend.refreshWorkspaces(); }} onCompleted={(kind, sessionNames) => projectMaintained(kind, projectDialog, sessionNames)} onUpdated={(hash, links) => setProjectDialog(previous => previous?.hash === hash ? { ...previous, ...links } : previous)} onRenamed={(previous, renamed) => { setProjectDialog(renamed); setComposerContext(current => ({ ...current, projects: current.projects.map(name => name === previous.name ? renamed.name : name) })); }} notify={notify} />}
     {projectsOpen && <ProjectManager api={api} workspaces={projectWorkspaces} sessions={sessions} current={workspace} onClose={() => setProjectsOpen(false)} onRefresh={backend.refreshWorkspaces} onAdded={item => { setExpandedWorkspaces(previous => previous.includes(item.hash) ? previous : [...previous, item.hash]); newSession(item.hash); }} onDeleted={item => projectMaintained('delete', item)} notify={notify} />}
     {agentEditor && <AgentEditor api={api} agent={agentEditor === 'new' ? undefined : agentEditor} workspaces={projectWorkspaces} sessionCount={agentEditor === 'new' ? 0 : sessions.filter(item => item.workspaceHash === agentEditor.id).length} onClose={() => setAgentEditor(undefined)} onSaved={agentSaved} onDeleted={agentDeleted} />}
@@ -1728,7 +1731,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     {profileOpen && <ProfileEditor profile={profile} english={preferences.language === 'English'} onSave={saveProfile} onClose={() => setProfileOpen(false)} />}
     {!isDesktopWindow() && <CoreServiceUpdateDialog controller={coreUpdate} notify={notify} />}
     <DesktopUpdateDialog controller={desktopUpdate} />
-    <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label="重命名会话"><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>重命名会话</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label="会话名称" value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>取消</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>保存</Button></ModalFooter></form></ModalContent></Modal>
+    <Modal isOpen={!!rename} onClose={() => setRename(null)} placement="center" scrollBehavior="inside" classNames={{ base: 'app-dialog rename-modal', wrapper: 'app-dialog-wrapper', backdrop: 'modal-backdrop', closeButton: 'app-dialog-close' }} aria-label={t('app.renameSession')}><ModalContent><form className="app-dialog-form" onSubmit={event => { event.preventDefault(); void renameSession(); }}><ModalHeader className="app-dialog-header"><h2>{t('app.renameSession')}</h2></ModalHeader><ModalBody className="app-dialog-body"><Input autoFocus aria-label={t('app.sessionName')} value={renameValue} onValueChange={setRenameValue} variant="bordered" /></ModalBody><ModalFooter className="app-dialog-footer"><Button size="sm" variant="light" onPress={() => setRename(null)}>{t('common.cancel')}</Button><Button size="sm" type="submit" color="primary" isDisabled={!renameValue.trim()}>{t('common.save')}</Button></ModalFooter></form></ModalContent></Modal>
     <Toast message={toast}><Check size="1rem" />{toast}</Toast>
   </div></AppMotion>;
 }

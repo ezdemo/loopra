@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Cable, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
 import { acpSlashCommands, appendPreset, attachmentViews, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
@@ -29,7 +30,7 @@ type Props = {
   engines?: AgentEngine[];
   agentConfig?: AgentConfigState;
   acpCommands?: AcpCommand[];
-  home: boolean; language: string; draft: string; onDraft: (text: string) => void;
+  home: boolean; draft: string; onDraft: (text: string) => void;
   inputRef: RefObject<HTMLTextAreaElement>; options: ComposerOptions; onOptions: (value: ComposerOptions) => void | Promise<void>;
   skillOptions: { name: string; description: string }[]; systemPrompt: string; petEnabled: boolean; desktopPet?: boolean; pets: PetStore; petActivity: PetAnimation;
   petReply: PetReply | null; latestPetReply: string; onPetClose: () => void;
@@ -59,14 +60,16 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 }
 
 function ComposerToolbarSkeleton({ showMcp }: { showMcp: boolean }) {
+  const { t } = useTranslation();
   return <>
-    <span className="sr-only" role="status">正在加载输入栏配置…</span>
+    <span className="sr-only" role="status">{t('composer.loadingToolbar')}</span>
     <div className="composer-left" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-permission" /><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-icon" />{showMcp && <span className="composer-skeleton skeleton-icon" />}</div>
     <div className="composer-right" aria-hidden="true"><span className="composer-skeleton skeleton-icon" /><span className="composer-skeleton skeleton-model" /><span className="composer-skeleton skeleton-send" /></div>
   </>;
 }
 
 export default function Composer(props: Props) {
+  const { t } = useTranslation();
   const external = !!props.agentId && props.agentId !== 'native';
   const { home, draft, onDraft, inputRef, options, onOptions, context, onContext, providers, notify, workspaces } = props;
   const chatMode = !!props.chatMode;
@@ -116,9 +119,9 @@ export default function Composer(props: Props) {
   const usageMetricsNote = usage.metrics
     ? [
         usage.metrics.promptTokens + usage.metrics.completionTokens > 0
-          ? `总 token ${formatTokens(usage.metrics.promptTokens + usage.metrics.completionTokens)}` : '',
-        usage.metrics.hasPrice ? `费用 ${formatUsageCost(usage.metrics.totalCost, usage.metrics.currency)}` : '',
-        usage.metrics.cacheHitRate != null ? `命中率 ${usage.metrics.cacheHitRate.toFixed(1)}%` : '',
+          ? t('composer.totalTokens', { value: formatTokens(usage.metrics.promptTokens + usage.metrics.completionTokens) }) : '',
+        usage.metrics.hasPrice ? t('composer.cost', { cost: formatUsageCost(usage.metrics.totalCost, usage.metrics.currency) }) : '',
+        usage.metrics.cacheHitRate != null ? t('composer.cacheHitRate', { rate: usage.metrics.cacheHitRate.toFixed(1) }) : '',
       ].filter(Boolean).join(' · ')
     : '';
   // ACP owns the per-session choices. Its standard categories map onto the
@@ -145,6 +148,16 @@ export default function Composer(props: Props) {
   const planActive = !!agentPlan && configValue(agentPlan) === planOn;
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
+  const localizedNativePermission = (value: { value: string; name: string; description?: string }) => !external ? ({
+    approval: { name: t('composer.permissionApproval'), description: t('composer.permissionApprovalDescription') },
+    auto: { name: t('composer.permissionAuto'), description: t('composer.permissionAutoDescription') },
+    free: { name: t('composer.permissionFree'), description: t('composer.permissionFreeDescription') },
+  })[value.value] || null : null;
+  const localizedPermissionMode = (mode: string) => mode === '完全自动' ? t('composer.permissionFree') : mode === '按需审批' ? t('composer.permissionApproval') : mode === '自动审批' ? t('composer.permissionAuto') : mode;
+  const localizedUsagePart = (name: string) => ({
+    '系统指令': t('usage.part.system'), '工具定义': t('usage.part.tools'), '用户消息': t('usage.part.user'), '助手消息': t('usage.part.assistant'),
+    '工具结果': t('usage.part.result'), '会话上下文': t('usage.part.context'), '会话历史': t('usage.part.history'), '当前输入': t('usage.part.input'), '附加上下文': t('usage.part.attachments'),
+  })[name] || name;
 
   function close() { setMenu(null); setEditing(null); }
   function open(next: Menu) {
@@ -345,7 +358,7 @@ export default function Composer(props: Props) {
             retryTimer = setTimeout(() => read(attempt + 1), delay);
           }
         }).catch(() => {
-          if (!controller.signal.aborted) setCommandDiscovery(current => current && { ...current, loading: false, error: '读取 Agent 指令失败' });
+          if (!controller.signal.aborted) setCommandDiscovery(current => current && { ...current, loading: false, error: t('composer.readAgentCommandsFailed') });
         });
     };
     read(0);
@@ -417,19 +430,29 @@ export default function Composer(props: Props) {
     return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', escape); };
   }, [draft, menu]);
 
+  const localizedSlashCommand = (command: (ReturnType<typeof localSlashCommands>)[number]) => {
+    const key = command.id.slice(1);
+    return {
+      ...command,
+      title: t(`composer.command.${key}.title`),
+      description: command.id === '/continue'
+        ? (props.history.length ? t('composer.command.continue.description') : t('composer.command.continue.disabled'))
+        : t(`composer.command.${key}.description`),
+    };
+  };
   const localCommands = localSlashCommands({
     onNew: props.onNew,
     onContinue: props.onContinue,
     onSkills: () => open('skills'),
-    onHelp: () => notify(chatMode ? '/ 调用指令，Shift + Enter 换行' : '/ 调用指令，@ 引用工作区文件，Shift + Enter 换行'),
+    onHelp: () => notify(chatMode ? t('composer.helpChat') : t('composer.helpWorkspace')),
     onExport: props.onExport,
     onSessions: props.onSessions,
     onTerminal: props.onTerminal,
     onClear: props.onClear,
-    hasHistory: !!props.history.length, busy: props.busy, notify,
+    hasHistory: !!props.history.length, busy: props.busy, notify: message => notify(message === '请先开始会话' ? t('composer.command.continue.requiresSession') : message),
   }).filter(command => !external || command.id !== '/skills')
-    .map(command => ({ ...command,
-      ...(chatMode && command.id === '/help' ? { description: '/ 调用指令 · Shift + Enter 换行' } : {}),
+    .map(command => ({ ...localizedSlashCommand(command),
+      ...(chatMode && command.id === '/help' ? { description: t('composer.helpChatShort') } : {}),
       action: () => { onDraft(''); command.action?.(); } }));
   // Server commands/skills insert their text so the agent handles them.
   const discovered = commandDiscovery?.scope === commandScope && commandDiscovery.api === props.api ? commandDiscovery : undefined;
@@ -437,7 +460,7 @@ export default function Composer(props: Props) {
   const chatCommands = new Set(['/help', '/compact', '/continue', '/agree', '/deny']);
   const remoteSlash = (external ? acpSlashCommands(agentCommands) : serverSlashCommands(
     chatMode ? remoteCommands.filter(command => chatCommands.has(command.cmd)) : remoteCommands, remoteSkills))
-    .map(command => ({ ...command, title: external ? agentEngineName : command.title, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
+    .map(command => ({ ...command, title: external ? agentEngineName : command.title, description: command.description === '运行技能' ? t('composer.runSkill') : command.description, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
   const commands = external ? remoteSlash : mergeSlashCommands(localCommands, remoteSlash);
   const mention = chatMode ? null : draft.match(/(?:^|\s)@([^\s]*)$/);
   const mentionQuery = mention?.[1];
@@ -452,15 +475,15 @@ export default function Composer(props: Props) {
   const suggestions = menu || dismissedDraft === draft ? [] : slash
     ? commands.filter(command => command.id.includes(draft.toLowerCase())).map(command => ({ ...command, label: command.id }))
     : mention ? fileSuggestions.map(name => ({
-      id: name, label: name, title: '引用项目文件', description: '将路径发送给 Loopra，由 Agent 按权限读取', action: () => {
+      id: name, label: name, title: t('composer.referenceFile'), description: t('composer.referenceFileDescription'), action: () => {
         onContext({ ...context, files: [...new Set([...context.files, name])] });
         onDraft(draft.slice(0, draft.length - mention[1].length - 1));
       },
     })) : [];
   const showCommandStatus = external && commandMenuOpen && !suggestions.length;
-  const commandStatus = !props.sessionName ? (agentBusy ? '正在准备 Agent 指令…' : '请先连接 Agent 以读取指令')
-    : discovered?.loading ? '正在读取 Agent 指令…'
-    : discovered?.error || (agentCommands.length ? '没有匹配的 Agent 指令' : '当前 Agent 尚未提供可用指令');
+  const commandStatus = !props.sessionName ? (agentBusy ? t('composer.preparingAgentCommands') : t('composer.connectAgentCommands'))
+    : discovered?.loading ? t('composer.loadingAgentCommands')
+    : discovered?.error || (agentCommands.length ? t('composer.noMatchingAgentCommands') : t('composer.noAgentCommands'));
   useEffect(() => {
     root.current?.querySelector('.composer-suggestions .is-selected')?.scrollIntoView?.({ block: 'nearest' });
   }, [suggestionIndex, draft]);
@@ -472,7 +495,7 @@ export default function Composer(props: Props) {
     setPresets(next); persistPresets(next);
     setEditing(null); notify('常用要求已保存');
   }
-  const menuTitles: Record<Menu, string> = { 'model-settings': '模型与推理设置', tools: '输入工具', projects: '关联项目', skills: '选择技能', permission: '权限模式', presets: '常用要求', context: '上下文用量', more: '更多 Agent 配置', mcp: 'MCP 透传', connectors: '连接器' };
+  const menuTitles: Record<Menu, string> = { 'model-settings': t('composer.menu.modelSettings'), tools: t('composer.menu.tools'), projects: t('composer.menu.projects'), skills: t('composer.menu.skills'), permission: t('composer.menu.permission'), presets: t('composer.menu.presets'), context: t('composer.menu.context'), more: t('composer.menu.more'), mcp: t('composer.menu.mcp'), connectors: t('composer.menu.connectors') };
   // Legacy ChatInput split context into image thumbnails and file chips with sizes.
   const { images: contextImages, files: contextFiles } = attachmentViews(context, pasteChars);
   const removeAttachment = (name: string) => onContext({ ...context, files: context.files.filter(item => item !== name), attachments: context.attachments?.filter(file => file.name !== name) });
@@ -489,7 +512,7 @@ export default function Composer(props: Props) {
     onDragLeave={() => { dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
     onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); addFiles(event.dataTransfer.files); }}>
     <div className="composer-resize-handle" role="separator" aria-orientation="horizontal" tabIndex={0}
-      aria-label="拖动调整输入框高度" aria-valuenow={inputHeight > 0 ? Math.round(inputHeight * 10) / 10 : undefined} title="拖动调整输入框高度，双击恢复默认"
+      aria-label={t('composer.resizeInput')} aria-valuenow={inputHeight > 0 ? Math.round(inputHeight * 10) / 10 : undefined} title={t('composer.resizeInputTitle')}
       onPointerDown={startInputResize} onPointerMove={moveInputResize} onPointerUp={endInputResize} onPointerCancel={endInputResize} onLostPointerCapture={endInputResize}
       onDoubleClick={resetInputHeight}
       onKeyDown={event => {
@@ -502,20 +525,20 @@ export default function Composer(props: Props) {
     <div className="composer-context-chips">
       {contextImages.map(image => <div className="composer-image-thumb" key={`image:${image.name}`} title={image.name}>
         <img className="composer-image-preview" src={image.src} alt={image.name} />
-        <button type="button" className="composer-image-remove" aria-label={`移除图片：${image.name}`} title="移除图片" onClick={() => removeAttachment(image.name)}><X size="0.75rem" /></button>
+        <button type="button" className="composer-image-remove" aria-label={t('composer.removeImage', { name: image.name })} title={t('composer.removeImageShort')} onClick={() => removeAttachment(image.name)}><X size="0.75rem" /></button>
       </div>)}
       {(['projects', 'skills'] as const).filter(key => !chatMode || key === 'skills').flatMap(key => context[key].map(name => <Chip size="sm" variant="flat" key={`${key}:${name}`} classNames={{ base: `context-chip chip-${key}` }}
         startContent={key === 'projects' ? <FolderClosed size="0.8125rem" /> : <Sparkles size="0.8125rem" />}
-        endContent={<button className="context-chip-remove" aria-label={`移除${key === 'projects' ? '项目' : '技能'}：${name}`} onClick={() => onContext({ ...context, [key]: context[key].filter(item => item !== name) })}><X size="0.75rem" /></button>}>{name}</Chip>))}
+        endContent={<button className="context-chip-remove" aria-label={key === 'projects' ? t('composer.removeProject', { name }) : t('composer.removeSkill', { name })} onClick={() => onContext({ ...context, [key]: context[key].filter(item => item !== name) })}><X size="0.75rem" /></button>}>{name}</Chip>))}
       {contextFiles.map(file => <Chip size="sm" variant="flat" key={`files:${file.name}`} classNames={{ base: 'context-chip chip-files' }}
         startContent={<Paperclip size="0.8125rem" />}
-        endContent={<button className="context-chip-remove" aria-label={`移除附件：${file.name}`} onClick={() => removeAttachment(file.name)}><X size="0.75rem" /></button>}>
-        {file.name}{file.chars != null ? <small className="context-chip-size">{file.chars.toLocaleString()} 字符</small> : file.size != null ? <small className="context-chip-size">{formatFileSize(file.size)}</small> : null}
+        endContent={<button className="context-chip-remove" aria-label={t('composer.removeAttachment', { name: file.name })} onClick={() => removeAttachment(file.name)}><X size="0.75rem" /></button>}>
+        {file.name}{file.chars != null ? <small className="context-chip-size">{t('composer.characters', { value: file.chars.toLocaleString() })}</small> : file.size != null ? <small className="context-chip-size">{formatFileSize(file.size)}</small> : null}
       </Chip>)}
-      {planActive && agentPlan && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label="退出计划模式" disabled={agentBusy} onClick={() => changeAgent(agentPlan.id, planOff)}><X size="0.75rem" /></button>}>计划模式</Chip>}
-      {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>清除</button>}
+      {planActive && agentPlan && <Chip size="sm" variant="flat" color="primary" startContent={<ListChecks size="0.8125rem" />} endContent={<button className="context-chip-remove" aria-label={t('composer.exitPlanMode')} disabled={agentBusy} onClick={() => changeAgent(agentPlan.id, planOff)}><X size="0.75rem" /></button>}>{t('composer.planMode')}</Chip>}
+      {hasContext && <button type="button" className="context-clear-all" onClick={() => onContext({ ...context, projects: [], skills: [], files: [], attachments: [] })}>{t('composer.clearAll')}</button>}
     </div>
-    <textarea ref={inputRef} aria-label="输入消息" placeholder={chatMode ? (props.language === 'English' ? 'Message… / commands' : '输入消息，/ 调用指令…') : props.language === 'English' ? 'Message… / commands, @ context' : '输入消息，/ 调用指令，@ 引用文件…'} value={draft}
+    <textarea ref={inputRef} aria-label={t('composer.inputMessage')} placeholder={chatMode ? t('composer.placeholderChat') : t('composer.placeholderWorkspace')} value={draft}
       onChange={event => { onDraft(event.target.value); setSuggestionIndex(0); setDismissedDraft(null); }}
       onPaste={event => { void handlePaste(event); }}
       onKeyDown={event => {
@@ -531,26 +554,26 @@ export default function Composer(props: Props) {
     <div className={`composer-bottom${initialConfigLoading ? ' composer-toolbar-loading' : ''}`} aria-busy={initialConfigLoading || undefined}>
       {initialConfigLoading ? <ComposerToolbarSkeleton showMcp={!chatMode} /> : <>
       <div className="composer-left">
-        <Tooltip content="附件、项目和工具" delay={600}><Button isIconOnly variant="light" aria-label="添加附件或工具" aria-expanded={menu === 'tools'} className={`composer-icon ${menu === 'tools' ? 'is-active' : ''}`} onPress={() => open('tools')}><Plus size="1.125rem" strokeWidth={1.75} /></Button></Tooltip>
+        <Tooltip content={t('composer.attachmentsProjectsTools')} delay={600}><Button isIconOnly variant="light" aria-label={t('composer.addAttachmentOrTool')} aria-expanded={menu === 'tools'} className={`composer-icon ${menu === 'tools' ? 'is-active' : ''}`} onPress={() => open('tools')}><Plus size="1.125rem" strokeWidth={1.75} /></Button></Tooltip>
         {agentMode ? <Tooltip content={agentOptionDescription(agentMode)} delay={600}><Button isDisabled={agentBusy} variant="light" className={`composer-permission ${isDangerousAgentMode(agentMode) ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
-          {isDangerousAgentMode(agentMode) ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{agentOptionLabel(agentMode)}</span>
+          {isDangerousAgentMode(agentMode) ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{localizedNativePermission({ value: agentModeValue, name: agentOptionLabel(agentMode) })?.name || agentOptionLabel(agentMode)}</span>
         </Button></Tooltip> : !props.agentConfig && <Button isDisabled={external} variant="light" className={`composer-permission ${!external && options.mode === '完全自动' ? 'automatic' : ''}`} onPress={() => open('permission')} aria-expanded={menu === 'permission'}>
-          {!external && options.mode === '完全自动' ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{external ? '由 Agent 请求审批' : options.mode}</span>
+          {!external && options.mode === '完全自动' ? <ShieldAlert size="0.9375rem" /> : <ShieldCheck size="0.9375rem" />}<span>{external ? t('composer.agentApproval') : localizedPermissionMode(options.mode)}</span>
         </Button>}
-        <Tooltip content="常用要求" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'presets' ? 'is-active' : ''}`} aria-label="常用要求" aria-expanded={menu === 'presets'} onPress={() => open('presets')}><BookOpen size="1rem" /></Button></Tooltip>
-        {props.history.length > 0 && <Tooltip content={draft.trim() ? '先发送或清空草稿' : '继续生成'} delay={600}><Button isIconOnly variant="light" className="composer-icon continue-button" aria-label="继续生成" isDisabled={agentBusy || props.busy || !!draft.trim()} onPress={props.onContinue}><Play size="1rem" /></Button></Tooltip>}
-        {!chatMode && <Tooltip content="管理当前 Agent 的 MCP 透传" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'mcp' ? 'is-active' : ''}`} aria-label="管理 MCP 透传" aria-expanded={menu === 'mcp'} onPress={() => open('mcp')}><Plug size="1rem" /></Button></Tooltip>}
+        <Tooltip content={t('composer.presets')} delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'presets' ? 'is-active' : ''}`} aria-label={t('composer.presets')} aria-expanded={menu === 'presets'} onPress={() => open('presets')}><BookOpen size="1rem" /></Button></Tooltip>
+        {props.history.length > 0 && <Tooltip content={draft.trim() ? t('composer.clearDraftFirst') : t('composer.continueGeneration')} delay={600}><Button isIconOnly variant="light" className="composer-icon continue-button" aria-label={t('composer.continueGeneration')} isDisabled={agentBusy || props.busy || !!draft.trim()} onPress={props.onContinue}><Play size="1rem" /></Button></Tooltip>}
+        {!chatMode && <Tooltip content={t('composer.manageMcp')} delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'mcp' ? 'is-active' : ''}`} aria-label={t('composer.manageMcpAria')} aria-expanded={menu === 'mcp'} onPress={() => open('mcp')}><Plug size="1rem" /></Button></Tooltip>}
       </div>
       <div className={`composer-right ${agentOptions ? 'has-agent-config' : ''}`}>
-        <Tooltip content={`上下文 ${usagePercent}`} delay={600}><Button isIconOnly variant="light" aria-label="查看上下文用量" aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${usage.windowKnown === false ? 0 : Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
-        {agentOptions && otherAgentOptions.length > 0 && <Tooltip content="更多 Agent 配置" delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'more' ? 'is-active' : ''}`} aria-label="更多 Agent 配置" aria-expanded={menu === 'more'} onPress={() => open('more')}><Settings2 size="1rem" /></Button></Tooltip>}
+        <Tooltip content={t('composer.contextUsage', { percent: usagePercent })} delay={600}><Button isIconOnly variant="light" aria-label={t('composer.viewContextUsage')} aria-expanded={menu === 'context'} className="composer-icon usage-button" onPress={() => open('context')}><span className="usage-ring" style={{ '--usage': `${usage.windowKnown === false ? 0 : Math.max(usage.percent, 4)}%` } as CSSProperties} /></Button></Tooltip>
+        {agentOptions && otherAgentOptions.length > 0 && <Tooltip content={t('composer.moreAgentConfig')} delay={600}><Button isIconOnly variant="light" className={`composer-icon ${menu === 'more' ? 'is-active' : ''}`} aria-label={t('composer.moreAgentConfig')} aria-expanded={menu === 'more'} onPress={() => open('more')}><Settings2 size="1rem" /></Button></Tooltip>}
         <ModelReasoningSelector open={menu === 'model-settings'} onOpenChange={() => open('model-settings')} onClose={close} onSelected={focusInput}
           models={models} options={options} onOptions={onOptions} agentConfig={props.agentConfig} agentId={props.agentId} external={external} agentEngineName={agentEngineName}
           busy={props.busy} connected={props.connected} chatMode={chatMode} defaultModel={props.defaultModel} onDefaultModel={props.onDefaultModel} onManage={props.onManage} notify={notify} />
-        {props.agentConfig?.error && <Tooltip content={props.agentConfig.error} delay={300}><Button isIconOnly size="sm" variant="light" className="composer-icon" onPress={props.agentConfig.onPrepare} aria-label="重试加载 Agent 配置"><RefreshCw size="1rem" /></Button></Tooltip>}
-        {props.generating ? <Button isIconOnly aria-label="停止生成" className="send-button generating" onPress={props.onStop}><Square size="0.75rem" fill="currentColor" /></Button>
-          : props.remoteRunning ? <Button isIconOnly aria-label="停止后台任务" className="send-button generating" onPress={props.onStopRemote}><Square size="0.75rem" fill="currentColor" /></Button> : null}
-        <Button isIconOnly aria-label={props.generating || props.remoteRunning ? '加入队列' : '发送消息'} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={sendDisabled} onPress={sendDraft}><ArrowUp key={props.generating || props.remoteRunning ? 'queued' : 'send'} size="1rem" strokeWidth={2.25} /></Button>
+        {props.agentConfig?.error && <Tooltip content={props.agentConfig.error} delay={300}><Button isIconOnly size="sm" variant="light" className="composer-icon" onPress={props.agentConfig.onPrepare} aria-label={t('composer.retryAgentConfig')}><RefreshCw size="1rem" /></Button></Tooltip>}
+        {props.generating ? <Button isIconOnly aria-label={t('composer.stopGeneration')} className="send-button generating" onPress={props.onStop}><Square size="0.75rem" fill="currentColor" /></Button>
+          : props.remoteRunning ? <Button isIconOnly aria-label={t('composer.stopBackgroundTask')} className="send-button generating" onPress={props.onStopRemote}><Square size="0.75rem" fill="currentColor" /></Button> : null}
+        <Button isIconOnly aria-label={props.generating || props.remoteRunning ? t('composer.queueMessage') : t('composer.sendMessage')} className={`send-button ${props.generating || props.remoteRunning ? 'queueing' : ''}`} isDisabled={sendDisabled} onPress={sendDraft}><ArrowUp key={props.generating || props.remoteRunning ? 'queued' : 'send'} size="1rem" strokeWidth={2.25} /></Button>
       </div>
       </>}
     </div>
@@ -559,31 +582,31 @@ export default function Composer(props: Props) {
     <Popup open={!!menu && menu !== 'model-settings'} className={`composer-popover ${['tools', 'projects', 'skills', 'permission', 'presets', 'mcp', 'connectors'].includes(menu || '') ? 'popover-left' : 'popover-right'} popover-${menu}`}>
       {menu && <section role="dialog" aria-label={menuTitles[menu]}>
         <div className="composer-popover-header">
-          <div>{['projects', 'skills', 'permission', 'connectors'].includes(menu) && <Button isIconOnly size="sm" variant="light" aria-label="返回输入工具" onPress={() => open('tools')}><ArrowLeft size="1rem" /></Button>}<strong>{menuTitles[menu]}</strong></div>
-          <Button isIconOnly size="sm" variant="light" aria-label="关闭输入弹层" onPress={() => { close(); focusInput(); }}><X size="1rem" /></Button>
+          <div>{['projects', 'skills', 'permission', 'connectors'].includes(menu) && <Button isIconOnly size="sm" variant="light" aria-label={t('composer.backToInputTools')} onPress={() => open('tools')}><ArrowLeft size="1rem" /></Button>}<strong>{menuTitles[menu]}</strong></div>
+          <Button isIconOnly size="sm" variant="light" aria-label={t('composer.closeInputPopup')} onPress={() => { close(); focusInput(); }}><X size="1rem" /></Button>
         </div>
 
         {menu === 'tools' && <div className="composer-tool-list">
-          <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>上传文件</strong><small>图片、文本、PDF、Word、Excel · 读取内容发送</small></span><Plus size="0.9375rem" /></button>
-          {!chatMode && agentPlan && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>计划模式</strong><small>先生成步骤，再确认执行</small></span><Toggle label="计划模式" value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>}
-          {!chatMode && <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>关联项目</strong><small>为本轮消息选择工作区</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>}
-          {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>技能</strong><small>选择助手处理任务的方式</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
-          {!external && <button onClick={() => open('connectors')}><Cable size="1.125rem" /><span><strong>连接器</strong><small>选择本会话可用的服务</small></span>{!!connectorEnabledCount && <em>{connectorEnabledCount}</em>}<ChevronRight size="0.9375rem" /></button>}
-          {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
-            : !external && !props.agentConfig && <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>权限模式</strong><small>{options.mode}</small></span><ChevronRight size="0.9375rem" /></button>}
+          <button onClick={() => fileInput.current?.click()}><Paperclip size="1.125rem" /><span><strong>{t('composer.uploadFile')}</strong><small>{t('composer.uploadFileDescription')}</small></span><Plus size="0.9375rem" /></button>
+          {!chatMode && agentPlan && <div className="composer-tool-plan"><ListChecks size="1.125rem" /><span><strong>{t('composer.planMode')}</strong><small>{t('composer.planModeDescription')}</small></span><Toggle label={t('composer.planMode')} value={planActive} onChange={value => changeAgent(agentPlan.id, value ? planOn : planOff)} /></div>}
+          {!chatMode && <button onClick={() => open('projects')}><FolderClosed size="1.125rem" /><span><strong>{t('composer.menu.projects')}</strong><small>{t('composer.projectsDescription')}</small></span>{!!context.projects.length && <em>{context.projects.length}</em>}<ChevronRight size="0.9375rem" /></button>}
+          {!external && <button onClick={() => open('skills')}><Sparkles size="1.125rem" /><span><strong>{t('composer.skills')}</strong><small>{t('composer.skillsDescription')}</small></span>{!!context.skills.length && <em>{context.skills.length}</em>}<ChevronRight size="0.9375rem" /></button>}
+          {!external && <button onClick={() => open('connectors')}><Cable size="1.125rem" /><span><strong>{t('composer.connectors')}</strong><small>{t('composer.connectorsDescription')}</small></span>{!!connectorEnabledCount && <em>{connectorEnabledCount}</em>}<ChevronRight size="0.9375rem" /></button>}
+          {agentMode ? <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>{t('composer.permissionMode')}</strong><small>{localizedNativePermission({ value: agentModeValue, name: agentOptionLabel(agentMode) })?.name || agentOptionLabel(agentMode)}</small></span><ChevronRight size="0.9375rem" /></button>
+            : !external && !props.agentConfig && <button onClick={() => open('permission')}><ShieldCheck size="1.125rem" /><span><strong>{t('composer.permissionMode')}</strong><small>{localizedPermissionMode(options.mode)}</small></span><ChevronRight size="0.9375rem" /></button>}
           <div className="composer-menu-divider" />
-          <button onClick={() => { close(); props.onTerminal(); }}><SquareTerminal size="1.0625rem" /><span>打开终端</span><ChevronRight size="0.9375rem" /></button>
-          <button onClick={() => { onDraft('/'); close(); setDismissedDraft(null); focusInput(); }}><CircleHelp size="1.0625rem" /><span>查看输入指令</span><span className="keycap">/</span></button>
+          <button onClick={() => { close(); props.onTerminal(); }}><SquareTerminal size="1.0625rem" /><span>{t('composer.openTerminal')}</span><ChevronRight size="0.9375rem" /></button>
+          <button onClick={() => { onDraft('/'); close(); setDismissedDraft(null); focusInput(); }}><CircleHelp size="1.0625rem" /><span>{t('composer.viewInputCommands')}</span><span className="keycap">/</span></button>
         </div>}
 
         {(menu === 'projects' || menu === 'skills') && <>
-          <div className="popover-search"><Input autoFocus size="sm" variant="bordered" aria-label={menu === 'projects' ? '搜索关联项目' : '搜索技能'} placeholder={menu === 'projects' ? '搜索项目名称或路径…' : '搜索技能…'} value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} /></div>
+          <div className="popover-search"><Input autoFocus size="sm" variant="bordered" aria-label={menu === 'projects' ? t('composer.searchProjects') : t('composer.searchSkills')} placeholder={menu === 'projects' ? t('composer.searchProjectsPlaceholder') : t('composer.searchSkillsPlaceholder')} value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} /></div>
           <div className="composer-selection-list">
             {(menu === 'projects' ? workspaces.map(item => ({ name: item.name, description: item.path })) : props.skillOptions).filter(item => `${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase())).map(item => <button key={item.name} role="checkbox" aria-checked={context[menu].includes(item.name)} onClick={() => toggleContext(menu, item.name)}>
               {menu === 'projects' ? <FolderClosed size="1.125rem" /> : <Sparkles size="1.125rem" />}<span><strong>{item.name}</strong><small>{item.description}</small></span><span className={`composer-checkbox ${context[menu].includes(item.name) ? 'checked' : ''}`}>{context[menu].includes(item.name) && <Check size="0.75rem" />}</span>
             </button>)}
-            {!(menu === 'projects' ? workspaces.map(item => ({ name: item.name, description: item.path })) : props.skillOptions).some(item => `${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase())) && <p className="composer-empty">没有匹配结果</p>}
-          </div><div className="popover-footer"><span>已选 {context[menu].length} 项 · 可多选</span><Button size="sm" variant="light" onPress={() => onContext({ ...context, [menu]: [] })}>清空</Button><Button size="sm" color="primary" variant="flat" onPress={() => { close(); focusInput(); }}>完成</Button></div>
+            {!(menu === 'projects' ? workspaces.map(item => ({ name: item.name, description: item.path })) : props.skillOptions).some(item => `${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase())) && <p className="composer-empty">{t('composer.noMatches')}</p>}
+          </div><div className="popover-footer"><span>{t('composer.selectedCount', { count: context[menu].length })}</span><Button size="sm" variant="light" onPress={() => onContext({ ...context, [menu]: [] })}>{t('common.clear')}</Button><Button size="sm" color="primary" variant="flat" onPress={() => { close(); focusInput(); }}>{t('common.done')}</Button></div>
         </>}
 
         {menu === 'permission' && (agentMode ? <div className="composer-selection-list">
@@ -592,44 +615,48 @@ export default function Composer(props: Props) {
             const danger = /bypass|free/i.test(value.value) || /bypass|完全自动/i.test(value.name);
             return <button key={value.value} role="radio" aria-checked={selected} disabled={agentBusy} className={danger ? 'is-danger' : undefined} onClick={() => { changeAgent(agentMode.id, value.value); close(); }}>
               {danger ? <ShieldAlert size="1.125rem" /> : <ShieldCheck size="1.125rem" />}
-              <span><strong>{value.name}</strong>{value.description && <small>{value.description}</small>}</span>{selected && <Check size="1rem" />}
+              <span><strong>{localizedNativePermission(value)?.name || value.name}</strong>{value.description && <small>{localizedNativePermission(value)?.description || value.description}</small>}</span>{selected && <Check size="1rem" />}
             </button>;
           })}
-          <p className="composer-note">选项由 {agentEngineName} 提供，作用于当前会话。</p>
-        </div> : <div className="composer-selection-list">{[['完全自动', '跳过审核，直接执行工具与修改'], ['按需审批', '普通读写直接执行，其余等待人工确认'], ['自动审批', '普通读写直接执行，其余由 AI 审核']].map(([name, description]) => <button key={name} role="radio" aria-checked={options.mode === name} onClick={() => { update('mode', name); close(); }}><ShieldCheck size="1.125rem" /><span><strong>{name}</strong><small>{description}</small></span>{options.mode === name && <Check size="1rem" />}</button>)}<p className="composer-note">权限同步到 Loopra，作用于真实工具执行。</p></div>)}
+          <p className="composer-note">{t('composer.agentOptionsNote', { agent: agentEngineName })}</p>
+        </div> : <div className="composer-selection-list">{[
+            { value: '完全自动', label: t('composer.permissionFree'), description: t('composer.permissionFreeDescription') },
+            { value: '按需审批', label: t('composer.permissionApproval'), description: t('composer.permissionApprovalDescription') },
+            { value: '自动审批', label: t('composer.permissionAuto'), description: t('composer.permissionAutoDescription') },
+          ].map(mode => <button key={mode.value} role="radio" aria-checked={options.mode === mode.value} onClick={() => { update('mode', mode.value); close(); }}><ShieldCheck size="1.125rem" /><span><strong>{mode.label}</strong><small>{mode.description}</small></span>{options.mode === mode.value && <Check size="1rem" />}</button>)}<p className="composer-note">{t('composer.permissionNote')}</p></div>)}
 
         {menu === 'connectors' && <>
           <div className="composer-selection-list">
-            {sessionConnectors.map(item => <div key={item.id} className="composer-tool-plan"><ConnectorIcon icon={item.icon} fallback={<Cable size="1.125rem" />} size={18} /><span><strong>{item.name}</strong></span><Switch size="sm" aria-label={`启用 ${item.name}`} isSelected={connectorEnabled(item)} isDisabled={item.allowed === false} onValueChange={value => void toggleConnector(item.id, value)} /></div>)}
-            {!sessionConnectors.length && <p className="composer-empty">还没有连接任何服务</p>}
+            {sessionConnectors.map(item => <div key={item.id} className="composer-tool-plan"><ConnectorIcon icon={item.icon} fallback={<Cable size="1.125rem" />} size={18} /><span><strong>{item.name}</strong></span><Switch size="sm" aria-label={t('composer.enableConnector', { name: item.name })} isSelected={connectorEnabled(item)} isDisabled={item.allowed === false} onValueChange={value => void toggleConnector(item.id, value)} /></div>)}
+            {!sessionConnectors.length && <p className="composer-empty">{t('composer.noConnectors')}</p>}
           </div>
-          <div className="popover-footer"><span /><Button size="sm" variant="light" onPress={() => { close(); props.onOpenConnectors?.(); }}>管理连接器</Button></div>
+          <div className="popover-footer"><span /><Button size="sm" variant="light" onPress={() => { close(); props.onOpenConnectors?.(); }}>{t('composer.manageConnectors')}</Button></div>
         </>}
 
         {menu === 'more' && props.agentConfig && <AgentConfigControls state={props.agentConfig} options={otherAgentOptions} />}
         {menu === 'mcp' && <AgentMcpControls key={`${props.agentId || 'native'}:${props.workspaceHash}`} api={props.api} agentId={props.agentId || 'native'} workspaceHash={props.workspaceHash} connected={props.connected} />}
 
         {menu === 'presets' && <>
-          {editing ? <form className="preset-form" onSubmit={event => { event.preventDefault(); savePreset(); }}><Input autoFocus size="sm" variant="bordered" label="名称" aria-label="常用要求名称" maxLength={24} value={editing.name} onValueChange={name => setEditing({ ...editing, name })} /><Textarea variant="bordered" size="sm" label="要求内容" aria-label="常用要求内容" minRows={3} maxRows={5} maxLength={500} value={editing.text} onValueChange={text => setEditing({ ...editing, text })} /><div><Button size="sm" variant="light" onPress={() => setEditing(null)}>取消</Button><Button size="sm" color="primary" type="submit" isDisabled={!editing.name.trim() || !editing.text.trim()}>保存</Button></div></form>
-            : <><p className="composer-note">点击要求追加到输入框，可自行编辑。</p><div className="preset-list">{presets.map(preset => <div className="preset-row" key={preset.id}><button className="preset-append" onClick={() => { onDraft(appendPreset(draft, preset.text)); close(); focusInput(); }}><strong>{preset.name}</strong><small>{preset.text}</small></button><Button isIconOnly size="sm" variant="light" aria-label={`编辑要求：${preset.name}`} onPress={() => setEditing({ ...preset })}><Pencil size="0.875rem" /></Button><Button isIconOnly size="sm" variant="light" aria-label={`删除要求：${preset.name}`} onPress={() => { const next = presets.filter(item => item.id !== preset.id); setPresets(next); persistPresets(next); }}><Trash2 size="0.875rem" /></Button></div>)}{!presets.length && <p className="composer-empty">还没有常用要求，添加一条试试。</p>}</div><div className="popover-footer"><span>保存在服务端</span><Button size="sm" variant="light" onPress={() => setEditing({ id: crypto.randomUUID(), name: '', text: '' })}><Plus size="0.875rem" />添加要求</Button></div></>}
+          {editing ? <form className="preset-form" onSubmit={event => { event.preventDefault(); savePreset(); }}><Input autoFocus size="sm" variant="bordered" label={t('composer.presetName')} aria-label={t('composer.presetNameAria')} maxLength={24} value={editing.name} onValueChange={name => setEditing({ ...editing, name })} /><Textarea variant="bordered" size="sm" label={t('composer.presetContent')} aria-label={t('composer.presetContentAria')} minRows={3} maxRows={5} maxLength={500} value={editing.text} onValueChange={text => setEditing({ ...editing, text })} /><div><Button size="sm" variant="light" onPress={() => setEditing(null)}>{t('common.cancel')}</Button><Button size="sm" color="primary" type="submit" isDisabled={!editing.name.trim() || !editing.text.trim()}>{t('common.save')}</Button></div></form>
+            : <><p className="composer-note">{t('composer.presetHelp')}</p><div className="preset-list">{presets.map(preset => <div className="preset-row" key={preset.id}><button className="preset-append" onClick={() => { onDraft(appendPreset(draft, preset.text)); close(); focusInput(); }}><strong>{preset.name}</strong><small>{preset.text}</small></button><Button isIconOnly size="sm" variant="light" aria-label={t('composer.editPreset', { name: preset.name })} onPress={() => setEditing({ ...preset })}><Pencil size="0.875rem" /></Button><Button isIconOnly size="sm" variant="light" aria-label={t('composer.deletePreset', { name: preset.name })} onPress={() => { const next = presets.filter(item => item.id !== preset.id); setPresets(next); persistPresets(next); }}><Trash2 size="0.875rem" /></Button></div>)}{!presets.length && <p className="composer-empty">{t('composer.noPresets')}</p>}</div><div className="popover-footer"><span>{t('composer.storedOnServer')}</span><Button size="sm" variant="light" onPress={() => setEditing({ id: crypto.randomUUID(), name: '', text: '' })}><Plus size="0.875rem" />{t('composer.addPreset')}</Button></div></>}
         </>}
 
         {menu === 'context' && <div className="context-body">
           <div className="context-total">
-            <strong>{!usage.measured && usage.source === 'loopra' ? '约 ' : ''}{formatTokens(usage.total)}<small> / {usage.windowKnown === false ? '窗口未知' : formatTokens(usage.limit)}</small></strong>
+            <strong>{!usage.measured && usage.source === 'loopra' ? t('composer.approximate') : ''}{formatTokens(usage.total)}<small> / {usage.windowKnown === false ? t('composer.windowUnknown') : formatTokens(usage.limit)}</small></strong>
             <span className={usage.percent >= 80 ? 'context-high' : usage.percent >= 50 ? 'context-medium' : 'context-low'}>{usagePercent}</span>
           </div>
-          {formatTokenSpeed(props.liveSpeed) && <p className="composer-note">生成速度 {formatTokenSpeed(props.liveSpeed)}{props.liveSpeed?.completionTokens ? ` · 已生成 ${formatTokens(props.liveSpeed.completionTokens)} tokens` : ''}</p>}
+          {formatTokenSpeed(props.liveSpeed) && <p className="composer-note">{t('composer.generationSpeed', { speed: formatTokenSpeed(props.liveSpeed) })}{props.liveSpeed?.completionTokens ? ` · ${t('composer.generatedTokens', { value: formatTokens(props.liveSpeed.completionTokens) })}` : ''}</p>}
           {usage.windowKnown !== false && <>
-            <div className="context-gauge" role="img" aria-label={`上下文占用 ${usagePercent}${external ? '' : `，折叠阈值 ${FOLD_THRESHOLD_RATIO * 100}%`}`}>
+            <div className="context-gauge" role="img" aria-label={`${t('composer.contextGauge', { percent: usagePercent })}${external ? '' : t('composer.foldThresholdGauge', { threshold: FOLD_THRESHOLD_RATIO * 100 })}`}>
               {usage.parts.map(part => <span key={part.name} style={{ background: part.color, width: `${contextPartPercent(part, usage) / 100 * usage.percent}%` }} />)}
-              {!external && <span className="context-gauge-threshold" style={{ left: `${FOLD_THRESHOLD_RATIO * 100}%` }} title="折叠阈值 (80%)" />}
+              {!external && <span className="context-gauge-threshold" style={{ left: `${FOLD_THRESHOLD_RATIO * 100}%` }} title={`${t('composer.foldThreshold')} (${FOLD_THRESHOLD_RATIO * 100}%)`} />}
             </div>
-            <div className="context-gauge-scale"><span>当前 {formatTokens(usage.total)}</span><span>窗口 {formatTokens(usage.limit)}</span></div>
-            {!external && <p className="composer-note context-threshold-note">折叠阈值: {formatTokens(foldThreshold(usage.limit))} ({FOLD_THRESHOLD_RATIO * 100}%)</p>}
+            <div className="context-gauge-scale"><span>{t('composer.currentTokens', { value: formatTokens(usage.total) })}</span><span>{t('composer.windowTokens', { value: formatTokens(usage.limit) })}</span></div>
+            {!external && <p className="composer-note context-threshold-note">{t('composer.foldThresholdNote', { tokens: formatTokens(foldThreshold(usage.limit)), percent: FOLD_THRESHOLD_RATIO * 100 })}</p>}
           </>}
           {usage.parts.map(part => <div className="context-breakdown" key={part.name}>
-            <span><i style={{ background: part.color }} />{part.name}</span>
+            <span><i style={{ background: part.color }} />{localizedUsagePart(part.name)}</span>
             {!usage.estimatedComposition && <strong>{formatTokens(part.tokens)}</strong>}
             <small>{contextPartPercent(part, usage).toFixed(1)}%</small>
           </div>)}
@@ -638,10 +665,10 @@ export default function Composer(props: Props) {
       </section>}
     </Popup>
     <Popup open={!!suggestions.length || showCommandStatus} className="composer-popover composer-suggestions">
-      <section aria-label={slash ? '输入指令' : '工作区文件'}>
+      <section aria-label={slash ? t('composer.inputCommands') : t('composer.workspaceFiles')}>
         <div className="suggestions-heading">
-          <span>{slash ? '指令' : '引用文件'}{slash && external && <small>{agentEngineName}</small>}</span>
-          <span className="suggestions-count">{suggestions.length} 项</span>
+          <span>{slash ? t('composer.commands') : t('composer.referenceFiles')}{slash && external && <small>{agentEngineName}</small>}</span>
+          <span className="suggestions-count">{t('composer.itemsCount', { count: suggestions.length })}</span>
         </div>
         <div className="suggestions-list">
           {suggestions.map((item, index) => <button type="button" key={item.id}
@@ -658,15 +685,15 @@ export default function Composer(props: Props) {
           </button>)}
           {showCommandStatus && <div className="suggestions-status" role="status">
             {commandStatus}
-            {props.sessionName && !discovered?.loading && !agentCommands.length && <button type="button" onClick={() => setCommandRetry(value => value + 1)}>重新读取</button>}
+            {props.sessionName && !discovered?.loading && !agentCommands.length && <button type="button" onClick={() => setCommandRetry(value => value + 1)}>{t('composer.reread')}</button>}
           </div>}
         </div>
         <div className="suggestions-footer">
-          {suggestions.length > 0 && <span><kbd>↑</kbd><kbd>↓</kbd> 选择 <kbd>Tab</kbd> 补全</span>}
-          <span><kbd>Esc</kbd> 关闭</span>
+          {suggestions.length > 0 && <span><kbd>↑</kbd><kbd>↓</kbd> {t('composer.selectComplete')}</span>}
+          <span><kbd>Esc</kbd> {t('composer.escClose')}</span>
         </div>
       </section>
     </Popup>
-    {dragging && <div className="composer-drop-hint"><Paperclip size="1.5rem" /><span>松开以添加附件</span></div>}
+    {dragging && <div className="composer-drop-hint"><Paperclip size="1.5rem" /><span>{t('composer.dropAttachments')}</span></div>}
   </div></>;
 }

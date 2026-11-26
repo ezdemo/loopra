@@ -22,6 +22,8 @@ import { LinkPopoverProvider, useLinkPopover } from './LinkPopover';
 import { Check, ChevronDown, Code2, Copy } from 'lucide-react';
 import { IconButton } from './ui';
 import { useCollapseAll } from './Motion';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 
 const NoticeContext = createContext<(message: string) => void>(() => {});
 
@@ -30,11 +32,12 @@ const NoticeContext = createContext<(message: string) => void>(() => {});
 const OpenFileContext = createContext<((path: string) => void) | null>(null);
 
 export async function copyText(text: string, notify: (message: string) => void) {
-  try { await navigator.clipboard.writeText(text); notify('已复制'); return true; }
-  catch { notify('复制失败，请选择内容手动复制'); return false; }
+  try { await navigator.clipboard.writeText(text); notify(i18n.t('markdown.copied')); return true; }
+  catch { notify(i18n.t('markdown.copyFailed')); return false; }
 }
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
+  const { t } = useTranslation();
   const notify = useContext(NoticeContext);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -44,12 +47,12 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   // for oversized blocks) the fence renders as plain text.
   const highlighted = useColorizedFence(code, language);
   return <div className={`code-block-wrap ${lines > 8 && !expanded ? 'collapsed' : ''}`}>
-    <div className="code-block-top"><button type="button" className="code-block-toggle" aria-label={lines > 8 ? `${expanded ? '收起' : '展开'} ${language || 'text'} 代码` : `${language || 'text'} 代码`} aria-expanded={lines > 8 ? expanded : undefined} disabled={lines <= 8} onClick={() => setExpanded(!expanded)}><Code2 size="0.875rem" /><span>{language || 'text'}</span><span className="code-block-meta">{lines} 行</span>{lines > 8 && <ChevronDown size="0.875rem" className={expanded ? 'rotated' : ''} />}</button><IconButton label="复制代码" onClick={() => { void copyText(code, notify).then(success => setCopied(success)); }}>{copied ? <Check size="0.875rem" /> : <Copy size="0.875rem" />}</IconButton></div>
+    <div className="code-block-top"><button type="button" className="code-block-toggle" aria-label={lines > 8 ? `${expanded ? t('markdown.collapse') : t('markdown.expand')} ${t('markdown.code', { language: language || 'text' })}` : t('markdown.code', { language: language || 'text' })} aria-expanded={lines > 8 ? expanded : undefined} disabled={lines <= 8} onClick={() => setExpanded(!expanded)}><Code2 size="0.875rem" /><span>{language || 'text'}</span><span className="code-block-meta">{t('markdown.lines', { count: lines })}</span>{lines > 8 && <ChevronDown size="0.875rem" className={expanded ? 'rotated' : ''} />}</button><IconButton label={t('markdown.copyCode')} onClick={() => { void copyText(code, notify).then(success => setCopied(success)); }}>{copied ? <Check size="0.875rem" /> : <Copy size="0.875rem" />}</IconButton></div>
     {/* The collapsed height lives in chat-blocks.css (`.collapsed .code-preview`)
         so the expand can transition; `interpolate-size` is what lets `height: auto`
         take part. */}
     <div className="code-preview"><pre>{highlighted === null ? <code>{code}</code> : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre></div>
-    {lines > 8 && <button type="button" className="code-expand" onClick={() => setExpanded(!expanded)}>{expanded ? '收起代码' : `展开全部 ${lines} 行`}<ChevronDown size="0.8125rem" className={expanded ? 'rotated' : ''} /></button>}
+    {lines > 8 && <button type="button" className="code-expand" onClick={() => setExpanded(!expanded)}>{expanded ? t('markdown.collapseCode') : t('markdown.expandCode', { count: lines })}<ChevronDown size="0.8125rem" className={expanded ? 'rotated' : ''} /></button>}
   </div>;
 }
 
@@ -59,6 +62,7 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
 }
 
 function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
+  const { t } = useTranslation();
   const openFile = useContext(OpenFileContext);
   const { show, scheduleHide } = useLinkPopover();
   const path = localFilePath(href);
@@ -75,7 +79,7 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
     // A custom link text (`查看实现`) is worth keeping, but path-shaped text adds nothing.
     const extra = text && !/[\\/]/.test(text) && text.replace(/\s*\(line\s+\d+\)\s*$/i, '') !== label ? text : '';
     const title = extra ? `${pathTitle} · ${extra}` : pathTitle;
-    return <a href="#" className="ai-link ai-file-link" title={`打开文件预览 · ${title}`} onClick={event => { event.preventDefault(); openFile(path); }}><FileGlyph name={path} size="0.875rem" className="ai-file-glyph" mono /><span className="ai-file-name">{label}</span>{line !== null && <span className="ai-file-line">(line {line})</span>}</a>;
+    return <a href="#" className="ai-link ai-file-link" title={`${t('markdown.openFilePreview')} · ${title}`} onClick={event => { event.preventDefault(); openFile(path); }}><FileGlyph name={path} size="0.875rem" className="ai-file-glyph" mono /><span className="ai-file-name">{label}</span>{line !== null && <span className="ai-file-line">(line {line})</span>}</a>;
   }
   // Hovering an external link offers the system browser action.
   return <a href={href} className="ai-link" target="_blank" rel="noopener noreferrer" onMouseEnter={event => show(event.currentTarget)} onMouseLeave={scheduleHide}>{children}</a>;

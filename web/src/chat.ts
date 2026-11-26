@@ -269,12 +269,18 @@ export const demoMessages: Record<'api' | 'repair' | 'demo', Message[]> = {
 };
 
 // Sub-second turns floor to 0, which would read as a stuck clock; say "<1秒" instead.
-export function formatTurnDuration(ms: number): string {
+export function formatTurnDuration(ms: number, translate?: (key: string, params?: Record<string, unknown>) => string): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 1) return '<1秒';
-  if (seconds < 60) return `${seconds}秒`;
+  if (!translate) {
+    if (seconds < 1) return '<1秒';
+    if (seconds < 60) return `${seconds}秒`;
+    const minutes = Math.floor(seconds / 60);
+    return minutes + '分' + (seconds % 60 ? (seconds % 60) + '秒' : '');
+  }
+  if (seconds < 1) return translate('time.durationUnderSecond');
+  if (seconds < 60) return translate('time.durationSeconds', { count: seconds });
   const minutes = Math.floor(seconds / 60);
-  return minutes + '分' + (seconds % 60 ? (seconds % 60) + '秒' : '');
+  return seconds % 60 ? translate('time.durationMinutesSeconds', { minutes, seconds: seconds % 60 }) : translate('time.durationMinutes', { minutes });
 }
 
 export function mockProcess(prompt: string): ChatBlock[] {

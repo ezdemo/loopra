@@ -1,5 +1,6 @@
 import { Collapse, Disclosure, Enter, useCollapseAll } from './Motion';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlignLeft, ChevronRight, Copy, GitBranch, Pencil, Undo2 } from 'lucide-react';
 import type { ChatBlock, Message, MessageDocument } from '../chat';
 import { formatTurnDuration, splitAssistantBlocks, splitUserAttachments, splitUserContext } from '../chat';
@@ -48,21 +49,23 @@ function useMessageActions(actions: MessageActions): MessageActions {
 }
 
 const UserMessage = memo(function UserMessage({ message, onEdit, onRollback, busy, notify, onRawEvents, canManageHistory }: { message: Message } & MessageViewActions) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
   const { text: body, documents } = splitUserAttachments(message.text);
   const { context, text } = splitUserContext(body);
   const compacted = message.text.startsWith('[历史上下文折叠');
-  if (compacted) return <Enter as="article" className="msg compacted-message" data-message-id={message.id}><div className="compacted-body"><Disclosure className="compacted-summary" heading={<><AlignLeft size="0.9375rem" /><strong>较早对话已压缩</strong><span>查看摘要</span><ChevronRight size="0.875rem" /></>}><pre>{message.text.replace(/^[\s\S]*?<compacted-summary>\s*|\s*<\/compacted-summary>[\s\S]*$/g, '')}</pre></Disclosure>{onRawEvents && <button type="button" className="compacted-raw-btn" onClick={onRawEvents}>查看原始记录</button>}</div></Enter>;
-  return <Enter as="article" className="msg user" aria-label="用户消息" data-message-id={message.id}><div className="msg-body user-body">
+  if (compacted) return <Enter as="article" className="msg compacted-message" data-message-id={message.id}><div className="compacted-body"><Disclosure className="compacted-summary" heading={<><AlignLeft size="0.9375rem" /><strong>{t('chat.compactedTitle')}</strong><span>{t('chat.viewSummary')}</span><ChevronRight size="0.875rem" /></>}><pre>{message.text.replace(/^[\s\S]*?<compacted-summary>\s*|\s*<\/compacted-summary>[\s\S]*$/g, '')}</pre></Disclosure>{onRawEvents && <button type="button" className="compacted-raw-btn" onClick={onRawEvents}>{t('chat.viewRawEvents')}</button>}</div></Enter>;
+  return <Enter as="article" className="msg user" aria-label={t('chat.userMessage')} data-message-id={message.id}><div className="msg-body user-body">
     <MessageContext context={context} documents={documents} images={message.images} />
     <div className="msg-text">{text.length > 300 ? text.slice(0, 300) : text}{!expanded && text.length > 300 && '…'}<Collapse open={expanded && text.length > 300}>{text.slice(300)}</Collapse></div>
-    {text.length > 300 && <button type="button" className="user-expand-btn" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '展开全部'}</button>}
-    <footer className="msg-footer"><time className="msg-time">{message.time}</time><span className="msg-actions">{canManageHistory && <>{onRollback && (message.rollbackId || message.rollbackTimestamp) && <button aria-label="撤回到此消息" disabled={busy} onClick={() => onRollback(message)}><Undo2 size={13} /></button>}{onEdit && <IconButton label="重新编辑消息" onClick={() => onEdit(text, documents)}><Pencil size="0.8125rem" /></IconButton>}</>}<IconButton label="复制消息" onClick={() => { void copyText(message.text, notify); }}><Copy size="0.8125rem" /></IconButton></span></footer>
+    {text.length > 300 && <button type="button" className="user-expand-btn" onClick={() => setExpanded(!expanded)}>{expanded ? t('chat.collapse') : t('chat.expandAll')}</button>}
+    <footer className="msg-footer"><time className="msg-time">{message.time}</time><span className="msg-actions">{canManageHistory && <>{onRollback && (message.rollbackId || message.rollbackTimestamp) && <button aria-label={t('chat.rollbackHere')} disabled={busy} onClick={() => onRollback(message)}><Undo2 size={13} /></button>}{onEdit && <IconButton label={t('chat.editMessageAgain')} onClick={() => onEdit(text, documents)}><Pencil size="0.8125rem" /></IconButton>}</>}<IconButton label={t('chat.copyMessage')} onClick={() => { void copyText(message.text, notify); }}><Copy size="0.8125rem" /></IconButton></span></footer>
   </div></Enter>;
 });
 
 function TurnDuration({ startedAt, finishedAt, streaming, showDuration }: { startedAt?: number; finishedAt?: number; streaming: boolean; showDuration: boolean }) {
+  const { t } = useTranslation();
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
     if (!streaming || !showDuration || !startedAt || finishedAt) return;
@@ -71,10 +74,11 @@ function TurnDuration({ startedAt, finishedAt, streaming, showDuration }: { star
     return () => clearInterval(timer);
   }, [streaming, showDuration, startedAt, finishedAt]);
   const elapsed = showDuration && startedAt ? Math.max(0, (finishedAt || clock) - startedAt) : null;
-  return <span>{elapsed === null ? '思考过程' : '用时 ' + formatTurnDuration(elapsed)}</span>;
+  return <span>{elapsed === null ? t('chat.thinkingProcess') : t('chat.duration', { duration: formatTurnDuration(elapsed, t) })}</span>;
 }
 
 const AssistantMessage = memo(function AssistantMessage({ message, streaming, showDuration = true, canBranch, ...actions }: { message: Message; streaming: boolean; showDuration?: boolean; canBranch: boolean } & MessageActions) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   useCollapseAll(() => setExpanded(false));
   // Choices are answered in the composer popup and render nothing themselves, so
@@ -90,7 +94,7 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
   // has folded into it yet; on approval the same bubble simply keeps streaming.
   const pending = blocks.some(block => block.type === 'choice' && !block.selected);
   if (!streaming && !process.length && !final.length && !blocks.some(block => block.type === 'choice')) return null;
-  return <Enter as="article" className="msg assistant" aria-label="助手消息" data-message-id={message.id}><div className="msg-body assistant-body">
+  return <Enter as="article" className="msg assistant" aria-label={t('chat.assistantMessage')} data-message-id={message.id}><div className="msg-body assistant-body">
     {(process.length > 0 || streaming || pending || sources.length > 0) && <section className={`assistant-process-summary ${streaming ? 'live' : ''}`}>
       <div className="assistant-process-head">
         <button type="button" className="assistant-process-toggle" aria-expanded={expanded && process.length > 0} aria-controls={process.length ? processId : undefined} disabled={!process.length} onClick={() => setExpanded(!expanded)}><TurnDuration startedAt={message.startedAt} finishedAt={message.finishedAt} streaming={streaming} showDuration={showDuration} /><ChevronRight size="0.875rem" className={expanded ? 'rotated-right' : ''} /></button>
@@ -99,14 +103,15 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
       <Collapse open={expanded && process.length > 0} id={processId} className="assistant-process-detail"><BlockRenderer blocks={process} {...actions} /></Collapse>
     </section>}
     <BlockRenderer blocks={final} streaming={streaming} {...actions} />
-    {streaming && <div className="thinking" role="status"><PixelLoader /><span>{message.text ? '正在处理…' : '正在准备回复…'}</span></div>}
-    {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>修改 {stats.edited.length} 文件</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>新增 {stats.created.length} 文件</button>}</span><span className="msg-actions"><IconButton label="复制回复" onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canBranch && actions.onBranch && <button type="button" className="msg-action-button" aria-label="继续到新会话" title="从此回复继续到新会话" disabled={actions.busy} onClick={() => actions.onBranch?.(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
+    {streaming && <div className="thinking" role="status"><PixelLoader /><span>{message.text ? t('chat.processing') : t('chat.preparingReply')}</span></div>}
+    {!streaming && <footer className="msg-footer"><span className="msg-time-group"><time className="msg-time">{message.time}</time>{stats.edited.length > 0 && <button type="button" className="msg-file-stat" title={stats.edited.join('\n')} onClick={() => actions.onDiff?.(stats.edited[0])}>{t('chat.modifiedFiles', { count: stats.edited.length })}</button>}{stats.created.length > 0 && <button type="button" className="msg-file-stat" title={stats.created.join('\n')} onClick={() => actions.onDiff?.(stats.created[0])}>{t('chat.createdFiles', { count: stats.created.length })}</button>}</span><span className="msg-actions"><IconButton label={t('chat.copyReply')} onClick={() => { void copyText(answerText, actions.notify); }}><Copy size="0.8125rem" /></IconButton>{canBranch && actions.onBranch && <button type="button" className="msg-action-button" aria-label={t('chat.continueBranch')} title={t('chat.continueBranchTitle')} disabled={actions.busy} onClick={() => actions.onBranch?.(message.id)}><GitBranch size="0.875rem" /></button>}</span></footer>}
   </div></Enter>;
 });
 
 // Long sessions mount only the visible slice (legacy `Chat.vue` virtualWindow);
 // measured heights keep the spacer sizes honest and the scroll position stable.
 export function Messages({ session, loading, remoteRunning = false, scrollRef, offsetsRef, showDuration = true, ...callbacks }: { session: Session; loading: boolean; remoteRunning?: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
+  const { t } = useTranslation();
   const actions = useMessageActions(callbacks);
   const messages = useMemo(() => getSessionMessages(session), [session.kind, session.messages]);
   const canManageHistory = !session.agentId || session.agentId === 'native';
@@ -176,10 +181,10 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     ? <UserMessage key={message.id} message={message} canManageHistory={canManageHistory} {...actions} />
     : <AssistantMessage key={message.id} message={message} streaming={(loading || remoteRunning) && message.id === last?.id} showDuration={showDuration} canBranch={canBranch} {...actions} />;
   const visible = virtualized ? messages.slice(view.start, view.end) : messages;
-  return <div className="loopra-conversation" aria-label="聊天内容"><ImagePreviewProvider><div className="message-list">
+  return <div className="loopra-conversation" aria-label={t('chat.content')}><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}
     {virtualized ? visible.map(message => <div key={message.id} ref={node => measure(String(message.id), node)} className="virtual-message-item">{render(message)}</div>) : visible.map(render)}
     {virtualized && view.bottomHeight > 0 && <div className="virtual-spacer" style={{ height: view.bottomHeight }} aria-hidden="true" />}
-    {remoteRunning && !loading && last?.role !== 'assistant' && <article className="msg assistant" aria-label="助手消息"><div className="msg-body assistant-body"><div className="thinking" role="status"><PixelLoader /><span>正在准备回复…</span></div></div></article>}
+    {remoteRunning && !loading && last?.role !== 'assistant' && <article className="msg assistant" aria-label={t('chat.assistantMessage')}><div className="msg-body assistant-body"><div className="thinking" role="status"><PixelLoader /><span>{t('chat.preparingReply')}</span></div></div></article>}
   </div></ImagePreviewProvider></div>;
 }

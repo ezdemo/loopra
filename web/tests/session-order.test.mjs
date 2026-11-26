@@ -51,8 +51,8 @@ test('a long project list folds after six sessions with an expand link', async (
   // The active session may come from search and sit below the fold; its group
   // opens instead of hiding the row that is currently selected.
   assert.match(sidebar, /own\.findIndex\(entry => entry\.id === activeId\) < SESSION_GROUP_LIMIT/);
-  assert.match(sidebar, /展开显示/);
-  assert.match(sidebar, /收起显示/);
+  assert.match(sidebar, /nav\.showMore/);
+  assert.match(sidebar, /nav\.showLess/);
   assert.match(css, /\.session-more \{ display: flex;/);
 });
 

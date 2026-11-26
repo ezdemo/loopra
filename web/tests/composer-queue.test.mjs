@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { reactI18nextStubUrl } from './i18n-test-utils.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://test.invalid' });
 const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, navigator: dom.window.navigator, IS_REACT_ACT_ENVIRONMENT: true };
@@ -24,6 +25,7 @@ async function load(name) {
   for (const dependency of ['react', 'react-dom', 'react/jsx-runtime', 'lucide-react']) {
     outputText = outputText.replaceAll(`'${dependency}'`, JSON.stringify(import.meta.resolve(dependency))).replaceAll(`"${dependency}"`, JSON.stringify(import.meta.resolve(dependency)));
   }
+  outputText = outputText.replaceAll("'react-i18next'", JSON.stringify(reactI18nextStubUrl)).replaceAll('"react-i18next"', JSON.stringify(reactI18nextStubUrl));
   return import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 }
 const { default: ComposerQueue } = await load('components/ComposerQueue.tsx');

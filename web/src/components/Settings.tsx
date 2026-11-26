@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Input } from '@nextui-org/react';
 import { ArrowUpRight, BookOpen, Bot, ChevronDown, ChevronRight, Database, FolderClosed, Monitor, Plug, Search, Server, SlidersHorizontal, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -69,6 +70,7 @@ type Props = {
 };
 
 export default function Settings(props: Props) {
+  const { t } = useTranslation();
   const api = useMemo(() => new LoopraClient(props.server), [props.server]);
   const { preferences: prefs, onPreferences, providers, onProviders, sessions, notify, config, onConfig: saveConfig, coreUpdate } = props;
   const onConfig = (next: AgentSettings) => Promise.resolve(saveConfig(next)).catch(error => notify(error instanceof Error ? error.message : '保存配置失败'));
@@ -101,7 +103,7 @@ export default function Settings(props: Props) {
       const row = Array.from(document.querySelectorAll<HTMLElement>('.settings-content [data-setting-title], .settings-content label, .settings-content h2, .settings-content h3'))
         .find(element => (element.dataset.settingTitle || element.textContent?.trim()) === focusTarget);
       row?.scrollIntoView({ block: 'center' });
-      const control = row?.closest('.settings-field')?.querySelector<HTMLElement>('input, textarea, button');
+      const control = row?.closest('.settings-field, .setting-row')?.querySelector<HTMLElement>('input, textarea, button');
       (control || row)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
@@ -119,9 +121,22 @@ export default function Settings(props: Props) {
   const openWithNames = visibleApplications(props.availableApplications).map(item => item.name);
   const openWithOptions = openWithNames.includes(prefs.openWith) ? openWithNames : [prefs.openWith, ...openWithNames];
   const navigationCategories = settingsWithPluginMenus(pluginMenus);
-  const tabs = navigationCategories.flatMap(category => category.sections.map(section => ({ ...section, keywords: `${category.name} ${section.label} ${section.keywords}` })));
+  const localizedCategory = (item: { name: string; key?: string }) => item.key ? t(`settings.category.${item.key}`) : item.name;
+  const localizedSection = (item: { label: string; key?: string }) => item.key ? t(`settings.section.${item.key}`) : item.label;
+  const localizedControlTitle = (title: string) => ({
+    '个人资料': t('settings.profile'),
+    '外观': t('settings.appearance'),
+    '强调色': t('settings.accentColor'),
+    '语言': t('settings.language'),
+    '界面缩放': t('settings.uiScale'),
+    '系统通知': t('settings.systemNotifications'),
+    '通知提示音': t('settings.notificationSound'),
+    '默认打开应用': t('settings.defaultOpenApp'),
+    '界面动画': t('settings.uiAnimations'),
+  })[title] || title;
+  const tabs = navigationCategories.flatMap(category => category.sections.map(section => ({ ...section, keywords: `${localizedCategory(category)} ${localizedSection(section)} ${section.keywords}` })));
   const categoryForSection = (name: string) => navigationCategories.find(category => category.sections.some(section => section.name === name)) || settingsCategoryFor(name);
-  const results = searchSettings(query, tabs).map(item => ({ ...item, title: tabs.find(section => section.name === item.title)?.label || item.title }));
+  const results = searchSettings(query, tabs).map(item => ({ ...item, title: tabs.find(section => section.name === item.title) ? localizedSection(tabs.find(section => section.name === item.title)!) : localizedControlTitle(item.title) }));
   const pluginSelection = selectedPluginMenu(tab, pluginMenus);
   const category = pluginSelection && !pluginSettingsCategory(pluginSelection.menu) ? { name: pluginSelection.menu.title, sections: [{ name: tab, label: pluginSelection.title }] } : categoryForSection(tab);
   const currentSection = category.sections.find(section => section.name === tab)!;
@@ -135,15 +150,16 @@ export default function Settings(props: Props) {
     setQuery('');
     setFocusTarget('');
   }
-  return <section className="settings-page" aria-label="设置" tabIndex={-1} ref={page}><div className="settings-layout">
-      <nav className="settings-nav rich-settings-nav" aria-label="设置分类"><div className="settings-nav-top"><h1>设置</h1><Input size="sm" aria-label="搜索设置" placeholder="搜索设置…" value={query} onValueChange={setQuery} startContent={<Search size="0.875rem" />} variant="bordered" /></div>
-        <div className="settings-category-list">{filtered.map(({ name, sections }) => {
+  return <section className="settings-page" aria-label={t('settings.title')} tabIndex={-1} ref={page}><div className="settings-layout">
+      <nav className="settings-nav rich-settings-nav" aria-label={t('settings.categoriesAria')}><div className="settings-nav-top"><h1>{t('settings.title')}</h1><Input size="sm" aria-label={t('settings.searchAria')} placeholder={t('settings.searchPlaceholder')} value={query} onValueChange={setQuery} startContent={<Search size="0.875rem" />} variant="bordered" /></div>
+        <div className="settings-category-list">{filtered.map(({ name, key, sections }) => {
           const Icon = categoryIcons[name]; const active = category.name === name && !query.trim(); const expanded = active && expandedCategory === name;
+          const displayCategory = localizedCategory({ name, key });
           return <section key={name} className="settings-nav-category">
-            <Button variant="light" title={name} aria-label={name} aria-current={active && sections.length === 1 ? 'page' : undefined} aria-expanded={sections.length > 1 ? expanded : undefined} className={active ? 'selected' : ''} onPress={() => active && sections.length > 1 ? setExpandedCategory(expanded ? '' : name) : openCategory(name)}><Icon size="1.125rem" strokeWidth={1.8} /><span>{name}</span>{sections.length > 1 && <ChevronDown size="0.875rem" className="settings-category-chevron" />}</Button>
-            {expanded && sections.length > 1 && <div className="settings-submenu" role="group" aria-label={`${name}选项`}>{sections.map(section => {
+            <Button variant="light" title={displayCategory} aria-label={displayCategory} aria-current={active && sections.length === 1 ? 'page' : undefined} aria-expanded={sections.length > 1 ? expanded : undefined} className={active ? 'selected' : ''} onPress={() => active && sections.length > 1 ? setExpandedCategory(expanded ? '' : name) : openCategory(name)}><Icon size="1.125rem" strokeWidth={1.8} /><span>{displayCategory}</span>{sections.length > 1 && <ChevronDown size="0.875rem" className="settings-category-chevron" />}</Button>
+            {expanded && sections.length > 1 && <div className="settings-submenu" role="group" aria-label={t('settings.categoryOptions', { category: displayCategory })}>{sections.map(section => {
               const plugin = selectedPluginMenu(section.name, pluginMenus);
-              return <Button key={section.name} variant="light" aria-current={tab === section.name ? 'page' : undefined} className={tab === section.name ? 'selected' : ''} onPress={() => openCategory(section.name)}>{tab === section.name && <SelectionIndicator />}{plugin && <PluginGlyph api={api} pluginId={plugin.menu.id} icon={plugin.child?.icon || plugin.menu.icon} className="settings-menu-icon" size="0.875rem" />}<span>{section.label}</span></Button>;
+              return <Button key={section.name} variant="light" aria-current={tab === section.name ? 'page' : undefined} className={tab === section.name ? 'selected' : ''} onPress={() => openCategory(section.name)}>{tab === section.name && <SelectionIndicator />}{plugin && <PluginGlyph api={api} pluginId={plugin.menu.id} icon={plugin.child?.icon || plugin.menu.icon} className="settings-menu-icon" size="0.875rem" />}<span>{localizedSection(section)}</span></Button>;
             })}</div>}
           </section>;
         })}
@@ -158,36 +174,36 @@ export default function Settings(props: Props) {
               <span>{menu.title}</span>
               {!!menu.children?.length && <ChevronDown size="0.875rem" className="settings-category-chevron" />}
             </Button>
-            {expanded && <div className="settings-submenu" role="group" aria-label={`${menu.title}选项`}>{menu.children?.map(child => <Button key={child.id} variant="light" aria-current={tab === `${key}:${child.id}` ? 'page' : undefined} className={tab === `${key}:${child.id}` ? 'selected' : ''} onPress={() => openPluginMenu(menu, child.id)}>{tab === `${key}:${child.id}` && <SelectionIndicator />}{child.icon ? <PluginGlyph api={api} pluginId={menu.id} icon={child.icon} className="settings-menu-icon" size="0.875rem" /> : null}<span>{child.title}</span></Button>)}</div>}
+            {expanded && <div className="settings-submenu" role="group" aria-label={t('settings.categoryOptions', { category: menu.title })}>{menu.children?.map(child => <Button key={child.id} variant="light" aria-current={tab === `${key}:${child.id}` ? 'page' : undefined} className={tab === `${key}:${child.id}` ? 'selected' : ''} onPress={() => openPluginMenu(menu, child.id)}>{tab === `${key}:${child.id}` && <SelectionIndicator />}{child.icon ? <PluginGlyph api={api} pluginId={menu.id} icon={child.icon} className="settings-menu-icon" size="0.875rem" /> : null}<span>{child.title}</span></Button>)}</div>}
           </section>;
         })}
         </div>
-        {!filtered.length && !visibleMenus.length && <p className="settings-nav-empty">没有匹配的设置</p>}
+        {!filtered.length && !visibleMenus.length && <p className="settings-nav-empty">{t('settings.noMatches')}</p>}
       </nav>
       <div className="settings-main">
       <header className="settings-content-header">
-        <div className="settings-breadcrumb" aria-label="当前位置">{query.trim() ? <span>搜索设置</span> : <><span>{category.name}</span>{category.name !== currentSection.label && <><ChevronRight size="0.875rem" /><span>{currentSection.label}</span></>}</>}</div>
+        <div className="settings-breadcrumb" aria-label={t('settings.currentLocation')}>{query.trim() ? <span>{t('settings.searchResults')}</span> : <><span>{localizedCategory(category)}</span>{localizedCategory(category) !== localizedSection(currentSection) && <><ChevronRight size="0.875rem" /><span>{localizedSection(currentSection)}</span></>}</>}</div>
       </header>
       <Enter key={query.trim() ? 'search' : tab} as="section" className={`settings-content rich-settings-content${!query.trim() && tab === '模型供应商' ? ' provider-settings-content' : ''}`}>
-        <nav className="settings-mobile-categories" aria-label="设置分类快捷导航">{settingsCategories.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={!query.trim() && category.name === item.name} onPress={() => openCategory(item.name)}>{item.name}</Button>)}</nav>
-        {!query.trim() && category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={`${category.name}页面导航`}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{item.label}</Button>)}</nav>}
-        {query.trim() ? <><PageActions title="搜索设置" /><p className="section-note" role="status">找到 {results.length} 项与“{query.trim()}”相关的设置</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{categoryForSection(item.category).name}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">试试设置名称，例如“提示音”“缩放”或“模型”。</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} context={props.pluginContext} /></div> : <>
+        <nav className="settings-mobile-categories" aria-label={t('settings.mobileCategories')}>{settingsCategories.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={!query.trim() && category.name === item.name} onPress={() => openCategory(item.name)}>{localizedCategory(item)}</Button>)}</nav>
+        {!query.trim() && category.sections.length > 1 && <nav className="settings-mobile-sections" aria-label={t('settings.pageNavigation', { category: localizedCategory(category) })}>{category.sections.map(item => <Button key={item.name} size="sm" variant="light" aria-pressed={tab === item.name} onPress={() => openCategory(item.name)}>{localizedSection(item)}</Button>)}</nav>}
+        {query.trim() ? <><PageActions title={t('settings.searchResults')} /><p className="section-note" role="status">{t('settings.found', { count: results.length, query: query.trim() })}</p><div className="settings-search-results">{results.map(item => <Button key={`${item.category}:${item.title}`} variant="light" onPress={() => { openCategory(item.category); setFocusTarget(item.title); }}><strong>{item.title}</strong><span>{localizedCategory(categoryForSection(item.category))}<ChevronRight size=".875rem" aria-hidden="true" /></span></Button>)}</div>{!results.length && <p className="section-note">{t('settings.searchHint')}</p>}</> : pluginSelection ? <div className="plugin-settings-page"><PluginFrame api={api} id={pluginSelection.menu.id} name={pluginSelection.title} slot="menu" menuItem={pluginSelection.child?.id || ''} title={pluginSelection.title} context={props.pluginContext} /></div> : <>
         {tab === '通用' && <>
-          <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，保存到服务端"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
-          <h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
-            <SettingRow title="外观" description="选择应用的明暗外观，保存到服务端"><SettingSegments label="外观" options={['☼ 浅色', '◉ 深色', '跟随系统']} value={prefs.theme === '浅色' ? '☼ 浅色' : prefs.theme === '深色' ? '◉ 深色' : prefs.theme} onChange={value => update('theme', value.replace(/^[☼◉] /, ''))} /></SettingRow>
-            <SettingRow title="强调色"><AccentColorSettings value={prefs.accentColor} onChange={value => update('accentColor', value)} /></SettingRow>
-            <SettingRow title="语言" description="侧栏与输入框的显示语言"><SettingSegments label="语言" options={['English', '简体中文']} value={prefs.language} onChange={value => update('language', value)} /></SettingRow>
-            <SettingRow title="界面缩放" description="同步调整文字、侧栏宽度、控件尺寸与间距"><div className="font-scale-control"><SettingSegments label="全局界面缩放" options={UI_SCALE_LEVELS.map(level => `${level}%`)} value={`${normalizeUiScale(prefs.fontScale)}%`} onChange={value => update('fontScale', Number(value.replace('%', '')))} /></div></SettingRow>
+          <PageActions title={t('settings.general')} /><div className="settings-card"><SettingRow title={t('settings.profile')} description={t('settings.profileDescription')}><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>{t('common.edit')}</Button></SettingRow></div>
+          <h3 className="settings-section-title">{t('settings.appearanceDisplay')}</h3><div className="settings-card">
+            <SettingRow title={t('settings.appearance')} description={t('settings.appearanceDescription')}><SettingSegments label={t('settings.appearance')} options={[{ value: '☼ 浅色', label: `☼ ${t('settings.themeLight')}` }, { value: '◉ 深色', label: `◉ ${t('settings.themeDark')}` }, { value: '跟随系统', label: t('settings.themeSystem') }]} value={prefs.theme === '浅色' ? '☼ 浅色' : prefs.theme === '深色' ? '◉ 深色' : prefs.theme} onChange={value => update('theme', value.replace(/^[☼◉] /, ''))} /></SettingRow>
+            <SettingRow title={t('settings.accentColor')}><AccentColorSettings value={prefs.accentColor} onChange={value => update('accentColor', value)} /></SettingRow>
+            <SettingRow title={t('settings.language')} description={t('settings.languageDescription')}><SettingSegments label={t('settings.language')} options={['English', '简体中文']} value={prefs.language} onChange={value => update('language', value)} /></SettingRow>
+            <SettingRow title={t('settings.uiScale')} description={t('settings.uiScaleDescription')}><div className="font-scale-control"><SettingSegments label={t('settings.globalUiScale')} options={UI_SCALE_LEVELS.map(level => `${level}%`)} value={`${normalizeUiScale(prefs.fontScale)}%`} onChange={value => update('fontScale', Number(value.replace('%', '')))} /></div></SettingRow>
           </div>
-          <h3 className="settings-section-title">回复通知</h3><div className="settings-card"><SettingRow title="系统通知" description="回答完成时显示应用内通知"><SettingSwitch label="系统通知" value={prefs.notifications} onChange={value => update('notifications', value)} /></SettingRow><SettingRow title="通知提示音" description="回答完成时播放简短提示音"><SettingSwitch label="通知提示音" value={prefs.sound} onChange={value => update('sound', value)} /></SettingRow></div>
-          <h3 className="settings-section-title">使用体验</h3><div className="settings-card"><SettingRow title="默认打开应用" description="顶栏文件夹按钮在项目目录启动的系统应用"><SelectField compact label="默认打开应用" value={prefs.openWith} onChange={value => update('openWith', value)} options={openWithOptions} startContent={<FolderClosed size="1.0625rem" />} /></SettingRow><SettingRow title="界面动画" description="弹窗与控件的过渡效果"><SettingSwitch label="界面动画" value={prefs.animations} onChange={value => update('animations', value)} /></SettingRow></div>
+          <h3 className="settings-section-title">{t('settings.replyNotifications')}</h3><div className="settings-card"><SettingRow title={t('settings.systemNotifications')} description={t('settings.systemNotificationsDescription')}><SettingSwitch label={t('settings.systemNotifications')} value={prefs.notifications} onChange={value => update('notifications', value)} /></SettingRow><SettingRow title={t('settings.notificationSound')} description={t('settings.notificationSoundDescription')}><SettingSwitch label={t('settings.notificationSound')} value={prefs.sound} onChange={value => update('sound', value)} /></SettingRow></div>
+          <h3 className="settings-section-title">{t('settings.experience')}</h3><div className="settings-card"><SettingRow title={t('settings.defaultOpenApp')} description={t('settings.defaultOpenAppDescription')}><SelectField compact label={t('settings.defaultOpenApp')} value={prefs.openWith} onChange={value => update('openWith', value)} options={openWithOptions} startContent={<FolderClosed size="1.0625rem" />} /></SettingRow><SettingRow title={t('settings.uiAnimations')} description={t('settings.uiAnimationsDescription')}><SettingSwitch label={t('settings.uiAnimations')} value={prefs.animations} onChange={value => update('animations', value)} /></SettingRow></div>
         </>}
         {tab === '宠物' && <PetSettings pets={props.pets} enabled={config.petEnabled} standalone={props.standalonePet} onResetPosition={props.onResetPetPosition} onEnabled={petEnabled => onConfig({ ...config, petEnabled })} onInitPet={props.onInitPet} notify={notify} />}
         {tab === '模型供应商' && <ModelProviderSettings providers={providers} server={props.server} onProviders={onProviders} />}
         {tab === '模型用途' && <ModelUsageSettings {...pageProps} defaultModel={props.defaultModel} onDefaultModel={props.onDefaultModel} onManageModels={() => openCategory('模型供应商')} />}
-        {tab === '智能体与会话' && <><PageActions title="会话默认" /><AgentDefaults {...pageProps} /><h2>会话上下文</h2><div className="settings-card"><SettingRow title="自动工作区上下文" description="在新消息中包含当前工作区信息"><SettingSwitch label="自动工作区上下文" value={prefs.autoContext} onChange={value => update('autoContext', value)} /></SettingRow></div></>}
-        {tab === '项目' && <><BackendProjects server={props.server} workspaces={props.workspaces} sessions={sessions} onRefresh={props.onRefresh} /><h3 className="settings-section-title">会话与需求</h3><div className="settings-card"><SettingRow title="会话管理" description="查找、整理和管理工作区会话"><Button size="sm" variant="flat" onPress={props.onOpenSessions}>打开会话管理</Button></SettingRow><SettingRow title="需求池" description="查看和管理项目需求"><Button size="sm" variant="flat" onPress={props.onOpenRequirements}>打开需求池</Button></SettingRow></div></>}
+        {tab === '智能体与会话' && <><PageActions title={t('settings.sessionDefaults')} /><AgentDefaults {...pageProps} /><h2>{t('settings.sessionContext')}</h2><div className="settings-card"><SettingRow title={t('settings.autoWorkspaceContext')} description={t('settings.autoWorkspaceContextDescription')}><SettingSwitch label={t('settings.autoWorkspaceContext')} value={prefs.autoContext} onChange={value => update('autoContext', value)} /></SettingRow></div></>}
+        {tab === '项目' && <><BackendProjects server={props.server} workspaces={props.workspaces} sessions={sessions} onRefresh={props.onRefresh} /><h3 className="settings-section-title">{t('settings.sessionsAndRequirements')}</h3><div className="settings-card"><SettingRow title={t('settings.sessionManagement')} description={t('settings.sessionManagementDescription')}><Button size="sm" variant="flat" onPress={props.onOpenSessions}>{t('settings.openSessionManagement')}</Button></SettingRow><SettingRow title={t('settings.requirementsPool')} description={t('settings.requirementsPoolDescription')}><Button size="sm" variant="flat" onPress={props.onOpenRequirements}>{t('settings.openRequirementsPool')}</Button></SettingRow></div></>}
         {tab === '服务器' && <BackendServer server={props.server} onSave={serverUrl => { void Promise.resolve(onConfig({ ...config, serverUrl })).catch(error => notify(String(error))); }} />}
         {tab === '网络代理' && <ProxySettings api={api} notify={notify} />}
         {tab === '远程访问' && <RemoteAccessSettings api={api} notify={notify} />}
@@ -199,21 +215,21 @@ export default function Settings(props: Props) {
         {tab === 'MCP' && <IntegrationManager api={api} kind="mcp" />}
         {tab === '系统提示词' && <PromptSettings {...pageProps} />}
         {tab === '记忆' && <MemorySettings api={api} workspaces={props.workspaces} initialWorkspaceHash={props.pluginContext?.workspaceHash} />}
-        {tab === '快捷键' && <><PageActions title="快捷键" /><div className="settings-card">{[['新建会话', 'Ctrl / ⌘ + N'], ['搜索会话或工作区', 'Ctrl / ⌘ + K'], ['打开设置', 'Ctrl / ⌘ + ,'], ['切换侧边栏', 'Ctrl / ⌘ + B'], ['发送消息', 'Enter'], ['消息换行', 'Shift + Enter'], ['输入指令 / 文件引用', '/ 或 @'], ['选择建议', '↑ ↓ / Tab / Enter'], ['关闭弹窗', 'Esc']].map(([name, key]) => <SettingRow key={name} title={name}><kbd>{key}</kbd></SettingRow>)}</div></>}
+        {tab === '快捷键' && <><PageActions title={t('settings.section.shortcuts')} /><div className="settings-card">{[[t('settings.shortcut.newChat'), 'Ctrl / ⌘ + N'], [t('settings.shortcut.search'), 'Ctrl / ⌘ + K'], [t('settings.shortcut.openSettings'), 'Ctrl / ⌘ + ,'], [t('settings.shortcut.toggleSidebar'), 'Ctrl / ⌘ + B'], [t('settings.shortcut.sendMessage'), 'Enter'], [t('settings.shortcut.newline'), 'Shift + Enter'], [t('settings.shortcut.commandsFiles'), '/ 或 @'], [t('settings.shortcut.chooseSuggestion'), '↑ ↓ / Tab / Enter'], [t('settings.shortcut.closePopup'), 'Esc']].map(([name, key]) => <SettingRow key={name} title={name}><kbd>{key}</kbd></SettingRow>)}</div></>}
         {tab === '关于' && <div className="about-settings">
-          <header className="about-heading"><LoopraMark /><div><h2>关于 Loopra</h2><p>版本、更新与数据存储</p></div></header>
+          <header className="about-heading"><LoopraMark /><div><h2>{t('settings.aboutTitle')}</h2><p>{t('settings.aboutDescription')}</p></div></header>
           <VersionInfoPanel api={api} notify={notify} initialCheck={props.updateCheck} coreUpdate={coreUpdate} desktopUpdate={props.desktopUpdate} />
-          <section className="about-storage" aria-label="连接与存储">
-            <div className="about-section-heading"><h3>连接与存储</h3></div>
+          <section className="about-storage" aria-label={t('settings.storageTitle')}>
+            <div className="about-section-heading"><h3>{t('settings.storageTitle')}</h3></div>
             <div className="about-storage-card">
-              <div className="about-connection"><span className="about-row-icon"><Server size="1rem" aria-hidden="true" /></span><div><h4>当前服务</h4><p>{props.server}</p></div><Button size="sm" variant="light" onPress={() => openCategory('服务器')}>连接设置<ChevronRight size=".875rem" aria-hidden="true" /></Button></div>
+              <div className="about-connection"><span className="about-row-icon"><Server size="1rem" aria-hidden="true" /></span><div><h4>{t('settings.currentService')}</h4><p>{props.server}</p></div><Button size="sm" variant="light" onPress={() => openCategory('服务器')}>{t('settings.connectionSettings')}<ChevronRight size=".875rem" aria-hidden="true" /></Button></div>
               <div className="about-storage-locations">
-                <div><Database size="1rem" aria-hidden="true" /><div><h4>服务端设置</h4><p>外观、个人资料、模型、会话和其余设置都保存在后端服务所在设备。</p></div></div>
-                <div><Monitor size="1rem" aria-hidden="true" /><div><h4>本机连接</h4><p>服务地址保存在这台设备上，用来找到 Loopra。</p></div></div>
+                <div><Database size="1rem" aria-hidden="true" /><div><h4>{t('settings.serverSettings')}</h4><p>{t('settings.serverSettingsDescription')}</p></div></div>
+                <div><Monitor size="1rem" aria-hidden="true" /><div><h4>{t('settings.localConnection')}</h4><p>{t('settings.localConnectionDescription')}</p></div></div>
               </div>
             </div>
           </section>
-          <footer className="about-footer"><button type="button" onClick={props.onOpenHelp}><BookOpen size="1rem" aria-hidden="true" />帮助中心<ArrowUpRight size=".875rem" aria-hidden="true" /></button><div><span>开源主页</span><a href={GITEE_HOME_URL} target="_blank" rel="noreferrer">Gitee<ArrowUpRight size=".875rem" aria-hidden="true" /></a><a href={GITHUB_HOME_URL} target="_blank" rel="noreferrer">GitHub<ArrowUpRight size=".875rem" aria-hidden="true" /></a></div></footer>
+          <footer className="about-footer"><button type="button" onClick={props.onOpenHelp}><BookOpen size="1rem" aria-hidden="true" />{t('settings.helpCenter')}<ArrowUpRight size=".875rem" aria-hidden="true" /></button><div><span>{t('settings.openSourceHome')}</span><a href={GITEE_HOME_URL} target="_blank" rel="noreferrer">Gitee<ArrowUpRight size=".875rem" aria-hidden="true" /></a><a href={GITHUB_HOME_URL} target="_blank" rel="noreferrer">GitHub<ArrowUpRight size=".875rem" aria-hidden="true" /></a></div></footer>
         </div>}
         </>}
       </Enter>

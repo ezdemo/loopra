@@ -14,7 +14,7 @@ const pad = (value: number) => String(value).padStart(2, '0');
  * days → `N天前`, within a week → `星期三`, older → `10/19` (with the year
  * when it is not the current one).
  */
-export function sessionDate(mtime?: number, now = Date.now()) {
+export function sessionDate(mtime?: number, now = Date.now(), translate?: (key: string, params?: Record<string, unknown>) => string, locale = 'zh-CN') {
   if (!mtime) return '';
   const date = new Date(mtime);
   if (Number.isNaN(date.getTime())) return '';
@@ -22,12 +22,12 @@ export function sessionDate(mtime?: number, now = Date.now()) {
   const startOfDay = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
   // Calendar days, not 24-hour spans, so "yesterday" still means yesterday at 00:05.
   const days = Math.round((startOfDay(today) - startOfDay(date)) / DAY);
-  if (days <= 0) return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  if (days === 1) return '昨天';
-  if (days === 2) return '前天';
-  if (days <= 3) return `${days}天前`;
-  if (days < 7) return `星期${WEEKDAYS[date.getDay()]}`;
+  if (days <= 0) return locale === 'en' ? date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (days === 1) return translate ? translate('time.yesterday') : '昨天';
+  if (days === 2) return translate ? translate('time.dayBeforeYesterday') : '前天';
+  if (days <= 3) return translate ? translate('time.daysAgo', { count: days }) : `${days}天前`;
+  if (days < 7) return locale === 'en' ? date.toLocaleDateString('en-US', { weekday: 'long' }) : `星期${WEEKDAYS[date.getDay()]}`;
   return date.getFullYear() === today.getFullYear()
-    ? `${date.getMonth() + 1}/${date.getDate()}`
-    : `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
+    ? date.toLocaleDateString(locale, { month: 'numeric', day: 'numeric' })
+    : date.toLocaleDateString(locale, { year: 'numeric', month: 'numeric', day: 'numeric' });
 }

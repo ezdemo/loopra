@@ -192,8 +192,8 @@ test('the context popover keeps one window-scale bar and a three-stat footer', a
   assert.doesNotMatch(component, /context-gauge-fill/);
   assert.doesNotMatch(component, /context-bar-threshold/);
   // The footer keeps only 总 token / 费用 / 命中率, and the 服务端统计 label is gone.
-  assert.match(component, /总 token \$\{formatTokens\(usage\.metrics\.promptTokens \+ usage\.metrics\.completionTokens\)\}/);
-  assert.match(component, /命中率 \$\{usage\.metrics\.cacheHitRate\.toFixed\(1\)\}%/);
+  assert.match(component, /composer\.totalTokens/);
+  assert.match(component, /composer\.cacheHitRate/);
   assert.doesNotMatch(component, /服务端统计：输入/);
   assert.doesNotMatch(component, /usage\.metrics\.inputCost/);
   assert.doesNotMatch(component, /上下文窗口 · /);

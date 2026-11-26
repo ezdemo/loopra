@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { reactI18nextStubUrl } from './i18n-test-utils.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://test.invalid' });
 const globals = { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
@@ -27,7 +28,7 @@ export const Input = () => null;
 export const Button = ({ children, ...props }) => createElement('button', props, children);`);
 const source = await readFile(new URL('../src/components/ReasoningControl.tsx', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } });
-for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), '@nextui-org/react': controls, 'lucide-react': dataUrl('export const Brain = () => null;'), '../composer': dataUrl(scale) })) {
+for (const [specifier, url] of Object.entries({ react: reactUrl, 'react-i18next': reactI18nextStubUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), '@nextui-org/react': controls, 'lucide-react': dataUrl('export const Brain = () => null;'), '../composer': dataUrl(scale) })) {
   outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
 }
 const { default: ReasoningControl } = await import(dataUrl(outputText));
@@ -88,3 +89,16 @@ test('drag follows fractional positions and saves only the nearest supported tie
     assert.equal(thumb(), 2);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+test('external agent effort text is preserved when localization is disabled', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const levels = [{ value: 'high', label: 'Agent high', description: 'Agent-specific high effort detail' }];
+  try {
+    await act(async () => root.render(createElement(ReasoningControl, { levels, value: 'high', disabled: false, allowCustom: false, localizeLevels: false, onClose: () => {}, onCommit: () => {} })));
+    assert.equal(host.querySelector('.effort-summary strong').textContent, 'Agent high强度');
+    assert.equal(host.querySelector('.effort-summary p').textContent, 'Agent-specific high effort detail');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+

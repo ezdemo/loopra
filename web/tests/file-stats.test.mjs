@@ -41,6 +41,6 @@ test('an empty turn reports no file stats', () => {
 test('the assistant footer renders the split 修改/新增 counters', async () => {
   const conversation = await readFile(new URL('../src/components/Conversation.tsx', import.meta.url), 'utf8');
   assert.match(conversation, /messageFileStats\(blocks\)/);
-  assert.match(conversation, /修改 \{stats\.edited\.length\} 文件/);
-  assert.match(conversation, /新增 \{stats\.created\.length\} 文件/);
+  assert.match(conversation, /chat\.modifiedFiles/);
+  assert.match(conversation, /chat\.createdFiles/);
 });

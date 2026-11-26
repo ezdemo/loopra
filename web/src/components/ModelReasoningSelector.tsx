@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Input, Switch, Tooltip } from '@nextui-org/react';
 import { Check, ChevronDown, Search, Settings2, Star, X, Zap } from 'lucide-react';
 import { groupModels, modelEffortLevels, modelLabel, resolveModelEffort, type ComposerOptions, type ModelOption } from '../composer';
@@ -21,6 +22,7 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 }
 
 export default function ModelReasoningSelector(props: Props) {
+  const { t } = useTranslation();
   const { models, options, external, agentEngineName, notify } = props;
   const [menu, setMenu] = useState<'summary' | 'models' | 'effort' | 'fusion' | 'fusion-effort'>('summary');
   const [query, setQuery] = useState('');
@@ -44,17 +46,18 @@ export default function ModelReasoningSelector(props: Props) {
   const fusionActive = !!fusion && fusionValue !== 'off';
   const fusionEffort = fusionActive ? findAgentOption(props.agentConfig?.options, 'fusionSidekickEffort') : undefined;
   const agentBusy = !!props.agentConfig?.busy;
-  const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
+  const effortTranslate = external ? undefined : t;
+  const agentLevels = agentEffort ? agentEffortLevels(agentEffort, effortTranslate) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const modelGroupsForAgent = useMemo(() => agentModel ? groupAgentModels(agentModel, agentEngineName) : [], [agentModel, agentEngineName]);
   const fusionGroups = useMemo(() => fusion ? groupAgentModels({ ...fusion, options: fusion.options.filter(option => option.value !== 'off') }, agentEngineName) : [], [fusion, agentEngineName]);
   const fusionLabel = fusionValue === 'off'
-    ? fusion?.options.find(option => option.value === 'off')?.name ?? '关闭'
-    : fusionGroups.flatMap(group => group.models).find(model => model.value === fusionValue)?.name ?? '模型不可用';
+    ? t('modelSelector.off')
+    : fusionGroups.flatMap(group => group.models).find(model => model.value === fusionValue)?.name ?? t('modelSelector.modelUnavailable');
   const pickerOption = menu === 'fusion' ? fusion : agentModel;
   const pickerValue = pickerOption ? configValue(pickerOption) : '';
   const pickerGroups = menu === 'fusion' ? fusionGroups : modelGroupsForAgent;
-  const pickerTitle = menu === 'models' ? '选择模型' : menu === 'fusion' ? '边缘模型' : menu === 'fusion-effort' ? '边缘推理' : '推理设置';
+  const pickerTitle = menu === 'models' ? t('modelSelector.chooseModel') : menu === 'fusion' ? t('modelSelector.edgeModel') : menu === 'fusion-effort' ? t('modelSelector.edgeReasoning') : t('modelSelector.reasoningSettings');
   const agentModelValue = agentModel ? configValue(agentModel) : '';
   const agentEffortValue = agentEffort ? configValue(agentEffort) : '';
   const native = !external && !props.agentConfig;
@@ -68,16 +71,16 @@ export default function ModelReasoningSelector(props: Props) {
     : '';
   const activeModelTooltip = agentModel
     ? [...new Set([agentOptionLabel(agentModel), agentOptionDescription(agentModel)])].filter(Boolean).join('\n')
-    : selected ? `${selected.provider} / ${modelLabel(selected)}${modelLabel(selected) !== selected.name ? `\n${selected.name}` : ''}` : '选择模型';
+    : selected ? `${selected.provider} / ${modelLabel(selected)}${modelLabel(selected) !== selected.name ? `\n${selected.name}` : ''}` : t('modelSelector.chooseModel');
   const modelQuery = query.trim().toLowerCase();
   const visibleModelGroups = pickerGroups
     .map(group => ({ ...group, models: group.models.filter(model => !modelQuery || `${group.name} ${model.name} ${model.value} ${model.description || ''}`.toLowerCase().includes(modelQuery)) }))
     .filter(group => group.models.length);
 
-  const modelName = agentModel ? activeModelLabel : selected ? modelLabel(selected) : '选择模型';
+  const modelName = agentModel ? activeModelLabel : selected ? modelLabel(selected) : t('modelSelector.chooseModel');
   const reasoningValue = agentEffort ? agentEffortValue : native ? nativeEffort : '';
-  const reasoningName = reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue);
-  const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : '', fusionActive ? `边缘：${fusionLabel}` : ''].filter(Boolean).join('\n');
+  const reasoningName = agentEffort && external ? agentOptionLabel(agentEffort) : reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue, effortTranslate);
+  const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `${t('modelSelector.reasoningLine', { effort: reasoningName || t('effort.default.label') })}${fast ? t('modelSelector.fastSuffix') : ''}` : '', fusionActive ? t('modelSelector.edgeLine', { model: fusionLabel }) : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
   const close = props.onClose;
@@ -127,34 +130,34 @@ export default function ModelReasoningSelector(props: Props) {
     }}>
     <Tooltip content={title} classNames={{ content: 'model-name-tooltip' }} delay={600}>
       <Button ref={trigger} isDisabled={agentBusy} variant="light" className={`composer-model composer-model-reasoning ${props.open ? 'is-active' : ''}`}
-        title={title} aria-label={`模型与推理设置：${[agentEngineName, hasModel ? (fusionActive ? '边缘 · ' : '') + modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ')}`}
+        title={title} aria-label={t('modelSelector.ariaLabel', { details: [agentEngineName, hasModel ? (fusionActive ? t('modelSelector.edgePrefix') : '') + modelName : '', hasReasoning ? reasoningName : ''].filter(Boolean).join(' · ') })}
         aria-haspopup="dialog" aria-expanded={props.open} aria-controls={props.open ? panelId : undefined} onPress={props.onOpenChange}>
         <AgentIcon agentId={props.agentId} />
-        {hasModel && <span className="model-reasoning-name">{fusionActive ? '边缘 · ' : ''}{modelName}</span>}
+        {hasModel && <span className="model-reasoning-name">{fusionActive ? t('modelSelector.edgePrefix') : ''}{modelName}</span>}
         {hasModel && hasReasoning && <span className="model-reasoning-divider" aria-hidden="true">·</span>}
-        {hasReasoning && <span className="model-reasoning-effort">{reasoningName || (fast ? '快速' : '默认')}</span>}
+        {hasReasoning && <span className="model-reasoning-effort">{reasoningName || (fast ? t('modelSelector.fast') : t('effort.default.label'))}</span>}
       </Button>
     </Tooltip>
     {props.open && <div className="model-reasoning-menus" onPointerEnter={cancelHoverClose}
       onPointerLeave={() => { hoverClose.current = setTimeout(() => { if (!flyout.current?.contains(document.activeElement)) setMenu('summary'); }, 180); }}>
       <div className="composer-popover model-reasoning-popover model-reasoning-summary">
-        <section id={panelId} role="dialog" aria-label="模型与推理设置">
+        <section id={panelId} role="dialog" aria-label={t('composer.menu.modelSettings')}>
           <div className="model-reasoning-rows">
             {hasModel && <button ref={modelRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('models'); }} onClick={() => openPage('models', true)} disabled={agentBusy}
               aria-haspopup="dialog" aria-expanded={menu === 'models'} aria-controls={menu === 'models' ? `${panelId}-models` : undefined}>
-              <span>{fusionActive ? '主模型' : '模型'}</span><span className="model-reasoning-value" title={modelName}>{modelName}</span>
+              <span>{fusionActive ? t('modelSelector.mainModel') : t('modelSelector.model')}</span><span className="model-reasoning-value" title={modelName}>{modelName}</span>
             </button>}
             {hasReasoning && <button ref={effortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('effort'); }} onClick={() => openPage('effort', true)} disabled={agentBusy}
               aria-haspopup="dialog" aria-expanded={menu === 'effort'} aria-controls={menu === 'effort' ? `${panelId}-effort` : undefined}>
-              <span>{fusionActive ? '主推理' : '推理'}</span><span className="model-reasoning-value">{reasoningName || (fast ? '快速模式' : '默认')}{fast && reasoningName && <Zap size="0.875rem" aria-label="快速模式已开启" />}</span>
+              <span>{fusionActive ? t('modelSelector.mainReasoning') : t('modelSelector.reasoning')}</span><span className="model-reasoning-value">{reasoningName || (fast ? t('modelSelector.fastMode') : t('effort.default.label'))}{fast && reasoningName && <Zap size="0.875rem" aria-label={t('modelSelector.fastModeOn')} />}</span>
             </button>}
             {!!fusion && <button ref={fusionRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion'); }} onClick={() => openPage('fusion', true)} disabled={agentBusy || props.busy}
               aria-haspopup="dialog" aria-expanded={menu === 'fusion'} aria-controls={menu === 'fusion' ? `${panelId}-fusion` : undefined}>
-              <span>边缘</span><span className="model-reasoning-value" title={fusionLabel}>{fusionLabel}</span>
+              <span>{t('modelSelector.edge')}</span><span className="model-reasoning-value" title={fusionLabel}>{fusionLabel}</span>
             </button>}
             {!!fusionEffort && <button ref={fusionEffortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion-effort'); }} onClick={() => openPage('fusion-effort', true)} disabled={agentBusy || props.busy}
               aria-haspopup="dialog" aria-expanded={menu === 'fusion-effort'} aria-controls={menu === 'fusion-effort' ? `${panelId}-fusion-effort` : undefined}>
-              <span>边缘推理</span><span className="model-reasoning-value">{reasoningEffortLabel(configValue(fusionEffort), agentOptionLabel(fusionEffort))}</span>
+              <span>{t('modelSelector.edgeReasoning')}</span><span className="model-reasoning-value">{reasoningEffortLabel(configValue(fusionEffort), agentOptionLabel(fusionEffort), t)}</span>
             </button>}
           </div>
         </section>
@@ -162,15 +165,15 @@ export default function ModelReasoningSelector(props: Props) {
       {menu !== 'summary' && <div ref={flyout} className={`composer-popover model-reasoning-flyout${menu === 'effort' || menu === 'fusion-effort' ? ' model-reasoning-flyout-effort' : ''}`} onPointerEnter={cancelHoverClose}>
         <section id={`${panelId}-${menu}`} role="dialog" aria-label={pickerTitle}>
           <div className="composer-popover-header">
-            <div><strong>{pickerTitle}</strong>{menu === 'models' && <span className="demo-badge">{props.connected ? '在线' : '离线'}</span>}</div>
-            <Button isIconOnly size="sm" variant="light" aria-label="收起设置面板" onPress={back}><X size="1rem" /></Button>
+            <div><strong>{pickerTitle}</strong>{menu === 'models' && <span className="demo-badge">{props.connected ? t('modelSelector.online') : t('modelSelector.offline')}</span>}</div>
+            <Button isIconOnly size="sm" variant="light" aria-label={t('modelSelector.collapseSettings')} onPress={back}><X size="1rem" /></Button>
           </div>
         {(menu === 'models' || (menu === 'fusion' && !!fusion)) && (pickerOption ? <>
-          <div className="popover-search"><Input size="sm" variant="bordered" aria-label="搜索模型" placeholder="搜索模型…" value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
+          <div className="popover-search"><Input size="sm" variant="bordered" aria-label={t('modelSelector.searchModels')} placeholder={t('modelSelector.searchModelsPlaceholder')} value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
           <div className="model-group-list">
             {menu === 'fusion' && fusion && <div className={`composer-model-row agent-model-row ${fusionValue === 'off' ? 'is-selected' : ''}`}>
-              <button role="radio" aria-checked={fusionValue === 'off'} disabled={agentBusy || props.busy} aria-label={fusion.options.find(option => option.value === 'off')?.name || '关闭'} onClick={() => { changeAgent(fusion.id, 'off'); close(); focusInput(); }}>
-                <span><strong>{fusion.options.find(option => option.value === 'off')?.name || '关闭'}</strong></span>{fusionValue === 'off' && <Check size="1rem" />}
+              <button role="radio" aria-checked={fusionValue === 'off'} disabled={agentBusy || props.busy} aria-label={t('modelSelector.off')} onClick={() => { changeAgent(fusion.id, 'off'); close(); focusInput(); }}>
+                <span><strong>{t('modelSelector.off')}</strong></span>{fusionValue === 'off' && <Check size="1rem" />}
               </button>
             </div>}
             {!!pickerOption.options?.length && !pickerOption.options.some(value => value.value === pickerValue) && <div className="composer-model-row is-selected">
@@ -188,16 +191,16 @@ export default function ModelReasoningSelector(props: Props) {
                     <button role="radio" aria-checked={selected} disabled={agentBusy || props.busy} aria-label={`${group.name} / ${model.name}`} title={[model.name, model.description].filter(Boolean).join('\n')} onClick={() => { changeAgent(pickerOption.id, model.value); close(); focusInput(); }}>
                       <span><strong>{model.name}</strong>{model.description && <small>{model.description}</small>}</span>{selected && <Check size="1rem" />}
                     </button>
-                    {!external && menu !== 'fusion' && <Tooltip content={model.value === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${group.name} / ${model.name}`} aria-pressed={model.value === props.defaultModel} onPress={() => { props.onDefaultModel(model.value); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.value === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>}
+                    {!external && menu !== 'fusion' && <Tooltip content={model.value === props.defaultModel ? t('modelSelector.defaultModel') : t('modelSelector.setDefaultModel')} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={t('modelSelector.setDefaultModelAria', { name: `${group.name} / ${model.name}` })} aria-pressed={model.value === props.defaultModel} onPress={() => { props.onDefaultModel(model.value); notify(t('modelSelector.defaultModelSet')); }}><Star size="0.875rem" fill={model.value === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>}
                   </div>;
                 })}</Collapse>
               </div>;
             })}
-            {!visibleModelGroups.length && <div className="composer-empty"><Search size="1.4375rem" /><p>没有找到匹配的模型</p><small>试试模型名或供应商名称</small></div>}
+            {!visibleModelGroups.length && <div className="composer-empty"><Search size="1.4375rem" /><p>{t('modelSelector.noModelsFound')}</p><small>{t('modelSelector.tryModelOrProvider')}</small></div>}
           </div>
-          <div className="popover-footer"><span>模型来自 {external ? agentEngineName : 'Loopra 配置'}</span>{!external && <Button size="sm" variant="light" onPress={() => { close(); props.onManage(); }}><Settings2 size="0.875rem" />管理模型</Button>}</div>
+          <div className="popover-footer"><span>{t('modelSelector.modelsFrom', { source: external ? agentEngineName : t('modelSelector.loopraConfig') })}</span>{!external && <Button size="sm" variant="light" onPress={() => { close(); props.onManage(); }}><Settings2 size="0.875rem" />{t('modelSelector.manageModels')}</Button>}</div>
         </> : <>
-          <div className="popover-search"><Input size="sm" variant="bordered" aria-label="搜索模型或供应商" placeholder="搜索模型或供应商…" value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
+          <div className="popover-search"><Input size="sm" variant="bordered" aria-label={t('modelSelector.searchModelsOrProviders')} placeholder={t('modelSelector.searchModelsOrProvidersPlaceholder')} value={query} onValueChange={setQuery} startContent={<Search size="0.9375rem" />} isClearable onClear={() => setQuery('')} /></div>
           <div className="model-group-list">
             {groupModels(models, query).map(group => <div key={group.id} className="composer-model-group">
               <button className="model-group-heading" aria-expanded={!!query || !collapsed.includes(group.id)} onClick={() => setCollapsed(current => current.includes(group.id) ? current.filter(id => id !== group.id) : [...current, group.id])}>
@@ -205,23 +208,23 @@ export default function ModelReasoningSelector(props: Props) {
               </button>
               <Collapse open={!!query || !collapsed.includes(group.id)}>{group.models.map(model => <div className={`composer-model-row ${model.id === options.modelId ? 'is-selected' : ''}`} key={model.id}>
                 <button role="radio" aria-checked={model.id === options.modelId} aria-label={`${model.provider} / ${modelLabel(model)}`} title={model.name} onClick={() => { if (model.reasoningEfforts !== undefined) props.onOptions({ ...options, modelId: model.id, effort: resolveModelEffort(model.reasoningEfforts, options.effort, options.effort) }); else update('modelId', model.id); close(); focusInput(); }}><span className="model-option-copy"><strong>{modelLabel(model)}</strong>{modelLabel(model) !== model.name && <small>{model.name}</small>}</span>{model.id === options.modelId && <Check size="1rem" />}</button>
-                <Tooltip content={model.id === props.defaultModel ? '新会话默认模型' : '设为新会话默认模型'} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={`设为默认模型：${model.provider} / ${modelLabel(model)}`} aria-pressed={model.id === props.defaultModel} onPress={() => { props.onDefaultModel(model.id); notify('已设为新会话默认模型'); }}><Star size="0.875rem" fill={model.id === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>
+                <Tooltip content={model.id === props.defaultModel ? t('modelSelector.defaultModel') : t('modelSelector.setDefaultModel')} delay={500}><Button isIconOnly size="sm" variant="light" className="model-star" aria-label={t('modelSelector.setDefaultModelAria', { name: `${model.provider} / ${modelLabel(model)}` })} aria-pressed={model.id === props.defaultModel} onPress={() => { props.onDefaultModel(model.id); notify(t('modelSelector.defaultModelSet')); }}><Star size="0.875rem" fill={model.id === props.defaultModel ? 'currentColor' : 'none'} /></Button></Tooltip>
               </div>)}</Collapse>
             </div>)}
-            {!groupModels(models, query).length && <div className="composer-empty"><Search size="1.4375rem" /><p>没有找到匹配的模型</p><small>试试模型名或供应商名称</small></div>}
+            {!groupModels(models, query).length && <div className="composer-empty"><Search size="1.4375rem" /><p>{t('modelSelector.noModelsFound')}</p><small>{t('modelSelector.tryModelOrProvider')}</small></div>}
           </div>
-          <div className="popover-footer"><span>模型来自 Loopra 配置</span><Button size="sm" variant="light" onPress={() => { close(); props.onManage(); }}><Settings2 size="0.875rem" />管理模型</Button></div>
+          <div className="popover-footer"><span>{t('modelSelector.modelsFrom', { source: t('modelSelector.loopraConfig') })}</span><Button size="sm" variant="light" onPress={() => { close(); props.onManage(); }}><Settings2 size="0.875rem" />{t('modelSelector.manageModels')}</Button></div>
         </>)}
 
         {menu === 'fusion-effort' && fusionEffort && <div className="effort-body">
-          <ReasoningControl value={configValue(fusionEffort)} levels={agentEffortLevels(fusionEffort)} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(fusionEffort.id, value)} onClose={close} />
+          <ReasoningControl value={configValue(fusionEffort)} levels={agentEffortLevels(fusionEffort, t)} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(fusionEffort.id, value)} onClose={close} />
         </div>}
         {menu === 'effort' && (agentEffort || agentFast ? <div className="effort-body">
-          {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
-          {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />快速模式</span><small>{agentOptionDescription(agentFast) || '发送快速模式参数，需模型支持'}</small></div><Toggle label="快速模式" value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
+          {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} localizeLevels={!external} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
+          {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />{t('modelSelector.fastMode')}</span><small>{external ? agentOptionDescription(agentFast) || t('modelSelector.fastModeDescription') : t('modelSelector.fastModeDescription')}</small></div><Toggle label={t('modelSelector.fastMode')} value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
         </div> : <div className="effort-body">
           {nativeLevels.length > 0 && <ReasoningControl value={nativeEffort} levels={nativeLevels} allowCustom={selected?.reasoningEfforts === undefined} disabled={props.busy} onCommit={value => update('effort', value)} onClose={close} />}
-          <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />快速模式</span><small>发送快速模式参数，需模型支持</small></div><Toggle label="快速模式" value={options.fast} onChange={value => update('fast', value)} /></div>
+          <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />{t('modelSelector.fastMode')}</span><small>{t('modelSelector.fastModeDescription')}</small></div><Toggle label={t('modelSelector.fastMode')} value={options.fast} onChange={value => update('fast', value)} /></div>
         </div>)}
         </section>
       </div>}

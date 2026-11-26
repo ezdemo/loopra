@@ -1,4 +1,5 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, ChevronDown, FolderClosed, FolderPlus, MessageCircle, Keyboard } from 'lucide-react';
 import { Enter, Popup } from '../components/Motion';
 import { LoadingSkeleton, LoopraMark } from '../components/ui';
@@ -39,6 +40,7 @@ type HomeViewProps = {
 
 export default function HomeView({ workspaces, workspacesLoading, enginesLoading, workspace, workspaceName, chatMode, disabledReason, menuOpen, onToggleMenu, onSelect, onManage,
   engines, agentId, agentDisabled, onAgent, agents, customAgentId, onSelectAgent, onRefreshEngines, isolation, tui, onTaskToolbarMount, children }: HomeViewProps) {
+  const { t } = useTranslation();
   // The menu opens upward by default. It is capped to the room above (the list
   // scrolls inside) and only flips below the anchor when the top of the window
   // leaves too little usable height. Heading and footer stay put either way.
@@ -48,21 +50,21 @@ export default function HomeView({ workspaces, workspacesLoading, enginesLoading
   return <section className="welcome-shell">
     <Enter as="div" className="welcome-intro"><h1 className="welcome-logo" aria-label="Loopra"><LoopraMark /><span className="welcome-wordmark">Loopra</span></h1></Enter>
     <div className="welcome-switchers">
-      {workspacesLoading ? <div className="welcome-selector-loading" role="status" aria-label="正在加载工作区"><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <div ref={anchorRef} className="workspace-selector menu-anchor" data-popover="workspace" data-placement={placement.side} style={placementStyle}>
-        <button type="button" aria-label="选择工作区或模式" aria-expanded={menuOpen} onClick={onToggleMenu}>{(() => { const current = workspaces.find(item => item.hash === workspace); return current?.kind === 'chat' ? <MessageCircle size="1rem" /> : current?.kind === 'agent' ? <PersonaIcon icon={current.agent?.icon} /> : <FolderClosed size="1rem" />; })()}{workspaceName}<ChevronDown size="0.875rem" /></button>
+      {workspacesLoading ? <div className="welcome-selector-loading" role="status" aria-label={t('nav.loadingWorkspaces')}><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <div ref={anchorRef} className="workspace-selector menu-anchor" data-popover="workspace" data-placement={placement.side} style={placementStyle}>
+        <button type="button" aria-label={t('nav.selectWorkspace')} aria-expanded={menuOpen} onClick={onToggleMenu}>{(() => { const current = workspaces.find(item => item.hash === workspace); return current?.kind === 'chat' ? <MessageCircle size="1rem" /> : current?.kind === 'agent' ? <PersonaIcon icon={current.agent?.icon} /> : <FolderClosed size="1rem" />; })()}{workspaceName}<ChevronDown size="0.875rem" /></button>
         <Popup open={menuOpen} className="popup workspace-menu">
-          <h3>选择工作区或模式</h3>
+          <h3>{t('nav.selectWorkspace')}</h3>
           <div className="workspace-menu-list">
             {workspaces.map(item => <button key={item.hash} onClick={() => onSelect(item.hash)}>{item.kind === 'chat' ? <MessageCircle size="1rem" /> : item.kind === 'agent' ? <PersonaIcon icon={item.agent?.icon} /> : <FolderClosed size="1rem" />}{item.name}{workspace === item.hash && <Check size="1rem" />}</button>)}
-            {!workspaces.length && <p className="composer-empty">暂无可用项目</p>}
+            {!workspaces.length && <p className="composer-empty">{t('nav.noProjects')}</p>}
           </div>
-          <hr /><button onClick={onManage}><FolderPlus size="1rem" />管理项目</button>
+          <hr /><button onClick={onManage}><FolderPlus size="1rem" />{t('nav.manageProjects')}</button>
         </Popup>
       </div>}
-      {enginesLoading ? <div className="welcome-selector-loading" role="status" aria-label="正在加载智能体"><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <AgentSwitcher engines={engines} agentId={agentId} disabled={agentDisabled} disabledReason={disabledReason || (chatMode ? '纯聊天仅支持 Loopra Native；切换到项目后可选择其他 Agent' : undefined)} onSelect={onAgent} onRefreshEngines={onRefreshEngines} agents={agents} customAgentId={customAgentId} onSelectAgent={onSelectAgent} />}
+      {enginesLoading ? <div className="welcome-selector-loading" role="status" aria-label={t('nav.loadingAgents')}><LoadingSkeleton className="skeleton-selector-icon" /><LoadingSkeleton className="skeleton-selector-text" /></div> : <AgentSwitcher engines={engines} agentId={agentId} disabled={agentDisabled} disabledReason={disabledReason || (chatMode ? t('nav.chatModeNativeOnly') : undefined)} onSelect={onAgent} onRefreshEngines={onRefreshEngines} agents={agents} customAgentId={customAgentId} onSelectAgent={onSelectAgent} />}
       <div className="welcome-task-toolbar" ref={onTaskToolbarMount} />
-      {tui && <button type="button" className="isolation-switch welcome-tui" disabled={tui.disabled} title={tui.disabledReason || '以终端界面新建会话'} onClick={tui.onToggle}><Keyboard size="0.875rem" /><span className="isolation-text">TUI 模式</span></button>}
-      {workspacesLoading ? <div className="welcome-selector-loading welcome-isolation-loading" role="status" aria-label="正在加载分支配置"><LoadingSkeleton className="skeleton-isolation" /></div> : isolation}
+      {tui && <button type="button" className="isolation-switch welcome-tui" disabled={tui.disabled} title={tui.disabledReason || t('nav.tuiNewSession')} onClick={tui.onToggle}><Keyboard size="0.875rem" /><span className="isolation-text">{t('nav.tuiMode')}</span></button>}
+      {workspacesLoading ? <div className="welcome-selector-loading welcome-isolation-loading" role="status" aria-label={t('nav.loadingBranches')}><LoadingSkeleton className="skeleton-isolation" /></div> : isolation}
     </div>
     {children}
   </section>;

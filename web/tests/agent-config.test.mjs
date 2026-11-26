@@ -121,7 +121,7 @@ test('ACP categories drive the shared permission, model and effort controls', ()
   const model = findAgentOption(options, 'model', 'model');
   assert.deepEqual(agentModelGroups(model, 'Claude Code').map(group => [group.name, group.models.map(value => value.name)]),
     [['Claude Code', ['default']], ['Claude', ['Opus', 'Sonnet']]]);
-  assert.deepEqual(agentEffortLevels(findAgentOption(options, 'effort')).map(level => level.label), ['默认', '最大']);
+  assert.deepEqual(agentEffortLevels(findAgentOption(options, 'effort')).map(level => level.label), ['Default', 'Max']);
   assert.equal(agentOptionLabel(findAgentOption(options, 'mode')), 'Bypass permissions');
   assert.equal(isDangerousAgentMode(findAgentOption(options, 'mode')), true);
   assert.equal(isDangerousAgentMode({ ...findAgentOption(options, 'mode'), currentValue: 'default' }), false);
@@ -162,7 +162,7 @@ test('the agent switcher sits beside the project switcher and locks while runnin
   assert.match(home, /className="welcome-switchers"/);
   assert.match(home, /<AgentSwitcher engines=\{engines\}/);
   assert.match(switcher, /disabled=\{disabled\}/);
-  assert.match(switcher, /任务运行中，结束后才能切换 Agent/);
+  assert.match(switcher, /nav\.agentBusy/);
   assert.match(app, /agentDisabled=\{!!generatingId \|\| !!remoteRun \|\| !agentPreferencesReady \|\| agentSelectionBusy \|\| chatMode \|\| agentLocked\}/);
   assert.match(app, /if \(generatingId \|\| remoteRun\) \{ notify\('任务运行中，结束后才能切换 Agent'\); return; \}/);
   // Agent switching lives beside the project switcher on the home screen only.

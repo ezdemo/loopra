@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, ChevronDown } from 'lucide-react';
 import { Popup } from '../components/Motion';
 import AgentIcon, { PersonaIcon } from '../components/AgentIcon';
@@ -23,6 +24,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
   customAgentId?: string;
   onSelectAgent?: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   // Same placement rules as the project menu: upward by default, capped to the
@@ -47,19 +49,19 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
     setOpen(true);
   }
   return <div className="agent-selector menu-anchor" data-popover ref={root} data-placement={placement.side} style={placementStyle}>
-    <button type="button" aria-label="选择 Agent" aria-expanded={open} disabled={disabled}
-      title={disabled ? disabledReason || '任务运行中，结束后才能切换 Agent' : '选择 Agent'} onClick={toggle}>
+    <button type="button" aria-label={t('nav.selectAgent')} aria-expanded={open} disabled={disabled}
+      title={disabled ? disabledReason || t('nav.agentBusy') : t('nav.selectAgent')} onClick={toggle}>
       {persona ? <PersonaIcon icon={persona.icon} /> : <AgentIcon agentId={agentId || 'native'} />}
       {persona?.name || current?.name || (agentId === 'native' ? 'Loopra Native' : agentId)}
       <ChevronDown size="0.875rem" />
     </button>
     <Popup open={open} className="popup workspace-menu agent-menu">
-      <h3>选择 Agent</h3>
+      <h3>{t('nav.selectAgent')}</h3>
       <div className="composer-tool-list">{listed.map(engine => {
         const selected = !persona && engine.id === (agentId || 'native');
         return <div key={engine.id} className="agent-option">
           <button type="button" disabled={!engine.available}
-            title={!engine.available ? engine.detail || '依赖未就绪' : undefined}
+            title={!engine.available ? engine.detail || t('nav.dependencyNotReady') : undefined}
             onClick={() => { setOpen(false); onSelect(engine.id); }}>
             <AgentIcon agentId={engine.id} />
             <span><strong>{engine.name}</strong></span>
@@ -68,7 +70,7 @@ export default function AgentSwitcher({ engines, agentId, disabled, disabledReas
         </div>;
       })}</div>
       {!!agents?.length && onSelectAgent && <>
-        <h3>自定义智能体</h3>
+        <h3>{t('nav.customAgents')}</h3>
         <div className="composer-tool-list">{agents.map(agent => {
           const selected = agent.id === customAgentId;
           return <div key={agent.id} className="agent-option">

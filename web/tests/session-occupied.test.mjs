@@ -4,6 +4,7 @@ import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
 import { SessionRuns, sessionRunKey, draftRunKey, isRunView } from './helpers/session-runs.mjs';
+import { reactI18nextStubUrl } from './i18n-test-utils.mjs';
 
 const compile = source => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
@@ -382,11 +383,16 @@ after(() => { dom.window.close(); for (const [key, descriptor] of previous) { if
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 let noticeCode = compile(await readFile(new URL('../src/components/SessionOccupiedNotice.tsx', import.meta.url), 'utf8'));
+noticeCode = noticeCode.replaceAll("'react-i18next'", JSON.stringify(reactI18nextStubUrl)).replaceAll('\"react-i18next\"', JSON.stringify(reactI18nextStubUrl));
 for (const name of ['react/jsx-runtime', 'lucide-react']) noticeCode = noticeCode.replaceAll(`"${name}"`, JSON.stringify(import.meta.resolve(name))).replaceAll(`'${name}'`, JSON.stringify(import.meta.resolve(name)));
 const { default: Notice } = await import(dataUrl(noticeCode));
 
 test('the occupied notice exposes retry, checking and offline states without a send control', () => {
-  const host = document.createElement('div'); document.body.append(host);
+  const noticeDom = new JSDOM('<html><body></body></html>');
+  const noticeGlobals = { window: noticeDom.window, document: noticeDom.window.document, HTMLElement: noticeDom.window.HTMLElement };
+  const restore = new Map(Object.keys(noticeGlobals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(noticeGlobals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  const host = noticeDom.window.document.createElement('div'); noticeDom.window.document.body.append(host);
   const root = createRoot(host);
   const calls = [];
   const props = { busy: false, forking: false, disabled: false, onRetry: () => calls.push('retry'), onFork: () => calls.push('fork') };
@@ -410,5 +416,8 @@ test('the occupied notice exposes retry, checking and offline states without a s
     render({ disabled: true });
     assert.equal(host.querySelector('.session-occupied-error'), null);
     assert.ok([...host.querySelectorAll('button')].every(button => button.disabled));
-  } finally { act(() => root.unmount()); host.remove(); }
+  } finally {
+    act(() => root.unmount()); host.remove(); noticeDom.window.close();
+    for (const [key, descriptor] of restore) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
+  }
 });

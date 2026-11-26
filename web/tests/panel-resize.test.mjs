@@ -19,7 +19,7 @@ test('skills and plugins open in the main area from one rail entry', async () =>
   const rail = await readFile(new URL('../src/layout/ActivityRail.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(settings, /SkillManager/);
   assert.doesNotMatch(settings, /ExtensionManager/);
-  assert.match(rail, /Skills & Plugins.*技能与插件/);
+  assert.match(rail, /nav\.skillsPlugins/);
   assert.match(rail, /onClick=\{p\.onSkills\}/);
   assert.ok(rail.indexOf('onClick={p.onSearch}') < rail.indexOf('onClick={p.onSkills}'));
   assert.match(app, /skillsOpen && <SkillsAndPluginsPage/);
@@ -28,9 +28,9 @@ test('skills and plugins open in the main area from one rail entry', async () =>
 });
 
 test('the sidebar keeps refresh and fold-all but drops locate and sort controls', () => {
-  assert.match(sidebar, /<IconButton label="刷新项目列表" onClick=\{\(\) => void props\.onRefreshAll\(\)\}><RefreshCw size="0\.875rem" \/><\/IconButton>/);
+  assert.match(sidebar, /label=\{t\('nav\.refreshProjects'\)\} onClick=\{\(\) => void props\.onRefreshAll\(\)\}/);
   assert.match(app, /onRefreshAll=\{\(\) => void backend\.refresh\(\)\}/);
-  assert.match(sidebar, /折叠全部工作区/);
+  assert.match(sidebar, /nav\.collapseAllWorkspaces/);
   assert.doesNotMatch(sidebar, /定位当前会话/);
   assert.doesNotMatch(sidebar, /按最新排序/);
 });
@@ -40,20 +40,20 @@ test('the 项目 section header adds a project button that opens the manager', (
   // The button sits with fold-all and refresh, in the 项目 section only.
   assert.match(label, /section\.id === 'projects'/);
   // Folder + separates 添加项目 from the per-project 新建会话 plus below it.
-  assert.match(label, /<IconButton label="添加项目" onClick=\{props\.onManageProjects\}><FolderPlus size="0\.875rem" \/><\/IconButton>/);
+  assert.match(label, /label=\{t\('nav\.addProject'\)\} onClick=\{props\.onManageProjects\}/);
   // The 智能体 section has its own add button that opens the agent editor.
   assert.match(label, /section\.id === 'agents'/);
-  assert.match(label, /<IconButton label=\{english \? 'New agent' : '新建智能体'\} onClick=\{\(\) => props\.onNewAgent\?\.\(\)\}><Plus size="0\.875rem" \/><\/IconButton>/);
+  assert.match(label, /label=\{t\('nav\.newAgent'\)\} onClick=\{\(\) => props\.onNewAgent\?\.\(\)\}/);
   // Every heading action draws at one size (fold-all keeps two icons).
   const sizes = [...label.matchAll(/<\w+ size="([\d.]+)rem" \/>/g)].map(match => match[1]);
   assert.equal(sizes.length, 5);
   assert.deepEqual([...new Set(sizes)], ['0.875']);
   // The button leads the section actions, ahead of fold-all and refresh.
-  assert.ok(label.indexOf('添加项目') < label.indexOf('刷新项目列表'));
+  assert.ok(label.indexOf('nav.addProject') < label.indexOf('nav.refreshProjects'));
   // It reuses the dialog the welcome screen and per-project menu already open.
   assert.match(app, /onManageProjects=\{\(\) => \{ setMenu\(null\); setProjectsOpen\(true\); if \(narrow\) setSidebar\(false\); \}\}/);
   assert.match(app, /\{projectsOpen && <ProjectManager /);
-  assert.equal(label.match(/label="添加项目"/g).length, 1);
+  assert.match(label, /label=\{t\('nav\.addProject'\)\} onClick=\{props\.onManageProjects\}/);
 });
 
 test('the right workbench panel inherits the legacy drag-to-resize behaviour', () => {

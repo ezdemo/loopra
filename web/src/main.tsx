@@ -6,6 +6,7 @@ import { notifyDesktopWorkspaceAfterPaint } from './desktop-shell';
 import { resolveInitialServer } from './runtime-config';
 import { installFocusAppearance } from './focus';
 import { ensureAccess, installAccessKeyProtocol, setAccessProxy } from './access-key.js';
+import './i18n';
 import './workspace-styles';
 
 applyDocumentTheme(bootTheme());

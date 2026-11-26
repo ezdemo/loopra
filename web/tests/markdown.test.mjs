@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { reactI18nextStubUrl } from './i18n-test-utils.mjs';
 
 // KaTeX and alert cards both run through the real react-markdown pipeline, so
 // mount the component and assert the rendered HTML keeps the legacy behavior.
@@ -40,13 +41,13 @@ const schemaUrl = dataUrl(schemaTranspiled.replaceAll("'rehype-sanitize'", JSON.
 
 const previewSource = await readFile(new URL('../src/components/ImagePreview.tsx', import.meta.url), 'utf8');
 let previewTranspiled = ts.transpileModule(previewSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'react-dom': import.meta.resolve('react-dom'), 'lucide-react': import.meta.resolve('lucide-react') })) {
+for (const [specifier, url] of Object.entries({ react: reactUrl, 'react-i18next': reactI18nextStubUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'react-dom': import.meta.resolve('react-dom'), 'lucide-react': import.meta.resolve('lucide-react') })) {
   previewTranspiled = previewTranspiled.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
 }
 const previewUrl = dataUrl(previewTranspiled);
 const { ImagePreviewProvider } = await import(previewUrl);
 let imageText = ts.transpileModule(await readFile(new URL('../src/components/ChatImage.tsx', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), '../markdown-images': imagesUrl, './ImagePreview': previewUrl })) imageText = imageText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
+for (const [specifier, url] of Object.entries({ react: reactUrl, 'react-i18next': reactI18nextStubUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), '../markdown-images': imagesUrl, './ImagePreview': previewUrl })) imageText = imageText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
 const chatImageUrl = dataUrl(imageText);
 const { SessionImageSourceProvider } = await import(chatImageUrl);
 
@@ -54,13 +55,15 @@ const { SessionImageSourceProvider } = await import(chatImageUrl);
 const linkPureText = ts.transpileModule(await readFile(new URL('../src/link-popover.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const linkPureUrl = dataUrl(linkPureText);
 let linkPopoverText = ts.transpileModule(await readFile(new URL('../src/components/LinkPopover.tsx', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'react-dom': import.meta.resolve('react-dom'), 'lucide-react': import.meta.resolve('lucide-react'), '../link-popover': linkPureUrl })) {
+for (const [specifier, url] of Object.entries({ react: reactUrl, 'react-i18next': reactI18nextStubUrl, 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'react-dom': import.meta.resolve('react-dom'), 'lucide-react': import.meta.resolve('lucide-react'), '../link-popover': linkPureUrl })) {
   linkPopoverText = linkPopoverText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
 }
 const linkPopoverUrl = dataUrl(linkPopoverText);
 
 const specifiers = {
   react: reactUrl,
+  'react-i18next': reactI18nextStubUrl,
+  '../i18n': reactI18nextStubUrl,
   'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'),
   '../markdown-math': mathUrl,
   '../markdown-alert': alertUrl,
