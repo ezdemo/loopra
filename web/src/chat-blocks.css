@@ -390,7 +390,7 @@
 }
 .image-preview-full {
   display: block;
-  max-width: min(92vw, 90rem);
+  max-width: min(calc(100vw - 5rem), 90rem);
   max-height: calc(100vh - 5rem);
   object-fit: contain;
   border-radius: var(--radius-sm);
