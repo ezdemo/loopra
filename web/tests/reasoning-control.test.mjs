@@ -17,7 +17,12 @@ const dataUrl = source => 'data:text/javascript;base64,' + Buffer.from(source).t
 const composer = await readFile(new URL('../src/composer.ts', import.meta.url), 'utf8');
 const scale = composer.match(/export const effortLevels = \[[\s\S]*?\n\];/)[0];
 const controls = dataUrl(`import { createElement } from ${JSON.stringify(reactUrl)};
-export const Slider = ({ value, isDisabled, className }) => createElement('div', { className, 'data-value': value, 'data-disabled': isDisabled });
+let sliderProps;
+export const currentSliderProps = () => sliderProps;
+export const Slider = props => {
+  sliderProps = props;
+  return createElement('div', { className: props.className, 'data-value': props.value, 'data-disabled': props.isDisabled });
+};
 export const Input = () => null;
 export const Button = ({ children, ...props }) => createElement('button', props, children);`);
 const source = await readFile(new URL('../src/components/ReasoningControl.tsx', import.meta.url), 'utf8');
@@ -26,6 +31,7 @@ for (const [specifier, url] of Object.entries({ react: reactUrl, 'react/jsx-runt
   outputText = outputText.replaceAll(`'${specifier}'`, JSON.stringify(url)).replaceAll(`"${specifier}"`, JSON.stringify(url));
 }
 const { default: ReasoningControl } = await import(dataUrl(outputText));
+const { currentSliderProps } = await import(controls);
 
 test('selected reasoning stays visible while saving, including stale-value and busy renders', async () => {
   const host = document.createElement('div');
@@ -47,5 +53,38 @@ test('selected reasoning stays visible while saving, including stale-value and b
     await act(async () => finish());
     assert.equal(host.querySelector('.effort-summary strong').textContent, '最大强度');
     assert.equal(host.querySelector('[aria-label="推理强度：最大"]').getAttribute('aria-pressed'), 'true');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test('drag follows fractional positions and saves only the nearest supported tier on release', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const levels = [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }, { value: 'max', label: 'Max' }];
+  const saved = [];
+  let finish;
+  const props = { levels, value: 'low', disabled: false, allowCustom: false, onClose: () => {}, onCommit: next => new Promise(resolve => { saved.push(next); finish = resolve; }) };
+  const render = next => act(async () => root.render(createElement(ReasoningControl, { ...props, ...next })));
+  const thumb = () => Number(host.querySelector('.effort-range').dataset.value);
+  const scale = () => host.querySelector('.effort-slider');
+  try {
+    await render({});
+    await act(async () => currentSliderProps().onChange(0.41));
+    assert.equal(thumb(), 0.41);
+    assert.equal(scale().hasAttribute('data-sliding'), true);
+    await act(async () => currentSliderProps().onChange(1.76));
+    assert.equal(thumb(), 1.76);
+    assert.deepEqual(saved, []);
+    assert.equal(scale().hasAttribute('data-at-max'), false);
+    await act(async () => currentSliderProps().onChangeEnd(1.76));
+    assert.equal(thumb(), 2);
+    assert.equal(scale().hasAttribute('data-sliding'), false);
+    assert.equal(scale().hasAttribute('data-at-max'), true);
+    assert.deepEqual(saved, ['max']);
+    await render({ disabled: true });
+    assert.equal(thumb(), 2);
+    await render({ value: 'max' });
+    await act(async () => finish());
+    assert.equal(thumb(), 2);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

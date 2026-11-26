@@ -1,4 +1,5 @@
-import { useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, FormEvent, KeyboardEvent } from 'react';
 import { Button, Input, Slider } from '@nextui-org/react';
 import { Brain } from 'lucide-react';
 import { effortLevels } from '../composer';
@@ -15,25 +16,37 @@ type Props = {
   allowCustom?: boolean;
 };
 
+// Pointer precision is subpixel at the flyout's width; only actual tiers are saved.
+const pointerStep = 0.001;
+const sliderPosition = (value: number | number[]) => Array.isArray(value) ? value[0] : value;
+
 export default function ReasoningControl({ value, disabled, onCommit, onClose, levels = effortLevels, allowCustom = true }: Props) {
   // Keep pointer updates inside this small control, independent of network saves
   // and the conversation tree. Only a completed gesture persists the selection.
   const [preview, setPreview] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<number | null>(null);
   const [custom, setCustom] = useState(() => allowCustom && levels.some(level => level.value === value) ? '' : allowCustom ? value : '');
   const revision = useRef(0);
   const pending = useRef(0);
-  const displayed = preview ?? value;
+  const cancelDrag = useRef(false);
+  const lastIndex = levels.length - 1;
+  const nearestIndex = (position: number) => Math.max(0, Math.min(lastIndex, Math.round(position)));
+  const displayed = (dragPosition === null ? preview : levels[nearestIndex(dragPosition)]?.value) ?? value;
   const index = levels.findIndex(level => level.value === displayed);
-  const atMax = index > 0 && index === levels.length - 1;
+  const atMax = index > 0 && index === lastIndex && (dragPosition === null || dragPosition === lastIndex);
   const effort = levels[index];
   // A custom (off-scale) value parks the knob at 0, so the track's spark field stays calm.
   const sparkLevel = Math.max(0, index);
-  const levelAt = (position: number | number[]) => levels[Array.isArray(position) ? position[0] : position].value;
   // A double-digit tier count turns the track into noise; past that the level row wraps.
   const singleRow = levels.length <= 10;
 
+  useEffect(() => {
+    if (disabled) setDragPosition(null);
+  }, [disabled]);
+
   async function commit(next: string) {
     const current = ++revision.current;
+    setDragPosition(null);
     setCustom('');
     if (next === value && pending.current === 0) { setPreview(null); return; }
     setPreview(next);
@@ -41,8 +54,47 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
     try { await onCommit(next); }
     finally {
       pending.current--;
-      // An earlier response must not interrupt a newer drag or pending save.
+      // An earlier response must not clear a newer optimistic selection.
       if (revision.current === current) setPreview(null);
+    }
+  }
+
+  function selectPosition(position: number) {
+    const level = levels[nearestIndex(position)];
+    if (level) void commit(level.value);
+  }
+
+  function handleSliderKey(event: KeyboardEvent<HTMLDivElement>) {
+    if (disabled || event.altKey || event.ctrlKey || event.metaKey) return;
+    let next: number;
+    switch (event.key) {
+      case 'Home': next = 0; break;
+      case 'End': next = lastIndex; break;
+      case 'ArrowUp':
+      case 'PageUp': next = sparkLevel + 1; break;
+      case 'ArrowDown':
+      case 'PageDown': next = sparkLevel - 1; break;
+      case 'ArrowLeft':
+      case 'ArrowRight': {
+        const forward = (event.key === 'ArrowRight') !== event.currentTarget.matches(':dir(rtl)');
+        next = sparkLevel + (forward ? 1 : -1);
+        break;
+      }
+      default: return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (dragPosition === null) selectPosition(next);
+  }
+
+  function handleNativeSliderChange(event: FormEvent<HTMLDivElement>) {
+    if (!(event.target instanceof HTMLInputElement) || event.target.type !== 'range') return;
+    // Assistive technologies can adjust the hidden range without a key event.
+    event.stopPropagation();
+    const position = event.target.valueAsNumber;
+    const delta = position - sparkLevel;
+    if (!disabled && dragPosition === null && Number.isFinite(position) && delta !== 0) {
+      selectPosition(Math.abs(delta) < 1 ? sparkLevel + Math.sign(delta) : position);
     }
   }
 
@@ -50,10 +102,14 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
     <div className="effort-summary"><span className="effort-symbol"><Brain size="1.375rem" /></span><div><strong>{effort?.label || (allowCustom ? '自定义' : displayed)}强度</strong><p>{effort?.description || displayed}</p></div></div>
     <div className="effort-scale" style={{ '--effort-count': Math.max(1, levels.length) } as CSSProperties}>
       {/* The wrapper carries the level so composer.css can scale the track's spark field with it. */}
-      {levels.length > 1 && singleRow && <div className="effort-slider" data-at-max={atMax || undefined} style={{ '--effort-level': String(sparkLevel) } as CSSProperties}>
-        <Slider aria-label="推理强度" className="effort-range" size="sm" minValue={0} maxValue={Math.max(0, levels.length - 1)} step={1} value={sparkLevel} isDisabled={disabled}
-          onChange={position => { revision.current++; setPreview(levelAt(position)); setCustom(''); }}
-          onChangeEnd={position => { void commit(levelAt(position)); }} />
+      {levels.length > 1 && singleRow && <div className="effort-slider" data-at-max={atMax || undefined} data-sliding={dragPosition !== null || undefined}
+        style={{ '--effort-level': String(sparkLevel) } as CSSProperties}
+        onKeyDownCapture={handleSliderKey} onChangeCapture={handleNativeSliderChange}
+        onPointerDownCapture={event => { if (event.isPrimary) cancelDrag.current = false; }}
+        onPointerCancelCapture={event => { if (event.isPrimary) { cancelDrag.current = true; setDragPosition(null); } }}>
+        <Slider aria-label="推理强度" className="effort-range" size="sm" minValue={0} maxValue={lastIndex} step={pointerStep} value={dragPosition ?? sparkLevel} isDisabled={disabled}
+          onChange={position => { if (!disabled && !cancelDrag.current) setDragPosition(sliderPosition(position)); }}
+          onChangeEnd={position => { if (!disabled && !cancelDrag.current) selectPosition(sliderPosition(position)); }} />
       </div>}
       <div className={`effort-levels${singleRow ? '' : ' effort-levels-wrap'}`}>{levels.map(level => <button key={level.value} disabled={disabled} aria-label={`推理强度：${level.label}`} aria-pressed={level.value === displayed} onClick={() => { void commit(level.value); }}>{level.label}</button>)}</div>
     </div>

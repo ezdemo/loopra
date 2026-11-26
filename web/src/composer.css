@@ -272,7 +272,8 @@
    derived from `--effort-level` (the tier index, written by ReasoningControl), so the higher
    the level the tighter, brighter and quicker the stream — and the fill it lives in
    widens at the same time. */
-.effort-slider { --effort-level: 0; padding: 0.1875rem 0; }
+.effort-slider { --effort-level: 0; --effort-snap: 160ms cubic-bezier(.22, .75, .25, 1); padding: 0.1875rem 0; }
+.effort-slider[data-sliding] { --effort-snap: 0ms; }
 /* Saving disables input, but must not flash the selected strength at half opacity. */
 .effort-slider .effort-range { opacity: 1; }
 .effort-slider [data-slot="track"] { height: 0.875rem; margin-top: 0; margin-bottom: 0; border-left-width: 0.25rem; border-right-width: 0.25rem; }
@@ -300,6 +301,7 @@
   background-repeat: no-repeat;
   background-size: 100% 100%, 66% 100%, 100% 100%;
   background-position: 0 0, -200% 0, 0 0;
+  transition: width var(--effort-snap);
   /* A lit top edge plus a glow that grows with the level, so the bar reads as a light
      source rather than a flat progress fill. */
   box-shadow:
@@ -313,7 +315,7 @@
   --effort-fill: linear-gradient(90deg, #bb3159, #c56a28 17%, #a77d16 32%, #198659 48%, #187e9f 64%, #4260c8 80%, #833fb6);
   --effort-prism-band: linear-gradient(105deg, transparent, #ff637d 16%, #ff963e 28%, #ffe363 39%, #5bef93 51%, #50e1ef 63%, #6694ff 75%, #b972ff 87%, transparent);
   background-position: 0 0, 310% 0, 0 0;
-  transition: background-position 650ms cubic-bezier(.32, .05, .25, 1);
+  transition: width var(--effort-snap), background-position 650ms cubic-bezier(.32, .05, .25, 1);
 }
 .effort-slider [data-slot="filler"]::before,
 .effort-slider [data-slot="filler"]::after { content: ""; position: absolute; inset: 0; }
@@ -347,7 +349,7 @@
    into the blue bar, so the end of the bar reads as a bead sitting on top of it. At
    1.5rem across, the circle clears the fill's end (whose corners sit ~4px either side
    of the knob's centre) so the bar runs visibly into the knob at any level. */
-.effort-slider [data-slot="thumb"] { width: 1.5rem; height: 1.5rem; background: none; }
+.effort-slider [data-slot="thumb"] { width: 1.5rem; height: 1.5rem; background: none; transition: left var(--effort-snap); }
 .effort-slider [data-slot="thumb"]::after {
   width: 100%; height: 100%;
   /* Solid white in both themes: the knob sits on the bar, not on the panel, and a
