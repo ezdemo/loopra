@@ -89,3 +89,16 @@ test('drag follows fractional positions and saves only the nearest supported tie
     assert.equal(thumb(), 2);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+test('external agent effort text is preserved when localization is disabled', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const levels = [{ value: 'high', label: 'Agent high', description: 'Agent-specific high effort detail' }];
+  try {
+    await act(async () => root.render(createElement(ReasoningControl, { levels, value: 'high', disabled: false, allowCustom: false, localizeLevels: false, onClose: () => {}, onCommit: () => {} })));
+    assert.equal(host.querySelector('.effort-summary strong').textContent, 'Agent high强度');
+    assert.equal(host.querySelector('.effort-summary p').textContent, 'Agent-specific high effort detail');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+

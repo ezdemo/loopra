@@ -46,7 +46,8 @@ export default function ModelReasoningSelector(props: Props) {
   const fusionActive = !!fusion && fusionValue !== 'off';
   const fusionEffort = fusionActive ? findAgentOption(props.agentConfig?.options, 'fusionSidekickEffort') : undefined;
   const agentBusy = !!props.agentConfig?.busy;
-  const agentLevels = agentEffort ? agentEffortLevels(agentEffort, t) : [];
+  const effortTranslate = external ? undefined : t;
+  const agentLevels = agentEffort ? agentEffortLevels(agentEffort, effortTranslate) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const modelGroupsForAgent = useMemo(() => agentModel ? groupAgentModels(agentModel, agentEngineName) : [], [agentModel, agentEngineName]);
   const fusionGroups = useMemo(() => fusion ? groupAgentModels({ ...fusion, options: fusion.options.filter(option => option.value !== 'off') }, agentEngineName) : [], [fusion, agentEngineName]);
@@ -78,7 +79,7 @@ export default function ModelReasoningSelector(props: Props) {
 
   const modelName = agentModel ? activeModelLabel : selected ? modelLabel(selected) : '选择模型';
   const reasoningValue = agentEffort ? agentEffortValue : native ? nativeEffort : '';
-  const reasoningName = reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue, t);
+  const reasoningName = reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue, effortTranslate);
   const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : '', fusionActive ? `边缘：${fusionLabel}` : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
@@ -219,7 +220,7 @@ export default function ModelReasoningSelector(props: Props) {
           <ReasoningControl value={configValue(fusionEffort)} levels={agentEffortLevels(fusionEffort, t)} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(fusionEffort.id, value)} onClose={close} />
         </div>}
         {menu === 'effort' && (agentEffort || agentFast ? <div className="effort-body">
-          {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
+          {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} localizeLevels={!external} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
           {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />快速模式</span><small>{agentOptionDescription(agentFast) || '发送快速模式参数，需模型支持'}</small></div><Toggle label="快速模式" value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
         </div> : <div className="effort-body">
           {nativeLevels.length > 0 && <ReasoningControl value={nativeEffort} levels={nativeLevels} allowCustom={selected?.reasoningEfforts === undefined} disabled={props.busy} onCommit={value => update('effort', value)} onClose={close} />}

@@ -15,6 +15,8 @@ type Props = {
   levels?: AgentEffortLevel[];
   /** ACP select options are closed sets, so external Agents hide the free-form field. */
   allowCustom?: boolean;
+  /** Loopra-owned levels use the shared translation; external Agents keep their own text. */
+  localizeLevels?: boolean;
 };
 
 // Pointer precision is subpixel at the flyout's width; only actual tiers are saved.
@@ -23,9 +25,9 @@ const sliderPosition = (value: number | number[]) => Array.isArray(value) ? valu
 
 const knownEffortValues = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'default']);
 
-export default function ReasoningControl({ value, disabled, onCommit, onClose, levels = effortLevels, allowCustom = true }: Props) {
+export default function ReasoningControl({ value, disabled, onCommit, onClose, levels = effortLevels, allowCustom = true, localizeLevels = true }: Props) {
   const { t } = useTranslation();
-  levels = levels.map(level => knownEffortValues.has(level.value.toLowerCase()) ? { ...level, label: t(`effort.${level.value.toLowerCase()}.label`), description: t(`effort.${level.value.toLowerCase()}.description`) } : level);
+  levels = localizeLevels ? levels.map(level => knownEffortValues.has(level.value.toLowerCase()) ? { ...level, label: t(`effort.${level.value.toLowerCase()}.label`), description: t(`effort.${level.value.toLowerCase()}.description`) } : level) : levels;
   // Keep pointer updates inside this small control, independent of network saves
   // and the conversation tree. Only a completed gesture persists the selection.
   const [preview, setPreview] = useState<string | null>(null);
