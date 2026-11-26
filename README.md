@@ -40,6 +40,32 @@
 - **多模型与多引擎**：Chat Completions / Responses / Anthropic；Loopra Native、Claude Code、Codex 或 Devin。
 - **入口自由**：Web、桌面、终端、编辑器 ACP、移动端和飞书 Bot。
 
+## Screenshots
+
+桌面与 Web 工作台：
+
+<p align="center">
+  <img src="docs/assets/chat.png" alt="会话" width="100%"/><br/>
+  <sub>会话：工具执行、代码渲染与文件变更一目了然</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/settings.png" alt="偏好设置" width="100%"/><br/>
+  <sub>偏好设置：外观、语言、缩放与通知</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/connectors.png" alt="连接器" width="100%"/><br/>
+  <sub>连接器：飞书、Notion、Gmail 等一键接入</sub>
+</p>
+
+移动端（[Loopra Mobile](docs/MOBILE.md)）远程连接桌面，随时随地驱动会话：
+
+<p align="center">
+  <img src="docs/assets/mobile.jpg" alt="Loopra Mobile" width="100%"/><br/>
+  <sub>会话列表与项目筛选 · Markdown、图片与代码渲染 · 主题、字号与桌面连接</sub>
+</p>
+
 ## Install
 
 命令行：
