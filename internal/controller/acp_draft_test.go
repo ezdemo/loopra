@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
@@ -77,6 +78,21 @@ func (a *draftTestAgent) NewSession(_ context.Context, req acpsdk.NewSessionRequ
 	id := acpsdk.SessionId(fmt.Sprintf("draft-%d-%d", os.Getpid(), a.next))
 	a.sessions[id] = &draftTestSession{
 		model: "default-model", dirs: append([]string(nil), req.AdditionalDirectories...), cwd: req.Cwd,
+	}
+	if os.Getenv("LOOPRA_TEST_ACP_DRAFT_COMMANDS") == "1" {
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			_ = a.conn.SessionUpdate(context.Background(), acpsdk.SessionNotification{
+				SessionId: id,
+				Update: acpsdk.SessionUpdate{AvailableCommandsUpdate: &acpsdk.SessionAvailableCommandsUpdate{
+					SessionUpdate: "available_commands_update",
+					AvailableCommands: []acpsdk.AvailableCommand{{
+						Name: "review", Description: "Review changes",
+						Input: &acpsdk.AvailableCommandInput{Unstructured: &acpsdk.UnstructuredCommandInput{Hint: "branch"}},
+					}},
+				}},
+			})
+		}()
 	}
 	return acpsdk.NewSessionResponse{SessionId: id, ConfigOptions: draftOptions("default-model")}, nil
 }
@@ -259,6 +275,37 @@ func TestACPDraftRebuildsOnFirstSendWithTemporaryLinkedProject(t *testing.T) {
 	want := fmt.Sprintf("model=chosen-model;cwd=%s;dirs=%s", s.workspaceRoot(), linkedPath)
 	if content != want || s.sessionMetaRead(name)["acpSessionId"] == remote {
 		t.Fatalf("rebuilt turn = %q, want %q; thread %v -> %v", content, want, remote, s.sessionMetaRead(name)["acpSessionId"])
+	}
+}
+
+func TestACPDraftExposesIdleCommandAnnouncement(t *testing.T) {
+	useDraftAgent(t)
+	t.Setenv("LOOPRA_TEST_ACP_DRAFT_COMMANDS", "1")
+	ts, key, s, _ := parityServer(t, "")
+	main := s.agent.App()
+	const name = "draft-with-commands"
+	code, env := call(t, ts, http.MethodPost, "/api/agent-engines/prepare", key,
+		map[string]any{"workspaceHash": main, "sessionName": name, "agentId": "codex"})
+	if code != http.StatusOK {
+		t.Fatalf("prepare = %d %v", code, env)
+	}
+	want := []any{map[string]any{"name": "review", "description": "Review changes", "inputHint": "branch"}}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		code, env = call(t, ts, http.MethodGet,
+			"/api/agent/acp-state?workspaceHash="+main+"&sessionName="+name, key, nil)
+		if code != http.StatusOK {
+			t.Fatalf("acp-state = %d %v", code, env)
+		}
+		data, _ := env["data"].(map[string]any)
+		commands, _ := data["commands"].([]any)
+		if reflect.DeepEqual(commands, want) {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("acp-state never exposed idle commands: %v", data)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

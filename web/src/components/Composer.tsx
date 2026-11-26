@@ -322,6 +322,7 @@ export default function Composer(props: Props) {
     return () => controller.abort();
   }, [props.api, external, chatMode, props.connected]);
   useEffect(() => { close(); setFileSuggestions([]); }, [props.workspaceHash, props.agentId, chatMode]);
+  const commandMenuOpen = slash && !menu && dismissedDraft !== draft;
   useEffect(() => {
     const controller = new AbortController();
     if (!external || !props.workspaceHash || !props.sessionName) { setCommandDiscovery(undefined); return () => controller.abort(); }
@@ -331,14 +332,25 @@ export default function Composer(props: Props) {
       loading: true, error: '',
     }));
     const suffix = new URLSearchParams({ workspaceHash: props.workspaceHash, sessionName: props.sessionName });
-    void props.api.request<AcpSessionState>(`/agent/acp-state?${suffix}`, 'GET', undefined, controller.signal)
-      .then(state => {
-        if (!controller.signal.aborted) setCommandDiscovery({ scope: commandScope, api: props.api, commands: state.commands || [], loading: false, error: '' });
-      }).catch(() => {
-        if (!controller.signal.aborted) setCommandDiscovery(current => current && { ...current, loading: false, error: '读取 Agent 指令失败' });
-      });
-    return () => controller.abort();
-  }, [props.api, external, commandScope, props.workspaceHash, props.sessionName, props.agentConfig?.options, props.generating, slash, commandRetry]);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const retryDelays = [250, 750];
+    const read = (attempt: number) => {
+      void props.api.request<AcpSessionState>(`/agent/acp-state?${suffix}`, 'GET', undefined, controller.signal)
+        .then(state => {
+          if (controller.signal.aborted) return;
+          const commands = state.commands || [];
+          setCommandDiscovery({ scope: commandScope, api: props.api, commands, loading: false, error: '' });
+          const delay = retryDelays[attempt];
+          if (!commands.length && commandMenuOpen && delay !== undefined) {
+            retryTimer = setTimeout(() => read(attempt + 1), delay);
+          }
+        }).catch(() => {
+          if (!controller.signal.aborted) setCommandDiscovery(current => current && { ...current, loading: false, error: '读取 Agent 指令失败' });
+        });
+    };
+    read(0);
+    return () => { clearTimeout(retryTimer); controller.abort(); };
+  }, [props.api, external, commandScope, props.workspaceHash, props.sessionName, props.agentConfig?.options, props.generating, commandMenuOpen, commandRetry]);
   // Prompt presets are server-side config; the local cache is only a fallback.
   useEffect(() => {
     if (!props.connected) return;
@@ -445,7 +457,7 @@ export default function Composer(props: Props) {
         onDraft(draft.slice(0, draft.length - mention[1].length - 1));
       },
     })) : [];
-  const showCommandStatus = external && slash && !menu && dismissedDraft !== draft && !suggestions.length;
+  const showCommandStatus = external && commandMenuOpen && !suggestions.length;
   const commandStatus = !props.sessionName ? (agentBusy ? '正在准备 Agent 指令…' : '请先连接 Agent 以读取指令')
     : discovered?.loading ? '正在读取 Agent 指令…'
     : discovered?.error || (agentCommands.length ? '没有匹配的 Agent 指令' : '当前 Agent 尚未提供可用指令');

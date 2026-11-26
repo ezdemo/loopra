@@ -91,7 +91,7 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 | GET `/history` | q: workspaceHash*, sessionName* | `[]`（编译后历史视图） |
 | GET `/history/events` | q: workspaceHash*, sessionName* | `[]`（ChatMessage 行，见 SSE 契约 §3） |
 | GET `/commands` | — | `[{cmd:s, desc:s, args:s}]` |
-| GET `/acp-state` | q: workspaceHash*, sessionName* | `{plan:[{content,status,priority}], commands:[{name,description,inputHint}]}` |
+| GET `/acp-state` | q: workspaceHash*, sessionName* | `{plan:[{content,status,priority}], commands:[{name,description,inputHint}]}`（指令优先取当前 ACP 会话最新广播；未收到广播时读取已保存的指令） |
 | GET `/prompt` | q: workspaceHash?, sessionName? | `{content:s, length:i}` |
 | GET `/project-capabilities` | q: workspaceHash* | `{workspacePath, mcpConfigPath, mcpConfigExists:b, projectSkillsPath, projectSkillsDirectoryExists:b, skills:[{name,description,scope,mountAlias,path}], mcpServers:[{name,type,enabled:b,loaded:b,toolCount:i,toolNames:[],error}]}` |
 | POST `/project-capabilities/refresh` | q: workspaceHash* | 同上 |

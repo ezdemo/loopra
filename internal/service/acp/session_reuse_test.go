@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"testing"
 	"time"
+
+	acpsdk "github.com/coder/acp-go-sdk"
 
 	"github.com/ezdemo/looprax/internal/service/hitl"
 )
@@ -276,5 +279,61 @@ func TestIdleSessionsSkipsBusyAndUnopened(t *testing.T) {
 	names := manager.IdleSessions(host, "codex", host.Workspace())
 	if len(names) != 1 || names[0] != "draft" {
 		t.Fatalf("idle = %#v", names)
+	}
+}
+
+func TestSessionCommandSnapshotScopesUpdatesToRemoteSession(t *testing.T) {
+	manager, client := NewManager(), &Client{}
+	host := &reuseHost{app: "app"}
+	first, second := &Conn{client: client}, &Conn{client: client}
+	manager.put(manager.key(host, "one"), first)
+	manager.put(manager.key(host, "two"), second)
+	send := func(id acpsdk.SessionId, names ...string) {
+		t.Helper()
+		commands := make([]acpsdk.AvailableCommand, 0, len(names))
+		for _, name := range names {
+			commands = append(commands, acpsdk.AvailableCommand{Name: name})
+		}
+		if err := client.SessionUpdate(context.Background(), acpsdk.SessionNotification{
+			SessionId: id,
+			Update: acpsdk.SessionUpdate{AvailableCommandsUpdate: &acpsdk.SessionAvailableCommandsUpdate{
+				SessionUpdate: "available_commands_update", AvailableCommands: commands,
+			}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first.BindSession("remote-one", nil)
+	client.beginAccept(second)
+	send("remote-two", "review")
+	send("unbound", "stray")
+	second.BindSession("remote-two", nil)
+	client.endAccept("remote-two")
+	send("remote-one", "help")
+
+	if got, want := manager.SessionCommandSnapshot(host, "one", "remote-one"),
+		[]map[string]any{{"name": "help"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("one commands = %#v, want %#v", got, want)
+	}
+	if got, want := manager.SessionCommandSnapshot(host, "two", "remote-two"),
+		[]map[string]any{{"name": "review"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("two commands = %#v, want %#v", got, want)
+	}
+	if got := manager.SessionCommandSnapshot(host, "one", "remote-two"); got != nil {
+		t.Fatalf("mismatched remote id leaked commands: %#v", got)
+	}
+	if _, ok := client.commandSnapshot("unbound"); ok {
+		t.Fatal("unbound session commands retained after setup")
+	}
+	send("remote-two")
+	if got := manager.SessionCommandSnapshot(host, "two", "remote-two"); got == nil || len(got) != 0 {
+		t.Fatalf("cleared commands = %#v", got)
+	}
+	client.clearOwner(first)
+	if _, ok := client.commandSnapshot("remote-one"); ok {
+		t.Fatal("cleared owner commands retained")
+	}
+	if got := manager.SessionCommandSnapshot(host, "one", "remote-one"); got != nil {
+		t.Fatalf("cleared owner snapshot = %#v", got)
 	}
 }

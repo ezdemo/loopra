@@ -305,6 +305,20 @@ test('opening slash suggestions re-reads delayed command announcements', async (
   } finally { await view.close(); }
 });
 
+test('an open slash menu picks up an announcement arriving after an empty read', async () => {
+  const refreshed = deferred();
+  let reads = 0;
+  const view = await mount({}, async () => ++reads === 1 ? [] : refreshed.promise);
+  try {
+    assert.deepEqual(view.rows(), []);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)); });
+    assert.equal(reads, 2);
+    await act(async () => refreshed.resolve(advertised));
+    assert.deepEqual(view.rows(), ['/clear', '/review']);
+    assert.deepEqual(view.sends, []);
+  } finally { await view.close(); }
+});
+
 test('Native waits for the service connection before loading commands, skills and presets', async () => {
   const view = await mount({ agentId: 'native', connected: false });
   try {

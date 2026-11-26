@@ -74,6 +74,9 @@ func (s *Controller) agentDeepController(w http.ResponseWriter, r *http.Request)
 		}
 		meta := s.sessionMetaRead(name)
 		plan, commands := meta["acpPlan"], meta["acpCommands"]
+		if live := s.acp.SessionCommandSnapshot(s.acpHost(), name, strOr(meta, "acpSessionId", "")); live != nil {
+			commands = live
+		}
 		if plan == nil {
 			plan = []any{}
 		}

@@ -123,11 +123,12 @@ type Client struct {
 	children       map[string]bool
 	// servers 是会话建立时透传给 Agent 的 MCP 定义。
 	servers []any
-	// 重放期间收到的 plan/commands/config：不产生流式事件，
+	// 重放期间收到的 plan/config：不产生流式事件，
 	// 但仍需持久化到会话元数据（Java 只抑制 SSE）。
-	replayPlan     []PlanEntry
-	replayCommands []Command
-	replayConfig   []ConfigOption
+	replayPlan   []PlanEntry
+	replayConfig []ConfigOption
+	// Command broadcasts outlive turns and are scoped to the remote session.
+	commandsBySession map[string][]Command
 }
 
 var _ acpsdk.Client = (*Client)(nil)
@@ -189,6 +190,11 @@ func (c *Client) endAccept(sessionID string) {
 	}
 	c.mu.Lock()
 	c.accepting = false
+	for id := range c.commandsBySession {
+		if c.sessionConns[id] == nil {
+			delete(c.commandsBySession, id)
+		}
+	}
 	if sessionID != "" {
 		c.sessionID = sessionID
 	}
@@ -206,6 +212,7 @@ func (c *Client) clearOwner(owner *Conn) {
 	for sessionID, conn := range c.sessionConns {
 		if conn == owner {
 			delete(c.sessionConns, sessionID)
+			delete(c.commandsBySession, sessionID)
 			for tool, sid := range c.toolSessions {
 				if sid == sessionID {
 					delete(c.toolSessions, tool)
@@ -817,11 +824,19 @@ func (c *Client) fail(err error) error {
 	return err
 }
 
-// ReplayState 返回重放期间收集的 plan/commands/config。
-func (c *Client) ReplayState() ([]PlanEntry, []Command, []ConfigOption) {
+// commandSnapshot 返回某个远端会话最近一次广播的指令；切片内容不可变，
+// 只能整体替换，调用方不得修改。
+func (c *Client) commandSnapshot(id string) ([]Command, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	commands, ok := c.commandsBySession[id]
+	return commands, ok
+}
+
+// ReplayState 返回重放期间收集的 plan/config。
+func (c *Client) ReplayState() ([]PlanEntry, []ConfigOption) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]PlanEntry(nil), c.replayPlan...),
-		append([]Command(nil), c.replayCommands...),
 		append([]ConfigOption(nil), c.replayConfig...)
 }

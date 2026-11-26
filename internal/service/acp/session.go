@@ -221,6 +221,28 @@ func (m *Manager) put(name string, conn *Conn) {
 	}
 }
 
+// SessionCommandSnapshot returns nil if this remote session has not advertised commands.
+func (m *Manager) SessionCommandSnapshot(host SessionHost, name, sessionID string) []map[string]any {
+	if m == nil || sessionID == "" {
+		return nil
+	}
+	conn := m.get(m.key(host, name))
+	if conn == nil {
+		return nil
+	}
+	conn.mu.Lock()
+	client, id, live := conn.client, conn.acpSession, conn.live
+	conn.mu.Unlock()
+	if client == nil || !live || id != sessionID {
+		return nil
+	}
+	commands, ok := client.commandSnapshot(id)
+	if !ok {
+		return nil
+	}
+	return commandPayload(commands)
+}
+
 // Drop 移除某会话对 ACP 进程的引用。最后一个引用离开时才关闭进程。
 func (m *Manager) Drop(key string) {
 	if m == nil {
@@ -798,13 +820,11 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 	if len(config) > 0 {
 		patch["agentConfig"] = config
 	}
-	if plan, commands, _ := conn.client.ReplayState(); len(plan) > 0 || len(commands) > 0 {
-		if len(plan) > 0 {
-			patch["acpPlan"] = plan
-		}
-		if payload := commandPayload(commands); len(payload) > 0 {
-			patch["acpCommands"] = payload
-		}
+	if plan, _ := conn.client.ReplayState(); len(plan) > 0 {
+		patch["acpPlan"] = plan
+	}
+	if commands, ok := conn.client.commandSnapshot(result.SessionID); ok {
+		patch["acpCommands"] = commandPayload(commands)
 	}
 	if err := host.SetMeta(name, patch); err != nil {
 		conn.unbindSession()

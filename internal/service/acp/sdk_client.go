@@ -14,8 +14,12 @@ import (
 
 func (c *Client) SessionUpdate(_ context.Context, params acpsdk.SessionNotification) error {
 	// SDK 串行消费通知且队列只有 1024 条，这里必须保持 O(1)；
-	// 不能做 localUpdate 的 marshal/unmarshal。
+	// 文本与工具增量是高频路径，不能做 localUpdate 的 marshal/unmarshal；
+	// 指令广播只复制命令字段，不序列化整包。
 	c.indexToolSession(sdkToolCallID(params.Update), string(params.SessionId))
+	if update := params.Update.AvailableCommandsUpdate; update != nil {
+		c.cacheCommands(string(params.SessionId), update.AvailableCommands)
+	}
 	c.mu.Lock()
 	owner, direct := c.owner, c.replaying || c.accepting
 	delivery := c.sessionConns[string(params.SessionId)]
@@ -42,6 +46,33 @@ func sdkToolCallID(update acpsdk.SessionUpdate) string {
 		return string(update.ToolCallUpdate.ToolCallId)
 	}
 	return ""
+}
+
+// cacheCommands 把 available_commands_update 按远端会话 id 存进客户端缓存。
+// 广播不依赖轮次：空闲会话的指令菜单也要能读到；会话建立期间
+// （accepting）允许先于本地绑定到达，endAccept 会清掉没绑上的 id。
+func (c *Client) cacheCommands(id string, raw []acpsdk.AvailableCommand) {
+	if id == "" {
+		return
+	}
+	commands := make([]Command, 0, len(raw))
+	for _, item := range raw {
+		command := Command{Name: item.Name, Description: item.Description}
+		if item.Input != nil && item.Input.Unstructured != nil {
+			command.Input = &CommandInput{Hint: item.Input.Unstructured.Hint}
+		}
+		commands = append(commands, command)
+	}
+	commands = normalizeCommands(commands)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.accepting && c.sessionConns[id] == nil {
+		return
+	}
+	if c.commandsBySession == nil {
+		c.commandsBySession = make(map[string][]Command)
+	}
+	c.commandsBySession[id] = commands
 }
 
 func (c *Client) sessionUpdate(params acpsdk.SessionNotification, target *acpTurn) error {
@@ -248,8 +279,6 @@ func (c *Client) captureReplay(update SessionUpdate) {
 	switch update.SessionUpdate {
 	case "plan":
 		c.replayPlan = normalizePlan(update.Entries)
-	case "available_commands_update":
-		c.replayCommands = normalizeCommands(update.AvailableCommands)
 	case "config_option_update":
 		c.replayConfig = update.ConfigOptions
 		c.configOptions = update.ConfigOptions
