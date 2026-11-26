@@ -837,8 +837,8 @@ func (t *acpTurn) appendLines(lines []map[string]any) {
 }
 
 // promptBlocks 把请求渲染成 ACP 内容块。
-func promptBlocks(message string, images []string) []ContentBlock {
-	blocks := make([]ContentBlock, 0, 1+len(images))
+func promptBlocks(message string, images []string, includeDisplayConvention bool) []ContentBlock {
+	blocks := make([]ContentBlock, 0, 2+len(images))
 	if message != "" {
 		blocks = append(blocks, ContentBlock{Type: "text", Text: message})
 	}
@@ -855,8 +855,11 @@ func promptBlocks(message string, images []string) []ContentBlock {
 		blocks = append(blocks, ContentBlock{Type: "text", Text: reqPlaceholder})
 	}
 	// ACP 没有通用的 system prompt 字段；把宿主展示约定作为单独的
-	// 运行上下文块传入，不改写用户消息或其持久化转录。
-	blocks = append(blocks, ContentBlock{Type: "text", Text: "[Loopra 回复展示约定]\n" + agentpkg.ReplyImageInstruction})
+	// 运行上下文块传入，不改写用户消息或其持久化转录。只在远端会话
+	// 首次接收提示词时携带，后续轮次依赖远端会话上下文保留它。
+	if includeDisplayConvention {
+		blocks = append(blocks, ContentBlock{Type: "text", Text: "[Loopra 回复展示约定]\n" + agentpkg.ReplyImageInstruction})
+	}
 	return blocks
 }
 

@@ -33,6 +33,7 @@ func TestInheritedSessionMetaKeepsAgentAndModel(t *testing.T) {
 		"agentId": "codex", "acpSessionId": "remote-1", "acpCwd": "/old",
 		"title": "原会话", "agentConfig": map[string]any{"model": "gpt-5.4", "mode": "auto"},
 		"model": "gpt-5.4", "modelChannelId": "openai", "reasoningEffort": "high",
+		"acpDisplayConventionSessionId": "remote-1",
 	}
 	meta := inheritedSessionMeta(source, "codex", "remote-2", "/work", "[复刻]原会话")
 	if meta["agentId"] != "codex" || meta["acpSessionId"] != "remote-2" || meta["acpCwd"] != "/work" {
@@ -44,6 +45,9 @@ func TestInheritedSessionMetaKeepsAgentAndModel(t *testing.T) {
 	config, _ := meta["agentConfig"].(map[string]any)
 	if config["model"] != "gpt-5.4" || config["mode"] != "auto" {
 		t.Fatalf("agentConfig = %+v", config)
+	}
+	if _, ok := meta["acpDisplayConventionSessionId"]; ok {
+		t.Fatal("fork reused the source display convention marker")
 	}
 	withoutRemote := inheritedSessionMeta(source, "codex", "", "/work", "[复刻]原会话")
 	if _, ok := withoutRemote["acpSessionId"]; ok {

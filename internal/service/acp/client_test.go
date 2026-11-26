@@ -77,14 +77,25 @@ func (a *fakeSDKAgent) NewSession(context.Context, acpsdk.NewSessionRequest) (ac
 
 func (a *fakeSDKAgent) Prompt(ctx context.Context, req acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
 	// LOOPRA_ACP_FAKE_PROMPT_LOG 记录每次提示词的用户文本块（不含展示约定），
-	// 供历史注入测试断言实际发送内容；LOOPRA_ACP_FAKE_FAIL 指向的文件存在时
+	// 供历史注入测试断言实际发送内容；LOOPRA_ACP_FAKE_LOG_DISPLAY_CONVENTION
+	// 打开后用固定标记记录展示约定块。LOOPRA_ACP_FAKE_FAIL 指向的文件存在时
 	// 注入一次可重试的发送失败。
 	if log := os.Getenv("LOOPRA_ACP_FAKE_PROMPT_LOG"); log != "" {
 		var text strings.Builder
+		logConvention := os.Getenv("LOOPRA_ACP_FAKE_LOG_DISPLAY_CONVENTION") != ""
+		hasConvention := false
 		for _, block := range req.Prompt {
-			if block.Text != nil && !strings.HasPrefix(block.Text.Text, "[Loopra 回复展示约定]") {
-				text.WriteString(block.Text.Text)
+			if block.Text == nil {
+				continue
 			}
+			if strings.HasPrefix(block.Text.Text, "[Loopra 回复展示约定]") {
+				hasConvention = true
+				continue
+			}
+			text.WriteString(block.Text.Text)
+		}
+		if logConvention && hasConvention {
+			text.WriteString("\n[display-convention]")
 		}
 		text.WriteString("\n---\n")
 		file, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)

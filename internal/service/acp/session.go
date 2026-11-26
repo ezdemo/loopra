@@ -996,9 +996,11 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		return
 	}
 	host.EnsureTitle(ctx, name, in.Message)
+	remote := conn.SessionID()
+	displayConvention := strOr(host.Meta(name), "acpDisplayConventionSessionId", "") != remote
 	// 跨引擎转换来的会话把待移植历史注进第一条提示词，只在真正发送时
 	// 进行：配置准备（prepare/config）建立远端但不消耗这个标记。
-	message, seeding, err := historySeedPrompt(host, name, conn.SessionID(), in.Message)
+	message, seeding, err := historySeedPrompt(host, name, remote, in.Message)
 	if err != nil {
 		sendFailure(sink, err)
 		return
@@ -1017,7 +1019,7 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 	defer conn.bindTurn(nil)
 
 	conn.Use()
-	blocks := promptBlocks(message, in.Images)
+	blocks := promptBlocks(message, in.Images, displayConvention)
 	result, promptErr := conn.client.Prompt(runCtx, blocks)
 	if queueErr := turn.events.finish(); queueErr != nil {
 		promptErr = queueErr
@@ -1026,9 +1028,16 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 	}
 	turn.finish()
 	// 提示词真正送达且事件队列排空后才标记已注入；失败或取消的轮次
-	// 保留种子状态，重试时仍携带历史。
-	if seeding && promptErr == nil && ctx.Err() == nil && context.Cause(runCtx) == nil {
-		if err := host.SetMeta(name, map[string]any{"acpHistorySeededSessionId": conn.SessionID()}); err != nil {
+	// 保留待注入状态，重试时仍携带历史或展示约定。
+	if promptErr == nil && ctx.Err() == nil && context.Cause(runCtx) == nil && (seeding || displayConvention) {
+		patch := map[string]any{}
+		if seeding {
+			patch["acpHistorySeededSessionId"] = remote
+		}
+		if displayConvention {
+			patch["acpDisplayConventionSessionId"] = remote
+		}
+		if err := host.SetMeta(name, patch); err != nil {
 			sendFailure(sink, err)
 			return
 		}
