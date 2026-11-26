@@ -63,7 +63,7 @@ func (s *Controller) shellTerminalOpen(w http.ResponseWriter, r *http.Request) {
 // 重开时 PTY 还活着就直接复用，进程已退出则按 tuiStarted 拼续接参数。
 func (s *Controller) openAgentTerminal(w http.ResponseWriter, r *http.Request, dir, agentID, sessionName string) {
 	provider, ok := acp.Lookup(agentID)
-	if !ok {
+	if !ok || agentID == "soloncode" {
 		writeFail(w, http.StatusBadRequest, "该 Agent 不支持 TUI 终端")
 		return
 	}

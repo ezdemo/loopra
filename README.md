@@ -33,7 +33,7 @@
 - **可控自动化**：`free` / `approval` / `auto` 三档审批、工作区写入边界、隔离 Git worktree。
 - **长任务续航**：JSONL 会话、上下文压缩、项目记忆、Goal / Checklist，重开还能接上。
 - **开放扩展**：MCP、OpenAPI、连接器、技能和 JS/TS 插件接入同一条工具链。
-- **多模型与多引擎**：Chat Completions / Responses / Anthropic；Loopra Native、Claude Code、Codex 或 Devin。
+- **多模型与多引擎**：Chat Completions / Responses / Anthropic；Loopra Native、Claude Code、Codex、Devin 或 SolonCode。
 - **入口自由**：Web、桌面、终端、编辑器 ACP、移动端和飞书 Bot。
 
 ## Screenshots

@@ -47,7 +47,7 @@
           ↺ 根据执行结果持续修正
 ```
 
-它与旧版 Java Loopra 读写同一套 `~/.loopra` 配置和 JSONL 会话，已有数据可以直接接着用。新建会话默认使用 Loopra Native；也可以改接 Claude Code、Codex 或 Devin。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
+它与旧版 Java Loopra 读写同一套 `~/.loopra` 配置和 JSONL 会话，已有数据可以直接接着用。新建会话默认使用 Loopra Native；也可以改接 Claude Code、Codex、Devin 或 SolonCode。外部引擎的能力取决于各自适配器，需要在后端所在机器上安装依赖并完成认证。下文的内置工具、模型渠道和审批规则适用于 Loopra Native。
 
 ## 为什么是 Loopra
 
@@ -58,7 +58,7 @@
 | **持续上下文** | JSONL 会话、循环内压缩、Goal / Checklist、全局与项目记忆，让长任务不靠一次性提示词硬撑。 |
 | **开放生态** | 多模型渠道、MCP、OpenAPI、连接器、技能、JS/TS 插件，能力可以一路接到真实业务系统。 |
 | **多端入口** | Web、桌面、移动端和飞书 Bot 连接工作台运行时；终端和编辑器 ACP 拉起独立的 `loopra acp` 进程，沿用 `~/.loopra` 配置。 |
-| **引擎自由** | Loopra Native 之外，还能把 Claude Code、Codex 或 Devin 接进同一个工作台。 |
+| **引擎自由** | Loopra Native 之外，还能把 Claude Code、Codex、Devin 或 SolonCode 接进同一个工作台。 |
 
 ## 快速开始
 
@@ -227,7 +227,7 @@ Windows、macOS 和 Linux 的 amd64/arm64 命令行构建（包括普通 `go bui
 | **人工控制点** | `free` / `approval` / `auto` 三档审批，工具模型预审；无法自动放行时转人工，边界清楚。 |
 | **项目级工作台** | 项目、会话、聊天、模型、文件预览、Git、需求、定时任务和终端在同一套 React 界面里。 |
 | **隔离交付** | 会话可切到独立 Git 工作树执行；分支、差异、提交和环境信息在同一个面板里收口。 |
-| **引擎可替换** | 默认 Loopra Native，也能把 Claude Code、Codex 或 Devin 接进来，用同一个工作台观察和管理。 |
+| **引擎可替换** | 默认 Loopra Native，也能把 Claude Code、Codex、Devin 或 SolonCode 接进来，用同一个工作台观察和管理。 |
 | **全端触达** | Web、桌面、TUI、ACP 编辑器、Android / iOS、飞书 Bot：同一套本地能力，不锁死入口。 |
 
 ## 它适合干什么
@@ -253,7 +253,7 @@ flowchart TB
   API --> Ext[外部 Agent]
   ACPsrv --> Native
   Native --> Tools["文件、rg、Shell、技能、MCP"]
-  Ext --> Adapters["Claude Code、Codex、Devin"]
+  Ext --> Adapters["Claude Code、Codex、Devin、SolonCode"]
   Native --> Home["JSONL 会话"]
   Tools --> Repo[本机项目]
   Adapters --> Repo
@@ -546,7 +546,7 @@ loopra acp
 
 工作台里的 Loopra Native 会话不会拉起这条命令。
 
-在工作台中选择外部引擎时，本进程以 ACP v1 stdio 客户端驱动本机适配器。需要已安装的 Node.js，以及对应适配器：`@agentclientprotocol/claude-agent-acp`、`@agentclientprotocol/codex-acp`；Devin 使用独立安装的 `devin` CLI，无需 Node 适配器。`GET /api/agent-engines` 会报告每个引擎的可用性与缺失原因。下面的环境变量可覆盖自动探测：
+在工作台中选择外部引擎时，本进程以 ACP v1 stdio 客户端驱动本机适配器。需要已安装的 Node.js，以及对应适配器：`@agentclientprotocol/claude-agent-acp`、`@agentclientprotocol/codex-acp`；Devin 与 SolonCode 自带 ACP，无需 Node 适配器。`GET /api/agent-engines` 会报告每个引擎的可用性与缺失原因。下面的环境变量可覆盖自动探测：
 
 | 环境变量 | 作用 |
 |---|---|
@@ -555,6 +555,9 @@ loopra acp
 | `LOOPRA_CLAUDE_ACP_SCRIPT` | Claude ACP 适配脚本。 |
 | `LOOPRA_CODEX_ACP_SCRIPT` | Codex ACP 适配脚本。 |
 | `LOOPRA_DEVIN_EXECUTABLE` | Devin CLI 可执行文件。 |
+| `LOOPRA_SOLONCODE_EXECUTABLE` | SolonCode CLI 的绝对路径；Windows 可指定 `soloncode.bat`。 |
+
+在 Loopra 后端所在的机器上按 [SolonCode 官方说明](https://github.com/opensolon/soloncode#installation-and-configuration) 安装 CLI 和 Java，用 `soloncode web` 在「设置 → LLM」配置模型。Loopra 从后端的 `PATH` 或 `~/.soloncode/bin` 找到 CLI，然后在项目目录运行 `soloncode acp`。安装后在「设置 → 外部 Agent」重新检测，再在项目的新会话选择 SolonCode。模型与工具权限由 SolonCode 配置决定；Loopra 不提供 SolonCode 的终端会话，SolonCode 当前也不通过 ACP 转发逐次工具审批。
 
 启动外部 Agent 时会把 `127.0.0.1`、`localhost` 和 `::1` 合并进子进程的 `NO_PROXY`，避免继承来的 `HTTP(S)_PROXY` 把发往本机推理网关的请求转走。会话通过 `.meta` 的 `agentId` 绑定引擎，ACP 转录写入同一份 `.jsonl` / `.events`。任意回复都可以「继续到新会话」并换用其他引擎：跨引擎分支复制本地可见历史；转到外部引擎后，首轮把旧对话作为独立上下文块交接，用户消息原样发送。
 

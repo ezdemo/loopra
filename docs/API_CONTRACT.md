@@ -100,7 +100,7 @@ list/search 默认每作用域 10 条、最多 20 条，offset 从零开始；�
 ### 3.3 AgentEngines（/api/agent-engines）
 | 方法+路径 | 参数 | data |
 |---|---|---|
-| GET `` | — | `[Engine{id:s, name:s, available:b, detail:s, hidden:b}]`（首项 native；hidden 来自 preferences 的 hiddenAgents，选择器只列 available && !hidden 的外部引擎） |
+| GET `` | — | `[Engine{id:s, name:s, available:b, detail:s, hidden:b}]`（首项 native；已知外部 id：claude-code、codex、devin、soloncode；hidden 来自 preferences 的 hiddenAgents，选择器只列 available && !hidden 的外部引擎） |
 | GET `/mcp` | q: agentId*, workspaceHash* | `[{name, type, source:s("project"/"global"), configuredEnabled:b, enabled:b}]` |
 | PUT `/mcp` | body `{agentId, workspaceHash, name*, enabled:b*}` | 同 GET /mcp（404→400 `"MCP 配置不存在，请刷新后重试"`） |
 | GET `/preferences` | — | `{selectedAgent:s?, hiddenAgents?:[s], agents:{}: {agentId: {configId: s\|b}}}` |

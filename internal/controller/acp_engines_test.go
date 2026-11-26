@@ -14,7 +14,7 @@ func TestAgentEnginesListIncludesACPProviders(t *testing.T) {
 		t.Fatalf("status = %d, body = %v", code, env)
 	}
 	list, _ := env["data"].([]any)
-	if len(list) != 4 {
+	if len(list) != 5 {
 		t.Fatalf("engines = %v", list)
 	}
 	first, _ := list[0].(map[string]any)
@@ -26,6 +26,9 @@ func TestAgentEnginesListIncludesACPProviders(t *testing.T) {
 		engine, _ := entry.(map[string]any)
 		id, _ := engine["id"].(string)
 		seen[id] = true
+		if id == "soloncode" && engine["name"] != "SolonCode" {
+			t.Fatalf("soloncode engine = %v", engine)
+		}
 		if _, ok := engine["available"].(bool); !ok {
 			t.Fatalf("engine %q missing availability: %v", id, engine)
 		}
@@ -33,7 +36,7 @@ func TestAgentEnginesListIncludesACPProviders(t *testing.T) {
 			t.Fatalf("engine %q missing detail: %v", id, engine)
 		}
 	}
-	for _, id := range []string{"claude-code", "codex", "devin"} {
+	for _, id := range []string{"claude-code", "codex", "devin", "soloncode"} {
 		if !seen[id] {
 			t.Fatalf("engine %q missing from %v", id, list)
 		}
@@ -45,13 +48,13 @@ func TestAgentEnginesListIncludesACPProviders(t *testing.T) {
 func TestAgentPreferencesHiddenAgents(t *testing.T) {
 	ts, key := newTestServer(t)
 	code, env := call(t, ts, http.MethodPut, "/api/agent-engines/preferences", key, map[string]any{
-		"hiddenAgents": []string{"codex"},
+		"hiddenAgents": []string{"codex", "soloncode"},
 	})
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, body = %v", code, env)
 	}
 	data, _ := env["data"].(map[string]any)
-	if hidden, _ := data["hiddenAgents"].([]any); len(hidden) != 1 || hidden[0] != "codex" {
+	if hidden, _ := data["hiddenAgents"].([]any); len(hidden) != 2 || hidden[0] != "codex" || hidden[1] != "soloncode" {
 		t.Fatalf("hiddenAgents = %v", data["hiddenAgents"])
 	}
 
@@ -66,7 +69,7 @@ func TestAgentPreferencesHiddenAgents(t *testing.T) {
 		id, _ := engine["id"].(string)
 		flags[id], _ = engine["hidden"].(bool)
 	}
-	if !flags["codex"] || flags["claude-code"] || flags["devin"] || flags["native"] {
+	if !flags["codex"] || !flags["soloncode"] || flags["claude-code"] || flags["devin"] || flags["native"] {
 		t.Fatalf("hidden flags = %v", flags)
 	}
 

@@ -18,8 +18,8 @@ func TestShellTerminalAgentValidation(t *testing.T) {
 	if info["id"] == "" || info["agent"] != nil {
 		t.Fatalf("plain shell info = %v", info)
 	}
-	// native 与未知 Agent 一律 400。
-	for _, agent := range []string{"native", "no-such-agent"} {
+	// native、未知 Agent 和仅走 ACP 的 SolonCode 一律 400。
+	for _, agent := range []string{"native", "no-such-agent", "soloncode"} {
 		code, env = call(t, ts, http.MethodPost, "/api/shell-terminal/sessions", key,
 			map[string]string{"agentId": agent})
 		if code != http.StatusBadRequest {

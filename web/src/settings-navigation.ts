@@ -12,7 +12,7 @@ export const settingsCategories = [
     { name: '系统提示词', key: 'systemPrompt', label: '系统提示词', keywords: 'prompt loopra.md system prompt' },
     { name: '记忆', key: 'memory', label: '记忆', keywords: '全局 项目 个人偏好 系统环境 Java Node nvm memory 长期 跨会话 global project preference environment long-term' },
     { name: '子代理', key: 'subagents', label: '子代理', keywords: '角色 提示词 白名单 subagent sub-agent role prompt allowlist' },
-    { name: '外部 Agent', key: 'externalAgents', label: '外部 Agent', keywords: 'ACP Claude Code Codex Devin 第三方 外部 安装 选择器 external install selector' },
+    { name: '外部 Agent', key: 'externalAgents', label: '外部 Agent', keywords: 'ACP Claude Code Codex Devin SolonCode 第三方 外部 安装 选择器 external install selector' },
   ] },
   { name: '工具与集成', key: 'tools', sections: [
     { name: '工具', key: 'tools', label: '工具', keywords: 'tools 只读 写入 read-only write' },

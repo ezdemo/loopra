@@ -1,5 +1,5 @@
 // Package acp 用 coder/acp-go-sdk 连接外部编码智能体
-// （claude-code / codex / devin），并把会话更新转换为
+// （claude-code / codex / devin / soloncode），并把会话更新转换为
 // Loopra 的事件模型。本文件里的结构是 Loopra 内部事件形状，
 // 线上的 JSON-RPC 由 SDK 负责。
 package acp

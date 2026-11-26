@@ -13,7 +13,7 @@ export function isExternalAgent(agentId: string): boolean {
 // TUI 入口只在项目新建草稿上对外部 Agent 开放；运行中的任务可能
 // 占着 ACP 进程，此时按钮留灰而不是藏起来。
 export function canUseTui(agentId: string, context: Pick<TuiContext, 'chatMode' | 'surface' | 'session'>): boolean {
-  return isExternalAgent(agentId) && !context.chatMode && !context.surface && !context.session;
+  return isExternalAgent(agentId) && agentId !== 'soloncode' && !context.chatMode && !context.surface && !context.session;
 }
 
 export function tuiDisabledReason(agentId: string, context: TuiContext): string | undefined {

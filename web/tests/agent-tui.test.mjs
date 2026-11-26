@@ -11,6 +11,7 @@ test('isExternalAgent distinguishes external engines', () => {
   assert.equal(isExternalAgent('claude-code'), true);
   assert.equal(isExternalAgent('codex'), true);
   assert.equal(isExternalAgent('devin'), true);
+  assert.equal(isExternalAgent('soloncode'), true);
   assert.equal(isExternalAgent('native'), false);
   assert.equal(isExternalAgent(''), false);
 });
@@ -19,6 +20,7 @@ test('canUseTui only shows on the new-session draft for external agents', () => 
   const draft = { chatMode: false, surface: false, session: false };
   assert.equal(canUseTui('claude-code', draft), true);
   assert.equal(canUseTui('native', draft), false);
+  assert.equal(canUseTui('soloncode', draft), false);
   assert.equal(canUseTui('claude-code', { ...draft, chatMode: true }), false);
   assert.equal(canUseTui('claude-code', { ...draft, surface: true }), false);
 });

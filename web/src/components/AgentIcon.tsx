@@ -16,8 +16,10 @@ export function PersonaIcon({ icon, className, size = '1rem' }: { icon?: string;
 }
 
 export default function AgentIcon({ agentId = 'native' }: { agentId?: string }) {
-  if (agentId === 'native') {
-    return <img className="composer-agent-icon" data-agent={agentId} src={`${import.meta.env?.BASE_URL ?? '/'}favicon.svg`} width="16" height="16" alt="" aria-hidden="true" draggable={false} />;
+  // SolonCode image: https://solon.noear.org/img/solon/favicon256.png
+  const image = agentId === 'native' ? 'favicon.svg' : agentId === 'soloncode' ? 'soloncode.png' : undefined;
+  if (image) {
+    return <img className="composer-agent-icon" data-agent={agentId} src={`${import.meta.env?.BASE_URL ?? '/'}${image}`} width="16" height="16" alt="" aria-hidden="true" draggable={false} />;
   }
   const icon = (() => {
     switch (agentId) {

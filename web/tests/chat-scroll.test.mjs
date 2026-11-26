@@ -211,7 +211,7 @@ test('external agents offer historical branches without enabling unsupported edi
     { id: 'u1', role: 'user', text: '问', rollbackId: 'rollback', rollbackTimestamp: 123, snapshotId: 'snapshot' },
     { id: 'a1', role: 'assistant', text: '答', historyCount: 2 },
   ];
-  for (const agentId of ['codex', 'claude-code', 'custom-acp']) {
+  for (const agentId of ['codex', 'claude-code', 'soloncode', 'custom-acp']) {
     const calls = [];
     const view = await renderMessages(messages, {
       session: { id: 's', title: 't', workspace: 'w', kind: 'mock', agentId, messages },

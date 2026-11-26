@@ -35,11 +35,12 @@ type Provider struct {
 	Credential func() map[string]any
 }
 
-// Providers 按 Java 运行时顺序列出全部外部 Agent。
+// Providers 按工作台展示顺序列出全部外部 Agent。
 var Providers = []Provider{
 	{ID: "claude-code", Name: "Claude Code", Detect: detectClaude, Prepare: prepareClaude},
 	{ID: "codex", Name: "Codex", Detect: detectCodex, Prepare: prepareCodex},
 	{ID: "devin", Name: "Devin", Detect: detectDevin, Prepare: prepareDevin, Credential: devinCredential},
+	{ID: "soloncode", Name: "SolonCode", Detect: detectSolonCode, Prepare: prepareSolonCode},
 }
 
 // Lookup 按 id 查找外部 Agent。
