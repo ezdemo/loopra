@@ -272,9 +272,7 @@
    derived from `--effort-level` (the tier index, written by ReasoningControl), so the higher
    the level the tighter, brighter and quicker the stream — and the fill it lives in
    widens at the same time. */
-/* Match the track's endpoint centres to the first and last label cells, accounting
-   for the track's transparent 0.25rem borders. Both rows share the same scale. */
-.effort-slider { --effort-level: 0; padding: 0.1875rem max(0px, calc(50% / var(--effort-count) - 0.25rem)); }
+.effort-slider { --effort-level: 0; padding: 0.1875rem 0; }
 /* Saving disables input, but must not flash the selected strength at half opacity. */
 .effort-slider .effort-range { opacity: 1; }
 .effort-slider [data-slot="track"] { height: 0.875rem; margin-top: 0; margin-bottom: 0; border-left-width: 0.25rem; border-right-width: 0.25rem; }
@@ -297,13 +295,25 @@
   --spark-speed: max(0.3s, calc(2.8s - var(--effort-level) * 0.41s));
   background-image:
     linear-gradient(90deg, transparent calc(100% - 1.75rem), #ffffff2e),
-    linear-gradient(90deg, color-mix(in srgb, var(--blue) 62%, #04123f), var(--blue) 46%, color-mix(in srgb, var(--blue) 55%, #7fa4ff));
+    var(--effort-prism-band, none),
+    var(--effort-fill, linear-gradient(90deg, color-mix(in srgb, var(--blue) 62%, #04123f), var(--blue) 46%, color-mix(in srgb, var(--blue) 55%, #7fa4ff)));
+  background-repeat: no-repeat;
+  background-size: 100% 100%, 66% 100%, 100% 100%;
+  background-position: 0 0, -200% 0, 0 0;
   /* A lit top edge plus a glow that grows with the level, so the bar reads as a light
      source rather than a flat progress fill. */
   box-shadow:
     inset 0 0.0625rem 0 #ffffff33,
     inset 0 -0.0625rem 0.125rem #001a5c33,
     0 0 calc(0.35rem + var(--effort-level) * 0.09rem) color-mix(in srgb, var(--blue) 28%, transparent);
+}
+/* Only the middle layer sweeps. A transition plays on entry, not when the
+   panel opens at an already-selected maximum. */
+.effort-slider[data-at-max] [data-slot="filler"] {
+  --effort-fill: linear-gradient(90deg, #bb3159, #c56a28 17%, #a77d16 32%, #198659 48%, #187e9f 64%, #4260c8 80%, #833fb6);
+  --effort-prism-band: linear-gradient(105deg, transparent, #ff637d 16%, #ff963e 28%, #ffe363 39%, #5bef93 51%, #50e1ef 63%, #6694ff 75%, #b972ff 87%, transparent);
+  background-position: 0 0, 310% 0, 0 0;
+  transition: background-position 650ms cubic-bezier(.32, .05, .25, 1);
 }
 .effort-slider [data-slot="filler"]::before,
 .effort-slider [data-slot="filler"]::after { content: ""; position: absolute; inset: 0; }
@@ -351,6 +361,8 @@
 /* A comfortable cell per tier keeps the slider long enough to aim at; the flyout
    widens to fit these since the grid's floor is each label's max-content. */
 .effort-levels button { padding: 0.1875rem 0.5rem; min-width: 3rem; font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
+.effort-levels:not(.effort-levels-wrap) > button:first-child:not(:only-child) { justify-self: start; text-align: start; }
+.effort-levels:not(.effort-levels-wrap) > button:last-child:not(:only-child) { justify-self: end; text-align: end; }
 .effort-levels button[aria-pressed="true"] { background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.5rem; }
 .custom-effort > div { flex: 1; }

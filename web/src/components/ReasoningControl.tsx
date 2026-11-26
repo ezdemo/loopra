@@ -24,6 +24,7 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
   const pending = useRef(0);
   const displayed = preview ?? value;
   const index = levels.findIndex(level => level.value === displayed);
+  const atMax = index > 0 && index === levels.length - 1;
   const effort = levels[index];
   // A custom (off-scale) value parks the knob at 0, so the track's spark field stays calm.
   const sparkLevel = Math.max(0, index);
@@ -49,7 +50,7 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
     <div className="effort-summary"><span className="effort-symbol"><Brain size="1.375rem" /></span><div><strong>{effort?.label || (allowCustom ? '自定义' : displayed)}强度</strong><p>{effort?.description || displayed}</p></div></div>
     <div className="effort-scale" style={{ '--effort-count': Math.max(1, levels.length) } as CSSProperties}>
       {/* The wrapper carries the level so composer.css can scale the track's spark field with it. */}
-      {levels.length > 1 && singleRow && <div className="effort-slider" style={{ '--effort-level': String(sparkLevel) } as CSSProperties}>
+      {levels.length > 1 && singleRow && <div className="effort-slider" data-at-max={atMax || undefined} style={{ '--effort-level': String(sparkLevel) } as CSSProperties}>
         <Slider aria-label="推理强度" className="effort-range" size="sm" minValue={0} maxValue={Math.max(0, levels.length - 1)} step={1} value={sparkLevel} isDisabled={disabled}
           onChange={position => { revision.current++; setPreview(levelAt(position)); setCustom(''); }}
           onChangeEnd={position => { void commit(levelAt(position)); }} />
