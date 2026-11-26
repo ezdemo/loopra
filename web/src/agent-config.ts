@@ -39,10 +39,14 @@ export function reasoningEffortLabel(value: string, fallback = value, translate?
 
 /** Turn an Agent's own thought-level choices into the shared reasoning control. */
 export function agentEffortLevels(option: AgentConfigOption | undefined, translate?: (key: string) => string): AgentEffortLevel[] {
-  return (option?.options || []).map(value => ({
+  return (option?.options || []).map(value => translate ? ({
     value: value.value,
     label: reasoningEffortLabel(value.value, value.name || value.value, translate),
     description: value.description || effortDescriptions[value.value],
+  }) : ({
+    value: value.value,
+    label: value.name || value.value,
+    description: value.description,
   }));
 }
 

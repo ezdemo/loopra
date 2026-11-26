@@ -121,7 +121,7 @@ test('ACP categories drive the shared permission, model and effort controls', ()
   const model = findAgentOption(options, 'model', 'model');
   assert.deepEqual(agentModelGroups(model, 'Claude Code').map(group => [group.name, group.models.map(value => value.name)]),
     [['Claude Code', ['default']], ['Claude', ['Opus', 'Sonnet']]]);
-  assert.deepEqual(agentEffortLevels(findAgentOption(options, 'effort')).map(level => level.label), ['默认', '最大']);
+  assert.deepEqual(agentEffortLevels(findAgentOption(options, 'effort')).map(level => level.label), ['Default', 'Max']);
   assert.equal(agentOptionLabel(findAgentOption(options, 'mode')), 'Bypass permissions');
   assert.equal(isDangerousAgentMode(findAgentOption(options, 'mode')), true);
   assert.equal(isDangerousAgentMode({ ...findAgentOption(options, 'mode'), currentValue: 'default' }), false);

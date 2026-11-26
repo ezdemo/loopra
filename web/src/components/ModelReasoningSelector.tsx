@@ -79,7 +79,7 @@ export default function ModelReasoningSelector(props: Props) {
 
   const modelName = agentModel ? activeModelLabel : selected ? modelLabel(selected) : t('modelSelector.chooseModel');
   const reasoningValue = agentEffort ? agentEffortValue : native ? nativeEffort : '';
-  const reasoningName = reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue, effortTranslate);
+  const reasoningName = agentEffort && external ? agentOptionLabel(agentEffort) : reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue, effortTranslate);
   const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `${t('modelSelector.reasoningLine', { effort: reasoningName || t('effort.default.label') })}${fast ? t('modelSelector.fastSuffix') : ''}` : '', fusionActive ? t('modelSelector.edgeLine', { model: fusionLabel }) : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
@@ -221,7 +221,7 @@ export default function ModelReasoningSelector(props: Props) {
         </div>}
         {menu === 'effort' && (agentEffort || agentFast ? <div className="effort-body">
           {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} localizeLevels={!external} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}
-          {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />{t('modelSelector.fastMode')}</span><small>{agentOptionDescription(agentFast) || t('modelSelector.fastModeDescription')}</small></div><Toggle label={t('modelSelector.fastMode')} value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
+          {agentFast && <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />{t('modelSelector.fastMode')}</span><small>{external ? agentOptionDescription(agentFast) || t('modelSelector.fastModeDescription') : t('modelSelector.fastModeDescription')}</small></div><Toggle label={t('modelSelector.fastMode')} value={agentFastOn} onChange={value => changeAgent(agentFast.id, agentFast.type === 'boolean' ? value : value ? 'on' : 'off')} /></div>}
         </div> : <div className="effort-body">
           {nativeLevels.length > 0 && <ReasoningControl value={nativeEffort} levels={nativeLevels} allowCustom={selected?.reasoningEfforts === undefined} disabled={props.busy} onCommit={value => update('effort', value)} onClose={close} />}
           <div className="composer-toggle-row"><div><span><Zap size="0.9375rem" />{t('modelSelector.fastMode')}</span><small>{t('modelSelector.fastModeDescription')}</small></div><Toggle label={t('modelSelector.fastMode')} value={options.fast} onChange={value => update('fast', value)} /></div>
