@@ -68,8 +68,10 @@ export function friendlyFailureText(message: string): string {
   }
   if (end < 0) return message;
   try {
-    const parsed = JSON.parse(message.slice(start, end + 1)) as { message?: unknown };
-    if (typeof parsed.message === 'string' && parsed.message) return parsed.message;
+    const parsed = JSON.parse(message.slice(start, end + 1)) as { code?: unknown, message?: unknown };
+    // JSON-RPC 错误码按规范为负数；正数的 code 多半是模型网关的 HTTP
+    // 状态类错误，保留原文以免丢失状态码等上下文。
+    if (typeof parsed.code === 'number' && parsed.code < 0 && typeof parsed.message === 'string' && parsed.message) return parsed.message;
   } catch { /* 保持原文 */ }
   return message;
 }

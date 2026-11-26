@@ -930,4 +930,6 @@ test('friendlyFailureText keeps ordinary and malformed messages unchanged', () =
   assert.equal(friendlyFailureText('offline'), 'offline');
   assert.equal(friendlyFailureText('{"code":-32015,"message":'), '{"code":-32015,"message":');
   assert.equal(friendlyFailureText('{"code":1,"data":{"nested":{}}}'), '{"code":1,"data":{"nested":{}}}');
+  // 正数 code 多为网关 HTTP 状态类错误，不做 JSON-RPC 折叠
+  assert.equal(friendlyFailureText('{"code":429,"message":"rate limited"}'), '{"code":429,"message":"rate limited"}');
 });
