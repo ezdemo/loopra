@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -385,6 +386,23 @@ func TestGitInitToggleAndContent(t *testing.T) {
 	dc := env["data"].(map[string]any)
 	if !strings.Contains(dc["diff"].(string), "+++ b/gone.txt") {
 		t.Fatalf("synthesized untracked diff = %v", dc["diff"])
+	}
+}
+
+func TestWorkingFileContentReadsAbsolutePathOutsideWorkspace(t *testing.T) {
+	ts, key, _ := newPlainServer(t)
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, env := call(t, ts, http.MethodGet, "api/git/working-file-content?path="+url.QueryEscape(outside), key, nil)
+	if code != http.StatusOK {
+		t.Fatalf("working-file-content: %d %v", code, env)
+	}
+	file := env["data"].(map[string]any)
+	if file["content"] != "outside\n" || file["exists"] != true {
+		t.Fatalf("working-file-content = %v", file)
 	}
 }
 

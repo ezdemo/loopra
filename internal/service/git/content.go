@@ -122,7 +122,7 @@ type WorkingFile struct {
 
 const previewLimit = 1 << 20
 
-// WorkingFileAt 读取工作区文件。编辑器追加的 :行号 会被去掉。
+// WorkingFileAt 读取工作区文件或只读绝对路径。编辑器追加的 :行号 会被去掉。
 func WorkingFileAt(dir, path string) (WorkingFile, error) {
 	if path == "" {
 		return WorkingFile{}, fail(http.StatusBadRequest, "path 参数必填")
@@ -132,11 +132,14 @@ func WorkingFileAt(dir, path string) (WorkingFile, error) {
 			path = path[:i]
 		}
 	}
-	clean, err := gitops.ValidatePath(dir, path)
-	if err != nil {
-		return WorkingFile{}, fail(http.StatusBadRequest, "Invalid path")
+	full := filepath.Clean(filepath.FromSlash(path))
+	if !filepath.IsAbs(full) {
+		clean, err := gitops.ValidatePath(dir, path)
+		if err != nil {
+			return WorkingFile{}, fail(http.StatusBadRequest, "文件路径无效")
+		}
+		full = filepath.Join(dir, filepath.FromSlash(clean))
 	}
-	full := filepath.Join(dir, filepath.FromSlash(clean))
 	info, err := os.Stat(full)
 	if err != nil || !info.Mode().IsRegular() {
 		return WorkingFile{Exists: false, Message: "当前项目中未找到此文件，可能已移动或删除。"}, nil
