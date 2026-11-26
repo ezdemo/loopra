@@ -118,7 +118,12 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
           onChange={position => { if (!disabled && !cancelDrag.current) setDragPosition(sliderPosition(position)); }}
           onChangeEnd={position => { if (!disabled && !cancelDrag.current) selectPosition(sliderPosition(position)); }} />
       </div>}
-      <div className={`effort-levels${singleRow ? '' : ' effort-levels-wrap'}`}>{levels.map(level => <button key={level.value} disabled={disabled} aria-label={t('effort.levelAria', { label: level.label })} aria-pressed={level.value === displayed} onClick={() => { void commit(level.value); }}>{level.label}</button>)}</div>
+      <div className={`effort-levels${singleRow ? '' : ' effort-levels-wrap'}`}>
+        {levels.map((level, labelIndex) => <button key={level.value} disabled={disabled} aria-label={t('effort.levelAria', { label: level.label })} aria-pressed={level.value === displayed} title={level.label} onClick={() => { void commit(level.value); }}
+          style={lastIndex > 0 && singleRow ? { '--effort-label-offset': labelIndex / lastIndex - 0.5 } as CSSProperties : undefined}>
+          <span>{level.label}</span>
+        </button>)}
+      </div>
     </div>
     {allowCustom && <form className="custom-effort" onSubmit={event => { event.preventDefault(); if (custom.trim()) { void commit(custom.trim()); onClose(); } }}><Input size="sm" variant="bordered" aria-label={t('effort.customAria')} placeholder={t('effort.customPlaceholder')} maxLength={24} value={custom} onValueChange={setCustom} isDisabled={disabled} /><Button size="sm" variant="flat" type="submit" isDisabled={disabled || !custom.trim()}>{t('effort.apply')}</Button></form>}
   </>;

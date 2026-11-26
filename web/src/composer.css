@@ -125,7 +125,7 @@
 .model-reasoning-value { display: block; min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary); }
 .model-reasoning-value > svg { display: inline; margin-left: .375rem; vertical-align: middle; }
 .model-reasoning-rows > button:disabled { opacity: .5; cursor: default; }
-.model-reasoning-flyout .effort-body { flex: 0 1 auto; min-height: 0; padding-right: 1.25rem; padding-left: 1.25rem; overflow-y: auto; overflow-x: hidden; }
+.model-reasoning-flyout .effort-body { flex: 0 1 auto; min-height: 0; --effort-body-inline-padding: 1.25rem; overflow-y: auto; overflow-x: hidden; }
 @container (max-width: 43rem) {
   .model-reasoning-menus > .model-reasoning-flyout { right: 0; bottom: calc(100% + .5rem); max-height: min(37.5rem, calc(var(--composer-popover-max-height, 31.25rem) - 5.5rem)); }
   .model-reasoning-flyout::after { top: 100%; right: 0; bottom: auto; width: 100%; height: .5625rem; }
@@ -263,7 +263,7 @@
 .composer-empty { padding: 1.5625rem 0.625rem; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 0.375rem; }
 .composer-empty small { font-size: 0.6875rem; }
 .composer-note { color: var(--muted); font-size: 0.6875rem; line-height: 1.6; padding: 0.375rem 0.625rem; }
-.effort-body { flex: none; min-width: 0; overflow: visible; padding: 0.125rem 0.8125rem 0.3125rem; }
+.effort-body { flex: none; min-width: 0; overflow: visible; padding: 0.125rem var(--effort-body-inline-padding, 0.8125rem) 0.3125rem; }
 .effort-summary { display: flex; align-items: center; gap: 0.625rem; padding: 0.1875rem 0 1.125rem; }
 .effort-symbol { width: 2.375rem; height: 2.375rem; display: grid; place-items: center; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
 .effort-summary strong { font-size: 0.875rem; font-weight: 500; }
@@ -276,7 +276,7 @@
 .effort-slider[data-sliding] { --effort-snap: 0ms; }
 /* Saving disables input, but must not flash the selected strength at half opacity. */
 .effort-slider .effort-range { opacity: 1; }
-.effort-slider [data-slot="track"] { height: 0.875rem; margin-top: 0; margin-bottom: 0; border-left-width: 0.25rem; border-right-width: 0.25rem; }
+.effort-slider [data-slot="track"] { height: 0.875rem; margin-top: 0; margin-bottom: 0; border-inline-width: var(--effort-track-inset); }
 /* Only the fill may clip: the thumb rides on the track and would be cut off if the
    track hid its overflow, whereas the fill has no children of its own. The track
    carries half a thumb (0.625rem for size="sm") as a transparent side border and lays
@@ -286,7 +286,7 @@
    track's cap so the bar is one continuous pill, and its end now reaches close enough
    to the knob's centre that the knob actually wraps it instead of grazing it. */
 .effort-slider [data-slot="filler"] {
-  margin-left: -0.25rem;
+  margin-left: calc(-1 * var(--effort-track-inset));
   border-radius: inherit;
   overflow: hidden;
   /* One tile of drift per cycle. Widening the tile with the level is the whole density
@@ -357,16 +357,52 @@
   background: #fff;
   box-shadow: 0 0.0625rem 0.375rem #0000002b, 0 0 0 1px #0000000f, 0 0 calc(var(--effort-level) * 0.16rem) color-mix(in srgb, var(--blue) 34%, transparent);
 }
+.effort-scale { --effort-track-inset: 0.25rem; }
 /* Widen the flyout for comfortable cells, but never beyond the room the flyout
    itself can occupy after its own padding; otherwise narrow composers clip the last tier. */
 .effort-scale-single { min-width: min(calc(var(--effort-count) * 3rem), calc(100vw - 6rem), calc(100cqw - 5rem)); }
 .effort-levels { display: grid; grid-template-columns: repeat(var(--effort-count), minmax(0, 1fr)); justify-items: center; padding: 0.5625rem 0 0.5rem; }
 .effort-levels-wrap { display: flex; flex-wrap: wrap; justify-content: center; row-gap: 0.25rem; }
 .effort-levels-wrap button { flex: 1 0 auto; }
-/* Equal grid cells keep every tier evenly spaced; long external-agent labels wrap
-   inside their cell rather than stretching one column wider than the others. */
-.effort-levels button { padding: 0.1875rem 0.5rem; min-width: min(3rem, 100%); max-width: 100%; font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
-.effort-levels button[aria-pressed="true"] { background: color-mix(in srgb, var(--blue) 9%, var(--surface)); color: var(--blue); }
+.effort-levels button { padding: 0.1875rem 0.5rem; min-width: min(3rem, 100%); max-width: 100%; font-size: 0.75rem; color: var(--muted); }
+/* Use more of the button's padding for text without changing the flyout's intrinsic width. */
+.effort-levels button > span {
+  display: block;
+  position: relative;
+  --effort-label-gutter: 0.0625rem;
+  inset-inline-start: calc(var(--effort-label-gutter) - 0.5rem);
+  inline-size: calc(100% + 1rem - 2 * var(--effort-label-gutter));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Shift each cell center onto the matching thumb position without resizing the track. */
+.effort-slider + .effort-levels > button {
+  position: relative;
+  inset-inline-start: calc(var(--effort-label-offset) * (100% - 2 * var(--effort-track-inset)));
+  text-align: center;
+}
+.effort-slider + .effort-levels {
+  --effort-tier-step: calc((100% * var(--effort-count) - 2 * var(--effort-track-inset)) / (var(--effort-count) - 1));
+  --effort-edge-label-width: min(100%, 3rem, max(1rem, calc(var(--effort-track-inset) + var(--effort-tier-step) - min(50%, 1rem))));
+}
+/* Keep the end labels inside the track instead of centering them over its ends. */
+.effort-slider + .effort-levels > button:is(:first-child, :last-child) {
+  inset-inline-start: auto;
+  min-width: min(3rem, var(--effort-edge-label-width));
+  max-width: var(--effort-edge-label-width);
+}
+.effort-slider + .effort-levels > button:is(:first-child, :last-child) > span { --effort-label-gutter: 0.125rem; }
+.effort-slider + .effort-levels > button:first-child { justify-self: start; text-align: start; }
+.effort-slider + .effort-levels > button:last-child { justify-self: end; text-align: end; }
+/* Reserve space for the end labels without shifting their neighboring centers. */
+.effort-slider + .effort-levels > button:is(:nth-child(2), :nth-last-child(2)):not(:first-child, :last-child) {
+  --effort-inner-label-width: min(100%, max(1rem, calc(2 * (var(--effort-track-inset) + var(--effort-tier-step) - var(--effort-edge-label-width) + 0.125rem))));
+  min-width: min(3rem, var(--effort-inner-label-width));
+  max-width: var(--effort-inner-label-width);
+}
+.effort-levels button:hover { background: transparent; }
+.effort-levels button[aria-pressed="true"] { color: var(--blue); }
 .custom-effort { display: flex; gap: 0.4375rem; margin-bottom: 0.5rem; }
 .custom-effort > div { flex: 1; }
 .custom-effort button { min-width: 3.125rem; }
