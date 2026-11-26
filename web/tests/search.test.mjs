@@ -45,6 +45,7 @@ test('settings search finds individual controls, aliases and category destinatio
   const categories = [{ name: '通用', keywords: '外观 通知' }, { name: '模型供应商', keywords: 'API 密钥' }];
   assert.deepEqual(searchSettings(' 提示音 ', categories).map(item => [item.category, item.title]), [['通用', '通知提示音']]);
   assert.equal(searchSettings('SOUND', categories)[0].title, '通知提示音');
+  assert.equal(searchSettings('notification sound', categories)[0].title, '通知提示音');
   assert.equal(searchSettings('缩放', categories)[0].title, '界面缩放');
   assert.equal(searchSettings('密钥', categories)[0].category, '模型供应商');
   assert.deepEqual(searchSettings('不存在的选项', categories), []);

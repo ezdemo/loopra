@@ -123,9 +123,20 @@ export default function Settings(props: Props) {
   const navigationCategories = settingsWithPluginMenus(pluginMenus);
   const localizedCategory = (item: { name: string; key?: string }) => item.key ? t(`settings.category.${item.key}`) : item.name;
   const localizedSection = (item: { label: string; key?: string }) => item.key ? t(`settings.section.${item.key}`) : item.label;
+  const localizedControlTitle = (title: string) => ({
+    '个人资料': t('settings.profile'),
+    '外观': t('settings.appearance'),
+    '强调色': t('settings.accentColor'),
+    '语言': t('settings.language'),
+    '界面缩放': t('settings.uiScale'),
+    '系统通知': t('settings.systemNotifications'),
+    '通知提示音': t('settings.notificationSound'),
+    '默认打开应用': t('settings.defaultOpenApp'),
+    '界面动画': t('settings.uiAnimations'),
+  })[title] || title;
   const tabs = navigationCategories.flatMap(category => category.sections.map(section => ({ ...section, keywords: `${localizedCategory(category)} ${localizedSection(section)} ${section.keywords}` })));
   const categoryForSection = (name: string) => navigationCategories.find(category => category.sections.some(section => section.name === name)) || settingsCategoryFor(name);
-  const results = searchSettings(query, tabs).map(item => ({ ...item, title: tabs.find(section => section.name === item.title) ? localizedSection(tabs.find(section => section.name === item.title)!) : item.title }));
+  const results = searchSettings(query, tabs).map(item => ({ ...item, title: tabs.find(section => section.name === item.title) ? localizedSection(tabs.find(section => section.name === item.title)!) : localizedControlTitle(item.title) }));
   const pluginSelection = selectedPluginMenu(tab, pluginMenus);
   const category = pluginSelection && !pluginSettingsCategory(pluginSelection.menu) ? { name: pluginSelection.menu.title, sections: [{ name: tab, label: pluginSelection.title }] } : categoryForSection(tab);
   const currentSection = category.sections.find(section => section.name === tab)!;
