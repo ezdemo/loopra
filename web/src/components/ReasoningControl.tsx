@@ -107,7 +107,7 @@ export default function ReasoningControl({ value, disabled, onCommit, onClose, l
 
   return <>
     <div className="effort-summary"><span className="effort-symbol"><Brain size="1.375rem" /></span><div><strong>{t('effort.summary', { label: effort?.label || (allowCustom ? t('effort.custom') : displayed) })}</strong><p>{effort?.description || displayed}</p></div></div>
-    <div className="effort-scale" style={{ '--effort-count': Math.max(1, levels.length) } as CSSProperties}>
+    <div className={`effort-scale${singleRow ? ' effort-scale-single' : ''}`} style={{ '--effort-count': Math.max(1, levels.length) } as CSSProperties}>
       {/* The wrapper carries the level so composer.css can scale the track's spark field with it. */}
       {levels.length > 1 && singleRow && <div className="effort-slider" data-at-max={atMax || undefined} data-sliding={dragPosition !== null || undefined}
         style={{ '--effort-level': String(sparkLevel) } as CSSProperties}
