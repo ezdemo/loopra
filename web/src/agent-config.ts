@@ -31,16 +31,17 @@ const effortDescriptions: Record<string, string> = {
   high: '更充分地思考', xhigh: '更深入地推理', max: '优先完整的推理', ultra: '极限推理深度', default: '使用模型默认强度',
 };
 
-export function reasoningEffortLabel(value: string, fallback = value): string {
+export function reasoningEffortLabel(value: string, fallback = value, translate?: (key: string) => string): string {
   const key = value.toLowerCase();
+  if (translate && Object.hasOwn(effortLabels, key)) return translate(`effort.${key}.label`);
   return Object.hasOwn(effortLabels, key) ? effortLabels[key] : fallback;
 }
 
 /** Turn an Agent's own thought-level choices into the shared reasoning control. */
-export function agentEffortLevels(option: AgentConfigOption | undefined): AgentEffortLevel[] {
+export function agentEffortLevels(option: AgentConfigOption | undefined, translate?: (key: string) => string): AgentEffortLevel[] {
   return (option?.options || []).map(value => ({
     value: value.value,
-    label: reasoningEffortLabel(value.value, value.name || value.value),
+    label: reasoningEffortLabel(value.value, value.name || value.value, translate),
     description: value.description || effortDescriptions[value.value],
   }));
 }

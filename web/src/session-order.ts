@@ -22,7 +22,7 @@ export function sessionDate(mtime?: number, now = Date.now(), translate?: (key: 
   const startOfDay = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
   // Calendar days, not 24-hour spans, so "yesterday" still means yesterday at 00:05.
   const days = Math.round((startOfDay(today) - startOfDay(date)) / DAY);
-  if (days <= 0) return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (days <= 0) return locale === 'en' ? date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : `${pad(date.getHours())}:${pad(date.getMinutes())}`;
   if (days === 1) return translate ? translate('time.yesterday') : '昨天';
   if (days === 2) return translate ? translate('time.dayBeforeYesterday') : '前天';
   if (days <= 3) return translate ? translate('time.daysAgo', { count: days }) : `${days}天前`;

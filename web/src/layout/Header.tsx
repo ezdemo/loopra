@@ -51,6 +51,7 @@ function statusLabel(backend: HeaderProps['backend'], t: (key: string) => string
 export default function Header(p: HeaderProps) {
   const { t } = useTranslation();
   const { session, menu, backend } = p;
+  const gitBranchLabel = p.gitBranch === '未初始化' ? t('header.gitUninitialized') : p.gitBranch === '工作区' ? t('header.workspaceFallback') : p.gitBranch;
   const version = backend.version.replace(/^v/i, '');
   const latestVersion = p.latestVersion?.replace(/^v/i, '');
   const versionLabel = version ? `v${version}` : 'v—';
@@ -117,8 +118,8 @@ export default function Header(p: HeaderProps) {
           </Popup>
         </div>
         <div data-popover="branch" className="menu-anchor">
-          <button className="branch-button" onClick={() => p.onToggleMenu('branch')}><GitBranch />{p.gitBranch}</button>
-          <Popup open={menu === 'branch'} className="popup branch-menu"><h3>{t('header.currentBranch')}</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{p.gitBranch}<Check size="1rem" /></button></Popup>
+          <button className="branch-button" onClick={() => p.onToggleMenu('branch')}><GitBranch />{gitBranchLabel}</button>
+          <Popup open={menu === 'branch'} className="popup branch-menu"><h3>{t('header.currentBranch')}</h3><button onClick={p.onShowChanges}><GitBranch size="0.9375rem" />{gitBranchLabel}<Check size="1rem" /></button></Popup>
         </div>
       </>}
       {p.panelAvailable !== false && <IconButton label={p.shellOpen ? t('header.hideTerminal') : t('header.openTerminal')} active={p.shellOpen} onClick={p.onToggleShell}><SquareTerminal size="1.0625rem" /></IconButton>}

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Input, Switch, Tooltip } from '@nextui-org/react';
 import { Check, ChevronDown, Search, Settings2, Star, X, Zap } from 'lucide-react';
 import { groupModels, modelEffortLevels, modelLabel, resolveModelEffort, type ComposerOptions, type ModelOption } from '../composer';
@@ -21,6 +22,7 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 }
 
 export default function ModelReasoningSelector(props: Props) {
+  const { t } = useTranslation();
   const { models, options, external, agentEngineName, notify } = props;
   const [menu, setMenu] = useState<'summary' | 'models' | 'effort' | 'fusion' | 'fusion-effort'>('summary');
   const [query, setQuery] = useState('');
@@ -44,7 +46,7 @@ export default function ModelReasoningSelector(props: Props) {
   const fusionActive = !!fusion && fusionValue !== 'off';
   const fusionEffort = fusionActive ? findAgentOption(props.agentConfig?.options, 'fusionSidekickEffort') : undefined;
   const agentBusy = !!props.agentConfig?.busy;
-  const agentLevels = agentEffort ? agentEffortLevels(agentEffort) : [];
+  const agentLevels = agentEffort ? agentEffortLevels(agentEffort, t) : [];
   const agentFastOn = !!agentFast && (agentFast.currentValue === true || agentFast.currentValue === 'on');
   const modelGroupsForAgent = useMemo(() => agentModel ? groupAgentModels(agentModel, agentEngineName) : [], [agentModel, agentEngineName]);
   const fusionGroups = useMemo(() => fusion ? groupAgentModels({ ...fusion, options: fusion.options.filter(option => option.value !== 'off') }, agentEngineName) : [], [fusion, agentEngineName]);
@@ -76,7 +78,7 @@ export default function ModelReasoningSelector(props: Props) {
 
   const modelName = agentModel ? activeModelLabel : selected ? modelLabel(selected) : '选择模型';
   const reasoningValue = agentEffort ? agentEffortValue : native ? nativeEffort : '';
-  const reasoningName = reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue);
+  const reasoningName = reasoningEffortLabel(reasoningValue, agentEffort ? agentOptionLabel(agentEffort) : reasoningValue, t);
   const title = [agentEngineName, hasModel ? activeModelTooltip : '', hasReasoning ? `推理：${reasoningName || '默认'}${fast ? ' · 快速模式' : ''}` : '', fusionActive ? `边缘：${fusionLabel}` : ''].filter(Boolean).join('\n');
   const update = <K extends keyof ComposerOptions>(key: K, value: ComposerOptions[K]) => props.onOptions({ ...options, [key]: value });
   const changeAgent = (id: string, value: string | boolean) => props.agentConfig?.onChange(id, value);
@@ -154,7 +156,7 @@ export default function ModelReasoningSelector(props: Props) {
             </button>}
             {!!fusionEffort && <button ref={fusionEffortRow} type="button" onPointerEnter={event => { if (event.pointerType !== 'touch') openPage('fusion-effort'); }} onClick={() => openPage('fusion-effort', true)} disabled={agentBusy || props.busy}
               aria-haspopup="dialog" aria-expanded={menu === 'fusion-effort'} aria-controls={menu === 'fusion-effort' ? `${panelId}-fusion-effort` : undefined}>
-              <span>边缘推理</span><span className="model-reasoning-value">{reasoningEffortLabel(configValue(fusionEffort), agentOptionLabel(fusionEffort))}</span>
+              <span>边缘推理</span><span className="model-reasoning-value">{reasoningEffortLabel(configValue(fusionEffort), agentOptionLabel(fusionEffort), t)}</span>
             </button>}
           </div>
         </section>
@@ -214,7 +216,7 @@ export default function ModelReasoningSelector(props: Props) {
         </>)}
 
         {menu === 'fusion-effort' && fusionEffort && <div className="effort-body">
-          <ReasoningControl value={configValue(fusionEffort)} levels={agentEffortLevels(fusionEffort)} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(fusionEffort.id, value)} onClose={close} />
+          <ReasoningControl value={configValue(fusionEffort)} levels={agentEffortLevels(fusionEffort, t)} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(fusionEffort.id, value)} onClose={close} />
         </div>}
         {menu === 'effort' && (agentEffort || agentFast ? <div className="effort-body">
           {agentEffort && <ReasoningControl value={agentEffortValue} levels={agentLevels} allowCustom={false} disabled={agentBusy || props.busy} onCommit={value => changeAgent(agentEffort.id, value)} onClose={close} />}

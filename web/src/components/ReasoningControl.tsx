@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { CSSProperties, FormEvent, KeyboardEvent } from 'react';
 import { Button, Input, Slider } from '@nextui-org/react';
 import { Brain } from 'lucide-react';
@@ -20,7 +21,11 @@ type Props = {
 const pointerStep = 0.001;
 const sliderPosition = (value: number | number[]) => Array.isArray(value) ? value[0] : value;
 
+const knownEffortValues = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'default']);
+
 export default function ReasoningControl({ value, disabled, onCommit, onClose, levels = effortLevels, allowCustom = true }: Props) {
+  const { t } = useTranslation();
+  levels = levels.map(level => knownEffortValues.has(level.value.toLowerCase()) ? { ...level, label: t(`effort.${level.value.toLowerCase()}.label`), description: t(`effort.${level.value.toLowerCase()}.description`) } : level);
   // Keep pointer updates inside this small control, independent of network saves
   // and the conversation tree. Only a completed gesture persists the selection.
   const [preview, setPreview] = useState<string | null>(null);
