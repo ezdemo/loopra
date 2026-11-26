@@ -10,32 +10,33 @@ import (
 // 未列出的键（连接器开关、自定义扩展）原样保留。
 func TestConvertedBranchMetaDropsEngineStateKeepsUnknownKeys(t *testing.T) {
 	source := map[string]any{
-		"agentId":                   "codex",
-		"title":                     "旧标题",
-		"model":                     "gpt-x",
-		"modelChannelId":            "ch-1",
-		"reasoningEffort":           "high",
-		"customAgentId":             "agent-1",
-		"agentConfig":               map[string]any{"mode": "yolo"},
-		"hitl":                      true,
-		"acpSessionId":              "remote-1",
-		"acpCwd":                    "/tmp/x",
-		"acpUsage":                  map[string]any{"used": 1},
-		"acpPlan":                   []any{"step"},
-		"acpCommands":               map[string]any{"cmd": true},
-		"acpHistorySeed":            true,
-		"acpHistorySeededSessionId": "remote-1",
-		"fusionSidekick":            "ch:m",
-		"fusionSidekickEffort":      "high",
-		"fusionSidekickEpoch":       "epoch-1",
-		"worktreeMode":              true,
-		"connectors":                map[string]any{"web": true},
-		"futureExtension":           "keep",
+		"agentId":                       "codex",
+		"title":                         "旧标题",
+		"model":                         "gpt-x",
+		"modelChannelId":                "ch-1",
+		"reasoningEffort":               "high",
+		"customAgentId":                 "agent-1",
+		"agentConfig":                   map[string]any{"mode": "yolo"},
+		"hitl":                          true,
+		"acpSessionId":                  "remote-1",
+		"acpCwd":                        "/tmp/x",
+		"acpUsage":                      map[string]any{"used": 1},
+		"acpPlan":                       []any{"step"},
+		"acpCommands":                   map[string]any{"cmd": true},
+		"acpHistorySeed":                true,
+		"acpHistorySeededSessionId":     "remote-1",
+		"acpDisplayConventionSessionId": "remote-1",
+		"fusionSidekick":                "ch:m",
+		"fusionSidekickEffort":          "high",
+		"fusionSidekickEpoch":           "epoch-1",
+		"worktreeMode":                  true,
+		"connectors":                    map[string]any{"web": true},
+		"futureExtension":               "keep",
 	}
 	meta := ConvertedBranchMeta(source, "claude-code", "[分支]新标题")
 	for _, key := range []string{"model", "modelChannelId", "reasoningEffort", "customAgentId", "agentConfig", "hitl",
 		"fusionSidekick", "fusionSidekickEffort", "fusionSidekickEpoch",
-		"acpSessionId", "acpCwd", "acpUsage", "acpPlan", "acpCommands", "acpHistorySeededSessionId"} {
+		"acpSessionId", "acpCwd", "acpUsage", "acpPlan", "acpCommands", "acpHistorySeededSessionId", "acpDisplayConventionSessionId"} {
 		if _, ok := meta[key]; ok {
 			t.Fatalf("converted meta kept %s", key)
 		}

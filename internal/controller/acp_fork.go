@@ -210,10 +210,11 @@ func (s *Controller) sessionFork(w http.ResponseWriter, r *http.Request, name st
 // forked 为空表示远端没有分叉成功，不能沿用源会话的 acpSessionId。
 // acpHistorySeededSessionId 记录的是源远端已接收的历史，新远端从未
 // 收到过，一律不带；acpHistorySeed 表达新远端首条提示词要补种历史。
+// 展示约定同样按新远端重新发送，避免分叉点早于它首次注入的轮次。
 func inheritedSessionMeta(source map[string]any, agentID, forked, cwd, title string) map[string]any {
 	meta := map[string]any{}
 	for key, value := range source {
-		if key == "acpSessionId" || key == "title" || key == "acpHistorySeededSessionId" || key == fusionEpochKey {
+		if key == "acpSessionId" || key == "title" || key == "acpHistorySeededSessionId" || key == "acpDisplayConventionSessionId" || key == fusionEpochKey {
 			continue
 		}
 		meta[key] = value

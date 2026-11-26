@@ -7,16 +7,28 @@ import (
 	agentpkg "github.com/ezdemo/looprax/internal/service/agent"
 )
 
-func TestPromptBlocksIncludeReplyImageConvention(t *testing.T) {
+func TestPromptBlocksIncludeReplyImageConventionOnce(t *testing.T) {
 	message := "展示二维码"
-	blocks := promptBlocks(message, []string{"data:image/png;base64,iVBORw=="})
-	if len(blocks) != 3 || blocks[0].Text != message || blocks[1].Type != "image" || blocks[1].MIMEType != "image/png" {
-		t.Fatalf("user content changed: %+v", blocks)
+	blocks := promptBlocks(message, []string{"data:image/png;base64,iVBORw=="}, true)
+	if len(blocks) != 3 || blocks[0].Text != message || blocks[1].Type != "image" || blocks[1].MIMEType != "image/png" ||
+		!strings.Contains(blocks[2].Text, agentpkg.ReplyImageInstruction) {
+		t.Fatalf("first prompt blocks = %+v", blocks)
 	}
-	if !strings.Contains(blocks[2].Text, agentpkg.ReplyImageInstruction) {
-		t.Fatalf("missing display convention: %+v", blocks)
+
+	blocks = promptBlocks(message, []string{"data:image/png;base64,iVBORw=="}, false)
+	if len(blocks) != 2 || blocks[0].Text != message || blocks[1].Type != "image" {
+		t.Fatalf("later prompt blocks = %+v", blocks)
 	}
-	if blocks := promptBlocks("", nil); len(blocks) != 2 || blocks[0].Text != reqPlaceholder {
-		t.Fatalf("empty input changed: %+v", blocks)
+	for _, block := range blocks {
+		if strings.Contains(block.Text, agentpkg.ReplyImageInstruction) {
+			t.Fatalf("later prompt repeated display convention: %+v", blocks)
+		}
+	}
+
+	if blocks := promptBlocks("", nil, true); len(blocks) != 2 || blocks[0].Text != reqPlaceholder {
+		t.Fatalf("empty first input changed: %+v", blocks)
+	}
+	if blocks := promptBlocks("", nil, false); len(blocks) != 1 || blocks[0].Text != reqPlaceholder {
+		t.Fatalf("empty later input changed: %+v", blocks)
 	}
 }

@@ -9,7 +9,7 @@ func ConvertedBranchMeta(source map[string]any, targetID, title string) map[stri
 	for key, value := range source {
 		meta[key] = value
 	}
-	for _, key := range []string{"agentId", "title", "model", "modelChannelId", "reasoningEffort", "customAgentId", "agentConfig", "hitl", "fusionSidekick", "fusionSidekickEffort", "fusionSidekickEpoch", "acpSessionId", "acpCwd", "acpUsage", "acpPlan", "acpCommands", "acpHistorySeed", "acpHistorySeededSessionId"} {
+	for _, key := range []string{"agentId", "title", "model", "modelChannelId", "reasoningEffort", "customAgentId", "agentConfig", "hitl", "fusionSidekick", "fusionSidekickEffort", "fusionSidekickEpoch", "acpSessionId", "acpCwd", "acpUsage", "acpPlan", "acpCommands", "acpHistorySeed", "acpHistorySeededSessionId", "acpDisplayConventionSessionId"} {
 		delete(meta, key)
 	}
 	meta["agentId"], meta["title"], meta["worktreeMode"] = targetID, title, false
