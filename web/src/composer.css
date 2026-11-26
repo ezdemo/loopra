@@ -359,7 +359,9 @@
   background: #fff;
   box-shadow: 0 0.0625rem 0.375rem #0000002b, 0 0 0 1px #0000000f, 0 0 calc(var(--effort-level) * 0.16rem) color-mix(in srgb, var(--blue) 34%, transparent);
 }
-.effort-scale-single { min-width: calc(var(--effort-count) * 3rem); }
+/* Widen the flyout for comfortable cells, but never beyond the room the flyout
+   itself can occupy after its own padding; otherwise narrow composers clip the last tier. */
+.effort-scale-single { min-width: min(calc(var(--effort-count) * 3rem), calc(100vw - 5rem), calc(100cqw - 4rem)); }
 .effort-levels { display: grid; grid-template-columns: repeat(var(--effort-count), minmax(0, 1fr)); justify-items: center; padding: 0.5625rem 0 0.5rem; }
 .effort-levels-wrap { display: flex; flex-wrap: wrap; justify-content: center; row-gap: 0.25rem; }
 .effort-levels-wrap button { flex: 1 0 auto; }
