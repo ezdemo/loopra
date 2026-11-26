@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
+import { accentColorUrl } from './helpers/accent-color.mjs';
 const source = await readFile(new URL('../src/lib.ts', import.meta.url), 'utf8');
 let { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
 const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toString('base64');
-outputText = outputText.replaceAll("from 'react'", `from '${dataUrl('export const useState=()=>{}, useEffect=()=>{};')}'`).replaceAll("from './chat'", `from '${dataUrl('export const demoMessages={};')}'`);
+outputText = outputText.replaceAll("from 'react'", `from '${dataUrl('export const useState=()=>{}, useEffect=()=>{};')}'`).replaceAll("from './chat'", `from '${dataUrl('export const demoMessages={};')}'`)
+.replaceAll("from './accent-color'", `from '${accentColorUrl}'`);
 const { UI_SCALE_LEVELS, normalizeUiScale } = await import(dataUrl(outputText));
 test('the five zoom levels include the default and preserve exact choices', () => {
   assert.deepEqual(UI_SCALE_LEVELS, [80, 90, 100, 110, 120]);

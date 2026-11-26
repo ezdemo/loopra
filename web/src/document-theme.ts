@@ -1,3 +1,5 @@
+import { normalizeAccentColor, resolveAccentColor } from './accent-color';
+
 // Apply the saved appearance before the first paint. The desktop window
 // otherwise draws the light page, then waits for React to add `.dark`.
 
@@ -13,13 +15,21 @@ export function documentThemeIsDark(theme: string | undefined, systemDark: boole
   return false;
 }
 
-export function readStoredTheme(): string {
+function readStoredAppearance(): { theme?: unknown; accentColor?: unknown } | null {
   try {
-    const saved = JSON.parse(localStorage.getItem('loopra:preferences') || 'null') as { theme?: unknown } | null;
-    return saved && typeof saved.theme === 'string' ? saved.theme : '';
+    return JSON.parse(localStorage.getItem('loopra:preferences') || 'null');
   } catch {
-    return '';
+    return null;
   }
+}
+
+export function readStoredTheme(): string {
+  const theme = readStoredAppearance()?.theme;
+  return typeof theme === 'string' ? theme : '';
+}
+
+export function readStoredAccentColor(): string {
+  return normalizeAccentColor(readStoredAppearance()?.accentColor);
 }
 
 export function stampedTheme(): string {
@@ -44,4 +54,22 @@ export function applyDocumentTheme(theme: string | undefined, systemDark = windo
   const color = dark ? themeSurface.dark : themeSurface.light;
   root.style.backgroundColor = color;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
+}
+
+export function applyDocumentAccent(value: unknown, dark: boolean) {
+  const accent = resolveAccentColor(value, dark);
+  const tokens = {
+    '--blue': accent?.hex,
+    '--accent-soft': accent && `${accent.hex}26`,
+    '--accent-foreground': accent?.foreground,
+    '--keyboard-focus': accent?.hex,
+    '--nextui-primary': accent?.hsl,
+    '--nextui-primary-foreground': accent?.foregroundHsl,
+    '--nextui-focus': accent?.hsl,
+  };
+  const { style } = document.documentElement;
+  for (const [name, color] of Object.entries(tokens)) {
+    if (color) style.setProperty(name, color);
+    else style.removeProperty(name);
+  }
 }

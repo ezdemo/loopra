@@ -1,12 +1,14 @@
 import type { Preferences } from './components/Settings';
 import type { LocalProfile } from './local-profile';
 import { normalizeUiScale } from './lib';
+import { normalizeAccentColor } from './accent-color';
 
 const profileColors = ['blue', 'violet', 'rose', 'amber', 'green', 'slate'] as const;
 
 /** Settings that are not already stored by a dedicated Loopra API. */
 export type StoredUIPreferences = {
   theme: 'light' | 'dark' | 'system';
+  accentColor?: string;
   language: 'zh' | 'en';
   fontScale: number;
   notifications: boolean;
@@ -30,6 +32,7 @@ export type ClientSettings = {
 export function toStoredPreferences(prefs: Preferences): Omit<StoredUIPreferences, 'persisted'> {
   return {
     theme: prefs.theme === '深色' ? 'dark' : prefs.theme === '跟随系统' ? 'system' : 'light',
+    accentColor: normalizeAccentColor(prefs.accentColor),
     language: prefs.language === 'English' ? 'en' : 'zh',
     fontScale: normalizeUiScale(prefs.fontScale),
     notifications: prefs.notifications,
@@ -44,6 +47,7 @@ export function fromStoredPreferences(saved: Partial<StoredUIPreferences>, fallb
   return {
     ...fallback,
     theme: saved.theme === 'dark' ? '深色' : saved.theme === 'system' ? '跟随系统' : saved.theme === 'light' ? '浅色' : fallback.theme,
+    accentColor: normalizeAccentColor(saved.accentColor === undefined ? fallback.accentColor : saved.accentColor),
     language: saved.language === 'en' ? 'English' : saved.language === 'zh' ? '简体中文' : fallback.language,
     fontScale: normalizeUiScale(typeof saved.fontScale === 'number' ? saved.fontScale : fallback.fontScale),
     notifications: typeof saved.notifications === 'boolean' ? saved.notifications : fallback.notifications,

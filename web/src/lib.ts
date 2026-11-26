@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { normalizeAccentColor } from './accent-color';
 import { demoMessages } from './chat';
 import type { Message } from './chat';
 export type { Message } from './chat';
@@ -44,7 +45,7 @@ function migrateSavedState(key: string, value: unknown): unknown {
     const legacyScale: Record<string, number> = { S: 93, M: 100, L: 114, XL: 129 };
     const scale = typeof saved.fontScale === 'number' && Number.isFinite(saved.fontScale) ? saved.fontScale : legacyScale[String(saved.fontSize)] || 100;
     delete saved.fontSize;
-    return { ...saved, fontScale: normalizeUiScale(scale), theme: value.theme === '月之亮面' ? '浅色' : value.theme === '月之暗面' ? '深色' : value.theme };
+    return { ...saved, fontScale: normalizeUiScale(scale), theme: value.theme === '月之亮面' ? '浅色' : value.theme === '月之暗面' ? '深色' : value.theme, accentColor: normalizeAccentColor(saved.accentColor) };
   }
   return value;
 }

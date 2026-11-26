@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { accentColorUrl } from './helpers/accent-color.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://test.invalid' });
 const globals = { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, IS_REACT_ACT_ENVIRONMENT: true };
@@ -26,7 +27,7 @@ async function sourceUrl(name, dependencies = {}) {
   }
   return dataUrl(outputText);
 }
-const libUrl = await sourceUrl('lib.ts', { './chat': dataUrl('export const demoMessages = {};') });
+const libUrl = await sourceUrl('lib.ts', { './chat': dataUrl('export const demoMessages = {};'), './accent-color': accentColorUrl });
 const { useProjectPanel } = await import(await sourceUrl('useProjectPanel.ts', { './lib': libUrl }));
 
 test('each project restores its panel visibility and tab across remounts', async () => {

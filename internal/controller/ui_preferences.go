@@ -27,6 +27,7 @@ var uiPreferencesMu sync.Mutex
 // 换浏览器或换设备后仍能回到同一个项目；persisted 只出现在响应里，表示文件是否已经写过。
 type uiPreferences struct {
 	Theme         string     `json:"theme"`
+	AccentColor   string     `json:"accentColor"`
 	Language      string     `json:"language"`
 	FontScale     int        `json:"fontScale"`
 	Notifications bool       `json:"notifications"`
@@ -90,6 +91,11 @@ func loadUIPreferences(path string) (uiPreferences, bool) {
 	}
 	if prefs.Theme = canonicalTheme(prefs.Theme); prefs.Theme == "" {
 		prefs.Theme = "light"
+	}
+	if color, ok := canonicalAccentColor(prefs.AccentColor); ok {
+		prefs.AccentColor = color
+	} else {
+		prefs.AccentColor = ""
 	}
 	if prefs.Language = canonicalLanguage(prefs.Language); prefs.Language == "" {
 		prefs.Language = "zh"
@@ -159,6 +165,17 @@ func (p *uiPreferences) apply(patch map[string]json.RawMessage) error {
 			return errors.New("无效的外观")
 		}
 		p.Theme = theme
+	}
+	if raw, ok := patch["accentColor"]; ok {
+		var value *string
+		if json.Unmarshal(raw, &value) != nil || value == nil {
+			return errors.New("无效的强调色")
+		}
+		color, valid := canonicalAccentColor(*value)
+		if !valid {
+			return errors.New("无效的强调色")
+		}
+		p.AccentColor = color
 	}
 	if raw, ok := patch["language"]; ok {
 		var value string
@@ -258,6 +275,13 @@ func validProfile(profile *uiProfile) bool {
 		return true
 	}
 	return len(profile.Avatar) <= 400_000 && profileAvatar.MatchString(profile.Avatar)
+}
+
+var accentHex = regexp.MustCompile(`^#[0-9a-f]{6}$`)
+
+func canonicalAccentColor(value string) (string, bool) {
+	color := strings.ToLower(strings.TrimSpace(value))
+	return color, color == "" || accentHex.MatchString(color)
 }
 
 func canonicalTheme(value string) string {

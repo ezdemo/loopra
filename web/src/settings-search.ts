@@ -1,7 +1,7 @@
 export type SettingSearchItem = { category: string; title: string; keywords: string };
 
 const fields: Record<string, string[]> = {
-  '通用': ['个人资料', '外观', '语言', '界面缩放', '系统通知', '通知提示音', '默认打开应用', '界面动画'],
+  '通用': ['个人资料', '外观', '强调色', '语言', '界面缩放', '系统通知', '通知提示音', '默认打开应用', '界面动画'],
   '宠物': ['显示宠物', '宠物大小', '宠物位置', '我的宠物'],
   '关于': ['Loopra Web 服务', '数据存储', '帮助中心'],
   '项目': ['添加本地项目', '项目绝对路径', '会话管理', '需求池'],
@@ -16,6 +16,7 @@ const aliases: Record<string, string> = {
   '个人资料': '头像 昵称 用户名 本地 profile avatar nickname username',
   '工具模型': '标题 会话命名 命令校验模型 自动审批 title',
   '外观': '主题 深色 浅色 跟随系统 theme',
+  '强调色': '主题颜色 自定义颜色 配色 accent color',
   '界面缩放': '字体 大小 比例 font size zoom',
   '通知提示音': '声音 音效 sound',
   '默认打开应用': '文件管理器 终端 File Explorer Terminal PowerShell Git Bash Zsh Bash',

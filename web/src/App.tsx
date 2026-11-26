@@ -2,7 +2,7 @@ import { SessionImageSourceProvider } from './components/ChatImage';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from '@nextui-org/react';
 import { Check } from 'lucide-react';
-import { applyDocumentTheme, bootTheme } from './document-theme';
+import { applyDocumentAccent, applyDocumentTheme, bootTheme, documentThemeIsDark } from './document-theme';
 import { getSessionMessages, useLocalState } from './lib';
 import { useProjectPanel } from './useProjectPanel';
 import type { Provider, Session } from './lib';
@@ -1506,6 +1506,9 @@ export default function App({ startupPending = false, initialServer }: { startup
     applyDocumentTheme(preferences.theme, systemDark);
     void syncDesktopTheme(preferences.theme).catch(error => console.warn('[desktop-theme] sync failed:', error));
   }, [preferences.theme, systemDark]);
+  useLayoutEffect(() => {
+    applyDocumentAccent(preferences.accentColor, documentThemeIsDark(preferences.theme, systemDark));
+  }, [preferences.accentColor, preferences.theme, systemDark]);
   useEffect(() => {
     const catalog = getModelCatalog(providers);
     if (!catalog.some(model => model.id === composerOptions.modelId) && catalog.length) setComposerOptions(value => ({ ...value, modelId: catalog[0].id }));

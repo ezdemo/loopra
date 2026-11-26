@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { accentColorUrl } from './helpers/accent-color.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
 const sockets = [];
@@ -49,7 +50,7 @@ export class Terminal {
 }
 `);
 const { terminals } = await import(xtermUrl);
-const themeUrl = await sourceUrl('document-theme.ts');
+const themeUrl = await sourceUrl('document-theme.ts', { './accent-color': accentColorUrl });
 const { useShellTerminal, shellTerminalTheme } = await import(await sourceUrl('shell-terminal.ts', {
   '@xterm/xterm': xtermUrl,
   '@xterm/addon-fit': dataUrl('export class FitAddon {}'),

@@ -221,3 +221,45 @@ func callUIPreferences(t *testing.T, s *Controller, method string, body []byte) 
 	}
 	return uiPreferenceResponse{StatusCode: rec.Code, prefs: envelope.Data}
 }
+
+func TestUIPreferencesAccentColor(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, uiPreferencesFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Controller{home: home}
+
+	first := callUIPreferences(t, s, http.MethodGet, nil)
+	if first.StatusCode != http.StatusOK || !first.prefs.Persisted || first.prefs.Theme != "dark" || first.prefs.AccentColor != "" {
+		t.Fatalf("legacy file = %d %+v", first.StatusCode, first.prefs)
+	}
+
+	saved := callUIPreferences(t, s, http.MethodPut, []byte(`{"accentColor":" #2A90FF "}`))
+	if saved.StatusCode != http.StatusOK || saved.prefs.AccentColor != "#2a90ff" {
+		t.Fatalf("save accent = %d %+v", saved.StatusCode, saved.prefs)
+	}
+
+	partial := callUIPreferences(t, s, http.MethodPut, []byte(`{"theme":"light"}`))
+	if partial.StatusCode != http.StatusOK || partial.prefs.AccentColor != "#2a90ff" || partial.prefs.Theme != "light" {
+		t.Fatalf("theme update dropped accent: %+v", partial.prefs)
+	}
+
+	for _, payload := range []string{`{"accentColor":null}`, `{"accentColor":123}`, `{"accentColor":"#fff"}`, `{"accentColor":"red"}`, `{"accentColor":"#11223344"}`} {
+		rejected := callUIPreferences(t, s, http.MethodPut, []byte(payload))
+		if rejected.StatusCode != http.StatusBadRequest {
+			t.Fatalf("payload %s status = %d", payload, rejected.StatusCode)
+		}
+	}
+	if got := callUIPreferences(t, s, http.MethodGet, nil); got.prefs.AccentColor != "#2a90ff" {
+		t.Fatalf("rejected writes changed accent to %q", got.prefs.AccentColor)
+	}
+
+	reset := callUIPreferences(t, s, http.MethodPut, []byte(`{"accentColor":""}`))
+	if reset.StatusCode != http.StatusOK || reset.prefs.AccentColor != "" {
+		t.Fatalf("reset = %d %+v", reset.StatusCode, reset.prefs)
+	}
+	final := callUIPreferences(t, s, http.MethodGet, nil)
+	if final.prefs.AccentColor != "" || final.prefs.Theme != "light" {
+		t.Fatalf("final state = %+v", final.prefs)
+	}
+}

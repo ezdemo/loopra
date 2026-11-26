@@ -12,23 +12,34 @@ const scaleStart = uiScale.indexOf('export const UI_SCALE_LEVELS');
 const scaleEnd = uiScale.indexOf('export function useLocalState');
 const scaleJs = ts.transpileModule(uiScale.slice(scaleStart, scaleEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replace(/^export /gm, '');
-const { toStoredPreferences, fromStoredPreferences, toStoredSettings, mergeStoredSettings } = await import('data:text/javascript;base64,' + Buffer.from(`${scaleJs}\n${js}`).toString('base64'));
+const accentSource = await readFile(new URL('../src/accent-color.ts', import.meta.url), 'utf8');
+const accentJs = ts.transpileModule(accentSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  .replace(/^export /gm, '');
+const { toStoredPreferences, fromStoredPreferences, toStoredSettings, mergeStoredSettings } = await import('data:text/javascript;base64,' + Buffer.from(accentJs + '\n' + scaleJs + '\n' + js).toString('base64'));
 
-const local = { theme: '深色', language: 'English', fontScale: 110, notifications: false, sound: true, openWith: 'Terminal', autoContext: false, animations: true };
+const local = { accentColor: '#2563eb', theme: '深色', language: 'English', fontScale: 110, notifications: false, sound: true, openWith: 'Terminal', autoContext: false, animations: true };
 
 test('general preferences use the service theme and language codes', () => {
   assert.deepEqual(toStoredPreferences(local), {
-    theme: 'dark', language: 'en', fontScale: 110, notifications: false, sound: true, openWith: 'Terminal', autoContext: false, animations: true,
+    theme: 'dark', accentColor: '#2563eb', language: 'en', fontScale: 110, notifications: false, sound: true, openWith: 'Terminal', autoContext: false, animations: true,
   });
+  assert.equal(toStoredPreferences({ ...local, accentColor: ' #2A90FF ' }).accentColor, '#2a90ff');
+  assert.equal(toStoredPreferences({ ...local, accentColor: 'red' }).accentColor, '');
   assert.equal(toStoredPreferences({ ...local, theme: '跟随系统' }).theme, 'system');
   assert.equal(toStoredPreferences({ ...local, theme: '浅色', language: '简体中文' }).language, 'zh');
 });
 
 test('a saved service record restores the settings labels', () => {
   const fallback = { ...local, theme: '浅色', language: '简体中文' };
-  assert.deepEqual(fromStoredPreferences({ theme: 'system', language: 'en', fontScale: 80, notifications: false, sound: false, openWith: 'Terminal', autoContext: false, animations: false }, fallback), {
-    theme: '跟随系统', language: 'English', fontScale: 80, notifications: false, sound: false, openWith: 'Terminal', autoContext: false, animations: false,
+  assert.deepEqual(fromStoredPreferences({ theme: 'system', accentColor: '#0d9488', language: 'en', fontScale: 80, notifications: false, sound: false, openWith: 'Terminal', autoContext: false, animations: false }, fallback), {
+    theme: '跟随系统', accentColor: '#0d9488', language: 'English', fontScale: 80, notifications: false, sound: false, openWith: 'Terminal', autoContext: false, animations: false,
   });
+  // An older service response without the field keeps the local choice; an
+  // explicit empty string is a valid reset; uppercase and invalid values normalize.
+  assert.equal(fromStoredPreferences({}, fallback).accentColor, fallback.accentColor);
+  assert.equal(fromStoredPreferences({ accentColor: '' }, fallback).accentColor, '');
+  assert.equal(fromStoredPreferences({ accentColor: '#DB2777' }, fallback).accentColor, '#db2777');
+  assert.equal(fromStoredPreferences({ accentColor: 'blue' }, fallback).accentColor, '');
 });
 
 test('profile and pet visibility travel with the same record', () => {

@@ -394,7 +394,7 @@
 .composer-selection-list button[aria-checked="true"] { background: color-mix(in srgb, var(--blue) 7%, var(--surface)); }
 .composer-selection-list button > svg:last-child:not(:first-child) { color: var(--blue); }
 .composer-checkbox { border: 1px solid var(--line); border-radius: var(--radius-sm); width: 1.0625rem; height: 1.0625rem; display: grid; place-items: center; flex-shrink: 0; }
-.composer-checkbox.checked { background: var(--blue); border-color: var(--blue); color: white; }
+.composer-checkbox.checked { background: var(--blue); border-color: var(--blue); color: var(--accent-foreground, white); }
 .preset-list { flex: 1 1 auto; min-height: 0; max-height: 18.75rem; overflow: auto; overscroll-behavior: contain; }
 .preset-row { display: flex; gap: 1px; align-items: center; margin: 0.1875rem; }
 .preset-append { flex: 1; min-width: 0; text-align: left; padding: 0.5625rem 0.4375rem; }

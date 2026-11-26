@@ -25,7 +25,7 @@ const dialogStyles = `
 .loopra-access input[aria-invalid=true] { border-color:var(--danger, #d6453d); }
 .loopra-access .access-error { margin:12px 0 0; padding:10px 12px; border-radius:8px; background:color-mix(in srgb, var(--danger, #d6453d) 7%, var(--surface, #fff)); color:var(--danger, #d6453d); font-size:12px; line-height:1.6; }
 .loopra-access .access-error:empty { display:none; }
-.loopra-access button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; height:44px; margin-top:20px; padding:0 16px; border:0; border-radius:10px; background:var(--blue, #4f5bd5); color:#fff; font:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:filter .15s, opacity .15s; }
+.loopra-access button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; height:44px; margin-top:20px; padding:0 16px; border:0; border-radius:10px; background:var(--blue, #4f5bd5); color:var(--accent-foreground, white); font:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:filter .15s, opacity .15s; }
 .loopra-access button:hover { filter:brightness(.94); }
 .loopra-access button:focus-visible { outline:2px solid var(--blue, #4f5bd5); outline-offset:3px; }
 .loopra-access button:disabled { opacity:.6; cursor:wait; }

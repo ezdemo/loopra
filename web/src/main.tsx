@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { applyDocumentTheme, bootTheme } from './document-theme';
+import { applyDocumentAccent, applyDocumentTheme, bootTheme, readStoredAccentColor } from './document-theme';
 import { notifyDesktopWorkspaceAfterPaint } from './desktop-shell';
 import { resolveInitialServer } from './runtime-config';
 import { installFocusAppearance } from './focus';
@@ -9,6 +9,7 @@ import { ensureAccess, installAccessKeyProtocol, setAccessProxy } from './access
 import './workspace-styles';
 
 applyDocumentTheme(bootTheme());
+applyDocumentAccent(readStoredAccentColor(), document.documentElement.classList.contains('dark'));
 const removeFocusAppearance = installFocusAppearance();
 if (import.meta.hot) import.meta.hot.dispose(removeFocusAppearance);
 installAccessKeyProtocol();

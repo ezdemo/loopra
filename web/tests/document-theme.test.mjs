@@ -7,7 +7,11 @@ const source = await readFile(new URL('../src/document-theme.ts', import.meta.ur
 const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replace(/import\s+type\s+\{[^}]+\}\s+from\s+['"][^'"]+['"];?/g, '')
   .replace(/import\s+\{[^}]+\}\s+from\s+['"][^'"]+['"];?/g, '');
-const { documentThemeIsDark, bootTheme, applyDocumentTheme } = await import('data:text/javascript;base64,' + Buffer.from(js).toString('base64'));
+const accentSource = await readFile(new URL('../src/accent-color.ts', import.meta.url), 'utf8');
+const accentJs = ts.transpileModule(accentSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  .replace(/^export /gm, '');
+const { documentThemeIsDark, bootTheme, applyDocumentTheme, readStoredAccentColor, applyDocumentAccent } = await import('data:text/javascript;base64,' + Buffer.from(`${accentJs}
+${js}`).toString('base64'));
 
 test('an explicit dark theme is dark before the page asks the system', () => {
   assert.equal(documentThemeIsDark('深色', false), true);
@@ -53,4 +57,74 @@ test('applyDocumentTheme paints the saved dark surface on the document', () => {
   assert.equal(root.style.backgroundColor, '#0a0a0a');
   assert.equal(root.style.colorScheme, 'dark');
   assert.equal(meta.content, '#0a0a0a');
+});
+
+function fakeStyle() {
+  const map = new Map();
+  return {
+    map,
+    setProperty(name, value) { map.set(name, value); },
+    removeProperty(name) { map.delete(name); },
+  };
+}
+
+test('readStoredAccentColor normalizes the cached color and rejects junk', () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: key => store.get(key) ?? null };
+  assert.equal(readStoredAccentColor(), '');
+  store.set('loopra:preferences', JSON.stringify({ accentColor: ' #2A90FF ' }));
+  assert.equal(readStoredAccentColor(), '#2a90ff');
+  store.set('loopra:preferences', JSON.stringify({ accentColor: 'red' }));
+  assert.equal(readStoredAccentColor(), '');
+  store.set('loopra:preferences', '{broken');
+  assert.equal(readStoredAccentColor(), '');
+});
+
+test('applyDocumentAccent sets readable tokens and clears them on reset', () => {
+  const style = fakeStyle();
+  globalThis.document = { documentElement: { style } };
+  // Black passes the light-theme contrast floor unchanged; white passes in dark.
+  applyDocumentAccent('#000000', false);
+  assert.equal(style.map.get('--blue'), '#000000');
+  assert.equal(style.map.get('--accent-foreground'), '#fff');
+  assert.ok(style.map.get('--nextui-primary'));
+  assert.equal(style.map.get('--accent-soft'), '#00000026');
+
+  applyDocumentAccent('#ffffff', true);
+  assert.equal(style.map.get('--blue'), '#ffffff');
+  assert.equal(style.map.get('--accent-foreground'), '#000');
+  assert.equal(style.map.get('--nextui-primary-foreground'), '0 0% 0%');
+
+  // Mid-tone presets shift just enough to stay readable in both themes.
+  applyDocumentAccent('#2563eb', false);
+  assert.notEqual(style.map.get('--blue'), '#2563eb');
+  assert.match(style.map.get('--blue'), /^#[0-9a-f]{6}$/);
+  applyDocumentAccent('#2563eb', true);
+  assert.notEqual(style.map.get('--blue'), '#2563eb');
+  assert.match(style.map.get('--blue'), /^#[0-9a-f]{6}$/);
+
+  // A saturated low-contrast color is shifted for readability, but the raw
+  // cached choice is untouched.
+  const store = new Map([['loopra:preferences', JSON.stringify({ accentColor: '#facc15' })]]);
+  globalThis.localStorage = { getItem: key => store.get(key) ?? null };
+  applyDocumentAccent('#facc15', false);
+  assert.notEqual(style.map.get('--blue'), '#facc15');
+  assert.ok(style.map.get('--blue').startsWith('#'));
+  assert.equal(readStoredAccentColor(), '#facc15');
+
+  const keys = [...style.map.keys()];
+  assert.ok(keys.length > 0);
+  applyDocumentAccent('', false);
+  for (const key of keys) assert.equal(style.map.has(key), false, key);
+  applyDocumentAccent('red', true);
+  assert.equal(style.map.size, 0);
+});
+
+test('the boot script applies the cached accent before React mounts', async () => {
+  const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const themeAt = main.indexOf('applyDocumentTheme(bootTheme())');
+  const accentAt = main.indexOf('applyDocumentAccent(readStoredAccentColor()');
+  const renderAt = main.indexOf('root.render(');
+  assert.ok(themeAt !== -1 && accentAt !== -1 && renderAt !== -1);
+  assert.ok(themeAt < accentAt && accentAt < renderAt);
 });

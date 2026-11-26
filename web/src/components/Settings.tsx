@@ -24,6 +24,7 @@ import { normalizeSettingsSection, settingsCategories, settingsCategoryFor } fro
 import { pluginSettingsCategory, settingsWithPluginMenus } from '../settings-plugin-menu';
 import { visibleApplications } from '../workspace-launcher';
 import PetSettings from './PetSettings';
+import { AccentColorSettings } from './AccentColorSettings';
 import type { PetStore } from '../usePets';
 import { VersionInfoPanel } from './VersionInfo';
 import type { CoreServiceUpdateController } from './CoreServiceUpdate';
@@ -34,8 +35,8 @@ import RemoteAccessSettings from './RemoteAccessSettings';
 import { GITEE_HOME_URL, GITHUB_HOME_URL } from '../update-scripts';
 import type { VersionCheck } from '../version';
 
-export type Preferences = { theme: string; language: string; fontScale: number; notifications: boolean; sound: boolean; openWith: string; autoContext: boolean; animations: boolean };
-export const defaultPreferences: Preferences = { theme: '浅色', language: '简体中文', fontScale: 100, notifications: true, sound: true, openWith: 'File Explorer', autoContext: true, animations: true };
+export type Preferences = { accentColor: string; theme: string; language: string; fontScale: number; notifications: boolean; sound: boolean; openWith: string; autoContext: boolean; animations: boolean };
+export const defaultPreferences: Preferences = { accentColor: '', theme: '浅色', language: '简体中文', fontScale: 100, notifications: true, sound: true, openWith: 'File Explorer', autoContext: true, animations: true };
 const categoryIcons: Record<string, LucideIcon> = { '偏好设置': SlidersHorizontal, '模型服务': Zap, '智能体': Bot, '工具与集成': Plug, '工作区与数据': FolderClosed, '连接与帮助': Server };
 type Props = {
   pluginContext?: PluginContext;
@@ -175,6 +176,7 @@ export default function Settings(props: Props) {
           <PageActions title="通用" /><div className="settings-card"><SettingRow title="个人资料" description="头像与昵称，保存到服务端"><Button size="sm" variant="flat" isDisabled={!props.profileReady} onPress={props.onEditProfile}>编辑</Button></SettingRow></div>
           <h3 className="settings-section-title">外观与显示</h3><div className="settings-card">
             <SettingRow title="外观" description="选择应用的明暗外观，保存到服务端"><SettingSegments label="外观" options={['☼ 浅色', '◉ 深色', '跟随系统']} value={prefs.theme === '浅色' ? '☼ 浅色' : prefs.theme === '深色' ? '◉ 深色' : prefs.theme} onChange={value => update('theme', value.replace(/^[☼◉] /, ''))} /></SettingRow>
+            <SettingRow title="强调色"><AccentColorSettings value={prefs.accentColor} onChange={value => update('accentColor', value)} /></SettingRow>
             <SettingRow title="语言" description="侧栏与输入框的显示语言"><SettingSegments label="语言" options={['English', '简体中文']} value={prefs.language} onChange={value => update('language', value)} /></SettingRow>
             <SettingRow title="界面缩放" description="同步调整文字、侧栏宽度、控件尺寸与间距"><div className="font-scale-control"><SettingSegments label="全局界面缩放" options={UI_SCALE_LEVELS.map(level => `${level}%`)} value={`${normalizeUiScale(prefs.fontScale)}%`} onChange={value => update('fontScale', Number(value.replace('%', '')))} /></div></SettingRow>
           </div>
