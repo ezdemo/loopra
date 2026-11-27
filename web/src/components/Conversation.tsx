@@ -148,6 +148,16 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     return () => { element.removeEventListener('scroll', update); resize.disconnect(); };
   }, [scrollRef, session.id, virtualized]);
 
+  // Only virtualized lists replace the browser's anchor with the explicit
+  // correction below; short sessions keep the native behavior for folding blocks.
+  useEffect(() => {
+    const element = scrollRef?.current;
+    if (!element) return undefined;
+    if (virtualized) element.style.overflowAnchor = 'none';
+    else element.style.removeProperty('overflow-anchor');
+    return () => element.style.removeProperty('overflow-anchor');
+  }, [scrollRef, session.id, virtualized]);
+
   // One shared observer records real heights and only re-renders on real changes.
   useEffect(() => {
     const resize = new ResizeObserver(entries => {

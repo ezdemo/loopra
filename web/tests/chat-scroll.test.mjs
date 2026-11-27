@@ -408,6 +408,15 @@ test('virtual corrections survive a completely replaced mounted window', async (
   } finally { await view.close(); }
 });
 
+test('native scroll anchoring is disabled only for virtualized sessions', async () => {
+  const scroll = document.createElement('div');
+  const scrollRef = { current: scroll };
+  const long = await renderMessages(longSession(), { scrollRef });
+  try { assert.equal(scroll.style.overflowAnchor, 'none'); } finally { await long.close(); }
+  const short = await renderMessages([{ id: 'u', role: 'user', text: '问' }], { scrollRef });
+  try { assert.equal(scroll.style.overflowAnchor, ''); } finally { await short.close(); }
+});
+
 test('the message list publishes its offsets for unmounted jumps', async () => {
   const offsetsRef = { current: [] };
   const view = await renderMessages(longSession(), { offsetsRef });
