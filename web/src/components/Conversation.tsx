@@ -155,7 +155,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     if (!element) return undefined;
     if (virtualized) element.style.overflowAnchor = 'none';
     else element.style.removeProperty('overflow-anchor');
-    return () => element.style.removeProperty('overflow-anchor');
+    return () => { element.style.removeProperty('overflow-anchor'); };
   }, [scrollRef, session.id, virtualized]);
 
   // One shared observer records real heights and only re-renders on real changes.
