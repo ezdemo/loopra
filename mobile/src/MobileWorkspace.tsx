@@ -4,7 +4,7 @@ import { Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Select, Selec
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Folder, ListEnd, LoaderCircle, MessageSquare, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Sparkles, Square, X } from 'lucide-react';
 import { CHAT_WORKSPACE, LoopraClient } from '@web/backend';
 import type { ChoiceBlockData } from '@web/chat';
-import { collectPendingChoices } from '@web/chat';
+import { collectPendingChoices, pinChatScroller } from '@web/chat';
 import { agentEffortLevels, agentOptionLabel, configValue, findAgentOption } from '@web/agent-config';
 import { Messages } from '@web/components/Conversation';
 import { SessionImageSourceProvider } from '@web/components/ChatImage';
@@ -63,6 +63,8 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
   const scroll = useRef<HTMLDivElement>(null);
   const projectFilters = useRef<HTMLDivElement>(null);
   const awayRef = useRef(false);
+  const scrollCorrection = useRef<number | null>(null);
+  const layoutFrame = useRef(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const thread = data.threads.find(item => item.id === data.selected?.id) || data.selected;
   const view = thread ? data.views[thread.id] || emptyView() : emptyView();
@@ -97,15 +99,32 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
   }, [store, props.online]);
   useEffect(() => {
     awayRef.current = false; setAway(false); setNewReplies(false);
-    const frame = requestAnimationFrame(() => { if (scroll.current && !awayRef.current) scroll.current.scrollTop = scroll.current.scrollHeight; });
+    const frame = requestAnimationFrame(() => { pinChatScroller(scroll.current, awayRef.current); });
     return () => cancelAnimationFrame(frame);
   }, [thread?.id, page]);
   useEffect(() => {
     if (page !== 'chat') return;
     if (awayRef.current) { setNewReplies(true); return; }
-    const frame = requestAnimationFrame(() => { if (scroll.current && !awayRef.current) scroll.current.scrollTop = scroll.current.scrollHeight; });
+    const frame = requestAnimationFrame(() => { pinChatScroller(scroll.current, awayRef.current); });
     return () => cancelAnimationFrame(frame);
   }, [view.messages, page]);
+  useEffect(() => () => { if (layoutFrame.current) cancelAnimationFrame(layoutFrame.current); }, []);
+  function pinChatLayout() {
+    if (layoutFrame.current) return;
+    layoutFrame.current = requestAnimationFrame(() => {
+      layoutFrame.current = 0;
+      pinChatScroller(scroll.current, awayRef.current);
+    });
+  }
+  function correctChatScroll(delta: number) {
+    const node = scroll.current;
+    if (!node) return;
+    const before = node.scrollTop;
+    node.scrollTop += delta;
+    if (!awayRef.current) node.scrollTop = node.scrollHeight;
+    scrollCorrection.current = node.scrollTop === before ? null : node.scrollTop;
+  }
+
   useEffect(() => {
     if (page !== 'threads') return;
     const strip = projectFilters.current;
@@ -217,7 +236,7 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
       </>}
     </header>
     <MobileConnectionStatus online={props.online} reconnecting={props.reconnecting} busy={!!props.reconnectBusy} result={props.reconnectResult} error={props.error} onReconnect={props.onReconnect} />
-    <motion.div key={page} className="app-page" initial={animated ? { opacity: 0, y: 10 } : false} animate={{ opacity: 1, y: 0 }} transition={animated ? { duration: .22, ease: [.22, 1, .36, 1] } : { duration: 0 }} onAnimationComplete={() => { if (page === 'chat' && scroll.current && !awayRef.current) scroll.current.scrollTop = scroll.current.scrollHeight; }}>
+    <motion.div key={page} className="app-page" initial={animated ? { opacity: 0, y: 10 } : false} animate={{ opacity: 1, y: 0 }} transition={animated ? { duration: .22, ease: [.22, 1, .36, 1] } : { duration: 0 }} onAnimationComplete={() => { if (page === 'chat') pinChatScroller(scroll.current, awayRef.current); }}>
       {page === 'threads' ? <div className="app-scroll">
         <div className="screen-heading"><h1>会话</h1><span className="screen-count">{visibleThreads.length}</span></div>
         <label className="search-field">
@@ -261,13 +280,14 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
         <div className="chat-stage"><div className="chat-surface">
           <div ref={scroll} className="phone-chat-scroll" onScroll={() => {
             const node = scroll.current; if (!node) return;
+            if (scrollCorrection.current === node.scrollTop) { scrollCorrection.current = null; return; }
             const next = node.scrollHeight - node.scrollTop - node.clientHeight > 90;
             awayRef.current = next; setAway(next); if (!next) setNewReplies(false);
           }} aria-label="聊天记录" aria-busy={view.loading}>
             <div className="chat-scroll-inner">
               {view.loading && <div className="chat-loading"><Spinner size="sm" label="读取聊天记录" /></div>}
               {!view.loading && !view.messages.length && <div className="chat-empty"><span className="chat-empty-orb"><img src={`${import.meta.env.BASE_URL}loopra-logo.svg`} alt="" /></span><h2>{thread ? '开始这段对话' : '今天想做些什么？'}</h2></div>}
-              <SessionImageSourceProvider api={api} workspaceHash={thread?.workspaceHash || workspace} sessionName={thread?.name}><Messages session={session} loading={view.running} scrollRef={scroll} busy={view.running || !props.online} notify={setNotice} onEdit={text => { setDrafts(current => ({ ...current, [draftKey]: text })); textarea.current?.focus(); }} /></SessionImageSourceProvider>
+              <SessionImageSourceProvider api={api} workspaceHash={thread?.workspaceHash || workspace} sessionName={thread?.name}><Messages key={session.id} session={session} loading={view.running} scrollRef={scroll} onLayout={pinChatLayout} onCorrectScroll={correctChatScroll} busy={view.running || !props.online} notify={setNotice} onEdit={text => { setDrafts(current => ({ ...current, [draftKey]: text })); textarea.current?.focus(); }} /></SessionImageSourceProvider>
               {props.online && view.error && <div className="chat-inline-error" role="alert"><p>{view.error}</p><button type="button" onClick={() => { if (thread) void store.select(thread); }}>重新读取</button></div>}
             </div>
           </div>

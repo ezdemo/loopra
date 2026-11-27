@@ -86,14 +86,35 @@ export function userMessageDock(messages: { id: string; role: string; text: stri
 
 /**
  * Legacy `onScroll()` decision: streamed content pushes the viewport up without
- * the user leaving, so only an upward movement (or staying away from the
- * bottom) marks `away`; returning near the bottom resumes auto-follow.
+ * the user leaving, so an upward movement marks `away`; returning near the
+ * bottom resumes follow. A clamp that lands exactly at the bottom is the
+ * browser adjusting to shrunk content, not the user scrolling up; once away,
+ * only downward movement back into that window resumes follow.
  */
-export function chatScrollState(element: { scrollHeight: number; scrollTop: number; clientHeight: number } | null, previousTop: number, away: boolean, threshold = CHAT_SCROLL_THRESHOLD) {
+export function chatScrollState(element: { scrollHeight: number; scrollTop: number; clientHeight: number } | null, previousTop: number, away: boolean, deliberateUp = false, threshold = CHAT_SCROLL_THRESHOLD) {
   if (!element) return { away, showScrollButton: false };
-  const nearBottom = chatNearBottom(element, threshold);
-  const next = element.scrollTop < previousTop - 2 ? true : nearBottom ? false : away;
+  const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+  const nearBottom = distance < threshold;
+  const clampedToBottom = distance <= 2;
+  const movingUp = element.scrollTop < previousTop;
+  const movingDown = element.scrollTop > previousTop;
+  const next = movingUp
+    ? deliberateUp || !clampedToBottom
+    : movingDown && nearBottom ? false : away;
   return { away: next, showScrollButton: !nearBottom };
+}
+
+/** Message updates follow the same state as scroll tracking: once a deliberate
+ * upward scroll marks the reader away, only returning near the bottom resumes follow. */
+export function chatShouldFollowMessages(away: boolean) {
+  return !away;
+}
+
+/** Pin a scroller while the reader is still following; deliberate reading history is left alone. */
+export function pinChatScroller(element: { scrollHeight: number; scrollTop: number } | null, away: boolean) {
+  if (!element || !chatShouldFollowMessages(away)) return false;
+  element.scrollTop = element.scrollHeight;
+  return true;
 }
 
 export function groupToolBlocks(blocks: ChatBlock[]): (ChatBlock | BlockGroup)[] {

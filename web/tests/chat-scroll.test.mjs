@@ -14,8 +14,8 @@ const globals = { window: dom.window, document: dom.window.document, HTMLElement
 // jsdom has no ResizeObserver; the message list only uses it for measurement.
 class ResizeObserverStub {
   static instances = [];
-  constructor(callback) { this.callback = callback; ResizeObserverStub.instances.push(this); }
-  observe(element) { this.element = element; }
+  constructor(callback) { this.callback = callback; this.observed = new Set(); ResizeObserverStub.instances.push(this); }
+  observe(element) { this.element = element; this.observed.add(element); }
   unobserve() {}
   disconnect() { this.disconnected = true; }
 }
@@ -38,7 +38,7 @@ async function sourceUrl(name, dependencies = {}) {
 }
 
 const chatUrl = await sourceUrl('chat.ts');
-const { CHAT_SCROLL_THRESHOLD, chatNearBottom, chatScrollState, truncatePreview, userMessageDock } = await import(chatUrl);
+const { CHAT_SCROLL_THRESHOLD, chatNearBottom, chatScrollState, chatShouldFollowMessages, pinChatScroller, truncatePreview, userMessageDock } = await import(chatUrl);
 
 // Motion.tsx imports NextUI and framer-motion only for the provider helpers, so
 // stub those two while keeping the real Disclosure/useCollapseAll code.
@@ -66,7 +66,7 @@ const { default: BlockRenderer } = await import(await sourceUrl('components/Bloc
   }),
 }));
 
-const chatWindowUrl = await sourceUrl('chat-window.ts');
+const chatWindowUrl = await sourceUrl('chat-window.ts', { './chat': chatUrl });
 // Conversation.tsx must tag every message so the dock can jump to it.
 const imagePreviews = [];
 globalThis.__loopraTestImagePreviews = imagePreviews;
@@ -124,6 +124,47 @@ test('scrolling up marks the user away, returning near the bottom resumes follow
   const returned = chatScrollState({ ...element, scrollTop: 595 }, 500, true);
   assert.deepEqual(returned, { away: false, showScrollButton: false });
   assert.deepEqual(chatScrollState(null, 0, false), { away: false, showScrollButton: false });
+});
+
+test('an upward clamp exactly at the bottom does not count as leaving', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  assert.deepEqual(chatScrollState({ ...element, scrollTop: 500 }, 600, false), { away: false, showScrollButton: false });
+});
+
+test('a deliberate small upward scroll near the bottom counts as leaving', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  assert.deepEqual(chatScrollState({ ...element, scrollTop: 495 }, 500, false), { away: true, showScrollButton: false });
+});
+
+test('message updates follow only after the reader returns near the bottom', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  const upward = chatScrollState({ ...element, scrollTop: 495 }, 500, false);
+  assert.equal(upward.away, true, 'a deliberate small upward scroll leaves the bottom even inside the 80px threshold');
+  assert.equal(chatShouldFollowMessages(upward.away), false, 'streaming updates must not pull that reader back down');
+  const returned = chatScrollState({ ...element, scrollTop: 498 }, 495, upward.away);
+  assert.equal(returned.away, false, 'scrolling back inside the threshold resumes follow');
+  assert.equal(chatShouldFollowMessages(returned.away), true);
+});
+
+test('smooth wheel increments inside the threshold still leave and stay away', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  let away = false;
+  let previousTop = 500;
+  for (const scrollTop of [499.5, 499, 498.5]) {
+    const next = chatScrollState({ ...element, scrollTop }, previousTop, away, true);
+    away = next.away;
+    previousTop = scrollTop;
+  }
+  assert.equal(away, true, 'small smooth wheel steps accumulate into a deliberate upward scroll');
+  assert.equal(chatScrollState({ ...element, scrollTop: 498.5 }, previousTop, away).away, true, 'staying inside the threshold does not by itself resume follow');
+  const returned = chatScrollState({ ...element, scrollTop: 499 }, previousTop, away);
+  assert.equal(returned.away, false, 'a downward step back near the bottom resumes follow');
+});
+
+test('an upward clamp back to the bottom re-enables follow when it was not user input', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  assert.equal(chatScrollState({ ...element, scrollTop: 499 }, 520, true).away, false, 'collapse-induced clamping can resume follow because the reader is again at the bottom');
+  assert.equal(chatScrollState({ ...element, scrollTop: 499 }, 500, true, true).away, true, 'the same position does not resume after deliberate upward wheel input');
 });
 
 test('a programmatic smooth scroll downwards does not count as leaving', () => {
@@ -204,7 +245,12 @@ const renderMessages = async (messages, extra = {}) => {
   await act(async () => root.render(createElement(Messages, { session, loading: false, busy: false, notify: () => {}, onEdit: () => {}, onBranch: () => {}, onRollback: () => {}, ...extra })));
   return { container, async close() { await act(async () => root.unmount()); container.remove(); } };
 };
-const longSession = () => Array.from({ length: 80 }, (_, index) => ({ id: `m${index}`, role: index % 2 ? 'assistant' : 'user', text: `消息 ${index}` }));
+const longSession = () => Array.from({ length: 80 }, (_, index) => {
+  const role = index % 2 ? 'assistant' : 'user';
+  // Ten user lines and eight assistant lines both estimate as the legacy 320px row.
+  const lines = role === 'user' ? 10 : 8;
+  return { id: `m${index}`, role, text: Array.from({ length: lines }, (_, line) => `消息 ${index}.${line}`).join('\n') };
+});
 
 test('external agents offer historical branches without enabling unsupported edit or rollback actions', async () => {
   const messages = [
@@ -274,6 +320,148 @@ test('short sessions still render every message without spacers', async () => {
     assert.equal(view.container.querySelectorAll('.virtual-spacer').length, 0);
     assert.equal(view.container.querySelectorAll('.virtual-message-item').length, 0);
     assert.deepEqual([...view.container.querySelectorAll('[data-message-id]')].map(node => node.dataset.messageId), ['u1', 'a1']);
+  } finally { await view.close(); }
+});
+
+
+function patchVirtualLayout(container, positions) {
+  for (const node of container.querySelectorAll('.virtual-message-item')) {
+    const id = node.querySelector('[data-message-id]')?.dataset.messageId;
+    const position = positions.get(id) || { top: 0, height: 320 };
+    node.getBoundingClientRect = () => ({ top: position.top, height: position.height, bottom: position.top + position.height, left: 0, right: 600, width: 600, x: 0, y: position.top, toJSON: () => ({}) });
+  }
+}
+async function measureVirtualMessages() {
+  const resize = ResizeObserverStub.instances.at(-1);
+  const entries = [...resize.observed].map(target => ({ target }));
+  await act(async () => resize.callback(entries));
+}
+
+test('sparse measured outliers do not inflate unmounted row estimates', async () => {
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 0 },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
+  const scrollRef = { current: scroll };
+  const layouts = [];
+  const view = await renderMessages(longSession(), { scrollRef, onLayout: () => layouts.push(1) });
+  try {
+    const rows = [...view.container.querySelectorAll('.virtual-message-item')];
+    for (const node of rows) {
+      const id = node.querySelector('[data-message-id]').dataset.messageId;
+      const index = Number(id.slice(1));
+      node.getBoundingClientRect = () => ({ top: 0, height: index % 2 ? 1000 : 80, bottom: index % 2 ? 1000 : 80, left: 0, right: 600, width: 600, x: 0, y: 0, toJSON: () => ({}) });
+    }
+    const layoutCount = layouts.length;
+    assert.ok(layoutCount > 0, 'initial message layout is published');
+    await measureVirtualMessages();
+    assert.ok(layouts.length > layoutCount, 'measurement changes are published');
+    const beforeScroll = layouts.length;
+    scroll.scrollTop = 50;
+    await act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
+    assert.equal(layouts.length, beforeScroll, 'viewport-only scrolling does not repin the reader');
+    const spacers = [...view.container.querySelectorAll('.virtual-spacer')];
+    const bottom = spacers.at(-1);
+    assert.ok(bottom, 'long session keeps a bottom spacer');
+    // Only a few tall rows are visible here, so hidden rows keep the bounded
+    // legacy estimate instead of inheriting a huge average after a remount.
+    assert.equal(Number.parseFloat(bottom.style.height), 24760);
+  } finally { await view.close(); }
+});
+
+test('virtual layout corrections preserve the overlapping anchor row', async () => {
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 100 },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
+  const scrollRef = { current: scroll };
+  const corrections = [];
+  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: delta => corrections.push(delta) });
+  try {
+    const positions = new Map();
+    for (const node of view.container.querySelectorAll('.virtual-message-item')) {
+      const id = node.querySelector('[data-message-id]').dataset.messageId;
+      const index = Number(id.slice(1));
+      positions.set(id, { top: index * 320, height: 320 });
+    }
+    patchVirtualLayout(view.container, positions);
+    await measureVirtualMessages();
+    corrections.length = 0;
+
+    for (const [id, position] of positions) positions.set(id, { ...position, top: position.top + 500 });
+    patchVirtualLayout(view.container, positions);
+    const rows = [...view.container.querySelectorAll('.virtual-message-item')];
+    const last = rows.at(-1);
+    const rect = last.getBoundingClientRect();
+    last.getBoundingClientRect = () => ({ ...rect, height: 321, bottom: rect.top + 321 });
+    const resize = ResizeObserverStub.instances.at(-1);
+    await act(async () => resize.callback([{ target: last }]));
+
+    assert.deepEqual(corrections, [500]);
+  } finally { await view.close(); }
+});
+
+test('unmounted row estimates follow message content instead of visible outliers', async () => {
+  const messages = longSession();
+  messages[5] = { ...messages[5], text: Array.from({ length: 250 }, (_, line) => `FINAL FIX LINE ${line + 1}`).join('\n') };
+  const offsetsRef = { current: [] };
+  const view = await renderMessages(messages, { offsetsRef });
+  try {
+    assert.equal(offsetsRef.current[1] - offsetsRef.current[0], 320, 'ordinary user rows keep the legacy-scale estimate');
+    assert.equal(offsetsRef.current[3] - offsetsRef.current[2], 320, 'ordinary assistant rows keep the legacy-scale estimate');
+    assert.ok(offsetsRef.current[6] - offsetsRef.current[5] > 6000, 'a 250-line answer is estimated as a tall row before mounting');
+  } finally { await view.close(); }
+});
+
+test('native scroll anchoring is disabled only for virtualized sessions', async () => {
+  const scroll = document.createElement('div');
+  const scrollRef = { current: scroll };
+  const long = await renderMessages(longSession(), { scrollRef });
+  try { assert.equal(scroll.style.overflowAnchor, 'none'); } finally { await long.close(); }
+  const short = await renderMessages([{ id: 'u', role: 'user', text: '问' }], { scrollRef });
+  try { assert.equal(scroll.style.overflowAnchor, ''); } finally { await short.close(); }
+});
+
+test('shrinking the chat viewport keeps bottom readers pinned without pulling history readers down', async () => {
+  const scroll = document.createElement('div');
+  let top = 0;
+  Object.defineProperties(scroll, {
+    scrollTop: {
+      configurable: true,
+      get: () => top,
+      set: value => { top = Math.max(0, Math.min(value, scroll.scrollHeight - scroll.clientHeight)); },
+    },
+    clientHeight: { configurable: true, writable: true, value: 600 },
+    scrollHeight: { configurable: true, writable: true, value: 1000 },
+  });
+  scroll.scrollTop = 400;
+  const scrollRef = { current: scroll };
+  const layouts = [];
+  let away = false;
+  const pin = () => { layouts.push(1); pinChatScroller(scroll, away); };
+  const view = await renderMessages([{ id: 'u', role: 'user', text: '问' }], { scrollRef, onLayout: pin });
+  try {
+    const resize = ResizeObserverStub.instances.find(instance => instance.observed.has(scroll));
+    assert.ok(resize, 'the scroller size is observed');
+    assert.equal(scroll.scrollTop, 400, 'the reader starts exactly at the bottom');
+
+    const count = layouts.length;
+    scroll.clientHeight = 500;
+    await act(async () => resize.callback([]));
+    assert.ok(layouts.length > count, 'the shorter viewport publishes layout');
+    assert.equal(scroll.scrollTop, 500, 'the bottom reader still sees the latest message');
+
+    away = true;
+    scroll.scrollTop = 200;
+    const historyCount = layouts.length;
+    scroll.clientHeight = 450;
+    await act(async () => resize.callback([]));
+    assert.ok(layouts.length > historyCount, 'the second resize also publishes layout');
+    assert.equal(scroll.scrollTop, 200, 'a reader browsing history is not pulled back to the bottom');
   } finally { await view.close(); }
 });
 

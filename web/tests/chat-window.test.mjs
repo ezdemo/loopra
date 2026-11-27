@@ -5,10 +5,13 @@ import ts from 'typescript';
 
 // Pure logic mirrors legacy Chat.vue's `virtualWindow` computed; import the
 // real module so the constants and scan rules stay in sync with the component.
+const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
+const chatOutput = ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const chatUrl = 'data:text/javascript;base64,' + Buffer.from(chatOutput).toString('base64');
 const source = await readFile(new URL('../src/chat-window.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const url = 'data:text/javascript;base64,' + Buffer.from(outputText).toString('base64');
-const { ESTIMATED_MESSAGE_HEIGHT, VIRTUALIZATION_THRESHOLD, messageOffsets, virtualMessageWindow } = await import(url);
+const url = 'data:text/javascript;base64,' + Buffer.from(outputText.replaceAll(`'./chat'`, JSON.stringify(chatUrl)).replaceAll(`"./chat"`, JSON.stringify(chatUrl))).toString('base64');
+const { ESTIMATED_MESSAGE_HEIGHT, VIRTUALIZATION_THRESHOLD, estimateMessageHeight, messageOffsets, virtualMessageWindow } = await import(url);
 
 test('short conversations mount everything with zero spacers', () => {
   const heights = Array(VIRTUALIZATION_THRESHOLD).fill(0);
@@ -47,4 +50,14 @@ test('a viewport taller than the list keeps the trailing edge mounted', () => {
   const view = virtualMessageWindow(heights, 0, 100_000);
   assert.equal(view.end, 61);
   assert.equal(view.bottomHeight, 0);
+});
+
+test('user attachment envelopes estimate as compact controls rather than document text', () => {
+  const documentText = Array.from({ length: 300 }, (_, line) => `attachment line ${line}`).join('\n');
+  const visible = '请查看这个附件';
+  const envelope = `${visible}\n\n\`\`\`loopra-attachments\n${JSON.stringify([{ name: 'notes.txt', text: documentText }])}\n\`\`\``;
+  const bare = estimateMessageHeight({ role: 'user', text: visible });
+  const withAttachment = estimateMessageHeight({ role: 'user', text: envelope });
+  assert.ok(withAttachment < 250, `attachment-backed user row stayed compact, got ${withAttachment}`);
+  assert.equal(withAttachment - bare, 40, 'the only added estimate is the attachment control');
 });

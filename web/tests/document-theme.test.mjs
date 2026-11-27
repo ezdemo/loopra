@@ -120,6 +120,26 @@ test('applyDocumentAccent sets readable tokens and clears them on reset', () => 
   assert.equal(style.map.size, 0);
 });
 
+function hexLuminance(hex) {
+  const channels = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255).map(value => value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+function contrastRatio(a, b) {
+  const first = hexLuminance(a), second = hexLuminance(b);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+test('dark text selection is clearly visible and readable', async () => {
+  const css = await readFile(new URL('../src/workspace-theme.css', import.meta.url), 'utf8');
+  const dark = css.match(/\.workspace-theme\.dark[\s\S]*?\n}/)?.[0] || '';
+  const token = name => dark.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+  const surface = token('surface'), background = token('selection-background'), foreground = token('selection-foreground');
+  assert.ok(surface && background && foreground, 'dark selection tokens are explicit colors');
+  assert.ok(contrastRatio(background, foreground) >= 7, 'selected text stays readable');
+  assert.ok(contrastRatio(background, surface) >= 3, 'the selection is visible on the dark surface');
+});
+
 test('the boot script applies the cached accent before React mounts', async () => {
   const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
   const themeAt = main.indexOf('applyDocumentTheme(bootTheme())');

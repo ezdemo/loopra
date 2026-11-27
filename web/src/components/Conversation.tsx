@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AlignLeft, ChevronRight, Copy, GitBranch, Pencil, Undo2 } from 'lucide-react';
 import type { ChatBlock, Message, MessageDocument } from '../chat';
 import { formatTurnDuration, splitAssistantBlocks, splitUserAttachments, splitUserContext } from '../chat';
-import { ESTIMATED_MESSAGE_HEIGHT, VIRTUALIZATION_THRESHOLD, virtualMessageWindow } from '../chat-window';
+import { VIRTUALIZATION_THRESHOLD, estimateMessageHeight, virtualMessageWindow } from '../chat-window';
 import type { Session } from '../lib';
 import { getSessionMessages } from '../lib';
 import { IconButton } from './ui';
@@ -110,7 +110,7 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
 
 // Long sessions mount only the visible slice (legacy `Chat.vue` virtualWindow);
 // measured heights keep the spacer sizes honest and the scroll position stable.
-export function Messages({ session, loading, remoteRunning = false, scrollRef, offsetsRef, showDuration = true, ...callbacks }: { session: Session; loading: boolean; remoteRunning?: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
+export function Messages({ session, loading, remoteRunning = false, scrollRef, offsetsRef, showDuration = true, onLayout, onCorrectScroll, ...callbacks }: { session: Session; loading: boolean; remoteRunning?: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean; onLayout?: () => void; onCorrectScroll?: (delta: number) => void } & MessageActions) {
   const { t } = useTranslation();
   const actions = useMessageActions(callbacks);
   const messages = useMemo(() => getSessionMessages(session), [session.kind, session.messages]);
@@ -118,25 +118,42 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const canBranch = canManageHistory || session.agentId === 'codex' || session.agentId === 'claude-code' || session.agentId === 'devin' || session.agentId === 'soloncode';
   const last = messages[messages.length - 1];
   const virtualized = messages.length > VIRTUALIZATION_THRESHOLD;
+  // Parents key this list by session id, so these measurements live and die with
+  // the session instance instead of being mutated during a render transition.
   const heights = useRef(new Map<string, number>());
   const nodes = useRef(new Map<string, HTMLElement>());
   const observer = useRef<ResizeObserver | null>(null);
   const [revision, setRevision] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 0 });
+  const layoutCallback = useRef(onLayout);
+  const layoutAnchor = useRef<{ id: string; position: number } | null>(null);
+  useLayoutEffect(() => { layoutCallback.current = onLayout; });
 
-  // Follow the scroller so the mounted window tracks the visible region.
+  // Follow the scroller so the mounted window tracks the visible region. The
+  // size observer also runs for short sessions: approval forms and the composer
+  // can shrink the viewport without changing any message.
   useEffect(() => {
     const element = scrollRef?.current;
-    if (!element || !virtualized) return undefined;
+    if (!element) return undefined;
     const update = () => setViewport(current => {
       const next = { top: element.scrollTop, height: element.clientHeight };
       return current.top === next.top && current.height === next.height ? current : next;
     });
     update();
-    element.addEventListener('scroll', update, { passive: true });
+    if (virtualized) element.addEventListener('scroll', update, { passive: true });
     const resize = new ResizeObserver(update);
     resize.observe(element);
     return () => { element.removeEventListener('scroll', update); resize.disconnect(); };
+  }, [scrollRef, session.id, virtualized]);
+
+  // Only virtualized lists replace the browser's anchor with the explicit
+  // correction below; short sessions keep the native behavior for folding blocks.
+  useEffect(() => {
+    const element = scrollRef?.current;
+    if (!element) return undefined;
+    if (virtualized) element.style.overflowAnchor = 'none';
+    else element.style.removeProperty('overflow-anchor');
+    return () => { element.style.removeProperty('overflow-anchor'); };
   }, [scrollRef, session.id, virtualized]);
 
   // One shared observer records real heights and only re-renders on real changes.
@@ -159,7 +176,11 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const measure = useCallback((id: string, node: HTMLElement | null) => {
     const previous = nodes.current.get(id);
     if (previous && previous !== node) observer.current?.unobserve(previous);
-    if (!node) { nodes.current.delete(id); return; }
+    if (!node) {
+      if (previous) observer.current?.unobserve(previous);
+      nodes.current.delete(id);
+      return;
+    }
     nodes.current.set(id, node);
     node.dataset.virtualMessageId = id;
     observer.current?.observe(node);
@@ -171,9 +192,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     for (const key of [...heights.current.keys()]) if (!ids.has(key)) { heights.current.delete(key); changed = true; }
     if (changed) setRevision(value => value + 1);
   }, [messages]);
-  useEffect(() => { heights.current.clear(); setRevision(value => value + 1); }, [session.id]);
-
-  const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || ESTIMATED_MESSAGE_HEIGHT), [messages, revision]);
+  const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || estimateMessageHeight(message)), [messages, revision]);
   const view = useMemo(() => virtualMessageWindow(heightsList, viewport.top, viewport.height), [heightsList, viewport.top, viewport.height]);
   useEffect(() => { if (offsetsRef) offsetsRef.current = view.offsets; }, [offsetsRef, view.offsets]);
 
@@ -181,6 +200,71 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     ? <UserMessage key={message.id} message={message} canManageHistory={canManageHistory} {...actions} />
     : <AssistantMessage key={message.id} message={message} streaming={(loading || remoteRunning) && message.id === last?.id} showDuration={showDuration} canBranch={canBranch} {...actions} />;
   const visible = virtualized ? messages.slice(view.start, view.end) : messages;
+
+  // Estimated spacer heights are corrected as rows enter the mounted window.
+  // Keep the row that overlapped the viewport in the same content position even
+  // when the new mounted window no longer overlaps the old one.
+  useLayoutEffect(() => {
+    const element = scrollRef?.current;
+    if (!element || !virtualized) {
+      layoutAnchor.current = null;
+      return;
+    }
+    const scrollerTop = element.getBoundingClientRect().top;
+    const viewportTop = element.scrollTop;
+    const current = new Map<string, number>();
+    for (const message of visible) {
+      const id = String(message.id);
+      const node = nodes.current.get(id);
+      if (node) current.set(id, node.getBoundingClientRect().top + element.scrollTop - scrollerTop);
+    }
+    const representedPosition = (index: number) => {
+      if (index <= view.start) return view.offsets[index];
+      let position = view.topHeight;
+      const stop = Math.min(index, view.end);
+      for (let row = view.start; row < stop; row++) {
+        const id = String(messages[row].id);
+        position += nodes.current.get(id)?.getBoundingClientRect().height || heightsList[row];
+      }
+      return index < view.end ? position : position + view.offsets[index] - view.offsets[view.end];
+    };
+    const previous = layoutAnchor.current;
+    if (previous) {
+      const index = messages.findIndex(message => String(message.id) === previous.id);
+      if (index >= 0) {
+        const after = current.get(previous.id) ?? representedPosition(index);
+        const delta = after - previous.position;
+        if (Math.abs(delta) > 0.5) {
+          if (onCorrectScroll) onCorrectScroll(delta);
+          else element.scrollTop += delta;
+          // A correction can leave the anchored row outside the newly mounted
+          // window. Keep its corrected content position for the next pass instead
+          // of immediately replacing it with an unrelated mounted row.
+          layoutAnchor.current = { id: previous.id, position: after };
+          return;
+        }
+      }
+    }
+    let above: string | undefined;
+    let anchor: string | undefined;
+    for (const message of visible) {
+      const id = String(message.id);
+      const position = current.get(id);
+      if (position === undefined) continue;
+      const bottom = position + (nodes.current.get(id)?.getBoundingClientRect().height || 0);
+      if (bottom > viewportTop) { anchor = id; break; }
+      above = id;
+    }
+    anchor ||= above;
+    layoutAnchor.current = anchor ? { id: anchor, position: current.get(anchor) || 0 } : null;
+  });
+
+  // A viewport-only scroll must not repin the reader. Publish real content and
+  // measurement changes, which are the layouts that can move the bottom away.
+  useLayoutEffect(() => {
+    layoutCallback.current?.();
+  }, [messages, revision, session.id, virtualized, viewport.height]);
+
   return <div className="loopra-conversation" aria-label={t('chat.content')}><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}
     {virtualized ? visible.map(message => <div key={message.id} ref={node => measure(String(message.id), node)} className="virtual-message-item">{render(message)}</div>) : visible.map(render)}
