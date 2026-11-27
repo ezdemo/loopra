@@ -58,7 +58,7 @@ export class LoopraClient {
 }
 export const serverAddress = value => value;
 `);
-const projectsUrl = await sourceUrl('components/BackendSettings.tsx', { '@nextui-org/react': nextuiStub, './SettingControls': controlsStub, './RemoteControls': confirmStub, '../backend': backendStub, 'lucide-react': dataUrl('export const RefreshCw = () => null; export const ArrowUp = () => null; export const ArrowDown = () => null;') });
+const projectsUrl = await sourceUrl('components/BackendSettings.tsx', { '@nextui-org/react': nextuiStub, './SettingControls': controlsStub, './RemoteControls': confirmStub, '../backend': backendStub, '../access-key.js': dataUrl('export const getAccessKey = () => "";'), '../web-version': dataUrl('export const openLoopraWeb = () => {};'), 'lucide-react': dataUrl('export const RefreshCw = () => null; export const ArrowUp = () => null; export const ArrowDown = () => null;') });
 const { BackendProjects } = await import(projectsUrl);
 
 const workspaces = [{ hash: 'aaa111', name: 'alpha', path: 'C:\\alpha' }, { hash: 'bbb222', name: 'beta', path: 'D:\\beta' }];
