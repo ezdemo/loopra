@@ -374,13 +374,18 @@ test('sparse measured outliers do not inflate unmounted row estimates', async ()
 test('virtual layout corrections preserve the overlapping anchor row', async () => {
   const scroll = document.createElement('div');
   Object.defineProperties(scroll, {
-    scrollTop: { configurable: true, writable: true, value: 100 },
+    scrollTop: { configurable: true, writable: true, value: 3200 },
     clientHeight: { configurable: true, value: 600 },
   });
   scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
   const scrollRef = { current: scroll };
   const corrections = [];
-  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: delta => corrections.push(delta) });
+  let applyCorrections = false;
+  const correct = delta => {
+    corrections.push(delta);
+    if (applyCorrections) scroll.scrollTop += delta;
+  };
+  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: correct });
   try {
     const positions = new Map();
     for (const node of view.container.querySelectorAll('.virtual-message-item')) {
@@ -388,20 +393,45 @@ test('virtual layout corrections preserve the overlapping anchor row', async () 
       const index = Number(id.slice(1));
       positions.set(id, { top: index * 320, height: 320 });
     }
-    patchVirtualLayout(view.container, positions);
+    const patchDynamicLayout = () => {
+      for (const node of view.container.querySelectorAll('.virtual-message-item')) {
+        const id = node.querySelector('[data-message-id]').dataset.messageId;
+        const position = positions.get(id) || { top: 0, height: 320 };
+        node.getBoundingClientRect = () => {
+          const top = position.top - scroll.scrollTop;
+          return { top, height: position.height, bottom: top + position.height, left: 0, right: 600, width: 600, x: 0, y: top, toJSON: () => ({}) };
+        };
+      }
+    };
+    patchDynamicLayout();
     await measureVirtualMessages();
+    const originalAnchor = [...view.container.querySelectorAll('.virtual-message-item')]
+      .map(node => ({ id: node.dataset.virtualMessageId, rect: node.getBoundingClientRect() }))
+      .find(row => row.rect.bottom > 0);
+    assert.ok(originalAnchor, 'the initial viewport has an anchor row');
     corrections.length = 0;
+    applyCorrections = true;
 
     for (const [id, position] of positions) positions.set(id, { ...position, top: position.top + 500 });
-    patchVirtualLayout(view.container, positions);
+    patchDynamicLayout();
     const rows = [...view.container.querySelectorAll('.virtual-message-item')];
     const last = rows.at(-1);
-    const rect = last.getBoundingClientRect();
-    last.getBoundingClientRect = () => ({ ...rect, height: 321, bottom: rect.top + 321 });
+    const lastId = last.dataset.virtualMessageId;
+    positions.set(lastId, { ...positions.get(lastId), height: 321 });
+    patchDynamicLayout();
     const resize = ResizeObserverStub.instances.at(-1);
     await act(async () => resize.callback([{ target: last }]));
 
     assert.deepEqual(corrections, [500]);
+    assert.equal(scroll.scrollTop, 3700, 'the correction is applied to the scroller');
+    const anchorNode = view.container.querySelector(`[data-virtual-message-id="${originalAnchor.id}"]`);
+    assert.ok(anchorNode, 'the original anchor row is still mounted');
+    const anchorRect = anchorNode.getBoundingClientRect();
+    assert.equal(anchorRect.top, originalAnchor.rect.top, 'the original anchor returns to its viewport position');
+    assert.ok(anchorRect.bottom > 0 && anchorRect.top < scroll.clientHeight, 'the original anchor remains visible after correction');
+    const correctionCount = corrections.length;
+    await act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
+    assert.equal(corrections.length, correctionCount, 'the resulting real scroll event does not trigger another correction');
   } finally { await view.close(); }
 });
 
