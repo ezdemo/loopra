@@ -417,6 +417,25 @@ test('native scroll anchoring is disabled only for virtualized sessions', async 
   try { assert.equal(scroll.style.overflowAnchor, ''); } finally { await short.close(); }
 });
 
+test('shrinking the chat viewport publishes layout without a message change', async () => {
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 0 },
+    clientHeight: { configurable: true, writable: true, value: 600 },
+  });
+  const scrollRef = { current: scroll };
+  const layouts = [];
+  const view = await renderMessages([{ id: 'u', role: 'user', text: '问' }], { scrollRef, onLayout: () => layouts.push(1) });
+  try {
+    const count = layouts.length;
+    scroll.clientHeight = 500;
+    const resize = ResizeObserverStub.instances.find(instance => instance.observed.has(scroll));
+    assert.ok(resize, 'the scroller size is observed');
+    await act(async () => resize.callback([]));
+    assert.ok(layouts.length > count, 'the shorter viewport can stay pinned to the latest message');
+  } finally { await view.close(); }
+});
+
 test('the message list publishes its offsets for unmounted jumps', async () => {
   const offsetsRef = { current: [] };
   const view = await renderMessages(longSession(), { offsetsRef });

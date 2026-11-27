@@ -133,16 +133,18 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const layoutSession = useRef(session.id);
   useLayoutEffect(() => { layoutCallback.current = onLayout; });
 
-  // Follow the scroller so the mounted window tracks the visible region.
+  // Follow the scroller so the mounted window tracks the visible region. The
+  // size observer also runs for short sessions: approval forms and the composer
+  // can shrink the viewport without changing any message.
   useEffect(() => {
     const element = scrollRef?.current;
-    if (!element || !virtualized) return undefined;
+    if (!element) return undefined;
     const update = () => setViewport(current => {
       const next = { top: element.scrollTop, height: element.clientHeight };
       return current.top === next.top && current.height === next.height ? current : next;
     });
     update();
-    element.addEventListener('scroll', update, { passive: true });
+    if (virtualized) element.addEventListener('scroll', update, { passive: true });
     const resize = new ResizeObserver(update);
     resize.observe(element);
     return () => { element.removeEventListener('scroll', update); resize.disconnect(); };
@@ -270,7 +272,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   // measurement changes, which are the layouts that can move the bottom away.
   useLayoutEffect(() => {
     layoutCallback.current?.();
-  }, [messages, revision, session.id, virtualized]);
+  }, [messages, revision, session.id, virtualized, viewport.height]);
 
   return <div className="loopra-conversation" aria-label={t('chat.content')}><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}
