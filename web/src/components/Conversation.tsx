@@ -198,9 +198,13 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
       const measured = heights.current.get(String(message.id));
       if (measured) { totals[message.role].height += measured; totals[message.role].count += 1; }
     }
+    // Calibration reduces the legacy estimate for ordinary short rows, but one
+    // unusually tall answer must not inflate every unmounted row after remounting.
+    const cap = ESTIMATED_MESSAGE_HEIGHT * 3;
+    const enough = (count: number) => count >= 4;
     return {
-      user: totals.user.count ? totals.user.height / totals.user.count : ESTIMATED_MESSAGE_HEIGHT,
-      assistant: totals.assistant.count ? totals.assistant.height / totals.assistant.count : ESTIMATED_MESSAGE_HEIGHT,
+      user: enough(totals.user.count) ? Math.min(cap, totals.user.height / totals.user.count) : ESTIMATED_MESSAGE_HEIGHT,
+      assistant: enough(totals.assistant.count) ? Math.min(cap, totals.assistant.height / totals.assistant.count) : ESTIMATED_MESSAGE_HEIGHT,
     };
   }, [messages, revision]);
   const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || fallbackHeights[message.role]), [messages, revision, fallbackHeights]);

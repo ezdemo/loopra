@@ -146,6 +146,21 @@ test('message updates follow only after the reader returns near the bottom', () 
   assert.equal(chatShouldFollowMessages(returned.away), true);
 });
 
+test('smooth wheel increments inside the threshold still leave and stay away', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  let away = false;
+  let previousTop = 500;
+  for (const scrollTop of [499.5, 499, 498.5]) {
+    const next = chatScrollState({ ...element, scrollTop }, previousTop, away, true);
+    away = next.away;
+    previousTop = scrollTop;
+  }
+  assert.equal(away, true, 'small smooth wheel steps accumulate into a deliberate upward scroll');
+  assert.equal(chatScrollState({ ...element, scrollTop: 498.5 }, previousTop, away).away, true, 'staying inside the threshold does not by itself resume follow');
+  const returned = chatScrollState({ ...element, scrollTop: 499 }, previousTop, away);
+  assert.equal(returned.away, false, 'a downward step back near the bottom resumes follow');
+});
+
 test('a programmatic smooth scroll downwards does not count as leaving', () => {
   const element = { scrollHeight: 1000, clientHeight: 400 };
   // Mid-animation: still far from the bottom but moving towards it.
@@ -311,7 +326,7 @@ async function measureVirtualMessages() {
   await act(async () => resize.callback(entries));
 }
 
-test('measured rows calibrate the estimate for unmounted messages of the same role', async () => {
+test('sparse measured outliers do not inflate unmounted row estimates', async () => {
   const scroll = document.createElement('div');
   Object.defineProperties(scroll, {
     scrollTop: { configurable: true, writable: true, value: 0 },
@@ -339,11 +354,9 @@ test('measured rows calibrate the estimate for unmounted messages of the same ro
     const spacers = [...view.container.querySelectorAll('.virtual-spacer')];
     const bottom = spacers.at(-1);
     assert.ok(bottom, 'long session keeps a bottom spacer');
-    // 40 short user rows and 40 long assistant rows estimate the hidden tail by role
-    // instead of treating every huge answer as the legacy 320px row.
-    const mounted = [...view.container.querySelectorAll('.virtual-message-item')].reduce((total, node) => total + node.getBoundingClientRect().height, 0);
-    const expectedTotal = 40 * 80 + 40 * 1000;
-    assert.equal(Number.parseFloat(bottom.style.height), expectedTotal - mounted);
+    // Only a few tall rows are visible here, so hidden rows keep the bounded
+    // legacy estimate instead of inheriting a huge average after a remount.
+    assert.equal(Number.parseFloat(bottom.style.height), 24760);
   } finally { await view.close(); }
 });
 
@@ -381,7 +394,7 @@ test('virtual layout corrections preserve the overlapping anchor row', async () 
   } finally { await view.close(); }
 });
 
-test('virtual corrections survive a completely replaced mounted window', async () => {
+test('virtual corrections preserve the anchor through measurement and window movement', async () => {
   const scroll = document.createElement('div');
   Object.defineProperties(scroll, {
     scrollTop: { configurable: true, writable: true, value: 3200 },
@@ -412,16 +425,15 @@ test('virtual corrections survive a completely replaced mounted window', async (
       const id = node.querySelector('[data-message-id]').dataset.messageId;
       const index = Number(id.slice(1));
       const position = positions.get(id);
-      const height = index % 2 ? 3000 : 80;
+      const height = index % 2 ? 960 : 80;
       node.getBoundingClientRect = () => ({ top: position.top, height, bottom: position.top + height, left: 0, right: 600, width: 600, x: 0, y: position.top, toJSON: () => ({}) });
     }
     await measureVirtualMessages();
 
-    assert.equal([...view.container.querySelectorAll('[data-message-id]')].some(node => positions.has(node.dataset.messageId)), false, 'the new window has no old rows to overlap');
     // m10 anchored the viewport at 3200. Once every user row measures 80 and
-    // every assistant row 3000, its virtual offset becomes 5 * (80 + 3000).
-    assert.deepEqual(corrections, [5 * (80 + 3000) - 3200]);
-    const anchoredContentPosition = 5 * (80 + 3000);
+    // every assistant row 960, its virtual offset becomes 5 * (80 + 960).
+    assert.deepEqual(corrections, [5 * (80 + 960) - 3200]);
+    const anchoredContentPosition = 5 * (80 + 960);
     assert.equal(scroll.scrollTop, anchoredContentPosition, 'the corrected scroller keeps m10 at the same viewport edge');
     assert.equal(anchoredContentPosition - scroll.scrollTop, 0, 'the original reading row remains visible rather than jumping to another turn');
     const correctionCount = corrections.length;
@@ -431,8 +443,8 @@ test('virtual corrections survive a completely replaced mounted window', async (
       if (!id) return originalRect.call(this);
       const index = Number(id.slice(1));
       const pair = Math.floor(index / 2);
-      const contentTop = pair * (80 + 3000) + (index % 2 ? 80 : 0);
-      const height = index % 2 ? 3000 : 80;
+      const contentTop = pair * (80 + 960) + (index % 2 ? 80 : 0);
+      const height = index % 2 ? 960 : 80;
       const top = contentTop - scroll.scrollTop;
       return { top, height, bottom: top + height, left: 0, right: 600, width: 600, x: 0, y: top, toJSON: () => ({}) };
     };

@@ -258,6 +258,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   const userScrolledAway = useRef(false);
   const lastScrollTop = useRef(0);
   const scrollCorrection = useRef<number | null>(null);
+  const lastUpWheelAt = useRef(0);
   // Legacy `Chat.vue` virtualWindow offsets, published by the message list so the
   // thumbnail dock can jump to a message that is currently unmounted.
   const messageOffsets = useRef<number[]>([]);
@@ -909,12 +910,18 @@ export default function App({ startupPending = false, initialServer }: { startup
   function openSessionsManager() { setSessionsOpen(true); setMenu(null); if (narrow) setSidebar(false); }
   // Legacy Chat.vue onScroll(): upward movement away from the bottom counts as
   // leaving; being pushed up or clamped at the bottom keeps auto-follow active.
+  function onChatWheel(event: React.WheelEvent<HTMLElement>) {
+    const element = scrollArea.current;
+    if (!element || event.deltaY >= 0 || element.scrollTop <= 0) return;
+    lastUpWheelAt.current = Date.now();
+  }
   function onChatScroll() {
     const element = scrollArea.current;
     if (!element) return;
     const corrected = scrollCorrection.current === element.scrollTop;
     scrollCorrection.current = null;
-    const next = chatScrollState(element, corrected ? element.scrollTop : lastScrollTop.current, userScrolledAway.current);
+    const deliberateUp = Date.now() - lastUpWheelAt.current < 500;
+    const next = chatScrollState(element, corrected ? element.scrollTop : lastScrollTop.current, userScrolledAway.current, deliberateUp);
     userScrolledAway.current = next.away;
     setShowScrollBtn(next.showScrollButton);
     lastScrollTop.current = element.scrollTop;
@@ -1703,7 +1710,7 @@ export default function App({ startupPending = false, initialServer }: { startup
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
-            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages key={session.id} session={session} loading={generatingId === activeId} remoteRunning={remoteRun?.id === session.id} scrollRef={scrollArea} offsetsRef={messageOffsets} onLayout={keepChatPinned} onCorrectScroll={correctChatScroll} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
+            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} onWheel={onChatWheel} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages key={session.id} session={session} loading={generatingId === activeId} remoteRunning={remoteRun?.id === session.id} scrollRef={scrollArea} offsetsRef={messageOffsets} onLayout={keepChatPinned} onCorrectScroll={correctChatScroll} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && (connectorRequestOf(activeInput)
               ? <ConnectorRequestCard key={activeInput.elicitationRequestId} api={api} sessionName={session?.name || ''} request={activeInput} notify={notify}
