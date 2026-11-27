@@ -118,19 +118,15 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const canBranch = canManageHistory || session.agentId === 'codex' || session.agentId === 'claude-code' || session.agentId === 'devin' || session.agentId === 'soloncode';
   const last = messages[messages.length - 1];
   const virtualized = messages.length > VIRTUALIZATION_THRESHOLD;
+  // Parents key this list by session id, so these measurements live and die with
+  // the session instance instead of being mutated during a render transition.
   const heights = useRef(new Map<string, number>());
-  const heightsSession = useRef(session.id);
-  if (heightsSession.current !== session.id) {
-    heightsSession.current = session.id;
-    heights.current.clear();
-  }
   const nodes = useRef(new Map<string, HTMLElement>());
   const observer = useRef<ResizeObserver | null>(null);
   const [revision, setRevision] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 0 });
   const layoutCallback = useRef(onLayout);
   const layoutAnchor = useRef<{ id: string; position: number } | null>(null);
-  const layoutSession = useRef(session.id);
   useLayoutEffect(() => { layoutCallback.current = onLayout; });
 
   // Follow the scroller so the mounted window tracks the visible region. The
@@ -180,7 +176,11 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const measure = useCallback((id: string, node: HTMLElement | null) => {
     const previous = nodes.current.get(id);
     if (previous && previous !== node) observer.current?.unobserve(previous);
-    if (!node) { nodes.current.delete(id); return; }
+    if (!node) {
+      if (previous) observer.current?.unobserve(previous);
+      nodes.current.delete(id);
+      return;
+    }
     nodes.current.set(id, node);
     node.dataset.virtualMessageId = id;
     observer.current?.observe(node);
@@ -216,16 +216,13 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   // Keep the row that overlapped the viewport in the same content position even
   // when the new mounted window no longer overlaps the old one.
   useLayoutEffect(() => {
-    if (layoutSession.current !== session.id) {
-      layoutSession.current = session.id;
-      layoutAnchor.current = null;
-    }
     const element = scrollRef?.current;
     if (!element || !virtualized) {
       layoutAnchor.current = null;
       return;
     }
     const scrollerTop = element.getBoundingClientRect().top;
+    const viewportTop = element.scrollTop;
     const current = new Map<string, number>();
     for (const message of visible) {
       const id = String(message.id);
@@ -251,6 +248,11 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
         if (Math.abs(delta) > 0.5) {
           if (onCorrectScroll) onCorrectScroll(delta);
           else element.scrollTop += delta;
+          // A correction can leave the anchored row outside the newly mounted
+          // window. Keep its corrected content position for the next pass instead
+          // of immediately replacing it with an unrelated mounted row.
+          layoutAnchor.current = { id: previous.id, position: after };
+          return;
         }
       }
     }
@@ -261,7 +263,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
       const position = current.get(id);
       if (position === undefined) continue;
       const bottom = position + (nodes.current.get(id)?.getBoundingClientRect().height || 0);
-      if (bottom > element.scrollTop) { anchor = id; break; }
+      if (bottom > viewportTop) { anchor = id; break; }
       above = id;
     }
     anchor ||= above;

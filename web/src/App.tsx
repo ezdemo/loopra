@@ -35,7 +35,7 @@ import type { Preferences } from './components/Settings';
 import { mergeStoredSettings, toStoredSettings, type ClientSettings, type StoredUIPreferences } from './ui-preferences';
 import Search from './components/Search';
 import type { FileChange, Message, MessageDocument } from './chat';
-import { attachPendingChoices, chatNearBottom, chatScrollState, collectPendingChoices, resolveChoiceBlock, runningBackgroundTools, unresolvedChoices, userMessageDock } from './chat';
+import { attachPendingChoices, chatNearBottom, chatScrollState, chatShouldFollowMessages, pinChatScroller, collectPendingChoices, resolveChoiceBlock, runningBackgroundTools, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
 import SessionOccupiedNotice from './components/SessionOccupiedNotice';
 import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
@@ -928,8 +928,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     followFrame.current = requestAnimationFrame(() => {
       followFrame.current = 0;
       const area = scrollArea.current;
-      if (!area || userScrolledAway.current) return;
-      area.scrollTop = area.scrollHeight;
+      if (!area || !pinChatScroller(area, userScrolledAway.current)) return;
       lastScrollTop.current = area.scrollTop;
       setShowScrollBtn(false);
     });
@@ -1549,7 +1548,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   useLayoutEffect(() => {
     const element = scrollArea.current;
     if (!element || !session?.messages.length) return;
-    if (!userScrolledAway.current || chatNearBottom(element)) element.scrollTo({ top: element.scrollHeight, behavior: 'instant' });
+    if (chatShouldFollowMessages(userScrolledAway.current)) element.scrollTo({ top: element.scrollHeight, behavior: 'instant' });
     setShowScrollBtn(!chatNearBottom(element));
   }, [session?.messages, session?.id]);
   useEffect(() => {
@@ -1704,7 +1703,7 @@ export default function App({ startupPending = false, initialServer }: { startup
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
-            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages session={session} loading={generatingId === activeId} remoteRunning={remoteRun?.id === session.id} scrollRef={scrollArea} offsetsRef={messageOffsets} onLayout={keepChatPinned} onCorrectScroll={correctChatScroll} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
+            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages key={session.id} session={session} loading={generatingId === activeId} remoteRunning={remoteRun?.id === session.id} scrollRef={scrollArea} offsetsRef={messageOffsets} onLayout={keepChatPinned} onCorrectScroll={correctChatScroll} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && (connectorRequestOf(activeInput)
               ? <ConnectorRequestCard key={activeInput.elicitationRequestId} api={api} sessionName={session?.name || ''} request={activeInput} notify={notify}

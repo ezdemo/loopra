@@ -99,6 +99,19 @@ export function chatScrollState(element: { scrollHeight: number; scrollTop: numb
   return { away: next, showScrollButton: !nearBottom };
 }
 
+/** Message updates follow the same state as scroll tracking: once a deliberate
+ * upward scroll marks the reader away, only returning near the bottom resumes follow. */
+export function chatShouldFollowMessages(away: boolean) {
+  return !away;
+}
+
+/** Pin a scroller while the reader is still following; deliberate reading history is left alone. */
+export function pinChatScroller(element: { scrollHeight: number; scrollTop: number } | null, away: boolean) {
+  if (!element || !chatShouldFollowMessages(away)) return false;
+  element.scrollTop = element.scrollHeight;
+  return true;
+}
+
 export function groupToolBlocks(blocks: ChatBlock[]): (ChatBlock | BlockGroup)[] {
   const groups: (ChatBlock | BlockGroup)[] = [];
   for (let index = 0; index < blocks.length; index++) {

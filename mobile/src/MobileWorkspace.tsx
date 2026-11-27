@@ -4,7 +4,7 @@ import { Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Select, Selec
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Folder, ListEnd, LoaderCircle, MessageSquare, Plus, RefreshCw, Search, Settings, SlidersHorizontal, Sparkles, Square, X } from 'lucide-react';
 import { CHAT_WORKSPACE, LoopraClient } from '@web/backend';
 import type { ChoiceBlockData } from '@web/chat';
-import { collectPendingChoices } from '@web/chat';
+import { collectPendingChoices, pinChatScroller } from '@web/chat';
 import { agentEffortLevels, agentOptionLabel, configValue, findAgentOption } from '@web/agent-config';
 import { Messages } from '@web/components/Conversation';
 import { SessionImageSourceProvider } from '@web/components/ChatImage';
@@ -99,13 +99,13 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
   }, [store, props.online]);
   useEffect(() => {
     awayRef.current = false; setAway(false); setNewReplies(false);
-    const frame = requestAnimationFrame(() => { if (scroll.current && !awayRef.current) scroll.current.scrollTop = scroll.current.scrollHeight; });
+    const frame = requestAnimationFrame(() => { pinChatScroller(scroll.current, awayRef.current); });
     return () => cancelAnimationFrame(frame);
   }, [thread?.id, page]);
   useEffect(() => {
     if (page !== 'chat') return;
     if (awayRef.current) { setNewReplies(true); return; }
-    const frame = requestAnimationFrame(() => { if (scroll.current && !awayRef.current) scroll.current.scrollTop = scroll.current.scrollHeight; });
+    const frame = requestAnimationFrame(() => { pinChatScroller(scroll.current, awayRef.current); });
     return () => cancelAnimationFrame(frame);
   }, [view.messages, page]);
   useEffect(() => () => { if (layoutFrame.current) cancelAnimationFrame(layoutFrame.current); }, []);
@@ -113,7 +113,7 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
     if (layoutFrame.current) return;
     layoutFrame.current = requestAnimationFrame(() => {
       layoutFrame.current = 0;
-      if (scroll.current && !awayRef.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+      pinChatScroller(scroll.current, awayRef.current);
     });
   }
   function correctChatScroll(delta: number) {
@@ -236,7 +236,7 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
       </>}
     </header>
     <MobileConnectionStatus online={props.online} reconnecting={props.reconnecting} busy={!!props.reconnectBusy} result={props.reconnectResult} error={props.error} onReconnect={props.onReconnect} />
-    <motion.div key={page} className="app-page" initial={animated ? { opacity: 0, y: 10 } : false} animate={{ opacity: 1, y: 0 }} transition={animated ? { duration: .22, ease: [.22, 1, .36, 1] } : { duration: 0 }} onAnimationComplete={() => { if (page === 'chat' && scroll.current && !awayRef.current) scroll.current.scrollTop = scroll.current.scrollHeight; }}>
+    <motion.div key={page} className="app-page" initial={animated ? { opacity: 0, y: 10 } : false} animate={{ opacity: 1, y: 0 }} transition={animated ? { duration: .22, ease: [.22, 1, .36, 1] } : { duration: 0 }} onAnimationComplete={() => { if (page === 'chat') pinChatScroller(scroll.current, awayRef.current); }}>
       {page === 'threads' ? <div className="app-scroll">
         <div className="screen-heading"><h1>会话</h1><span className="screen-count">{visibleThreads.length}</span></div>
         <label className="search-field">
@@ -287,7 +287,7 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
             <div className="chat-scroll-inner">
               {view.loading && <div className="chat-loading"><Spinner size="sm" label="读取聊天记录" /></div>}
               {!view.loading && !view.messages.length && <div className="chat-empty"><span className="chat-empty-orb"><img src={`${import.meta.env.BASE_URL}loopra-logo.svg`} alt="" /></span><h2>{thread ? '开始这段对话' : '今天想做些什么？'}</h2></div>}
-              <SessionImageSourceProvider api={api} workspaceHash={thread?.workspaceHash || workspace} sessionName={thread?.name}><Messages session={session} loading={view.running} scrollRef={scroll} onLayout={pinChatLayout} onCorrectScroll={correctChatScroll} busy={view.running || !props.online} notify={setNotice} onEdit={text => { setDrafts(current => ({ ...current, [draftKey]: text })); textarea.current?.focus(); }} /></SessionImageSourceProvider>
+              <SessionImageSourceProvider api={api} workspaceHash={thread?.workspaceHash || workspace} sessionName={thread?.name}><Messages key={session.id} session={session} loading={view.running} scrollRef={scroll} onLayout={pinChatLayout} onCorrectScroll={correctChatScroll} busy={view.running || !props.online} notify={setNotice} onEdit={text => { setDrafts(current => ({ ...current, [draftKey]: text })); textarea.current?.focus(); }} /></SessionImageSourceProvider>
               {props.online && view.error && <div className="chat-inline-error" role="alert"><p>{view.error}</p><button type="button" onClick={() => { if (thread) void store.select(thread); }}>重新读取</button></div>}
             </div>
           </div>

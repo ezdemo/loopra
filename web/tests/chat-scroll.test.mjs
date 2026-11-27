@@ -38,7 +38,7 @@ async function sourceUrl(name, dependencies = {}) {
 }
 
 const chatUrl = await sourceUrl('chat.ts');
-const { CHAT_SCROLL_THRESHOLD, chatNearBottom, chatScrollState, truncatePreview, userMessageDock } = await import(chatUrl);
+const { CHAT_SCROLL_THRESHOLD, chatNearBottom, chatScrollState, chatShouldFollowMessages, pinChatScroller, truncatePreview, userMessageDock } = await import(chatUrl);
 
 // Motion.tsx imports NextUI and framer-motion only for the provider helpers, so
 // stub those two while keeping the real Disclosure/useCollapseAll code.
@@ -134,6 +134,16 @@ test('an upward clamp exactly at the bottom does not count as leaving', () => {
 test('a deliberate small upward scroll near the bottom counts as leaving', () => {
   const element = { scrollHeight: 900, clientHeight: 400 };
   assert.deepEqual(chatScrollState({ ...element, scrollTop: 495 }, 500, false), { away: true, showScrollButton: false });
+});
+
+test('message updates follow only after the reader returns near the bottom', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  const upward = chatScrollState({ ...element, scrollTop: 495 }, 500, false);
+  assert.equal(upward.away, true, 'a deliberate small upward scroll leaves the bottom even inside the 80px threshold');
+  assert.equal(chatShouldFollowMessages(upward.away), false, 'streaming updates must not pull that reader back down');
+  const returned = chatScrollState({ ...element, scrollTop: 498 }, 495, upward.away);
+  assert.equal(returned.away, false, 'scrolling back inside the threshold resumes follow');
+  assert.equal(chatShouldFollowMessages(returned.away), true);
 });
 
 test('a programmatic smooth scroll downwards does not count as leaving', () => {
@@ -380,7 +390,12 @@ test('virtual corrections survive a completely replaced mounted window', async (
   scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
   const scrollRef = { current: scroll };
   const corrections = [];
-  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: delta => corrections.push(delta) });
+  let applyCorrections = false;
+  const correct = delta => {
+    corrections.push(delta);
+    if (applyCorrections) scroll.scrollTop += delta;
+  };
+  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: correct });
   try {
     const positions = new Map();
     for (const node of view.container.querySelectorAll('.virtual-message-item')) {
@@ -391,6 +406,7 @@ test('virtual corrections survive a completely replaced mounted window', async (
     patchVirtualLayout(view.container, positions);
     await measureVirtualMessages();
     corrections.length = 0;
+    applyCorrections = true;
 
     for (const node of view.container.querySelectorAll('.virtual-message-item')) {
       const id = node.querySelector('[data-message-id]').dataset.messageId;
@@ -405,6 +421,27 @@ test('virtual corrections survive a completely replaced mounted window', async (
     // m10 anchored the viewport at 3200. Once every user row measures 80 and
     // every assistant row 3000, its virtual offset becomes 5 * (80 + 3000).
     assert.deepEqual(corrections, [5 * (80 + 3000) - 3200]);
+    const anchoredContentPosition = 5 * (80 + 3000);
+    assert.equal(scroll.scrollTop, anchoredContentPosition, 'the corrected scroller keeps m10 at the same viewport edge');
+    assert.equal(anchoredContentPosition - scroll.scrollTop, 0, 'the original reading row remains visible rather than jumping to another turn');
+    const correctionCount = corrections.length;
+    const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+    dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+      const id = this.dataset?.virtualMessageId;
+      if (!id) return originalRect.call(this);
+      const index = Number(id.slice(1));
+      const pair = Math.floor(index / 2);
+      const contentTop = pair * (80 + 3000) + (index % 2 ? 80 : 0);
+      const height = index % 2 ? 3000 : 80;
+      const top = contentTop - scroll.scrollTop;
+      return { top, height, bottom: top + height, left: 0, right: 600, width: 600, x: 0, y: top, toJSON: () => ({}) };
+    };
+    try {
+      await act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
+      assert.equal(corrections.length, correctionCount, 'the resulting real scroll event does not trigger a second correction');
+    } finally {
+      dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect;
+    }
   } finally { await view.close(); }
 });
 
@@ -417,22 +454,42 @@ test('native scroll anchoring is disabled only for virtualized sessions', async 
   try { assert.equal(scroll.style.overflowAnchor, ''); } finally { await short.close(); }
 });
 
-test('shrinking the chat viewport publishes layout without a message change', async () => {
+test('shrinking the chat viewport keeps bottom readers pinned without pulling history readers down', async () => {
   const scroll = document.createElement('div');
+  let top = 0;
   Object.defineProperties(scroll, {
-    scrollTop: { configurable: true, writable: true, value: 0 },
+    scrollTop: {
+      configurable: true,
+      get: () => top,
+      set: value => { top = Math.max(0, Math.min(value, scroll.scrollHeight - scroll.clientHeight)); },
+    },
     clientHeight: { configurable: true, writable: true, value: 600 },
+    scrollHeight: { configurable: true, writable: true, value: 1000 },
   });
+  scroll.scrollTop = 400;
   const scrollRef = { current: scroll };
   const layouts = [];
-  const view = await renderMessages([{ id: 'u', role: 'user', text: '问' }], { scrollRef, onLayout: () => layouts.push(1) });
+  let away = false;
+  const pin = () => { layouts.push(1); pinChatScroller(scroll, away); };
+  const view = await renderMessages([{ id: 'u', role: 'user', text: '问' }], { scrollRef, onLayout: pin });
   try {
-    const count = layouts.length;
-    scroll.clientHeight = 500;
     const resize = ResizeObserverStub.instances.find(instance => instance.observed.has(scroll));
     assert.ok(resize, 'the scroller size is observed');
+    assert.equal(scroll.scrollTop, 400, 'the reader starts exactly at the bottom');
+
+    const count = layouts.length;
+    scroll.clientHeight = 500;
     await act(async () => resize.callback([]));
-    assert.ok(layouts.length > count, 'the shorter viewport can stay pinned to the latest message');
+    assert.ok(layouts.length > count, 'the shorter viewport publishes layout');
+    assert.equal(scroll.scrollTop, 500, 'the bottom reader still sees the latest message');
+
+    away = true;
+    scroll.scrollTop = 200;
+    const historyCount = layouts.length;
+    scroll.clientHeight = 450;
+    await act(async () => resize.callback([]));
+    assert.ok(layouts.length > historyCount, 'the second resize also publishes layout');
+    assert.equal(scroll.scrollTop, 200, 'a reader browsing history is not pulled back to the bottom');
   } finally { await view.close(); }
 });
 
