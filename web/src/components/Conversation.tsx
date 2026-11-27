@@ -122,6 +122,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   // the session instance instead of being mutated during a render transition.
   const heights = useRef(new Map<string, number>());
   const nodes = useRef(new Map<string, HTMLElement>());
+  const messageList = useRef<HTMLDivElement>(null);
   const observer = useRef<ResizeObserver | null>(null);
   const [revision, setRevision] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 0 });
@@ -206,21 +207,25 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   // when the new mounted window no longer overlaps the old one.
   useLayoutEffect(() => {
     const element = scrollRef?.current;
-    if (!element || !virtualized) {
+    const list = messageList.current;
+    if (!element || !list || !virtualized) {
       layoutAnchor.current = null;
       return;
     }
     const scrollerTop = element.getBoundingClientRect().top;
     const viewportTop = element.scrollTop;
+    const toContentPosition = (top: number) => top + viewportTop - scrollerTop;
     const current = new Map<string, number>();
     for (const message of visible) {
       const id = String(message.id);
       const node = nodes.current.get(id);
-      if (node) current.set(id, node.getBoundingClientRect().top + element.scrollTop - scrollerTop);
+      if (node) current.set(id, toContentPosition(node.getBoundingClientRect().top));
     }
     const representedPosition = (index: number) => {
-      if (index <= view.start) return view.offsets[index];
-      let position = view.topHeight;
+      // Spacer offsets start at the list, which can be inset inside the scroller.
+      const listTop = toContentPosition(list.getBoundingClientRect().top);
+      if (index <= view.start) return listTop + view.offsets[index];
+      let position = listTop + view.topHeight;
       const stop = Math.min(index, view.end);
       for (let row = view.start; row < stop; row++) {
         const id = String(messages[row].id);
@@ -265,7 +270,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     layoutCallback.current?.();
   }, [messages, revision, session.id, virtualized, viewport.height]);
 
-  return <div className="loopra-conversation" aria-label={t('chat.content')}><ImagePreviewProvider><div className="message-list">
+  return <div className="loopra-conversation" aria-label={t('chat.content')}><ImagePreviewProvider><div ref={messageList} className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}
     {virtualized ? visible.map(message => <div key={message.id} ref={node => measure(String(message.id), node)} className="virtual-message-item">{render(message)}</div>) : visible.map(render)}
     {virtualized && view.bottomHeight > 0 && <div className="virtual-spacer" style={{ height: view.bottomHeight }} aria-hidden="true" />}

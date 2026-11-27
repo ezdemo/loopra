@@ -67,6 +67,7 @@ const { default: BlockRenderer } = await import(await sourceUrl('components/Bloc
 }));
 
 const chatWindowUrl = await sourceUrl('chat-window.ts', { './chat': chatUrl });
+const { VIRTUAL_OVERSCAN } = await import(chatWindowUrl);
 // Conversation.tsx must tag every message so the dock can jump to it.
 const imagePreviews = [];
 globalThis.__loopraTestImagePreviews = imagePreviews;
@@ -433,6 +434,53 @@ test('virtual layout corrections preserve the overlapping anchor row', async () 
     await act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
     assert.equal(corrections.length, correctionCount, 'the resulting real scroll event does not trigger another correction');
   } finally { await view.close(); }
+});
+
+test('scrolling down past an unmounted anchor stays stable with an inset message list', async () => {
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 0 },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  const listInset = 16;
+  const rowHeight = 320;
+  const anchorIndex = 10;
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  const rect = (top, height) => ({ top, height, bottom: top + height });
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this === scroll) return rect(0, scroll.clientHeight);
+    if (this.classList.contains('message-list')) return rect(listInset - scroll.scrollTop, 80 * rowHeight);
+    if (this.dataset.virtualMessageId) {
+      const index = Number(this.dataset.virtualMessageId.slice(1));
+      return rect(listInset + index * rowHeight - scroll.scrollTop, rowHeight);
+    }
+    return originalRect.call(this);
+  };
+
+  let view;
+  try {
+    view = await renderMessages(longSession(), { scrollRef: { current: scroll } });
+    const dispatchScroll = () => act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
+    for (let index = 1; index <= anchorIndex; index++) {
+      scroll.scrollTop = listInset + index * rowHeight;
+      await dispatchScroll();
+    }
+    const oldAnchor = `[data-virtual-message-id="m${anchorIndex}"]`;
+    assert.ok(view.container.querySelector(oldAnchor));
+
+    // The previous anchor just leaves the overscan window. A spurious correction
+    // by the list inset would bring it back and cause the next scroll to undo it.
+    const target = (anchorIndex + 1) * rowHeight + VIRTUAL_OVERSCAN + listInset / 2;
+    scroll.scrollTop = target;
+    await dispatchScroll();
+    assert.equal(view.container.querySelector(oldAnchor), null);
+    assert.equal(scroll.scrollTop, target);
+    await dispatchScroll();
+    assert.equal(scroll.scrollTop, target);
+  } finally {
+    await view?.close();
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+  }
 });
 
 test('unmounted row estimates follow message content instead of visible outliers', async () => {
