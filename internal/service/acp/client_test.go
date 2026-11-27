@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -147,8 +148,35 @@ func (a *fakeSDKAgent) ResumeSession(context.Context, acpsdk.ResumeSessionReques
 	return acpsdk.ResumeSessionResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionResume)
 }
 
-func (a *fakeSDKAgent) SetSessionConfigOption(context.Context, acpsdk.SetSessionConfigOptionRequest) (acpsdk.SetSessionConfigOptionResponse, error) {
-	return acpsdk.SetSessionConfigOptionResponse{ConfigOptions: []acpsdk.SessionConfigOption{}}, nil
+func (a *fakeSDKAgent) SetSessionConfigOption(_ context.Context, req acpsdk.SetSessionConfigOptionRequest) (acpsdk.SetSessionConfigOptionResponse, error) {
+	// LOOPRA_ACP_FAKE_CONFIG_LOG 记录请求自带的 sessionId/configId，
+	// 供共享进程配置隔离测试断言 RPC 落在哪个远端会话上；此时按 v1 语义回
+	// 完整快照（配置项取请求值），验证回包归位而不是靠缺省字段兜底。
+	if log := os.Getenv("LOOPRA_ACP_FAKE_CONFIG_LOG"); log != "" {
+		var sessionID, configID, value string
+		if req.ValueId != nil {
+			sessionID, configID, value = string(req.ValueId.SessionId), string(req.ValueId.ConfigId), string(req.ValueId.Value)
+		} else if req.Boolean != nil {
+			sessionID, configID = string(req.Boolean.SessionId), string(req.Boolean.ConfigId)
+			if req.Boolean.Value {
+				value = "true"
+			} else {
+				value = "false"
+			}
+		}
+		if file, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+			_, _ = file.WriteString(sessionID + "|" + configID + "|" + value + "\n")
+			_ = file.Close()
+		}
+		option := acpsdk.NewSessionConfigOptionSelect(acpsdk.SessionConfigValueId(value),
+			acpsdk.SessionConfigSelectOptions{Ungrouped: &acpsdk.SessionConfigSelectOptionsUngrouped{
+				{Value: acpsdk.SessionConfigValueId(value), Name: value},
+			}})
+		option.Select.Id = acpsdk.SessionConfigId(configID)
+		option.Select.Name = configID
+		return acpsdk.SetSessionConfigOptionResponse{ConfigOptions: []acpsdk.SessionConfigOption{option}}, nil
+	}
+	return acpsdk.SetSessionConfigOptionResponse{}, nil
 }
 
 func (a *fakeSDKAgent) SetSessionMode(context.Context, acpsdk.SetSessionModeRequest) (acpsdk.SetSessionModeResponse, error) {
@@ -239,6 +267,124 @@ func TestClientSessionFlow(t *testing.T) {
 	if events[4].Used != 12 || events[4].Size != 100 {
 		t.Fatalf("usage = %+v", events[4])
 	}
+}
+
+// TestConnSetConfigOptionStaysOnOwnSession 覆盖共享进程的配置隔离：
+// 两个 Loopra 会话复用一条连接，focus 停在 B 上时修改 A——RPC 必须带
+// A 的 sessionId，回包只写进 A 的快照，B 与客户端全局快照都不能动。
+func TestConnSetConfigOptionStaysOnOwnSession(t *testing.T) {
+	log := t.TempDir() + "/config.log"
+	client := fakeClientEnv(t, nil, map[string]string{"LOOPRA_ACP_FAKE_CONFIG_LOG": log})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := client.Initialize(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	connA := &Conn{name: "a", client: client, acpSession: "ses-a", state: newACPSharedState()}
+	connB := &Conn{name: "b", client: client, acpSession: "ses-b", state: newACPSharedState()}
+	connA.BindSession("ses-a", []ConfigOption{{ID: "mode", Type: "select", CurrentValue: "agent"}})
+	connB.BindSession("ses-b", []ConfigOption{{ID: "mode", Type: "select", CurrentValue: "agent"}})
+	// owner / 全局 sessionID 停在 B 上：修改 A 不能跟错人。
+	connB.Use()
+
+	options, err := connA.SetConfigOption(ctx, "mode", "full")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options[0].CurrentValue; got != "full" {
+		t.Fatalf("options = %+v", options)
+	}
+	if got := connA.ConfigOptions()[0].CurrentValue; got != "full" {
+		t.Fatalf("connA options = %+v", connA.ConfigOptions())
+	}
+	if got := connB.ConfigOptions()[0].CurrentValue; got != "agent" {
+		t.Fatalf("B 的快照被 A 的修改污染: %+v", connB.ConfigOptions())
+	}
+	body, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "ses-a|mode|full\n" {
+		t.Fatalf("config log = %q", body)
+	}
+	// 客户端全局快照仍属于 B（c.sessionID==ses-b），A 的回包不能写进去。
+	if got := client.SessionID(); got != "ses-b" {
+		t.Fatalf("client session = %q", got)
+	}
+	for _, option := range client.ConfigOptions() {
+		if option.ID == "mode" && option.CurrentValue == "full" {
+			t.Fatalf("client 全局快照被 A 的修改污染: %+v", client.ConfigOptions())
+		}
+	}
+}
+
+// TestConfigFromSDKDistinguishesEmptyFromOmitted 覆盖 v1 兼容性：字段缺省
+// （旧版 Agent）与显式 "configOptions":[]（支持但当前没有可选项）必须区分。
+func TestConfigFromSDKDistinguishesEmptyFromOmitted(t *testing.T) {
+	if got := configFromSDK(nil); got != nil {
+		t.Fatalf("omitted must stay nil: %#v", got)
+	}
+	if got := configFromSDK([]acpsdk.SessionConfigOption{}); got == nil || len(got) != 0 {
+		t.Fatalf("explicit empty must survive: %#v", got)
+	}
+	// 线上反序列化路径同样要区分。
+	var emptyWire acpsdk.SetSessionConfigOptionResponse
+	if err := json.Unmarshal([]byte(`{"configOptions":[]}`), &emptyWire); err != nil {
+		t.Fatal(err)
+	}
+	if got := configFromSDK(emptyWire.ConfigOptions); got == nil || len(got) != 0 {
+		t.Fatalf("wire explicit empty must survive: %#v", got)
+	}
+	var omittedWire acpsdk.SetSessionConfigOptionResponse
+	if err := json.Unmarshal([]byte(`{}`), &omittedWire); err != nil {
+		t.Fatal(err)
+	}
+	if omittedWire.ConfigOptions != nil {
+		t.Fatalf("omitted field must stay nil: %#v", omittedWire.ConfigOptions)
+	}
+
+	// applySetup：显式空列表算支持 configOptions，不回落 legacy modes 合成。
+	client := &Client{children: map[string]bool{}}
+	client.applySetup(&SessionSetupResult{SessionID: "ses-empty", ConfigOptions: []ConfigOption{}})
+	if !client.ConfigOptionsSupported() {
+		t.Fatal("explicit empty configOptions should still count as supported")
+	}
+	if got := client.ConfigOptions(); got == nil || len(got) != 0 {
+		t.Fatalf("client snapshot should keep explicit empty: %#v", got)
+	}
+}
+
+// TestApplySetupBindsToSetupOwner 覆盖建立 RPC 期间 owner 被切走的场景：
+// beginAccept 记下的属主才是回绑目标，中途 focus 到 B 不能把建好的
+// 配置抄到 B 名下。
+func TestApplySetupBindsToSetupOwner(t *testing.T) {
+	client := &Client{children: map[string]bool{}}
+	connA := &Conn{name: "a", client: client, state: newACPSharedState()}
+	connB := &Conn{name: "b", client: client, acpSession: "ses-b", state: newACPSharedState()}
+	client.indexSession("ses-b", connB)
+	client.beginAccept(connA)
+	// 建立 RPC 在飞时另一个会话抢到进程（等价于 Conn.Use）。
+	client.focus(connB, "ses-b")
+
+	result := SessionSetupResult{
+		SessionID:     "ses-a",
+		ConfigOptions: []ConfigOption{{ID: "mode", Type: "select", CurrentValue: "agent"}},
+	}
+	client.applySetup(&result)
+
+	if got := connA.SessionID(); got != "ses-a" {
+		t.Fatalf("connA session = %q", got)
+	}
+	if got := connA.ConfigOptions(); len(got) != 1 || got[0].CurrentValue != "agent" {
+		t.Fatalf("connA options = %+v", got)
+	}
+	if got := connB.SessionID(); got != "ses-b" {
+		t.Fatalf("B 的会话 id 被 A 的建立结果覆盖: %q", got)
+	}
+	if got := connB.ConfigOptions(); len(got) != 0 {
+		t.Fatalf("B 的配置被 A 的建立结果污染: %+v", got)
+	}
+	client.endAccept("ses-a")
 }
 
 func TestSupportedMCPSkipsUndeclaredHTTP(t *testing.T) {

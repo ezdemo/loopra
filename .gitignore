@@ -13,3 +13,4 @@ looprax.exe
 web/node_modules/
 web/dist/
 .cache
+.soloncode/

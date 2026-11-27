@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -127,7 +128,29 @@ func (c *Conn) ConfigOptions() []ConfigOption {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]ConfigOption(nil), c.options...)
+	return slices.Clone(c.options)
+}
+
+// SetConfigOption 更新这个 Loopra 会话自己的配置项，并把回包绑定到
+// 它自己的 ACP session id——共享进程时 Client 上的 sessionID 可能已换主，
+// 这里按本会话绑定的 id 下发与回写，不经过全局 owner。
+func (c *Conn) SetConfigOption(ctx context.Context, id string, value any) ([]ConfigOption, error) {
+	sessionID := c.SessionID()
+	options, err := c.client.setSessionConfigOption(ctx, sessionID, id, value)
+	if err != nil {
+		return nil, err
+	}
+	if options == nil {
+		options = c.ConfigOptions()
+		for i := range options {
+			if options[i].ID == id {
+				options[i].CurrentValue = value
+				break
+			}
+		}
+	}
+	c.BindSession(sessionID, options)
+	return options, nil
 }
 
 // BindSession 记下该 Loopra 会话的 ACP session 与配置。
@@ -141,7 +164,7 @@ func (c *Conn) BindSession(id string, options []ConfigOption) {
 		c.live = true
 	}
 	if options != nil {
-		c.options = append([]ConfigOption(nil), options...)
+		c.options = slices.Clone(options)
 	}
 	client := c.client
 	c.mu.Unlock()
@@ -375,7 +398,7 @@ func (c *Conn) currentTurn() *acpTurn {
 }
 
 func (c *Conn) handleEvent(event Event) {
-	if event.Kind == EventConfig && len(event.ConfigOptions) > 0 {
+	if event.Kind == EventConfig && event.ConfigOptions != nil {
 		c.BindSession(c.SessionID(), event.ConfigOptions)
 	}
 	if turn := c.currentTurn(); turn != nil {
@@ -763,7 +786,7 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 	}
 	conn.mu.Lock()
 	live := conn.live
-	cached := append([]ConfigOption(nil), conn.options...)
+	cached := slices.Clone(conn.options)
 	conn.mu.Unlock()
 	if live {
 		conn.Use()
@@ -813,7 +836,12 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 	}
 	// 恢复必须在写入前读快照：result.ConfigOptions 是 Agent 恢复会话时给的默认值，
 	// 先落盘会让恢复读到这份默认值，用户的选择被静默覆盖。
-	options, config := restoreSessionConfig(ctx, conn.client, host.Meta(name), result.ConfigOptions)
+	// 下发必须对着刚返回的 result.SessionID：共享进程时客户端上的 sessionID
+	// 可能已被别的会话切走，不能用全局 owner。
+	writer := configSetter(func(callCtx context.Context, id string, value any) ([]ConfigOption, error) {
+		return conn.client.setSessionConfigOption(callCtx, result.SessionID, id, value)
+	})
+	options, config := restoreSessionConfig(ctx, writer, host.Meta(name), result.ConfigOptions)
 	patch := map[string]any{"agentId": conn.agentID, "acpSessionId": result.SessionID, "acpCwd": conn.cwd}
 	if len(config) > 0 {
 		patch["agentConfig"] = config
@@ -840,7 +868,7 @@ func (m *Manager) OpenSession(ctx context.Context, host SessionHost, name string
 // 先落盘会把用户上次的选择当成默认值发回去，看上去就像重启后被重置了。
 func restoreSessionConfig(ctx context.Context, writer configWriter, meta map[string]any, options []ConfigOption) ([]ConfigOption, map[string]any) {
 	saved := savedAgentConfig(meta)
-	options = restoreAgentConfig(ctx, writer, saved, options)
+	options = ApplyAgentConfig(ctx, writer, saved, options)
 	return options, agentConfigValues(saved, options)
 }
 
@@ -885,60 +913,64 @@ func savedAgentConfig(meta map[string]any) map[string]string {
 	return values
 }
 
-// pendingAgentConfig 列出需要重新下发的配置：Agent 恢复会话时提交的是它自己的默认值，
-// 与保存值不同就以保存值覆盖，这才是用户上次的选择。
-func pendingAgentConfig(saved map[string]string, options []ConfigOption) []ConfigOption {
-	pending := []ConfigOption{}
-	for _, option := range options {
-		if option.ID == "" {
-			continue
-		}
-		value, exists := saved[option.ID]
-		if !exists || fmt.Sprint(option.CurrentValue) == value {
-			continue
-		}
-		pending = append(pending, ConfigOption{ID: option.ID, CurrentValue: value})
-	}
-	return pending
-}
-
-// configWriter 是恢复会话时需要的配置下发能力；*Client 是其实现。
+// configWriter 是配置下发需要的最小能力；*Client、*Conn 和
+// 定向到特定远端会话的 configSetter 都是其实现。
 type configWriter interface {
 	SetConfigOption(ctx context.Context, id string, value any) ([]ConfigOption, error)
 }
 
-// restoreAgentConfig 把保存的选择下发给 Agent，返回生效后的配置项。
-// 每个回包都可能是局部快照，只按 ID 覆盖回去，不移除 Agent 未在本次回包里列出的选项。
-func restoreAgentConfig(ctx context.Context, writer configWriter, saved map[string]string, options []ConfigOption) []ConfigOption {
-	for _, pending := range pendingAgentConfig(saved, options) {
-		updated, err := writer.SetConfigOption(ctx, pending.ID, pending.CurrentValue)
-		if err != nil {
-			// 某个保存值已不再被该 Agent 接受时跳过，不阻塞打开会话。
-			continue
-		}
-		options = overwriteOptions(options, updated)
-	}
-	return options
+// configSetter 让针对特定远端会话的闭包实现 configWriter。
+type configSetter func(context.Context, string, any) ([]ConfigOption, error)
+
+func (f configSetter) SetConfigOption(ctx context.Context, id string, value any) ([]ConfigOption, error) {
+	return f(ctx, id, value)
 }
 
-// overwriteOptions 用 updated 里同 ID 的值覆盖 options，其余选项保持原样。
-func overwriteOptions(options, updated []ConfigOption) []ConfigOption {
-	merged := append([]ConfigOption(nil), options...)
-	for _, change := range updated {
-		found := false
-		for index := range merged {
-			if merged[index].ID != change.ID {
+// ApplyAgentConfig 把保存的选择逐项下发给 Agent，返回生效后的完整配置快照。
+// v1 语义：set_config_option 的回包就是当前完整列表，因此每次成功都用回包
+// 整体替换 options——换模型后 Agent 会删掉过时选项、新增依附模型的选项，
+// 局部合并会把旧选项永远留在列表里。
+// 每轮优先下发 model（category 或 id 命中）：依附模型的 effort/thinking 等
+// 选项可能在换模型之后才出现在列表里，那时再以保存值覆盖。
+func ApplyAgentConfig(ctx context.Context, writer configWriter, saved map[string]string, options []ConfigOption) []ConfigOption {
+	attempted := map[string]bool{}
+	for ctx.Err() == nil {
+		var next *ConfigOption
+		for i := range options {
+			option := &options[i]
+			goal, ok := saved[option.ID]
+			if option.ID == "" || attempted[option.ID] || !ok || fmt.Sprint(option.CurrentValue) == goal {
 				continue
 			}
-			merged[index] = change
-			found = true
+			if next == nil {
+				next = option
+			}
+			if option.Category == "model" || option.ID == "model" {
+				next = option
+				break
+			}
+		}
+		if next == nil {
 			break
 		}
-		if !found {
-			merged = append(merged, change)
+		attempted[next.ID] = true
+		var value any = saved[next.ID]
+		if next.Type == "boolean" {
+			switch saved[next.ID] {
+			case "true":
+				value = true
+			case "false":
+				value = false
+			default:
+				continue
+			}
+		}
+		updated, err := writer.SetConfigOption(ctx, next.ID, value)
+		if err == nil && updated != nil {
+			options = updated
 		}
 	}
-	return merged
+	return options
 }
 
 func resumeSupported(capabilities AgentCapabilities) bool {

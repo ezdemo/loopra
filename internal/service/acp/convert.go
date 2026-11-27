@@ -61,8 +61,11 @@ func localUpdate(update acpsdk.SessionUpdate) (SessionUpdate, bool) {
 }
 
 func forkConfigOptions(options []acpsdk.UnstableSessionConfigOption) []ConfigOption {
-	if len(options) == 0 {
+	if options == nil {
 		return nil
+	}
+	if len(options) == 0 {
+		return []ConfigOption{}
 	}
 	raw, err := json.Marshal(options)
 	if err != nil {
@@ -98,9 +101,14 @@ func modesFromSDK(modes *acpsdk.SessionModeState) *SessionModes {
 	return out
 }
 
+// configFromSDK 区分字段缺省与显式空列表：v1 里 configOptions 是完整快照，
+// Agent 广告 "[]" 意为支持但当前没有可选项，与根本没给这个字段的旧版 Agent 不同。
 func configFromSDK(options []acpsdk.SessionConfigOption) []ConfigOption {
-	if len(options) == 0 {
+	if options == nil {
 		return nil
+	}
+	if len(options) == 0 {
+		return []ConfigOption{}
 	}
 	raw, err := json.Marshal(options)
 	if err != nil {

@@ -121,7 +121,7 @@ func (c *Client) sessionUpdate(params acpsdk.SessionNotification, target *acpTur
 		delivery = owner
 	}
 	if target != nil {
-		if delivery != nil && event.Kind == EventConfig && len(event.ConfigOptions) > 0 {
+		if delivery != nil && event.Kind == EventConfig && event.ConfigOptions != nil {
 			delivery.BindSession(delivery.SessionID(), event.ConfigOptions)
 		}
 		target.handle(event)
@@ -164,10 +164,10 @@ func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPer
 	cancelled := acpsdk.RequestPermissionResponse{Outcome: acpsdk.RequestPermissionOutcome{
 		Cancelled: &acpsdk.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 	}}
-	owner := c.requestOwner(string(params.SessionId), string(params.ToolCall.ToolCallId))
-	c.mu.Lock()
-	perm := c.perm
-	c.mu.Unlock()
+	owner, perm := c.permissionRoute(string(params.SessionId))
+	if ctx.Err() != nil {
+		return cancelled, nil
+	}
 	var option string
 	var ok bool
 	switch {
@@ -178,8 +178,21 @@ func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPer
 	default:
 		return cancelled, nil
 	}
-	if !ok || option == "" {
+	if ctx.Err() != nil || !ok || option == "" {
 		logging.Infof("acp", "permission cancelled tool=%q", request.ToolCall.Title)
+		return cancelled, nil
+	}
+	// 只回执请求里广播过的选项 id；handler 返回别的值按取消处理。
+	valid := false
+	for _, o := range request.Options {
+		if o.OptionID == option {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		logging.Infof("acp", "permission option %q not among request options, cancel tool=%q",
+			option, request.ToolCall.Title)
 		return cancelled, nil
 	}
 	logging.Infof("acp", "permission answered tool=%q option=%q", request.ToolCall.Title, option)
@@ -188,6 +201,25 @@ func (c *Client) RequestPermission(ctx context.Context, params acpsdk.RequestPer
 			Outcome: "selected", OptionId: acpsdk.PermissionOptionId(option),
 		},
 	}}, nil
+}
+
+// permissionRoute 按请求自带的 sessionId 决定审批去向：显式会话绑定优先
+// （toolCallId 会被复用，不能当路由依据），原生子会话退回父会话属主，
+// 无绑定的直连客户端回退到创建时注册的 PermissionFunc。
+// 都对不上就是陌生会话——返回 nil 让调用方回 cancelled，而不是转给当前 owner。
+func (c *Client) permissionRoute(sessionID string) (*Conn, PermissionFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if owner := c.sessionConns[sessionID]; owner != nil {
+		return owner, nil
+	}
+	if c.childSupported && c.children[sessionID] {
+		return c.owner, nil
+	}
+	if c.owner == nil && sessionID != "" && sessionID == c.sessionID {
+		return nil, c.perm
+	}
+	return nil, nil
 }
 
 func (c *Client) UnstableCreateElicitation(ctx context.Context, params acpsdk.UnstableCreateElicitationRequest) (acpsdk.UnstableCreateElicitationResponse, error) {

@@ -137,6 +137,145 @@ func TestPermissionRoutesBySessionID(t *testing.T) {
 	}
 }
 
+// TestPermissionPrefersSessionIDOverToolCall toolCallId 会被不同会话复用，
+// 显式 sessionId 才是路由依据：call-x 已索引到 B，A 名下的请求仍发给 A。
+func TestPermissionPrefersSessionIDOverToolCall(t *testing.T) {
+	client, host, _, _, sinkA, sinkB := newRoutingFixture()
+	ctx := context.Background()
+	client.indexToolSession("call-x", "ses-b")
+
+	result := make(chan acpsdk.RequestPermissionResponse, 1)
+	go func() {
+		resp, err := client.RequestPermission(ctx, acpsdk.RequestPermissionRequest{
+			SessionId: "ses-a",
+			ToolCall:  acpsdk.ToolCallUpdate{ToolCallId: "call-x", Title: acpsdk.Ptr("共享工具")},
+			Options: []acpsdk.PermissionOption{
+				{OptionId: "allow", Name: "Allow", Kind: "allow_once"},
+			},
+		})
+		if err != nil {
+			t.Errorf("RequestPermission: %v", err)
+		}
+		result <- resp
+	}()
+
+	event := sinkA.waitFor("choice", 5*time.Second)
+	if event == nil {
+		t.Fatalf("sessionId 显式指向 A 的审批串到了别处；seen=%v", sinkEvents(sinkA))
+	}
+	if got := sinkEvents(sinkB); len(got) != 0 {
+		t.Fatalf("toolCallId 索引到 B 也不能把 A 的审批发给 B: %v", got)
+	}
+	id, _ := event["permissionRequestId"].(string)
+	if err := host.perms.Resolve(id, "a", "allow"); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	select {
+	case resp := <-result:
+		if resp.Outcome.Selected == nil || string(resp.Outcome.Selected.OptionId) != "allow" {
+			t.Fatalf("expected selected allow, got %+v", resp)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("permission 请求未返回")
+	}
+}
+
+// TestPermissionUnknownRemoteCancelled 陌生远端会话不发去当前 owner——
+// 直接回 cancelled，不给兄弟会话弹别人的审批。
+func TestPermissionUnknownRemoteCancelled(t *testing.T) {
+	client, _, _, _, _, sinkB := newRoutingFixture()
+	resp, err := client.RequestPermission(context.Background(), acpsdk.RequestPermissionRequest{
+		SessionId: "ses-ghost",
+		ToolCall:  acpsdk.ToolCallUpdate{ToolCallId: "call-x", Title: acpsdk.Ptr("陌生会话")},
+		Options: []acpsdk.PermissionOption{
+			{OptionId: "allow", Name: "Allow", Kind: "allow_once"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RequestPermission: %v", err)
+	}
+	if resp.Outcome.Cancelled == nil {
+		t.Fatalf("未知会话的审批应回 cancelled: %+v", resp)
+	}
+	if got := sinkEvents(sinkB); len(got) != 0 {
+		t.Fatalf("未知会话的审批不应落到 owner(B): %v", got)
+	}
+}
+
+// TestPermissionChildFallsBackToOwner 原生子会话没有自己的 Conn，
+// 它的审批退回父会话属主（这里是 focus 的 B）。
+func TestPermissionChildFallsBackToOwner(t *testing.T) {
+	client, host, _, _, sinkA, sinkB := newRoutingFixture()
+	ctx := context.Background()
+	client.mu.Lock()
+	client.childSupported = true
+	client.children["child-1"] = true
+	client.mu.Unlock()
+
+	result := make(chan acpsdk.RequestPermissionResponse, 1)
+	go func() {
+		resp, err := client.RequestPermission(ctx, acpsdk.RequestPermissionRequest{
+			SessionId: "child-1",
+			ToolCall:  acpsdk.ToolCallUpdate{ToolCallId: "call-c", Title: acpsdk.Ptr("子会话工具")},
+			Options: []acpsdk.PermissionOption{
+				{OptionId: "allow", Name: "Allow", Kind: "allow_once"},
+			},
+		})
+		if err != nil {
+			t.Errorf("RequestPermission: %v", err)
+		}
+		result <- resp
+	}()
+
+	event := sinkB.waitFor("choice", 5*time.Second)
+	if event == nil {
+		t.Fatalf("子会话审批应退回父会话属主 B；seen=%v", sinkEvents(sinkB))
+	}
+	if got := sinkEvents(sinkA); len(got) != 0 {
+		t.Fatalf("子会话审批不应发给 A: %v", got)
+	}
+	id, _ := event["permissionRequestId"].(string)
+	if err := host.perms.Resolve(id, "b", "allow"); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	select {
+	case resp := <-result:
+		if resp.Outcome.Selected == nil || string(resp.Outcome.Selected.OptionId) != "allow" {
+			t.Fatalf("expected selected allow, got %+v", resp)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("permission 请求未返回")
+	}
+}
+
+// TestPermissionInvalidOptionCancelled handler 返回的选项必须来自请求广播的
+// option id；PermissionFunc 直接返回非法值时按取消处理，不能把非法选项回执给 Agent。
+// （经 turn.permission 的路径已由 hitl registry 校验过，这条防线守的是裸回调。）
+func TestPermissionInvalidOptionCancelled(t *testing.T) {
+	client := &Client{
+		children:     map[string]bool{},
+		sessionConns: map[string]*Conn{},
+		toolSessions: map[string]string{},
+		sessionID:    "ses-1",
+		perm: func(context.Context, PermissionRequest) (string, bool) {
+			return "bogus-option", true
+		},
+	}
+	resp, err := client.RequestPermission(context.Background(), acpsdk.RequestPermissionRequest{
+		SessionId: "ses-1",
+		ToolCall:  acpsdk.ToolCallUpdate{ToolCallId: "call-1", Title: acpsdk.Ptr("执行")},
+		Options: []acpsdk.PermissionOption{
+			{OptionId: "allow", Name: "Allow", Kind: "allow_once"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RequestPermission: %v", err)
+	}
+	if resp.Outcome.Cancelled == nil {
+		t.Fatalf("非法选项应回 cancelled: %+v", resp)
+	}
+}
+
 func TestElicitationUnknownRouteFallsBackToOwner(t *testing.T) {
 	client, host, _, _, sinkA, sinkB := newRoutingFixture()
 	ctx := context.Background()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
@@ -96,6 +97,10 @@ type Client struct {
 	// owner 是当前占用这条连接的 Loopra 会话。同一工作区的多个会话
 	// 可以共用一个进程；事件和权限请求交给 owner，而不是创建连接时的回调。
 	owner *Conn
+	// setupOwner 是正在执行会话建立（new/load/resume/fork）的 Loopra 会话。
+	// 与 owner 分开记：建立 RPC 在飞时另一个 Conn.Use 可能切走 owner，
+	// applySetup 不能把建好的配置抄到别的会话名下。
+	setupOwner *Conn
 	// accepting 为 true 时，会话建立过程中的更新不再按旧 session id 丢弃。
 	accepting bool
 	// sessionConns / toolSessions 把 ACP session 和 tool call 映射回
@@ -177,6 +182,7 @@ func (c *Client) beginAccept(owner *Conn) {
 	}
 	c.mu.Lock()
 	c.owner = owner
+	c.setupOwner = owner
 	c.accepting = true
 	c.mu.Unlock()
 }
@@ -190,6 +196,7 @@ func (c *Client) endAccept(sessionID string) {
 	}
 	c.mu.Lock()
 	c.accepting = false
+	c.setupOwner = nil
 	for id := range c.commandsBySession {
 		if c.sessionConns[id] == nil {
 			delete(c.commandsBySession, id)
@@ -610,17 +617,24 @@ func (c *Client) ForkSession(ctx context.Context, sourceID, cwd string, dirs []s
 
 // applySetup 记录会话建立时返回的配置项；旧版 Agent 只给
 // modes，这里合成为同形状的配置项供前端渲染。
+// 建立 RPC 在飞时全局 owner 可能已被另一个 Conn.Use 切走，
+// 回绑必须用建立开始时记下的 setupOwner，不能事后反查 owner。
 func (c *Client) applySetup(result *SessionSetupResult) {
 	c.mu.Lock()
-	if len(result.ConfigOptions) > 0 {
+	// 字段缺省才是旧版 Agent：显式空列表意味着支持但当前没有可选项。
+	if result.ConfigOptions != nil {
 		c.configOptions = result.ConfigOptions
-		c.configSupported = true
 	} else {
 		c.configOptions = legacyConfigOptions(result.Modes, result.Models)
 	}
-	options := append([]ConfigOption(nil), c.configOptions...)
+	// 每次建立都重算：换到只给 modes 的旧 Agent 时不能留着上次的 true。
+	c.configSupported = result.ConfigOptions != nil
+	owner := c.setupOwner
+	options := slices.Clone(c.configOptions)
 	c.mu.Unlock()
-	c.bindOwnerOptions(options)
+	if owner != nil {
+		owner.BindSession(result.SessionID, options)
+	}
 }
 
 // legacyConfigOptions 把 ACP 旧版的 modes/models 转成配置项。
@@ -673,7 +687,7 @@ func (c *Client) SessionID() string {
 func (c *Client) ConfigOptions() []ConfigOption {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]ConfigOption(nil), c.configOptions...)
+	return slices.Clone(c.configOptions)
 }
 
 // Prompt 发送一条用户消息并阻塞到本轮结束。
@@ -704,9 +718,58 @@ func (c *Client) Cancel(ctx context.Context) error {
 	return c.fail(c.conn.Cancel(ctx, acpsdk.CancelNotification{SessionId: acpsdk.SessionId(sessionID)}))
 }
 
-// SetConfigOption 更新一个会话配置项。
+// SetConfigOption 更新当前会话的一个配置项。
+// 共享进程时 RPC 在飞、owner 可能已被别的会话切走：sessionID 在入口处
+// 快照一次，客户端快照只在它仍是当前会话时才回写，回包也只绑给
+// sessionConns 里该会话自己的 Conn，不跟全局 owner 走。
 func (c *Client) SetConfigOption(ctx context.Context, id string, value any) ([]ConfigOption, error) {
 	sessionID := c.SessionID()
+	if sessionID == "" {
+		return nil, fmt.Errorf("Agent 会话正在初始化")
+	}
+	updated, err := c.setSessionConfigOption(ctx, sessionID, id, value)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	if c.sessionID == sessionID {
+		if updated != nil {
+			c.configOptions = updated
+			c.configSupported = true
+		} else {
+			for index := range c.configOptions {
+				if c.configOptions[index].ID == id {
+					c.configOptions[index].CurrentValue = value
+				}
+			}
+		}
+	}
+	snapshot := slices.Clone(c.configOptions)
+	owner := c.sessionConns[sessionID]
+	c.mu.Unlock()
+	options := updated
+	if options == nil {
+		if owner != nil {
+			options = owner.ConfigOptions()
+			for i := range options {
+				if options[i].ID == id {
+					options[i].CurrentValue = value
+					break
+				}
+			}
+		} else {
+			options = snapshot
+		}
+	}
+	if owner != nil {
+		owner.BindSession(sessionID, options)
+	}
+	return options, nil
+}
+
+// setSessionConfigOption 只发一次 session/set_config_option RPC：
+// 不回写客户端快照、不做会话绑定——快照归谁由调用方按 sessionID 决定。
+func (c *Client) setSessionConfigOption(ctx context.Context, sessionID, id string, value any) ([]ConfigOption, error) {
 	if sessionID == "" {
 		return nil, fmt.Errorf("Agent 会话正在初始化")
 	}
@@ -725,21 +788,7 @@ func (c *Client) SetConfigOption(ctx context.Context, id string, value any) ([]C
 	if err != nil {
 		return nil, c.fail(err)
 	}
-	c.mu.Lock()
-	if len(raw.ConfigOptions) > 0 {
-		c.configOptions = configFromSDK(raw.ConfigOptions)
-		c.configSupported = true
-	} else {
-		for index := range c.configOptions {
-			if c.configOptions[index].ID == id {
-				c.configOptions[index].CurrentValue = value
-			}
-		}
-	}
-	options := append([]ConfigOption(nil), c.configOptions...)
-	c.mu.Unlock()
-	c.bindOwnerOptions(options)
-	return options, nil
+	return configFromSDK(raw.ConfigOptions), nil
 }
 
 // SetMode 切换会话模式。
@@ -838,5 +887,5 @@ func (c *Client) ReplayState() ([]PlanEntry, []ConfigOption) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]PlanEntry(nil), c.replayPlan...),
-		append([]ConfigOption(nil), c.replayConfig...)
+		slices.Clone(c.replayConfig)
 }

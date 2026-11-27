@@ -45,13 +45,13 @@ func (s *Controller) prepareExternalEngine(w http.ResponseWriter, r *http.Reques
 		writeACPFailure(w, http.StatusInternalServerError, err)
 		return
 	}
-	// 仅新会话套用全局偏好；已有会话的配置由 restoreAgentConfig 恢复。
+	// 仅新会话套用全局偏好；已有会话的配置由 ApplyAgentConfig 恢复。
 	if fresh {
-		s.applyAgentPreferences(r.Context(), name, agentID)
+		options = s.applyAgentPreferences(r.Context(), name, agentID, conn, options)
 	}
-	if latest := conn.ConfigOptions(); len(latest) > 0 {
-		options = latest
-	} else if latest := conn.Client().ConfigOptions(); len(latest) > 0 {
+	// 只用本会话自己的配置：conn.Client().ConfigOptions() 是进程上最后一次
+	// 操作的快照，共享进程时可能属于别的会话，不能替本会话兜底。
+	if latest := conn.ConfigOptions(); latest != nil {
 		options = latest
 	}
 	writeOK(w, http.StatusOK, map[string]any{
@@ -114,38 +114,54 @@ func (s *Controller) setACPConfigOption(ctx context.Context, name, id string, va
 		conn.BindSession(conn.SessionID(), conn.Client().ConfigOptions())
 		return conn.ConfigOptions(), nil
 	}
-	options, err := conn.Client().SetConfigOption(ctx, id, value)
+	options, err := conn.SetConfigOption(ctx, id, value)
 	if err != nil {
 		return nil, err
 	}
-	conn.BindSession(conn.SessionID(), options)
 	s.sessionMetaSet(name, map[string]any{"agentConfig": acp.ConfigValues(options)})
 	return options, nil
 }
 
-// applyAgentPreferences 在准备会话时套用该 Agent 的上次选择。
-func (s *Controller) applyAgentPreferences(ctx context.Context, name, agentID string) {
+// applyAgentPreferences 在准备会话时套用该 Agent 的上次选择，返回生效后的配置。
+// 标准 Agent 直接对刚打开的 conn 下发（sessionID 由绑定保证，不走全局 owner）；
+// 只给 modes 的旧版 Agent 沿用逐项旧接口。
+func (s *Controller) applyAgentPreferences(ctx context.Context, name, agentID string,
+	conn *acp.Conn, options []acp.ConfigOption) []acp.ConfigOption {
 	prefs := s.enginePreferencesRead()
 	agents, _ := prefs["agents"].(map[string]any)
 	values, _ := agents[agentID].(map[string]any)
-	if len(values) == 0 {
-		return
+	if len(values) == 0 || conn == nil {
+		return options
 	}
-	current := map[string]string{}
-	if options, err := s.acpConfigOptions(ctx, name); err == nil {
+	if !conn.Client().ConfigOptionsSupported() {
+		current := map[string]string{}
 		for _, option := range options {
 			current[option.ID] = fmt.Sprint(option.CurrentValue)
 		}
+		for id, value := range values {
+			if id == "plan" || current[id] == fmt.Sprint(value) {
+				continue
+			}
+			if _, err := s.setACPConfigOption(ctx, name, id, value); err != nil {
+				// 某个保存值已不再被该 Agent 接受时忽略，不阻塞准备流程。
+				continue
+			}
+		}
+		return options
 	}
+	desired := map[string]string{}
 	for id, value := range values {
-		if id == "plan" || current[id] == fmt.Sprint(value) {
+		if id == "plan" {
 			continue
 		}
-		if _, err := s.setACPConfigOption(ctx, name, id, value); err != nil {
-			// 某个保存值已不再被该 Agent 接受时忽略，不阻塞准备流程。
-			continue
-		}
+		desired[id] = fmt.Sprint(value)
 	}
+	options = acp.ApplyAgentConfig(ctx, conn, desired, options)
+	conn.BindSession(conn.SessionID(), options)
+	// 套用默认值不能抹掉已保存但本次不可用的选择：用合并语义写回，
+	// Agent 收过的键用现值，被 Agent 拒绝/未列出的保存键留在 .meta 下次再试。
+	s.sessionMetaSet(name, map[string]any{"agentConfig": acp.MergedAgentConfig(s.sessionMetaRead(name), acp.ConfigValues(options))})
+	return options
 }
 
 // persistAgentPreferences 保存外部 Agent 当前配置，供下次准备时套用。
