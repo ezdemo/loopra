@@ -559,6 +559,8 @@ loopra acp
 
 在 Loopra 后端所在的机器上按 [SolonCode 官方说明](https://github.com/opensolon/soloncode#installation-and-configuration) 安装 CLI 和 Java，用 `soloncode web` 在「设置 → LLM」配置模型。Loopra 从后端的 `PATH` 或 `~/.soloncode/bin` 找到 CLI，然后在项目目录运行 `soloncode acp`。安装后在「设置 → 外部 Agent」重新检测，再在项目的新会话选择 SolonCode。模型、推理强度与权限模式经标准 ACP `configOptions` 暴露，在输入栏的模型与权限控件修改；SolonCode 的思考开关是其自定义选项，出现在输入栏「更多 Agent 设置」的高级项里。工具审批需要 SolonCode 开启 HITL（`general.hitlEnabled`）：开启后每张挂起卡经 `session/request_permission` 询问，沿用工作台审批流；未开启时按 SolonCode 自身策略执行。Loopra 不提供 SolonCode 的终端会话；`mcpServers` 传入的 MCP 定义在 SolonCode 侧会被忽略（不生效），本机配置的 MCP 工具照常可用。
 
+在 SolonCode 会话中，`/interrupt` 调用工作台的停止操作，`/clear` 新建空白会话并保留旧记录，`/queue <消息>` 使用工作台当前会话的排队；`/queue list` 查看数量，`/queue cancel <序号>` 撤回排队项，`/queue clear` 清空队列。工作台的排队不是 SolonWeb 的后台队列，不跨窗口或页面重载保留。
+
 启动外部 Agent 时会把 `127.0.0.1`、`localhost` 和 `::1` 合并进子进程的 `NO_PROXY`，避免继承来的 `HTTP(S)_PROXY` 把发往本机推理网关的请求转走。会话通过 `.meta` 的 `agentId` 绑定引擎，ACP 转录写入同一份 `.jsonl` / `.events`。任意回复都可以「继续到新会话」并换用其他引擎：跨引擎分支复制本地可见历史；转到外部引擎后，首轮把旧对话作为独立上下文块交接，用户消息原样发送。
 
 ### Java 兼容后端

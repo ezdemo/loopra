@@ -41,7 +41,7 @@ import SessionOccupiedNotice from './components/SessionOccupiedNotice';
 import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
 import type { AgentConfigOption } from './agent-config';
 import { defaultAgentSettings, type AgentSettings } from './settings-data';
-import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, withoutWorkspaceContext, type ComposerContext, type ComposerOptions, type QueuedMessage } from './composer';
+import { composeOutgoing, defaultOptions, emptyContext, getModelCatalog, largeInputReference, parseSolonCodeQueueCommand, withoutWorkspaceContext, type ComposerContext, type ComposerOptions, type QueuedMessage } from './composer';
 import { LARGE_PASTE_THRESHOLD_CHARS } from './documents';
 import { enqueue, moveQueued, nextQueued, promoteQueued, removeQueued, restoreQueuedDraft, type MessageQueue } from './message-queue';
 import { acpStopMessage, applyEvent, CHAT_WORKSPACE, LoopraApiError, DEFAULT_SERVER, historyMessages, isSessionOccupiedError, permissionLabel, permissionValue, providerChannels, remoteSession, serverAddress, sessionQuery, sessionRoute, type CustomAgent, type HistoryMessage, type RemoteSession, type StreamEvent, type Workspace } from './backend';
@@ -1197,13 +1197,44 @@ export default function App({ startupPending = false, initialServer }: { startup
   // Legacy Chat.vue queued messages per session: sending while a reply is
   // streaming appends to the session queue instead of being dropped.
   function replaceQueue(next: MessageQueue) { queuedRef.current = next; setQueuedMessages(next); }
-  function queueMessage(): boolean {
+  function queueMessage(text = agentId === 'native' ? draft.trim() : draft): boolean {
     if (!session) return false;
-    if (!draft.trim() && !composerContext.files.length) return false;
-    replaceQueue(enqueue(queuedRef.current, session.id, { id: crypto.randomUUID(), text: agentId === 'native' ? draft.trim() : draft, context: composerContext }));
+    if (!text.trim() && !composerContext.files.length) return false;
+    replaceQueue(enqueue(queuedRef.current, session.id, { id: crypto.randomUUID(), text, context: composerContext }));
     setDraft(''); setComposerContext(emptyContext); setMenu(null);
     notify('已加入队列，当前回复结束后自动发送');
     return true;
+  }
+  // SolonCode 的 /queue 别名走工作台自己的排队：列表、撤回、清空都只读本会话队列。
+  function sendComposerDraft() {
+    const command = agentId === 'soloncode' ? parseSolonCodeQueueCommand(draft) : undefined;
+    if (!command) { void sendMessage(); return; }
+    if (command.type === 'enqueue') {
+      if (session) {
+        if (queueMessage(command.text)) void sendQueuedMessage(session.id);
+      } else {
+        void sendMessage(command.text);
+      }
+      return;
+    }
+    const items = session ? queuedRef.current[session.id] || [] : [];
+    if (command.type === 'invalid') { notify(t('composer.solonCode.queueUsage')); return; }
+    if (command.type === 'cancel') {
+      const item = items.find(entry => entry.id === command.target)
+        || (/^[1-9]\d*$/.test(command.target) ? items[Number(command.target) - 1] : undefined);
+      if (!item) { notify(t('composer.solonCode.queueNotFound')); return; }
+      removeQueuedMessage(item.id);
+    } else if (command.type === 'clear') {
+      if (session && items.length) {
+        const next = { ...queuedRef.current };
+        delete next[session.id];
+        replaceQueue(next);
+      }
+      notify(t('composer.solonCode.queueCleared'));
+    } else {
+      notify(t('composer.solonCode.queueCount', { count: items.length }));
+    }
+    setDraft('');
   }
   function removeQueuedMessage(id: string) {
     if (!session) return;
@@ -1606,7 +1637,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     // Legacy `continueChat` sent the literal `/continue` command so the backend
     // resumes from the existing context (and approves pending HITL) without
     // appending a user message.
-    onSend={() => sendMessage()} onStop={() => void stopGeneration()} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
+    onSend={sendComposerDraft} onStop={() => void stopGeneration()} onContinue={() => sendMessage(externalAgent ? '请继续完成刚才的任务。' : '/continue')}
     onNew={() => newSession()} onClear={() => clearChat()} onTerminal={() => openShell()} onManage={() => openSettings('模型供应商')} onOpenConnectors={() => openSettings('连接器')} onInputResize={keepChatPinned}
     onExport={() => { if (!session) { notify('请先开始一个会话'); return; } downloadText(`chat-${new Date().toISOString().slice(0, 10)}.txt`, chatExportText(getSessionMessages(session))); notify('对话已导出'); }}
     onSessions={() => setSessionsOpen(true)}

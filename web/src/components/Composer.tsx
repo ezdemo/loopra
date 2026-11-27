@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, Chip, Input, Switch, Textarea, Tooltip } from '@nextui-org/react';
 import { ArrowLeft, ArrowUp, BookOpen, Cable, Check, ChevronRight, CircleHelp, FileText, FolderClosed, ListChecks, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Sparkles, Square, SquareTerminal, Trash2, X } from 'lucide-react';
 import { acpSlashCommands, appendPreset, attachmentViews, estimateContext, formatTokenSpeed, formatTokens, getModelCatalog, initialPresets, localSlashCommands, mergeSlashCommands, presetPayload, presetsFromServer, serverSlashCommands, HistoryTokenEstimator } from '../composer';
-import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset } from '../composer';
+import type { ComposerContext, ComposerOptions, LiveSpeed, PromptPreset, QueuedMessage, ServerCommand, ServerSkill, ServerPreset, SlashCommand } from '../composer';
 import { contextFromUsage, contextPartPercent, FOLD_THRESHOLD_RATIO, foldThreshold, formatUsageCost, usagePath, type UsageDTO } from '../usage';
 import { attachmentLimitReached, fileKind, extractDocumentText, formatFileSize, LARGE_PASTE_THRESHOLD_CHARS, MAX_DOC_FILE_SIZE, MAX_IMAGE_COUNT, MAX_TEXT_FILE_SIZE, MAX_UPLOAD_FILES } from '../documents';
 import { useLocalState, type Provider } from '../lib';
@@ -71,6 +71,7 @@ function ComposerToolbarSkeleton({ showMcp }: { showMcp: boolean }) {
 export default function Composer(props: Props) {
   const { t } = useTranslation();
   const external = !!props.agentId && props.agentId !== 'native';
+  const solonCode = props.agentId === 'soloncode';
   const { home, draft, onDraft, inputRef, options, onOptions, context, onContext, providers, notify, workspaces } = props;
   const chatMode = !!props.chatMode;
   const slash = draft.startsWith('/') && !draft.includes('\n') && !draft.includes(' ');
@@ -140,7 +141,26 @@ export default function Composer(props: Props) {
   const agentBusy = !!props.agentConfig?.busy;
   const initialConfigLoading = !!props.loading || (agentBusy && !props.agentConfig?.error && !agentOptions?.length && !props.generating && !props.remoteRunning);
   const sendDisabled = agentBusy || (!draft.trim() && !context.files.length) || (!props.agentConfig && !external && !selected) || (!props.generating && !props.remoteRunning && props.busy);
-  function sendDraft() { if (!sendDisabled) props.onSend(); }
+  function runSolonCodeAction(id: '/clear' | '/interrupt') {
+    if (id === '/clear') {
+      if (props.generating || props.remoteRunning) { notify(t('composer.solonCode.clearBusy')); return; }
+      onDraft('');
+      props.onClear();
+      return;
+    }
+    onDraft('');
+    if (props.generating) props.onStop();
+    else if (props.remoteRunning) props.onStopRemote();
+    else notify(t('composer.solonCode.noActiveRun'));
+  }
+  function sendDraft() {
+    const command = draft.trim().toLowerCase();
+    if (solonCode && !context.files.length && !context.attachments?.length && (command === '/clear' || command === '/interrupt')) {
+      runSolonCodeAction(command);
+      return;
+    }
+    if (!sendDisabled) props.onSend();
+  }
   const agentEngineName = props.agentName || props.engines?.find(engine => engine.id === (props.agentId || 'native'))?.name || (external ? props.agentId || 'Agent' : 'Loopra Native');
   const handledOptions = new Set([agentMode, agentModel, agentEffort, agentFast, agentPlan, agentFusion, agentFusionEffort].filter(Boolean).map(option => option!.id));
   const otherAgentOptions = (agentOptions || []).filter(option => !handledOptions.has(option.id));
@@ -461,7 +481,13 @@ export default function Composer(props: Props) {
   const remoteSlash = (external ? acpSlashCommands(agentCommands) : serverSlashCommands(
     chatMode ? remoteCommands.filter(command => chatCommands.has(command.cmd)) : remoteCommands, remoteSkills))
     .map(command => ({ ...command, title: external ? agentEngineName : command.title, description: command.description === '运行技能' ? t('composer.runSkill') : command.description, action: () => { onDraft(command.insert || `${command.id} `); close(); focusInput(); } }));
-  const commands = external ? remoteSlash : mergeSlashCommands(localCommands, remoteSlash);
+  // SolonCode 的别名由客户端拥有：清空、停止与排队都映射到工作台已有操作，不发给 Agent。
+  const solonCodeCommands: SlashCommand[] = solonCode ? [
+    { id: '/clear', title: t('composer.command.clear.title'), description: t('composer.command.clear.description'), action: () => runSolonCodeAction('/clear') },
+    { id: '/interrupt', title: t('composer.stopGeneration'), description: t('composer.solonCode.interruptDescription'), action: () => runSolonCodeAction('/interrupt') },
+    { id: '/queue', title: t('composer.queueMessage'), description: t('composer.solonCode.queueDescription'), action: () => { onDraft('/queue '); close(); focusInput(); } },
+  ] : [];
+  const commands = mergeSlashCommands(external ? solonCodeCommands : localCommands, remoteSlash);
   const mention = chatMode ? null : draft.match(/(?:^|\s)@([^\s]*)$/);
   const mentionQuery = mention?.[1];
   useEffect(() => {

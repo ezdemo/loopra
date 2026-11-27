@@ -93,6 +93,7 @@ const Composer = (await import(await sourceUrl('components/Composer.tsx', {
   '../composer-resize': await sourceUrl('composer-resize.ts'),
   '../layout/menu-placement': await sourceUrl('layout/menu-placement.ts'),
 }))).default;
+const { parseSolonCodeQueueCommand } = await import(await sourceUrl('composer.ts'));
 
 const advertised = [
   { name: 'clear', description: 'Clear Agent context' },
@@ -125,6 +126,7 @@ async function mount(overrides = {}, requestCommands = () => Promise.resolve(adv
     systemPrompt: '', defaultModel: '', onDefaultModel: idle, queue: [], onOpen: idle,
     onClear: () => localActions.push('clear'), onNew: () => localActions.push('new'),
     onTerminal: () => localActions.push('terminal'),
+    onStop: () => localActions.push('stop'), onStopRemote: () => localActions.push('stopRemote'),
     ...overrides,
   };
   function Harness() {
@@ -318,6 +320,54 @@ test('an open slash menu picks up an announcement arriving after an empty read',
     assert.deepEqual(view.rows(), ['/clear', '/review']);
     assert.deepEqual(view.sends, []);
   } finally { await view.close(); }
+});
+
+test('SolonCode composer actions stay local and preserve remote commands', async () => {
+  const view = await mount({ agentId: 'soloncode' });
+  const escape = () => act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  try {
+    assert.deepEqual(view.rows(), ['/clear', '/interrupt', '/queue', '/review']);
+    await act(async () => view.host.querySelector('.suggestions-list > button').click());
+    assert.deepEqual(view.localActions, ['clear']);
+    assert.deepEqual(view.sends, []);
+    await view.update({ generating: true, acpCommands: [{ name: 'review' }] });
+    await view.type('/clear');
+    await escape();
+    await view.key('Enter');
+    assert.deepEqual(view.localActions, ['clear'], 'a busy session cannot be cleared');
+    assert.equal(view.host.querySelector('textarea').value, '/clear');
+    await view.type('/interrupt');
+    await escape();
+    await view.key('Enter');
+    assert.deepEqual(view.localActions, ['clear', 'stop']);
+    assert.deepEqual(view.sends, []);
+    await view.update({ generating: false, remoteRunning: true });
+    await view.type('/interrupt');
+    await escape();
+    await view.key('Enter');
+    assert.deepEqual(view.localActions, ['clear', 'stop', 'stopRemote']);
+    await view.update({ remoteRunning: false });
+    await view.type('/queue');
+    await act(async () => view.host.querySelector('.suggestions-list > button').click());
+    assert.equal(view.host.querySelector('textarea').value, '/queue ');
+    assert.deepEqual(view.sends, []);
+    await view.type('/review main');
+    await view.key('Enter');
+    assert.deepEqual(view.sends, ['/review main']);
+  } finally { await view.close(); }
+});
+
+test('SolonCode queue command parser separates controls and message text', () => {
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue'), { type: 'list' });
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue   '), { type: 'list' });
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue List'), { type: 'list' });
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue CLEAR'), { type: 'clear' });
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue cancel 2'), { type: 'cancel', target: '2' });
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue cancel'), { type: 'invalid' });
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue cancel 1 2'), { type: 'invalid' });
+  assert.deepEqual(parseSolonCodeQueueCommand('/queue first line\nsecond line'), { type: 'enqueue', text: 'first line\nsecond line' });
+  assert.equal(parseSolonCodeQueueCommand('/queueing'), undefined);
+  assert.equal(parseSolonCodeQueueCommand('ordinary paragraph'), undefined);
 });
 
 test('Native waits for the service connection before loading commands, skills and presets', async () => {

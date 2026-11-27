@@ -133,6 +133,24 @@ export function mergeSlashCommands(local: SlashCommand[], remote: SlashCommand[]
   return [...local, ...remote.filter(item => !seen.has(item.id))];
 }
 
+export type SolonCodeQueueCommand =
+  | { type: 'list' | 'clear' | 'invalid' }
+  | { type: 'cancel'; target: string }
+  | { type: 'enqueue'; text: string };
+
+export function parseSolonCodeQueueCommand(draft: string): SolonCodeQueueCommand | undefined {
+  const match = /^\/queue(?:\s+([\s\S]*))?$/i.exec(draft.trim());
+  if (!match) return undefined;
+  const value = match[1] || '';
+  if (!value || /^list$/i.test(value)) return { type: 'list' };
+  if (/^clear$/i.test(value)) return { type: 'clear' };
+  if (/^cancel(?:\s|$)/i.test(value)) {
+    const target = /^cancel\s+(\S+)$/i.exec(value)?.[1];
+    return target ? { type: 'cancel', target } : { type: 'invalid' };
+  }
+  return { type: 'enqueue', text: value };
+}
+
 export type LocalCommandActions = {
   onNew: () => void; onContinue: () => void; onSkills: () => void; onHelp: () => void;
   onExport: () => void; onSessions: () => void; onTerminal: () => void;
