@@ -110,7 +110,7 @@ const AssistantMessage = memo(function AssistantMessage({ message, streaming, sh
 
 // Long sessions mount only the visible slice (legacy `Chat.vue` virtualWindow);
 // measured heights keep the spacer sizes honest and the scroll position stable.
-export function Messages({ session, loading, remoteRunning = false, scrollRef, offsetsRef, showDuration = true, ...callbacks }: { session: Session; loading: boolean; remoteRunning?: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean } & MessageActions) {
+export function Messages({ session, loading, remoteRunning = false, scrollRef, offsetsRef, showDuration = true, onLayout, onCorrectScroll, ...callbacks }: { session: Session; loading: boolean; remoteRunning?: boolean; scrollRef?: { current: HTMLElement | null }; offsetsRef?: { current: number[] }; showDuration?: boolean; onLayout?: () => void; onCorrectScroll?: (delta: number) => void } & MessageActions) {
   const { t } = useTranslation();
   const actions = useMessageActions(callbacks);
   const messages = useMemo(() => getSessionMessages(session), [session.kind, session.messages]);
@@ -119,10 +119,19 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const last = messages[messages.length - 1];
   const virtualized = messages.length > VIRTUALIZATION_THRESHOLD;
   const heights = useRef(new Map<string, number>());
+  const heightsSession = useRef(session.id);
+  if (heightsSession.current !== session.id) {
+    heightsSession.current = session.id;
+    heights.current.clear();
+  }
   const nodes = useRef(new Map<string, HTMLElement>());
   const observer = useRef<ResizeObserver | null>(null);
   const [revision, setRevision] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 0 });
+  const layoutCallback = useRef(onLayout);
+  const layoutPositions = useRef(new Map<string, number>());
+  const layoutSession = useRef(session.id);
+  useLayoutEffect(() => { layoutCallback.current = onLayout; });
 
   // Follow the scroller so the mounted window tracks the visible region.
   useEffect(() => {
@@ -171,9 +180,18 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     for (const key of [...heights.current.keys()]) if (!ids.has(key)) { heights.current.delete(key); changed = true; }
     if (changed) setRevision(value => value + 1);
   }, [messages]);
-  useEffect(() => { heights.current.clear(); setRevision(value => value + 1); }, [session.id]);
-
-  const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || ESTIMATED_MESSAGE_HEIGHT), [messages, revision]);
+  const fallbackHeights = useMemo(() => {
+    const totals = { user: { height: 0, count: 0 }, assistant: { height: 0, count: 0 } };
+    for (const message of messages) {
+      const measured = heights.current.get(String(message.id));
+      if (measured) { totals[message.role].height += measured; totals[message.role].count += 1; }
+    }
+    return {
+      user: totals.user.count ? totals.user.height / totals.user.count : ESTIMATED_MESSAGE_HEIGHT,
+      assistant: totals.assistant.count ? totals.assistant.height / totals.assistant.count : ESTIMATED_MESSAGE_HEIGHT,
+    };
+  }, [messages, revision]);
+  const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || fallbackHeights[message.role]), [messages, revision, fallbackHeights]);
   const view = useMemo(() => virtualMessageWindow(heightsList, viewport.top, viewport.height), [heightsList, viewport.top, viewport.height]);
   useEffect(() => { if (offsetsRef) offsetsRef.current = view.offsets; }, [offsetsRef, view.offsets]);
 
@@ -181,6 +199,51 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     ? <UserMessage key={message.id} message={message} canManageHistory={canManageHistory} {...actions} />
     : <AssistantMessage key={message.id} message={message} streaming={(loading || remoteRunning) && message.id === last?.id} showDuration={showDuration} canBranch={canBranch} {...actions} />;
   const visible = virtualized ? messages.slice(view.start, view.end) : messages;
+
+  // Estimated spacer heights are corrected as rows enter the mounted window.
+  // Anchor the first overlapping row in content coordinates so those corrections
+  // do not throw the transcript back to an earlier turn.
+  useLayoutEffect(() => {
+    if (layoutSession.current !== session.id) {
+      layoutSession.current = session.id;
+      layoutPositions.current.clear();
+    }
+    const element = scrollRef?.current;
+    if (!element || !virtualized) {
+      layoutPositions.current.clear();
+      layoutCallback.current?.();
+      return;
+    }
+    const scrollerTop = element.getBoundingClientRect().top;
+    const current = new Map<string, number>();
+    for (const message of visible) {
+      const id = String(message.id);
+      const node = nodes.current.get(id);
+      if (node) current.set(id, node.getBoundingClientRect().top + element.scrollTop - scrollerTop);
+    }
+    let above: string | undefined;
+    let anchor: string | undefined;
+    for (const message of visible) {
+      const id = String(message.id);
+      if (!layoutPositions.current.has(id) || !current.has(id)) continue;
+      const bottom = (current.get(id) || 0) + (nodes.current.get(id)?.getBoundingClientRect().height || 0);
+      if (bottom > element.scrollTop) { anchor = id; break; }
+      above = id;
+    }
+    anchor ||= above;
+    if (anchor) {
+      const before = layoutPositions.current.get(anchor) || 0;
+      const after = current.get(anchor) || 0;
+      const delta = after - before;
+      if (Math.abs(delta) > 0.5) {
+        if (onCorrectScroll) onCorrectScroll(delta);
+        else element.scrollTop += delta;
+      }
+    }
+    layoutPositions.current = current;
+    layoutCallback.current?.();
+  });
+
   return <div className="loopra-conversation" aria-label={t('chat.content')}><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}
     {virtualized ? visible.map(message => <div key={message.id} ref={node => measure(String(message.id), node)} className="virtual-message-item">{render(message)}</div>) : visible.map(render)}

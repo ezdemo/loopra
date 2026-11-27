@@ -257,6 +257,7 @@ export default function App({ startupPending = false, initialServer }: { startup
   // not scrolled away, and a floating "back to bottom" button otherwise.
   const userScrolledAway = useRef(false);
   const lastScrollTop = useRef(0);
+  const scrollCorrection = useRef<number | null>(null);
   // Legacy `Chat.vue` virtualWindow offsets, published by the message list so the
   // thumbnail dock can jump to a message that is currently unmounted.
   const messageOffsets = useRef<number[]>([]);
@@ -906,19 +907,21 @@ export default function App({ startupPending = false, initialServer }: { startup
   // Legacy Sidebar.vue footer exposed 工具 / 子代理 / 数据面板 / 主题 / 设置; the
   // theme button flipped light↔dark without touching 跟随系统.
   function openSessionsManager() { setSessionsOpen(true); setMenu(null); if (narrow) setSidebar(false); }
-  // Legacy Chat.vue onScroll(): only an upward movement counts as leaving the
-  // bottom; being pushed up by streamed content keeps auto-follow active.
+  // Legacy Chat.vue onScroll(): upward movement away from the bottom counts as
+  // leaving; being pushed up or clamped at the bottom keeps auto-follow active.
   function onChatScroll() {
     const element = scrollArea.current;
     if (!element) return;
-    const next = chatScrollState(element, lastScrollTop.current, userScrolledAway.current);
+    const corrected = scrollCorrection.current === element.scrollTop;
+    scrollCorrection.current = null;
+    const next = chatScrollState(element, corrected ? element.scrollTop : lastScrollTop.current, userScrolledAway.current);
     userScrolledAway.current = next.away;
     setShowScrollBtn(next.showScrollButton);
     lastScrollTop.current = element.scrollTop;
   }
-  // The composer grows and shrinks the transcript from below; a reader who is
-  // already at the bottom stays at the bottom instead of drifting up by the
-  // height they just added. One frame is enough — a drag can fire per move.
+  // Composer and virtual-message layout changes reshape the transcript; a
+  // reader who is already at the bottom stays there instead of drifting up.
+  // One frame is enough — a drag or measurement pass can fire per move.
   const followFrame = useRef(0);
   function keepChatPinned() {
     if (followFrame.current) return;
@@ -932,6 +935,14 @@ export default function App({ startupPending = false, initialServer }: { startup
     });
   }
   useEffect(() => () => { if (followFrame.current) cancelAnimationFrame(followFrame.current); }, []);
+  function correctChatScroll(delta: number) {
+    const element = scrollArea.current;
+    if (!element) return;
+    const before = element.scrollTop;
+    element.scrollTop += delta;
+    if (!userScrolledAway.current) element.scrollTop = element.scrollHeight;
+    scrollCorrection.current = element.scrollTop === before ? null : element.scrollTop;
+  }
   function scrollToBottom() {
     userScrolledAway.current = false;
     const element = scrollArea.current;
@@ -1533,7 +1544,9 @@ export default function App({ startupPending = false, initialServer }: { startup
     setComposerContext(current => ({ ...current, skills: current.skills.filter(name => agentSettings.skills.some(skill => skill.name === name && skill.enabled)) }));
   }, [agentSettings.skills]);
   // Legacy `scroll()`: follow streaming output unless the user scrolled away.
-  useEffect(() => {
+  // Run before paint: completion reloads merge and collapse large turns, and a
+  // passive effect lets the clamped scroll event mark the user as "away" first.
+  useLayoutEffect(() => {
     const element = scrollArea.current;
     if (!element || !session?.messages.length) return;
     if (!userScrolledAway.current || chatNearBottom(element)) element.scrollTo({ top: element.scrollHeight, behavior: 'instant' });
@@ -1691,7 +1704,7 @@ export default function App({ startupPending = false, initialServer }: { startup
             onRefreshEngines={() => setEnginesRevision(value => value + 1)}
             isolation={!chatMode ? <IsolationSwitch api={api} workspaceHash={workspace} disabled={!!generatingId || !!remoteRun} notify={notify}
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
-            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages session={session} loading={generatingId === activeId} remoteRunning={remoteRun?.id === session.id} scrollRef={scrollArea} offsetsRef={messageOffsets} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
+            <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages session={session} loading={generatingId === activeId} remoteRunning={remoteRun?.id === session.id} scrollRef={scrollArea} offsetsRef={messageOffsets} onLayout={keepChatPinned} onCorrectScroll={correctChatScroll} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
             <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && (connectorRequestOf(activeInput)
               ? <ConnectorRequestCard key={activeInput.elicitationRequestId} api={api} sessionName={session?.name || ''} request={activeInput} notify={notify}

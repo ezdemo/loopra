@@ -14,8 +14,8 @@ const globals = { window: dom.window, document: dom.window.document, HTMLElement
 // jsdom has no ResizeObserver; the message list only uses it for measurement.
 class ResizeObserverStub {
   static instances = [];
-  constructor(callback) { this.callback = callback; ResizeObserverStub.instances.push(this); }
-  observe(element) { this.element = element; }
+  constructor(callback) { this.callback = callback; this.observed = new Set(); ResizeObserverStub.instances.push(this); }
+  observe(element) { this.element = element; this.observed.add(element); }
   unobserve() {}
   disconnect() { this.disconnected = true; }
 }
@@ -124,6 +124,11 @@ test('scrolling up marks the user away, returning near the bottom resumes follow
   const returned = chatScrollState({ ...element, scrollTop: 595 }, 500, true);
   assert.deepEqual(returned, { away: false, showScrollButton: false });
   assert.deepEqual(chatScrollState(null, 0, false), { away: false, showScrollButton: false });
+});
+
+test('an upward clamp that remains near the bottom does not count as leaving', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  assert.deepEqual(chatScrollState({ ...element, scrollTop: 495 }, 600, false), { away: false, showScrollButton: false });
 });
 
 test('a programmatic smooth scroll downwards does not count as leaving', () => {
@@ -274,6 +279,86 @@ test('short sessions still render every message without spacers', async () => {
     assert.equal(view.container.querySelectorAll('.virtual-spacer').length, 0);
     assert.equal(view.container.querySelectorAll('.virtual-message-item').length, 0);
     assert.deepEqual([...view.container.querySelectorAll('[data-message-id]')].map(node => node.dataset.messageId), ['u1', 'a1']);
+  } finally { await view.close(); }
+});
+
+
+function patchVirtualLayout(container, positions) {
+  for (const node of container.querySelectorAll('.virtual-message-item')) {
+    const id = node.querySelector('[data-message-id]')?.dataset.messageId;
+    const position = positions.get(id) || { top: 0, height: 320 };
+    node.getBoundingClientRect = () => ({ top: position.top, height: position.height, bottom: position.top + position.height, left: 0, right: 600, width: 600, x: 0, y: position.top, toJSON: () => ({}) });
+  }
+}
+async function measureVirtualMessages() {
+  const resize = ResizeObserverStub.instances.at(-1);
+  const entries = [...resize.observed].map(target => ({ target }));
+  await act(async () => resize.callback(entries));
+}
+
+test('measured rows calibrate the estimate for unmounted messages of the same role', async () => {
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 0 },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
+  const scrollRef = { current: scroll };
+  const layouts = [];
+  const view = await renderMessages(longSession(), { scrollRef, onLayout: () => layouts.push(1) });
+  try {
+    const rows = [...view.container.querySelectorAll('.virtual-message-item')];
+    for (const node of rows) {
+      const id = node.querySelector('[data-message-id]').dataset.messageId;
+      const index = Number(id.slice(1));
+      node.getBoundingClientRect = () => ({ top: 0, height: index % 2 ? 1000 : 80, bottom: index % 2 ? 1000 : 80, left: 0, right: 600, width: 600, x: 0, y: 0, toJSON: () => ({}) });
+    }
+    const layoutCount = layouts.length;
+    assert.ok(layoutCount > 0, 'initial message layout is published');
+    await measureVirtualMessages();
+    assert.ok(layouts.length > layoutCount, 'measurement changes are published');
+    const spacers = [...view.container.querySelectorAll('.virtual-spacer')];
+    const bottom = spacers.at(-1);
+    assert.ok(bottom, 'long session keeps a bottom spacer');
+    // 40 short user rows and 40 long assistant rows estimate the hidden tail by role
+    // instead of treating every huge answer as the legacy 320px row.
+    const mounted = [...view.container.querySelectorAll('.virtual-message-item')].reduce((total, node) => total + node.getBoundingClientRect().height, 0);
+    const expectedTotal = 40 * 80 + 40 * 1000;
+    assert.equal(Number.parseFloat(bottom.style.height), expectedTotal - mounted);
+  } finally { await view.close(); }
+});
+
+test('virtual layout corrections preserve the overlapping anchor row', async () => {
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 100 },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
+  const scrollRef = { current: scroll };
+  const corrections = [];
+  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: delta => corrections.push(delta) });
+  try {
+    const positions = new Map();
+    for (const node of view.container.querySelectorAll('.virtual-message-item')) {
+      const id = node.querySelector('[data-message-id]').dataset.messageId;
+      const index = Number(id.slice(1));
+      positions.set(id, { top: index * 320, height: 320 });
+    }
+    patchVirtualLayout(view.container, positions);
+    await measureVirtualMessages();
+    corrections.length = 0;
+
+    for (const [id, position] of positions) positions.set(id, { ...position, top: position.top + 500 });
+    patchVirtualLayout(view.container, positions);
+    const rows = [...view.container.querySelectorAll('.virtual-message-item')];
+    const last = rows.at(-1);
+    const rect = last.getBoundingClientRect();
+    last.getBoundingClientRect = () => ({ ...rect, height: 321, bottom: rect.top + 321 });
+    const resize = ResizeObserverStub.instances.at(-1);
+    await act(async () => resize.callback([{ target: last }]));
+
+    assert.deepEqual(corrections, [500]);
   } finally { await view.close(); }
 });
 
