@@ -58,7 +58,9 @@
   --text: #ededed;
   --secondary: #b4b4b4;
   --muted: #8f8f8f;
-  --selection-background: #d4d4d4;
+  /* WebKitGTK rewrites opaque selection colors for a white backdrop; a nearly
+     opaque color is left intact and still composites to the same light gray. */
+  --selection-background: rgba(212, 212, 212, 0.98);
   --selection-foreground: #111111;
   --blue: #8794ff;
   --accent-soft: #8794ff26;
