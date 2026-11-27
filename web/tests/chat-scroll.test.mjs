@@ -66,7 +66,7 @@ const { default: BlockRenderer } = await import(await sourceUrl('components/Bloc
   }),
 }));
 
-const chatWindowUrl = await sourceUrl('chat-window.ts');
+const chatWindowUrl = await sourceUrl('chat-window.ts', { './chat': chatUrl });
 // Conversation.tsx must tag every message so the dock can jump to it.
 const imagePreviews = [];
 globalThis.__loopraTestImagePreviews = imagePreviews;

@@ -4,6 +4,8 @@
  * spacer heights that keep the scroll position stable.
  */
 export const ESTIMATED_MESSAGE_HEIGHT = 320;
+import { splitUserAttachments, splitUserContext } from './chat';
+
 export const VIRTUAL_OVERSCAN = 1200;
 export const VIRTUALIZATION_THRESHOLD = 60;
 
@@ -32,9 +34,19 @@ function visualWidth(line: string) {
  * long answers; wide characters wrap sooner than ASCII text. */
 export function estimateMessageHeight(message: { role: 'user' | 'assistant'; text?: string; images?: unknown[] }) {
   const widthUnits = message.role === 'user' ? USER_WIDTH_UNITS : ASSISTANT_WIDTH_UNITS;
-  const lines = (message.text || '').split(/\r?\n/).reduce((total, line) => total + Math.max(1, Math.ceil(visualWidth(line) / widthUnits)), 0);
+  let text = message.text || '';
+  let chrome = 0;
+  if (message.role === 'user') {
+    const attached = splitUserAttachments(text);
+    const context = splitUserContext(attached.text);
+    // User bodies render collapsed at 300 characters, while attachment payloads
+    // and context envelopes are represented by compact controls rather than text.
+    text = context.text.length > 300 ? context.text.slice(0, 300) : context.text;
+    chrome += attached.documents.length * 40 + (context.context ? 40 : 0);
+  }
+  const lines = text.split(/\r?\n/).reduce((total, line) => total + Math.max(1, Math.ceil(visualWidth(line) / widthUnits)), 0);
   const base = message.role === 'user' ? USER_BASE_HEIGHT : ASSISTANT_BASE_HEIGHT;
-  return base + lines * LINE_HEIGHT_ESTIMATE + (message.images?.length || 0) * 160;
+  return base + lines * LINE_HEIGHT_ESTIMATE + chrome + (message.images?.length || 0) * 160;
 }
 
 export type VirtualMessageWindow = { start: number; end: number; topHeight: number; bottomHeight: number; offsets: number[] };
