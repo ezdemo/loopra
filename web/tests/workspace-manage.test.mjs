@@ -58,8 +58,8 @@ export class LoopraClient {
 }
 export const serverAddress = value => value;
 `);
-const projectsUrl = await sourceUrl('components/BackendSettings.tsx', { '@nextui-org/react': nextuiStub, './SettingControls': controlsStub, './RemoteControls': confirmStub, '../backend': backendStub, 'lucide-react': dataUrl('export const RefreshCw = () => null; export const ArrowUp = () => null; export const ArrowDown = () => null;') });
-const { BackendProjects } = await import(projectsUrl);
+const projectsUrl = await sourceUrl('components/BackendSettings.tsx', { '@nextui-org/react': nextuiStub, './SettingControls': controlsStub, './RemoteControls': confirmStub, '../backend': backendStub, '../access-key.js': dataUrl('export const getAccessKey = () => "test-key";'), '../web-version': dataUrl('export const openLoopraWeb = (...args) => { globalThis.__openedWeb.push(args); };'), '../desktop-shell': dataUrl('export const isDesktopWindow = () => !!globalThis.__desktopWindow;'), 'lucide-react': dataUrl('export const RefreshCw = () => null; export const ArrowUp = () => null; export const ArrowDown = () => null;') });
+const { BackendProjects, BackendServer } = await import(projectsUrl);
 
 const workspaces = [{ hash: 'aaa111', name: 'alpha', path: 'C:\\alpha' }, { hash: 'bbb222', name: 'beta', path: 'D:\\beta' }];
 const sessions = [{ workspaceHash: 'aaa111' }, { workspaceHash: 'aaa111' }, { workspaceHash: 'bbb222' }];
@@ -131,4 +131,27 @@ test('expired-session cleanup applies the retention window to every workspace an
     await click([...document.querySelectorAll('button')].find(button => button.textContent.trim() === '清理过期会话'));
     assert.match(document.querySelector('[role="alert"]').textContent, /1 个工作区清理失败/);
   } finally { await failing.close(); }
+});
+
+async function mountServer() {
+  globalThis.__openedWeb = [];
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(createElement(BackendServer, { server: 'http://127.0.0.1:4567', onSave: () => {} })));
+  return { container, async close() { await act(async () => root.unmount()); container.remove(); } };
+}
+
+test('opening the web version is desktop-only and carries the verified key', async () => {
+  globalThis.__desktopWindow = false;
+  let view = await mountServer();
+  try {
+    assert.equal([...view.container.querySelectorAll('button')].some(button => button.textContent.trim() === '打开网页版'), false);
+  } finally { await view.close(); }
+
+  globalThis.__desktopWindow = true;
+  view = await mountServer();
+  try {
+    await click([...view.container.querySelectorAll('button')].find(button => button.textContent.trim() === '打开网页版'));
+    assert.deepEqual(globalThis.__openedWeb, [['http://127.0.0.1:4567', 'test-key']]);
+  } finally { await view.close(); globalThis.__desktopWindow = false; }
 });
