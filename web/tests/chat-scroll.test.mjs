@@ -161,6 +161,12 @@ test('smooth wheel increments inside the threshold still leave and stay away', (
   assert.equal(returned.away, false, 'a downward step back near the bottom resumes follow');
 });
 
+test('an upward clamp back to the bottom re-enables follow when it was not user input', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  assert.equal(chatScrollState({ ...element, scrollTop: 499 }, 520, true).away, false, 'collapse-induced clamping can resume follow because the reader is again at the bottom');
+  assert.equal(chatScrollState({ ...element, scrollTop: 499 }, 500, true, true).away, true, 'the same position does not resume after deliberate upward wheel input');
+});
+
 test('a programmatic smooth scroll downwards does not count as leaving', () => {
   const element = { scrollHeight: 1000, clientHeight: 400 };
   // Mid-animation: still far from the bottom but moving towards it.

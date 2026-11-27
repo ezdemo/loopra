@@ -99,7 +99,7 @@ export function chatScrollState(element: { scrollHeight: number; scrollTop: numb
   const movingUp = element.scrollTop < previousTop;
   const movingDown = element.scrollTop > previousTop;
   const next = movingUp
-    ? deliberateUp || !clampedToBottom || away
+    ? deliberateUp || !clampedToBottom
     : movingDown && nearBottom ? false : away;
   return { away: next, showScrollButton: !nearBottom };
 }
