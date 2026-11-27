@@ -371,6 +371,43 @@ test('virtual layout corrections preserve the overlapping anchor row', async () 
   } finally { await view.close(); }
 });
 
+test('virtual corrections survive a completely replaced mounted window', async () => {
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 3200 },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
+  const scrollRef = { current: scroll };
+  const corrections = [];
+  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: delta => corrections.push(delta) });
+  try {
+    const positions = new Map();
+    for (const node of view.container.querySelectorAll('.virtual-message-item')) {
+      const id = node.querySelector('[data-message-id]').dataset.messageId;
+      const index = Number(id.slice(1));
+      positions.set(id, { top: index * 320 - scroll.scrollTop, height: 320 });
+    }
+    patchVirtualLayout(view.container, positions);
+    await measureVirtualMessages();
+    corrections.length = 0;
+
+    for (const node of view.container.querySelectorAll('.virtual-message-item')) {
+      const id = node.querySelector('[data-message-id]').dataset.messageId;
+      const index = Number(id.slice(1));
+      const position = positions.get(id);
+      const height = index % 2 ? 3000 : 80;
+      node.getBoundingClientRect = () => ({ top: position.top, height, bottom: position.top + height, left: 0, right: 600, width: 600, x: 0, y: position.top, toJSON: () => ({}) });
+    }
+    await measureVirtualMessages();
+
+    assert.equal([...view.container.querySelectorAll('[data-message-id]')].some(node => positions.has(node.dataset.messageId)), false, 'the new window has no old rows to overlap');
+    // m10 anchored the viewport at 3200. Once every user row measures 80 and
+    // every assistant row 3000, its virtual offset becomes 5 * (80 + 3000).
+    assert.deepEqual(corrections, [5 * (80 + 3000) - 3200]);
+  } finally { await view.close(); }
+});
+
 test('the message list publishes its offsets for unmounted jumps', async () => {
   const offsetsRef = { current: [] };
   const view = await renderMessages(longSession(), { offsetsRef });

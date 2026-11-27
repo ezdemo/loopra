@@ -129,7 +129,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const [revision, setRevision] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 0 });
   const layoutCallback = useRef(onLayout);
-  const layoutPositions = useRef(new Map<string, number>());
+  const layoutAnchor = useRef<{ id: string; position: number } | null>(null);
   const layoutSession = useRef(session.id);
   useLayoutEffect(() => { layoutCallback.current = onLayout; });
 
@@ -201,16 +201,16 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   const visible = virtualized ? messages.slice(view.start, view.end) : messages;
 
   // Estimated spacer heights are corrected as rows enter the mounted window.
-  // Anchor the first overlapping row in content coordinates so those corrections
-  // do not throw the transcript back to an earlier turn.
+  // Keep the row that overlapped the viewport in the same content position even
+  // when the new mounted window no longer overlaps the old one.
   useLayoutEffect(() => {
     if (layoutSession.current !== session.id) {
       layoutSession.current = session.id;
-      layoutPositions.current.clear();
+      layoutAnchor.current = null;
     }
     const element = scrollRef?.current;
     if (!element || !virtualized) {
-      layoutPositions.current.clear();
+      layoutAnchor.current = null;
       return;
     }
     const scrollerTop = element.getBoundingClientRect().top;
@@ -220,26 +220,40 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
       const node = nodes.current.get(id);
       if (node) current.set(id, node.getBoundingClientRect().top + element.scrollTop - scrollerTop);
     }
+    const representedPosition = (index: number) => {
+      if (index <= view.start) return view.offsets[index];
+      let position = view.topHeight;
+      const stop = Math.min(index, view.end);
+      for (let row = view.start; row < stop; row++) {
+        const id = String(messages[row].id);
+        position += nodes.current.get(id)?.getBoundingClientRect().height || heightsList[row];
+      }
+      return index < view.end ? position : position + view.offsets[index] - view.offsets[view.end];
+    };
+    const previous = layoutAnchor.current;
+    if (previous) {
+      const index = messages.findIndex(message => String(message.id) === previous.id);
+      if (index >= 0) {
+        const after = current.get(previous.id) ?? representedPosition(index);
+        const delta = after - previous.position;
+        if (Math.abs(delta) > 0.5) {
+          if (onCorrectScroll) onCorrectScroll(delta);
+          else element.scrollTop += delta;
+        }
+      }
+    }
     let above: string | undefined;
     let anchor: string | undefined;
     for (const message of visible) {
       const id = String(message.id);
-      if (!layoutPositions.current.has(id) || !current.has(id)) continue;
-      const bottom = (current.get(id) || 0) + (nodes.current.get(id)?.getBoundingClientRect().height || 0);
+      const position = current.get(id);
+      if (position === undefined) continue;
+      const bottom = position + (nodes.current.get(id)?.getBoundingClientRect().height || 0);
       if (bottom > element.scrollTop) { anchor = id; break; }
       above = id;
     }
     anchor ||= above;
-    if (anchor) {
-      const before = layoutPositions.current.get(anchor) || 0;
-      const after = current.get(anchor) || 0;
-      const delta = after - before;
-      if (Math.abs(delta) > 0.5) {
-        if (onCorrectScroll) onCorrectScroll(delta);
-        else element.scrollTop += delta;
-      }
-    }
-    layoutPositions.current = current;
+    layoutAnchor.current = anchor ? { id: anchor, position: current.get(anchor) || 0 } : null;
   });
 
   // A viewport-only scroll must not repin the reader. Publish real content and
