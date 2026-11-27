@@ -86,13 +86,16 @@ export function userMessageDock(messages: { id: string; role: string; text: stri
 
 /**
  * Legacy `onScroll()` decision: streamed content pushes the viewport up without
- * the user leaving, so an upward movement away from the bottom (or staying
- * away) marks `away`; being clamped near the bottom keeps auto-follow active.
+ * the user leaving, so an upward movement marks `away`; returning near the
+ * bottom resumes follow. A clamp that lands exactly at the bottom is the
+ * browser adjusting to shrunk content, not the user scrolling up.
  */
 export function chatScrollState(element: { scrollHeight: number; scrollTop: number; clientHeight: number } | null, previousTop: number, away: boolean, threshold = CHAT_SCROLL_THRESHOLD) {
   if (!element) return { away, showScrollButton: false };
-  const nearBottom = chatNearBottom(element, threshold);
-  const next = nearBottom ? false : element.scrollTop < previousTop - 2 ? true : away;
+  const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+  const nearBottom = distance < threshold;
+  const clampedToBottom = distance <= 2;
+  const next = clampedToBottom ? false : element.scrollTop < previousTop - 2 ? true : nearBottom ? false : away;
   return { away: next, showScrollButton: !nearBottom };
 }
 

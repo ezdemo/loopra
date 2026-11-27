@@ -211,7 +211,6 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     const element = scrollRef?.current;
     if (!element || !virtualized) {
       layoutPositions.current.clear();
-      layoutCallback.current?.();
       return;
     }
     const scrollerTop = element.getBoundingClientRect().top;
@@ -241,8 +240,13 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
       }
     }
     layoutPositions.current = current;
-    layoutCallback.current?.();
   });
+
+  // A viewport-only scroll must not repin the reader. Publish real content and
+  // measurement changes, which are the layouts that can move the bottom away.
+  useLayoutEffect(() => {
+    layoutCallback.current?.();
+  }, [messages, revision, session.id, virtualized]);
 
   return <div className="loopra-conversation" aria-label={t('chat.content')}><ImagePreviewProvider><div className="message-list">
     {virtualized && view.topHeight > 0 && <div className="virtual-spacer" style={{ height: view.topHeight }} aria-hidden="true" />}

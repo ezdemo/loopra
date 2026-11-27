@@ -126,9 +126,14 @@ test('scrolling up marks the user away, returning near the bottom resumes follow
   assert.deepEqual(chatScrollState(null, 0, false), { away: false, showScrollButton: false });
 });
 
-test('an upward clamp that remains near the bottom does not count as leaving', () => {
+test('an upward clamp exactly at the bottom does not count as leaving', () => {
   const element = { scrollHeight: 900, clientHeight: 400 };
-  assert.deepEqual(chatScrollState({ ...element, scrollTop: 495 }, 600, false), { away: false, showScrollButton: false });
+  assert.deepEqual(chatScrollState({ ...element, scrollTop: 500 }, 600, false), { away: false, showScrollButton: false });
+});
+
+test('a deliberate small upward scroll near the bottom counts as leaving', () => {
+  const element = { scrollHeight: 900, clientHeight: 400 };
+  assert.deepEqual(chatScrollState({ ...element, scrollTop: 495 }, 500, false), { away: true, showScrollButton: false });
 });
 
 test('a programmatic smooth scroll downwards does not count as leaving', () => {
@@ -317,6 +322,10 @@ test('measured rows calibrate the estimate for unmounted messages of the same ro
     assert.ok(layoutCount > 0, 'initial message layout is published');
     await measureVirtualMessages();
     assert.ok(layouts.length > layoutCount, 'measurement changes are published');
+    const beforeScroll = layouts.length;
+    scroll.scrollTop = 50;
+    await act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
+    assert.equal(layouts.length, beforeScroll, 'viewport-only scrolling does not repin the reader');
     const spacers = [...view.container.querySelectorAll('.virtual-spacer')];
     const bottom = spacers.at(-1);
     assert.ok(bottom, 'long session keeps a bottom spacer');
