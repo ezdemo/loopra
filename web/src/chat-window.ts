@@ -30,15 +30,9 @@ function visualWidth(line: string) {
   return width;
 }
 
-const estimateCache = new WeakMap<object, number>();
-
 /** Content-aware estimate for an unmounted row. Explicit lines dominate very
- * long answers; wide characters wrap sooner than ASCII text. Session messages
- * are immutable, so unchanged rows do not need their text scanned on every
- * virtual-scroll frame. */
+ * long answers; wide characters wrap sooner than ASCII text. */
 export function estimateMessageHeight(message: { role: 'user' | 'assistant'; text?: string; images?: unknown[] }) {
-  const cached = estimateCache.get(message);
-  if (cached !== undefined) return cached;
   const widthUnits = message.role === 'user' ? USER_WIDTH_UNITS : ASSISTANT_WIDTH_UNITS;
   let text = message.text || '';
   let chrome = 0;
@@ -52,9 +46,7 @@ export function estimateMessageHeight(message: { role: 'user' | 'assistant'; tex
   }
   const lines = text.split(/\r?\n/).reduce((total, line) => total + Math.max(1, Math.ceil(visualWidth(line) / widthUnits)), 0);
   const base = message.role === 'user' ? USER_BASE_HEIGHT : ASSISTANT_BASE_HEIGHT;
-  const height = base + lines * LINE_HEIGHT_ESTIMATE + chrome + (message.images?.length || 0) * 160;
-  estimateCache.set(message, height);
-  return height;
+  return base + lines * LINE_HEIGHT_ESTIMATE + chrome + (message.images?.length || 0) * 160;
 }
 
 export type VirtualMessageWindow = { start: number; end: number; topHeight: number; bottomHeight: number; offsets: number[] };

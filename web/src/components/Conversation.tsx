@@ -121,9 +121,6 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
   // Parents key this list by session id, so these measurements live and die with
   // the session instance instead of being mutated during a render transition.
   const heights = useRef(new Map<string, number>());
-  // Commit-phase measurements do not publish a render by themselves, but they
-  // keep heights for rows that unmount before ResizeObserver reports them.
-  const mountedHeights = useRef(new Map<string, number>());
   const nodes = useRef(new Map<string, HTMLElement>());
   const observer = useRef<ResizeObserver | null>(null);
   const [revision, setRevision] = useState(0);
@@ -186,8 +183,6 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     }
     nodes.current.set(id, node);
     node.dataset.virtualMessageId = id;
-    const height = node.getBoundingClientRect().height;
-    if (height > 0) mountedHeights.current.set(id, height);
     observer.current?.observe(node);
   }, []);
 
@@ -195,14 +190,10 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     const ids = new Set(messages.map(message => String(message.id)));
     let changed = false;
     for (const key of [...heights.current.keys()]) if (!ids.has(key)) { heights.current.delete(key); changed = true; }
-    for (const key of [...mountedHeights.current.keys()]) if (!ids.has(key)) mountedHeights.current.delete(key);
     if (changed) setRevision(value => value + 1);
   }, [messages]);
-  // Viewport renders must pick up commit-phase measurements even when the
-  // observer did not get a chance to publish them first. Estimate caching keeps
-  // this per-row pass cheap for long histories.
-  const heightsList = messages.map(message => heights.current.get(String(message.id)) || mountedHeights.current.get(String(message.id)) || estimateMessageHeight(message));
-  const view = virtualMessageWindow(heightsList, viewport.top, viewport.height);
+  const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || estimateMessageHeight(message)), [messages, revision]);
+  const view = useMemo(() => virtualMessageWindow(heightsList, viewport.top, viewport.height), [heightsList, viewport.top, viewport.height]);
   useEffect(() => { if (offsetsRef) offsetsRef.current = view.offsets; }, [offsetsRef, view.offsets]);
 
   const render = (message: Message) => message.role === 'user'
