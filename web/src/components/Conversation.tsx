@@ -199,7 +199,8 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     if (changed) setRevision(value => value + 1);
   }, [messages]);
   // Viewport renders must pick up commit-phase measurements even when the
-  // observer did not get a chance to publish them first.
+  // observer did not get a chance to publish them first. Estimate caching keeps
+  // this per-row pass cheap for long histories.
   const heightsList = messages.map(message => heights.current.get(String(message.id)) || mountedHeights.current.get(String(message.id)) || estimateMessageHeight(message));
   const view = virtualMessageWindow(heightsList, viewport.top, viewport.height);
   useEffect(() => { if (offsetsRef) offsetsRef.current = view.offsets; }, [offsetsRef, view.offsets]);

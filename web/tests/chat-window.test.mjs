@@ -61,3 +61,11 @@ test('user attachment envelopes estimate as compact controls rather than documen
   assert.ok(withAttachment < 250, `attachment-backed user row stayed compact, got ${withAttachment}`);
   assert.equal(withAttachment - bare, 40, 'the only added estimate is the attachment control');
 });
+
+test('message height estimates are cached by immutable message object', () => {
+  let reads = 0;
+  const message = { role: 'assistant', get text() { reads += 1; return Array.from({ length: 100 }, (_, line) => `line ${line}`).join('\n'); } };
+  const first = estimateMessageHeight(message);
+  assert.equal(estimateMessageHeight(message), first);
+  assert.equal(reads, 1, 'unchanged message objects are not rescanned');
+});
