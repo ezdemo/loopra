@@ -47,13 +47,16 @@ const blockUrl = dataUrl(`
   }
 `);
 const { renders } = await import(blockUrl);
+const chatUrl = dataUrl(transpile(await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8')));
+const chatWindowOutput = transpile(await readFile(new URL('../src/chat-window.ts', import.meta.url), 'utf8'))
+  .replaceAll(`'./chat'`, JSON.stringify(chatUrl)).replaceAll(`"./chat"`, JSON.stringify(chatUrl));
 const specifiers = {
   react: reactUrl,
   'react-i18next': reactI18nextStubUrl,
   'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'),
   'lucide-react': import.meta.resolve('lucide-react'),
-  '../chat': dataUrl(transpile(await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8'))),
-  '../chat-window': dataUrl(transpile(await readFile(new URL('../src/chat-window.ts', import.meta.url), 'utf8'))),
+  '../chat': chatUrl,
+  '../chat-window': dataUrl(chatWindowOutput),
   '../file-stats': dataUrl(transpile(await readFile(new URL('../src/file-stats.ts', import.meta.url), 'utf8'))),
   '../web-sources': dataUrl(transpile(await readFile(new URL('../src/web-sources.ts', import.meta.url), 'utf8'))),
   '../lib': dataUrl('export const getSessionMessages = session => session.messages;'),

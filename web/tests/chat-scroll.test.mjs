@@ -67,6 +67,7 @@ const { default: BlockRenderer } = await import(await sourceUrl('components/Bloc
 }));
 
 const chatWindowUrl = await sourceUrl('chat-window.ts', { './chat': chatUrl });
+const { estimateMessageHeight, virtualMessageWindow } = await import(chatWindowUrl);
 // Conversation.tsx must tag every message so the dock can jump to it.
 const imagePreviews = [];
 globalThis.__loopraTestImagePreviews = imagePreviews;
@@ -331,10 +332,13 @@ function patchVirtualLayout(container, positions) {
     node.getBoundingClientRect = () => ({ top: position.top, height: position.height, bottom: position.top + position.height, left: 0, right: 600, width: 600, x: 0, y: position.top, toJSON: () => ({}) });
   }
 }
-async function measureVirtualMessages() {
+async function measureVirtualMessages(afterCallback) {
   const resize = ResizeObserverStub.instances.at(-1);
   const entries = [...resize.observed].map(target => ({ target }));
-  await act(async () => resize.callback(entries));
+  const original = resize.callback;
+  if (afterCallback) resize.callback = callbackEntries => { original(callbackEntries); afterCallback(); };
+  try { await act(async () => resize.callback(entries)); }
+  finally { resize.callback = original; }
 }
 
 test('sparse measured outliers do not inflate unmounted row estimates', async () => {
@@ -403,6 +407,92 @@ test('virtual layout corrections preserve the overlapping anchor row', async () 
 
     assert.deepEqual(corrections, [500]);
   } finally { await view.close(); }
+});
+
+test('corrected virtual scrolling keeps the anchor visible after window movement', async () => {
+  const messages = longSession();
+  const scroll = document.createElement('div');
+  Object.defineProperties(scroll, {
+    scrollTop: { configurable: true, writable: true, value: 3200 },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
+  const expandedHeights = new Map();
+  const actualHeight = index => (index % 2 ? 440 : 120) + (expandedHeights.get(`m${index}`) || 0);
+  const measured = new Map();
+  let layoutTop = 0;
+  const dispatchScroll = async () => {
+    layoutTop = scroll.scrollTop;
+    await act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
+  };
+  const indexOf = id => Number(id.slice(1));
+  const positionOf = id => {
+    const index = indexOf(id);
+    const heightsList = messages.map(message => measured.get(String(message.id)) || estimateMessageHeight(message));
+    const viewWindow = virtualMessageWindow(heightsList, layoutTop, scroll.clientHeight);
+    if (index < viewWindow.start || index >= viewWindow.end) return null;
+    let position = viewWindow.topHeight;
+    for (let row = viewWindow.start; row < index; row++) position += actualHeight(row);
+    return position;
+  };
+  const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    const id = this.dataset?.virtualMessageId;
+    if (!id) return originalRect.call(this);
+    const index = indexOf(id);
+    const position = positionOf(id);
+    const height = actualHeight(index);
+    const top = position === null ? 0 : position - scroll.scrollTop;
+    return { top, height, bottom: top + height, left: 0, right: 600, width: 600, x: 0, y: top, toJSON: () => ({}) };
+  };
+  const syncMeasured = container => {
+    for (const node of container.querySelectorAll('.virtual-message-item')) {
+      const id = node.dataset.virtualMessageId;
+      if (id) measured.set(id, actualHeight(indexOf(id)));
+    }
+  };
+  const corrections = [];
+  const correct = delta => {
+    corrections.push(delta);
+    scroll.scrollTop += delta;
+  };
+  const scrollRef = { current: scroll };
+  let view;
+  try {
+    view = await renderMessages(messages, { scrollRef, onCorrectScroll: correct });
+    layoutTop = scroll.scrollTop;
+    await measureVirtualMessages(() => syncMeasured(view.container));
+    // Applying a correction in a browser queues a real scroll event. Flush those
+    // events until the corrected viewport and mounted window agree.
+    for (let round = 0; round < 5; round++) {
+      const before = corrections.length;
+      await dispatchScroll();
+      if (corrections.length === before) break;
+    }
+    const anchor = [...view.container.querySelectorAll('.virtual-message-item')]
+      .map(node => ({ id: node.dataset.virtualMessageId, rect: node.getBoundingClientRect() }))
+      .find(row => row.rect.bottom > 0);
+    assert.ok(anchor, 'initial viewport has an anchor row');
+    corrections.length = 0;
+
+    const mounted = [...view.container.querySelectorAll('.virtual-message-item')];
+    const expanded = mounted.map(node => node.dataset.virtualMessageId).filter(id => indexOf(id) < indexOf(anchor.id)).at(-1);
+    assert.ok(expanded, 'a mounted row above the anchor can grow');
+    expandedHeights.set(expanded, 500);
+    await measureVirtualMessages(() => syncMeasured(view.container));
+    assert.equal(corrections.length, 1, 'the measurement/window movement produces exactly one initial correction');
+    syncMeasured(view.container);
+    await dispatchScroll();
+    assert.equal(corrections.length, 1, 'the real scroll event after correction does not correct again');
+
+    const anchored = view.container.querySelector(`[data-virtual-message-id="${anchor.id}"]`);
+    assert.ok(anchored, 'the original anchor row is still mounted');
+    const rect = anchored.getBoundingClientRect();
+    assert.ok(rect.bottom > 0 && rect.top < scroll.clientHeight, `anchor row remains in the viewport, got top=${rect.top} bottom=${rect.bottom}`);
+  } finally {
+    dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect;
+    if (view) await view.close();
+  }
 });
 
 test('unmounted row estimates follow message content instead of visible outliers', async () => {

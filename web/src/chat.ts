@@ -88,8 +88,8 @@ export function userMessageDock(messages: { id: string; role: string; text: stri
  * Legacy `onScroll()` decision: streamed content pushes the viewport up without
  * the user leaving, so an upward movement marks `away`; returning near the
  * bottom resumes follow. A clamp that lands exactly at the bottom is the
- * browser adjusting to shrunk content, not the user scrolling up; once away,
- * only downward movement back into that window resumes follow.
+ * browser adjusting to shrunk content, not the user scrolling up; when that
+ * clamp was not deliberate input, it can also resume follow.
  */
 export function chatScrollState(element: { scrollHeight: number; scrollTop: number; clientHeight: number } | null, previousTop: number, away: boolean, deliberateUp = false, threshold = CHAT_SCROLL_THRESHOLD) {
   if (!element) return { away, showScrollButton: false };
@@ -105,7 +105,8 @@ export function chatScrollState(element: { scrollHeight: number; scrollTop: numb
 }
 
 /** Message updates follow the same state as scroll tracking: once a deliberate
- * upward scroll marks the reader away, only returning near the bottom resumes follow. */
+ * upward scroll marks the reader away, follow resumes after returning near the bottom
+ * or after a browser clamp lands exactly at the bottom. */
 export function chatShouldFollowMessages(away: boolean) {
   return !away;
 }
