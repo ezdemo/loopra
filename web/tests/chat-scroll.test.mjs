@@ -245,7 +245,12 @@ const renderMessages = async (messages, extra = {}) => {
   await act(async () => root.render(createElement(Messages, { session, loading: false, busy: false, notify: () => {}, onEdit: () => {}, onBranch: () => {}, onRollback: () => {}, ...extra })));
   return { container, async close() { await act(async () => root.unmount()); container.remove(); } };
 };
-const longSession = () => Array.from({ length: 80 }, (_, index) => ({ id: `m${index}`, role: index % 2 ? 'assistant' : 'user', text: `消息 ${index}` }));
+const longSession = () => Array.from({ length: 80 }, (_, index) => {
+  const role = index % 2 ? 'assistant' : 'user';
+  // Ten user lines and eight assistant lines both estimate as the legacy 320px row.
+  const lines = role === 'user' ? 10 : 8;
+  return { id: `m${index}`, role, text: Array.from({ length: lines }, (_, line) => `消息 ${index}.${line}`).join('\n') };
+});
 
 test('external agents offer historical branches without enabling unsupported edit or rollback actions', async () => {
   const messages = [
@@ -400,66 +405,15 @@ test('virtual layout corrections preserve the overlapping anchor row', async () 
   } finally { await view.close(); }
 });
 
-test('virtual corrections preserve the anchor through measurement and window movement', async () => {
-  const scroll = document.createElement('div');
-  Object.defineProperties(scroll, {
-    scrollTop: { configurable: true, writable: true, value: 3200 },
-    clientHeight: { configurable: true, value: 600 },
-  });
-  scroll.getBoundingClientRect = () => ({ top: 0, height: 600, bottom: 600, left: 0, right: 800, width: 800, x: 0, y: 0, toJSON: () => ({}) });
-  const scrollRef = { current: scroll };
-  const corrections = [];
-  let applyCorrections = false;
-  const correct = delta => {
-    corrections.push(delta);
-    if (applyCorrections) scroll.scrollTop += delta;
-  };
-  const view = await renderMessages(longSession(), { scrollRef, onCorrectScroll: correct });
+test('unmounted row estimates follow message content instead of visible outliers', async () => {
+  const messages = longSession();
+  messages[5] = { ...messages[5], text: Array.from({ length: 250 }, (_, line) => `FINAL FIX LINE ${line + 1}`).join('\n') };
+  const offsetsRef = { current: [] };
+  const view = await renderMessages(messages, { offsetsRef });
   try {
-    const positions = new Map();
-    for (const node of view.container.querySelectorAll('.virtual-message-item')) {
-      const id = node.querySelector('[data-message-id]').dataset.messageId;
-      const index = Number(id.slice(1));
-      positions.set(id, { top: index * 320 - scroll.scrollTop, height: 320 });
-    }
-    patchVirtualLayout(view.container, positions);
-    await measureVirtualMessages();
-    corrections.length = 0;
-    applyCorrections = true;
-
-    for (const node of view.container.querySelectorAll('.virtual-message-item')) {
-      const id = node.querySelector('[data-message-id]').dataset.messageId;
-      const index = Number(id.slice(1));
-      const position = positions.get(id);
-      const height = index % 2 ? 960 : 80;
-      node.getBoundingClientRect = () => ({ top: position.top, height, bottom: position.top + height, left: 0, right: 600, width: 600, x: 0, y: position.top, toJSON: () => ({}) });
-    }
-    await measureVirtualMessages();
-
-    // m10 anchored the viewport at 3200. Once every user row measures 80 and
-    // every assistant row 960, its virtual offset becomes 5 * (80 + 960).
-    assert.deepEqual(corrections, [5 * (80 + 960) - 3200]);
-    const anchoredContentPosition = 5 * (80 + 960);
-    assert.equal(scroll.scrollTop, anchoredContentPosition, 'the corrected scroller keeps m10 at the same viewport edge');
-    assert.equal(anchoredContentPosition - scroll.scrollTop, 0, 'the original reading row remains visible rather than jumping to another turn');
-    const correctionCount = corrections.length;
-    const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
-    dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
-      const id = this.dataset?.virtualMessageId;
-      if (!id) return originalRect.call(this);
-      const index = Number(id.slice(1));
-      const pair = Math.floor(index / 2);
-      const contentTop = pair * (80 + 960) + (index % 2 ? 80 : 0);
-      const height = index % 2 ? 960 : 80;
-      const top = contentTop - scroll.scrollTop;
-      return { top, height, bottom: top + height, left: 0, right: 600, width: 600, x: 0, y: top, toJSON: () => ({}) };
-    };
-    try {
-      await act(async () => scroll.dispatchEvent(new dom.window.Event('scroll')));
-      assert.equal(corrections.length, correctionCount, 'the resulting real scroll event does not trigger a second correction');
-    } finally {
-      dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect;
-    }
+    assert.equal(offsetsRef.current[1] - offsetsRef.current[0], 320, 'ordinary user rows keep the legacy-scale estimate');
+    assert.equal(offsetsRef.current[3] - offsetsRef.current[2], 320, 'ordinary assistant rows keep the legacy-scale estimate');
+    assert.ok(offsetsRef.current[6] - offsetsRef.current[5] > 6000, 'a 250-line answer is estimated as a tall row before mounting');
   } finally { await view.close(); }
 });
 

@@ -16,6 +16,27 @@ export function messageOffsets(heights: number[]): number[] {
   return offsets;
 }
 
+const LINE_HEIGHT_ESTIMATE = 24;
+const USER_BASE_HEIGHT = 80;
+const ASSISTANT_BASE_HEIGHT = 128;
+const USER_WIDTH_UNITS = 64;
+const ASSISTANT_WIDTH_UNITS = 88;
+
+function visualWidth(line: string) {
+  let width = 0;
+  for (const char of line) width += (char.codePointAt(0) || 0) > 0xff ? 2 : 1;
+  return width;
+}
+
+/** Content-aware estimate for an unmounted row. Explicit lines dominate very
+ * long answers; wide characters wrap sooner than ASCII text. */
+export function estimateMessageHeight(message: { role: 'user' | 'assistant'; text?: string; images?: unknown[] }) {
+  const widthUnits = message.role === 'user' ? USER_WIDTH_UNITS : ASSISTANT_WIDTH_UNITS;
+  const lines = (message.text || '').split(/\r?\n/).reduce((total, line) => total + Math.max(1, Math.ceil(visualWidth(line) / widthUnits)), 0);
+  const base = message.role === 'user' ? USER_BASE_HEIGHT : ASSISTANT_BASE_HEIGHT;
+  return base + lines * LINE_HEIGHT_ESTIMATE + (message.images?.length || 0) * 160;
+}
+
 export type VirtualMessageWindow = { start: number; end: number; topHeight: number; bottomHeight: number; offsets: number[] };
 
 /**

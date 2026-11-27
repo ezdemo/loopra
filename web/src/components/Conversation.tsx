@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AlignLeft, ChevronRight, Copy, GitBranch, Pencil, Undo2 } from 'lucide-react';
 import type { ChatBlock, Message, MessageDocument } from '../chat';
 import { formatTurnDuration, splitAssistantBlocks, splitUserAttachments, splitUserContext } from '../chat';
-import { ESTIMATED_MESSAGE_HEIGHT, VIRTUALIZATION_THRESHOLD, virtualMessageWindow } from '../chat-window';
+import { VIRTUALIZATION_THRESHOLD, estimateMessageHeight, virtualMessageWindow } from '../chat-window';
 import type { Session } from '../lib';
 import { getSessionMessages } from '../lib';
 import { IconButton } from './ui';
@@ -192,22 +192,7 @@ export function Messages({ session, loading, remoteRunning = false, scrollRef, o
     for (const key of [...heights.current.keys()]) if (!ids.has(key)) { heights.current.delete(key); changed = true; }
     if (changed) setRevision(value => value + 1);
   }, [messages]);
-  const fallbackHeights = useMemo(() => {
-    const totals = { user: { height: 0, count: 0 }, assistant: { height: 0, count: 0 } };
-    for (const message of messages) {
-      const measured = heights.current.get(String(message.id));
-      if (measured) { totals[message.role].height += measured; totals[message.role].count += 1; }
-    }
-    // Calibration reduces the legacy estimate for ordinary short rows, but one
-    // unusually tall answer must not inflate every unmounted row after remounting.
-    const cap = ESTIMATED_MESSAGE_HEIGHT * 3;
-    const enough = (count: number) => count >= 4;
-    return {
-      user: enough(totals.user.count) ? Math.min(cap, totals.user.height / totals.user.count) : ESTIMATED_MESSAGE_HEIGHT,
-      assistant: enough(totals.assistant.count) ? Math.min(cap, totals.assistant.height / totals.assistant.count) : ESTIMATED_MESSAGE_HEIGHT,
-    };
-  }, [messages, revision]);
-  const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || fallbackHeights[message.role]), [messages, revision, fallbackHeights]);
+  const heightsList = useMemo(() => messages.map(message => heights.current.get(String(message.id)) || estimateMessageHeight(message)), [messages, revision]);
   const view = useMemo(() => virtualMessageWindow(heightsList, viewport.top, viewport.height), [heightsList, viewport.top, viewport.height]);
   useEffect(() => { if (offsetsRef) offsetsRef.current = view.offsets; }, [offsetsRef, view.offsets]);
 
