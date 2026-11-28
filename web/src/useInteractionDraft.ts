@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export type InteractionDraft<T> = { index: number; answers: Record<string, T> };
+export type InteractionDraft<T> = { index: number; answers: Record<string, T>; minimized?: boolean };
 export type InteractionDraftCache<T> = Map<string, InteractionDraft<T>>;
 
 /** Keep unfinished input in the owning workbench while a session's form is unmounted. */
