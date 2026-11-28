@@ -8,7 +8,7 @@ export type ChatBlock =
   | { id: string; type: 'file_changes'; changes: FileChange[] }
   | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string; owner?: 'lead' | 'sidekick' }[] }
   | { id: string; type: 'sub_agent'; name: string; status: ToolStatus; blocks: ChatBlock[] }
-  | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
+  | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; allowCustom?: boolean; options: { title: string; value?: string; description?: string }[]; selected?: string };
 export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number; rollbackId?: string; snapshotId?: string; rollbackTimestamp?: number; images?: string[] };
 
 export type BackgroundToolTask = { callId: string; name: string };

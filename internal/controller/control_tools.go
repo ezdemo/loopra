@@ -15,9 +15,9 @@ import (
 )
 
 type choiceInput struct {
-	Question    string `json:"question"`
-	Options     []any  `json:"options"`
-	AllowCustom bool   `json:"allowCustom,omitempty"`
+	Question    string `json:"question" jsonschema:"要向用户确认的问题"`
+	Options     []any  `json:"options" jsonschema:"推荐答案列表，字符串或含 title/value/summary 的对象"`
+	AllowCustom bool   `json:"allowCustom,omitempty" jsonschema:"是否允许用户输入选项之外的自定义答案；除非答案必须严格限于给定选项，应设为 true"`
 }
 
 func (s *Controller) installControlTools() {

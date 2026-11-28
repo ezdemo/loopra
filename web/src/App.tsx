@@ -1168,6 +1168,11 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (!outgoing.length) return;
     void (async () => { for (const value of outgoing) await sendMessage(value, undefined, false, true); })();
   }
+  function dismissChoices(ids: string[]) {
+    if (!session) return;
+    const key = session.id;
+    setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => message.blocks ? { ...message, blocks: ids.reduce((blocks, id) => resolveChoiceBlock(blocks, id, '已关闭'), message.blocks) } : message) } : item));
+  }
   async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline', content: Record<string, unknown>) {
     if (!session) return;
     const target = session;
@@ -1743,7 +1748,7 @@ export default function App({ startupPending = false, initialServer }: { startup
               sessionName={preparedNewSession.current?.key === agentConfigKey ? preparedNewSession.current.target.name : undefined} /> : undefined}>{composer}</HomeView> : <>
             <div className="chat-scroll" ref={scrollArea} onScroll={onChatScroll} onWheel={onChatWheel} aria-busy={historyState?.id === session.id && !historyState.error}><div className="chat-content"><Enter key={session.id}>{historyState?.id === session.id && <SessionHistoryState loading={!historyState.error} error={historyState.error} hasMessages={!!session.messages.length} onRetry={() => void selectSession(session.id)} />}<SessionImageSourceProvider api={api} workspaceHash={session.workspaceHash || workspace} sessionName={session.name}><Messages key={session.id} session={session} loading={generatingId === activeId} remoteRunning={remoteRun?.id === session.id} scrollRef={scrollArea} offsetsRef={messageOffsets} onLayout={keepChatPinned} onCorrectScroll={correctChatScroll} busy={!!generatingId || !!forkBusy || backend.status !== 'connected' || !backend.ready} notify={notify} onOpenFile={path => openFile({ path, mode: 'content' })} onDiff={openDiff} onRevert={revertChanges} onEdit={fillDraft} onBranch={branchSession} onRollback={setRollbackMessage} onRawEvents={() => { setSessionDetailsTab('events'); setSessionDetails(true); }} /></SessionImageSourceProvider></Enter></div></div>
             <ChatDock items={userMessageDock(getSessionMessages(session))} showScrollButton={showScrollBtn} hasMessages={getSessionMessages(session).length > 0} onJump={jumpToMessage} onScrollBottom={scrollToBottom} onCollapseAll={collapseAllBlocks} />
-            <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} />}{activeInput && pendingChoices.length === 0 && (connectorRequestOf(activeInput)
+            <div className="chat-composer-area">{pendingChoices.length > 0 && <ChoicePopup key={choiceDraftKey} draftKey={choiceDraftKey} drafts={choiceDrafts.current} choices={pendingChoices} onSubmit={submitChoices} onDismiss={dismissChoices} />}{activeInput && pendingChoices.length === 0 && (connectorRequestOf(activeInput)
               ? <ConnectorRequestCard key={activeInput.elicitationRequestId} api={api} sessionName={session?.name || ''} request={activeInput} notify={notify}
                 onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />
               : <ElicitationForm key={elicitationDraftKey} draftKey={elicitationDraftKey} drafts={elicitationDrafts.current} request={activeInput} onAnswer={(action, content) => answerElicitation(activeInput, action, content)} />)}{composer}</div>

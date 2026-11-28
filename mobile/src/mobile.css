@@ -312,6 +312,10 @@ img { max-width: 100%; }
 .phone-approval-options button { min-width: 5rem; min-height: 2.5rem; padding: .5rem .875rem; border: 1px solid var(--app-line-strong); border-radius: 999px; background: color-mix(in srgb, var(--app-ink) 4%, var(--app-panel-strong)); color: inherit; font-size: .8125rem; font-weight: 560; white-space: normal; }
 .phone-approval-options button:active:not(:disabled) { background: var(--app-chip-active); }
 .phone-approval-options button:disabled { opacity: .5; }
+.phone-approval-custom { display: flex; gap: .5rem; align-items: flex-end; margin: .625rem 0 0 2.875rem; }
+.phone-approval-custom textarea { flex: 1; min-height: 2.5rem; max-height: 7rem; padding: .5rem .625rem; border: 1px solid var(--app-line-strong); border-radius: .875rem; background: color-mix(in srgb, var(--app-ink) 4%, transparent); color: inherit; font: inherit; resize: vertical; }
+.phone-approval-custom button { min-height: 2.5rem; padding: .5rem .875rem; border-radius: 999px; background: var(--app-accent); color: var(--app-panel-strong); font-weight: 560; }
+.phone-approval-custom button:disabled { opacity: .5; }
 .composer-zone .choice-popup { width: 100%; max-width: 42rem; max-height: min(48dvh, 26rem); display: flex; flex-direction: column; margin: 0 auto .5rem; padding: .75rem; overflow: hidden; border: 1px solid var(--app-border); border-radius: 1.375rem; background: var(--app-panel-strong); box-shadow: var(--app-shadow-soft), inset 0 1px 0 var(--app-highlight); color: var(--app-ink); font-size: .8125rem; backdrop-filter: blur(1.5rem) saturate(1.5); -webkit-backdrop-filter: blur(1.5rem) saturate(1.5); }
 .composer-zone .choice-popup-head { gap: .25rem; min-height: 0; }
 .composer-zone .choice-popup-head.is-single { display: none; }

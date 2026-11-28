@@ -27,9 +27,9 @@ async function sourceUrl(name, dependencies = {}) {
 
 const nextuiStub = dataUrl(`
 const { createElement } = await import(${JSON.stringify(reactUrl)});
-export const Button = ({ children, onPress, isDisabled, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled, onClick: onPress, ...rest }, startContent, children);
+export const Button = ({ children, onPress, isDisabled, isIconOnly, startContent, ...rest }) => createElement('button', { type: 'button', disabled: !!isDisabled, onClick: onPress, ...rest }, startContent, children);
 `);
-const iconsStub = dataUrl('export const Check=()=>null;export const ChevronLeft=()=>null;export const CircleHelp=()=>null;');
+const iconsStub = dataUrl('export const Check=()=>null;export const ChevronDown=()=>null;export const ChevronLeft=()=>null;export const CircleHelp=()=>null;export const X=()=>null;');
 
 const draftUrl = await sourceUrl('useInteractionDraft.ts');
 const { default: ChoicePopup } = await import(await sourceUrl('components/ChoicePopup.tsx', { '@nextui-org/react': nextuiStub, 'lucide-react': iconsStub, '../useInteractionDraft': draftUrl }));
@@ -133,5 +133,53 @@ test('restored approvals keep their selection when history gives the block a new
     click(view.container.querySelector('.choice-submit'));
     assert.equal(answers[0][0].id, 'restored-card');
     assert.equal(answers[0][0].permissionRequestId, 'permission-one');
+  } finally { view.unmount(); }
+});
+
+test('allowCustom adds an other answer that stays disabled until text is entered', () => {
+  const answers = [];
+  const view = render({ choices: [{ ...second, allowCustom: true }], onSubmit: value => answers.push(value) });
+  try {
+    click(view.container.querySelectorAll('.choice-popup-option')[2]);
+    const input = view.container.querySelector('.choice-custom-input');
+    assert.ok(input);
+    assert.equal(view.container.querySelector('.choice-submit').disabled, true);
+    act(() => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, '  我自己决定  ');
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+    assert.equal(view.container.querySelector('.choice-submit').disabled, false);
+    click(view.container.querySelector('.choice-submit'));
+    assert.deepEqual(answers, [[{ id: 'c2', value: '我自己决定', label: '我自己决定', subId: undefined, custom: true }]]);
+  } finally { view.unmount(); }
+});
+
+test('the popup collapses to a reopenable pending strip without submitting', () => {
+  const answers = [];
+  const view = render({ choices: [approval], onSubmit: value => answers.push(value) });
+  try {
+    click(view.container.querySelector('.choice-collapse'));
+    assert.equal(view.container.querySelector('[role="dialog"]'), null);
+    assert.match(view.container.textContent, /继续选择/);
+    assert.deepEqual(answers, []);
+    click(view.container.querySelector('.choice-reopen'));
+    assert.ok(view.container.querySelector('[role="dialog"]'));
+  } finally { view.unmount(); }
+});
+
+test('ordinary ask_choice cards close without submitting while approvals only collapse', () => {
+  const dismissed = [];
+  const answers = [];
+  let view = render({ choices: [approval], onDismiss: ids => dismissed.push(ids), onSubmit: value => answers.push(value) });
+  click(view.container.querySelector('.choice-close'));
+  assert.deepEqual(dismissed, [['c1']]);
+  assert.deepEqual(answers, []);
+  view.unmount();
+
+  view = render({ choices: [{ ...approval, permissionRequestId: 'p1' }], onDismiss: ids => dismissed.push(ids), onSubmit: value => answers.push(value) });
+  try {
+    click(view.container.querySelector('.choice-collapse'));
+    assert.deepEqual(dismissed, [['c1']]);
+    assert.match(view.container.textContent, /继续选择/);
   } finally { view.unmount(); }
 });

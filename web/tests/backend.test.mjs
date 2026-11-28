@@ -571,9 +571,10 @@ test('ACP tool IDs match concurrent identical tools and retain explicit status',
 
 test('ACP permission keeps request ID and resolves on the original stream', () => {
   let message = applyEvent({ id: 'reply', role: 'assistant', text: '', blocks: [] }, {
-    type: 'choice', permissionRequestId: 'request-1', title: 'write', options: [{ title: '允许一次', value: 'allow-once' }],
+    type: 'choice', permissionRequestId: 'request-1', title: 'write', allowCustom: true, options: [{ title: '允许一次', value: 'allow-once' }],
   });
   assert.equal(message.blocks[0].permissionRequestId, 'request-1');
+  assert.equal(message.blocks[0].allowCustom, true);
   message = applyEvent(message, { type: 'permission_resolved', permissionRequestId: 'request-1', optionId: 'allow-once' });
   assert.equal(message.blocks[0].selected, '允许一次');
 });
