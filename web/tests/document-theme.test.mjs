@@ -120,24 +120,44 @@ test('applyDocumentAccent sets readable tokens and clears them on reset', () => 
   assert.equal(style.map.size, 0);
 });
 
-function hexLuminance(hex) {
-  const channels = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255).map(value => value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
-  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+function hexChannels(hex) {
+  return [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
+}
+
+function parseColor(value) {
+  const hex = value.match(/^#([0-9a-f]{6})$/i);
+  if (hex) return { channels: hexChannels(hex[0]), alpha: 1 };
+  const rgba = value.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9.]+)\s*\)$/i);
+  if (rgba) return { channels: rgba.slice(1, 4).map(Number), alpha: Number(rgba[4]) };
+  return null;
+}
+
+function compositeOver(source, backdrop) {
+  return source.channels.map((channel, index) => Math.round(channel * source.alpha + backdrop.channels[index] * (1 - source.alpha)));
+}
+
+function luminance(channels) {
+  const linear = channels.map(channel => channel / 255).map(value => value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
 }
 
 function contrastRatio(a, b) {
-  const first = hexLuminance(a), second = hexLuminance(b);
+  const first = luminance(a), second = luminance(b);
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
 test('dark text selection is clearly visible and readable', async () => {
   const css = await readFile(new URL('../src/workspace-theme.css', import.meta.url), 'utf8');
   const dark = css.match(/\.workspace-theme\.dark[\s\S]*?\n}/)?.[0] || '';
-  const token = name => dark.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
-  const surface = token('surface'), background = token('selection-background'), foreground = token('selection-foreground');
+  const token = name => dark.match(new RegExp(`--${name}:\\s*([^;]+)`))?.[1]?.trim();
+  const surface = parseColor(token('surface') || '');
+  const background = parseColor(token('selection-background') || '');
+  const foreground = parseColor(token('selection-foreground') || '');
   assert.ok(surface && background && foreground, 'dark selection tokens are explicit colors');
-  assert.ok(contrastRatio(background, foreground) >= 7, 'selected text stays readable');
-  assert.ok(contrastRatio(background, surface) >= 3, 'the selection is visible on the dark surface');
+  assert.ok(background.alpha < 1 && background.alpha >= 0.95, 'WebKitGTK must not rewrite the selection as a white-backdrop color');
+  const painted = compositeOver(background, surface);
+  assert.ok(contrastRatio(painted, foreground.channels) >= 7, 'selected text stays readable');
+  assert.ok(contrastRatio(painted, surface.channels) >= 3, 'the selection is visible on the dark surface');
 });
 
 test('the boot script applies the cached accent before React mounts', async () => {
