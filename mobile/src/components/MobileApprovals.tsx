@@ -12,17 +12,5 @@ export default function MobileApprovals({ choices, onAnswer }: { choices: Choice
     {choice.description && <details className="approval-details"><summary>查看详情</summary><pre>{choice.description}</pre></details>}
     <div className="phone-approval-options">{choice.options.map((option, index) => <button key={`${option.value}-${index}`} type="button" disabled={busy} onClick={() => {
       setBusy(true); setError(''); void onAnswer(choice, option.value || option.title, option.title).catch(cause => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setBusy(false));
-    }}>{option.title}</button>)}</div>
-    {choice.allowCustom && <CustomAnswer key={choice.id} busy={busy} onSubmit={value => {
-      setBusy(true); setError(''); void onAnswer(choice, value, value).catch(cause => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setBusy(false));
-    }} />}
-    {error && <p className="app-inline-error" role="alert">{error}</p>}</section>;
-}
-
-function CustomAnswer({ busy, onSubmit }: { busy: boolean; onSubmit: (value: string) => void }) {
-  const [value, setValue] = useState('');
-  return <form className="phone-approval-custom" onSubmit={event => { event.preventDefault(); const answer = value.trim(); if (answer) onSubmit(answer); }}>
-    <textarea aria-label="自定义回答" placeholder="输入自定义回答" rows={2} value={value} disabled={busy} onChange={event => setValue(event.target.value)} />
-    <button type="submit" disabled={busy || !value.trim()}>提交</button>
-  </form>;
+    }}>{option.title}</button>)}</div>{error && <p className="app-inline-error" role="alert">{error}</p>}</section>;
 }
