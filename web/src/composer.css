@@ -208,16 +208,8 @@
 .choice-prev { margin-right: auto; }
 .choice-popup-count { font-size: 0.75rem; color: var(--muted); }
 .choice-popup-top { display: flex; align-items: center; justify-content: space-between; min-height: 1.5rem; margin-bottom: 0.125rem; }
-.choice-minimize { width: 1.5rem; height: 1.5rem; min-width: 1.5rem; color: var(--muted); }
-.choice-collapse { margin-left: auto; }
-.choice-minimize:hover { color: var(--text); }
-.choice-custom-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 0.5rem 0.625rem; background: var(--surface); color: var(--text); font: inherit; font-size: 0.8125rem; }
-.choice-custom-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var(--accent-soft); }
-.choice-popup-collapsed { padding: 0.25rem; }
-.choice-reopen { display: flex; align-items: center; gap: 0.5rem; width: 100%; min-height: 2rem; padding: 0.25rem 0.5rem; border-radius: calc(var(--radius-xl) - 0.25rem); color: var(--secondary); text-align: left; font-size: 0.8125rem; }
-.choice-reopen:hover { background: var(--hover); color: var(--text); }
-.choice-collapsed-question { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.choice-reopen strong { flex: none; color: var(--blue); font-weight: 500; }
+.choice-close { width: 1.5rem; height: 1.5rem; min-width: 1.5rem; margin-left: auto; color: var(--muted); }
+.choice-close:hover { color: var(--text); }
 .composer-context-chips .chip-projects { color: var(--blue); }
 .context-chip-remove { display: grid; place-items: center; width: 1.0625rem; height: 1.0625rem; border-radius: 50%; opacity: .65; }
 .context-chip-remove:hover { background: var(--line); opacity: 1; }

@@ -27,7 +27,7 @@ const backendJs = ts.transpileModule(backendSource, { compilerOptions: { target:
 const { applyEvent: realApplyEvent, historyMessages: realHistoryMessages } = await import('data:text/javascript;base64,' + Buffer.from(backendJs).toString('base64'));
 const chatSource = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const chatJs = ts.transpileModule(chatSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-const { attachPendingChoices, collectPendingChoices, splitUserAttachments } = await import('data:text/javascript;base64,' + Buffer.from(chatJs).toString('base64'));
+const { attachPendingChoices, collectPendingChoices, isAskChoice, markChoices, splitUserAttachments } = await import('data:text/javascript;base64,' + Buffer.from(chatJs).toString('base64'));
 
 function deferred() {
   let resolve, reject;
@@ -76,7 +76,8 @@ function harness() {
     setWorkspaceEditors: update => { state.editors = update(state.editors); }, emptyWorkspaceTabs: { tabs: [] },
     ensureSubAgentTab: (tabs, entry) => ({ ...tabs, tabs: [...tabs.tabs, entry] }),
     chatLogs: { push: entry => state.logs.push(entry) },
-    resolveChoiceBlock: (blocks, id, label) => blocks.map(block => block.id === id ? { ...block, selected: label } : block),
+    collectPendingChoices, isAskChoice, markChoices,
+    markSessionChoices: (key, ids, label) => shared.setSessions(current => current.map(item => item.id === key ? { ...item, messages: markChoices(item.messages, ids, label) } : item)),
     petReplyPreview: () => '', acpStopMessage: () => '',
     applyEvent: (message, event) => ({ ...message, text: message.text + (event.content || '') }),
     // The send path reloads history, re-attaches suspended choices, pins the new

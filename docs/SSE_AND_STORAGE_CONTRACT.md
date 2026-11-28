@@ -54,7 +54,7 @@
 工作台收到 Native 的正数 prompt 用量后立即刷新当前会话的 GET /usage，保留会话级累计、构成和压缩后的实测新鲜度；不等待 complete 或 done。
 
 ### 1.4 HITL / 交互
-- `choice`（ask_choice/计划确认）：`{title?, description?, options: [{title, value}], allowCustom?: boolean}`；`allowCustom` 为真时工作台提供“其他”自由文本答案。普通 ask_choice 已结束本轮，用户可直接关闭卡片；审批卡片只能收起，仍需作答或等待取消。
+- `choice`（ask_choice/计划确认）：`{title?, description?, options: [{title, value}]}`。普通 ask_choice 已结束本轮，用户可关闭卡片或直接在输入框回复；审批卡片不能关闭，需作答或等待取消。
 - `choice`（审批，requestPermission）：`{permissionRequestId: string(UUID), title(默认"工具调用需要审批"), description: string(rawInput JSON), options: [{title, value: optionId, kind: "allow_once"/"reject_once" 等小写}]}`。
 - `sub_choice`：同上 + `subId`。
 - `permission_resolved`：`{permissionRequestId, optionId}`（取消时 `"cancelled"`）。

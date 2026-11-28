@@ -19,7 +19,9 @@ test('automatic choice answers send silently without a user bubble', async () =>
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
   assert.match(app, /const silent = autoAnswer;/);
   assert.match(app, /if \(!autoAnswer && !queuedSession && visible\(\) && composerViewRef\.current\.draft === draft\) \{ setDraft\(''\); setComposerContext\(emptyContext\); setMenu\(null\); \}/);
-  assert.match(app, /for \(const value of outgoing\) await sendMessage\(value, undefined, false, true\)/);
+  assert.match(app, /await sendMessage\(answer\.value, undefined, false, true\)/);
+  // Typing a normal message answers any pending ask_choice, so those cards close.
+  assert.match(app, /markChoices\(item\.messages, collectPendingChoices\(item\.messages\)\.filter\(isAskChoice\)/);
 });
 
 // Legacy Chat.vue attached outgoing images to the local user bubble so they show

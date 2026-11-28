@@ -35,7 +35,7 @@ import type { Preferences } from './components/Settings';
 import { mergeStoredSettings, toStoredSettings, type ClientSettings, type StoredUIPreferences } from './ui-preferences';
 import Search from './components/Search';
 import type { FileChange, Message, MessageDocument } from './chat';
-import { attachPendingChoices, chatNearBottom, chatScrollState, chatShouldFollowMessages, pinChatScroller, collectPendingChoices, resolveChoiceBlock, runningBackgroundTools, unresolvedChoices, userMessageDock } from './chat';
+import { attachPendingChoices, chatNearBottom, chatScrollState, chatShouldFollowMessages, pinChatScroller, collectPendingChoices, isAskChoice, markChoices, runningBackgroundTools, unresolvedChoices, userMessageDock } from './chat';
 import Composer from './components/Composer';
 import SessionOccupiedNotice from './components/SessionOccupiedNotice';
 import type { AcpCommand, AcpPlanEntry, AgentEngine } from './backend';
@@ -1148,6 +1148,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     }));
     textarea.current?.focus();
   }
+  const markSessionChoices = (key: string, ids: string[], label: string | undefined) => setSessions(current => current.map(item => item.id === key ? { ...item, messages: markChoices(item.messages, ids, label) } : item));
   // Answering a pending choice auto-sends silently: normal choices (HITL 同意/拒绝
   // and ask_choice) go out as control messages — no user bubble — while sub-agent
   // approvals post to their own endpoint. Each answer resumes the suspended turn
@@ -1155,25 +1156,30 @@ export default function App({ startupPending = false, initialServer }: { startup
   function submitChoices(answers: ChoiceAnswer[]) {
     if (!session) return;
     const key = session.id;
-    setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => message.blocks ? { ...message, blocks: answers.reduce((blocks, answer) => resolveChoiceBlock(blocks, answer.id, answer.label), message.blocks) } : message) } : item));
-    const outgoing: string[] = [];
+    for (const answer of answers) markSessionChoices(key, [answer.id], answer.label);
+    const outgoing: ChoiceAnswer[] = [];
     for (const answer of answers) {
       if (answer.permissionRequestId) void api.request('/chat/permission', 'POST', { workspaceHash: session.workspaceHash, sessionName: session.name, permissionRequestId: answer.permissionRequestId, optionId: answer.value }).catch(error => {
-        setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => ({ ...message, blocks: message.blocks?.map(block => block.id === answer.id && block.type === 'choice' ? { ...block, selected: undefined } : block) })) } : item));
+        markSessionChoices(key, [answer.id], undefined);
         notify(error instanceof Error ? error.message : '审批失败');
       });
       else if (answer.subId) void api.request(`/chat/sub-hitl/${encodeURIComponent(answer.subId)}`, 'POST', { action: answer.value === '/agree' || answer.value === 'approve' ? 'approve' : 'deny' }).then(() => notify('子代理审批已发送')).catch(error => notify(error instanceof Error ? error.message : '审批失败'));
-      else if (answer.value) outgoing.push(answer.value);
+      else if (answer.value) outgoing.push(answer);
     }
     if (!outgoing.length) return;
-    void (async () => { for (const value of outgoing) await sendMessage(value, undefined, false, true); })();
+    void (async () => {
+      for (const [position, answer] of outgoing.entries()) {
+        if (await sendMessage(answer.value, undefined, false, true)) continue;
+        markSessionChoices(key, outgoing.slice(position).map(item => item.id), undefined);
+        return;
+      }
+    })();
   }
   function dismissChoices(ids: string[]) {
     if (!session) return;
-    const key = session.id;
-    setSessions(current => current.map(item => item.id === key ? { ...item, messages: item.messages.map(message => message.blocks ? { ...message, blocks: ids.reduce((blocks, id) => resolveChoiceBlock(blocks, id, '已关闭'), message.blocks) } : message) } : item));
+    markSessionChoices(session.id, ids, '已关闭');
   }
-  async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline', content: Record<string, unknown>) {
+  async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline' | 'cancel', content: Record<string, unknown>) {
     if (!session) return;
     const target = session;
     try {
@@ -1406,7 +1412,7 @@ export default function App({ startupPending = false, initialServer }: { startup
       // A continued turn already owns its bubble: reopen it (so its timer ticks
       // again) instead of inserting a second one.
       if (resumed) setSessions(current => current.map(item => item.id === id ? { ...item, messages: item.messages.map(entry => entry.id === answerId ? { ...entry, finishedAt: undefined } : entry) } : item));
-      else setSessions(current => current.map(item => item.id === id ? { ...item, messages: silent ? [...item.messages, assistant] : [...item.messages, message, assistant] } : item));
+      else setSessions(current => current.map(item => item.id === id ? { ...item, messages: silent ? [...item.messages, assistant] : [...markChoices(item.messages, collectPendingChoices(item.messages).filter(isAskChoice).map(choice => choice.id), '已关闭'), message, assistant] } : item));
       if (!autoAnswer && !queuedSession && visible() && composerViewRef.current.draft === draft) { setDraft(''); setComposerContext(emptyContext); setMenu(null); }
       // A new prompt always returns to the newest message (legacy scroll(true)).
       if (visible()) {

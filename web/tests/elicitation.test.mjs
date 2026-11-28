@@ -16,9 +16,10 @@ const dataUrl = code => 'data:text/javascript;base64,' + Buffer.from(code).toStr
 const transpile = text => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
 const helperUrl = dataUrl(transpile(await readFile(new URL('../src/elicitation.ts', import.meta.url), 'utf8')));
 const draftUrl = dataUrl(transpile(await readFile(new URL('../src/useInteractionDraft.ts', import.meta.url), 'utf8')).replaceAll("'react'", JSON.stringify(import.meta.resolve('react'))));
+const iconsUrl = dataUrl('export const X = () => null;');
 let source = transpile(await readFile(new URL('../src/components/ElicitationForm.tsx', import.meta.url), 'utf8'));
 source = source.replaceAll("'react'", JSON.stringify(import.meta.resolve('react'))).replaceAll('"react/jsx-runtime"', JSON.stringify(import.meta.resolve('react/jsx-runtime')))
-  .replaceAll("'../elicitation'", JSON.stringify(helperUrl)).replaceAll("'../useInteractionDraft'", JSON.stringify(draftUrl)).replace("import '../elicitation.css';", '');
+  .replaceAll("'../elicitation'", JSON.stringify(helperUrl)).replaceAll("'../useInteractionDraft'", JSON.stringify(draftUrl)).replaceAll("'lucide-react'", JSON.stringify(iconsUrl)).replace("import '../elicitation.css';", '');
 const { default: ElicitationForm } = await import(dataUrl(source));
 const { elicitationContent, elicitationError, elicitationPages } = await import(helperUrl);
 
@@ -63,6 +64,16 @@ test('required answers are validated and skipping sends no invented answer', asy
     assert.match(view.container.querySelector('[role="alert"]').textContent, /选择午餐/);
     await click(view.container.querySelector('.elicitation-skip'));
     assert.deepEqual(replies, [['decline', {}]]);
+  } finally { view.close(); }
+});
+
+test('the close button cancels the question without validating required fields', async () => {
+  const replies = [];
+  const view = render(request, async (...answer) => { replies.push(answer); });
+  try {
+    await click(view.container.querySelector('.elicitation-close'));
+    assert.deepEqual(replies, [['cancel', {}]]);
+    assert.equal(view.container.querySelector('[role="alert"]'), null);
   } finally { view.close(); }
 });
 

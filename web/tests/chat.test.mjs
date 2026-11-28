@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { splitUserAttachments, splitAssistantBlocks, groupToolBlocks, chainBlocks, collectPendingChoices, resolveChoiceBlock, unresolvedChoices, attachPendingChoices, formatTurnDuration, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { splitUserAttachments, splitAssistantBlocks, groupToolBlocks, chainBlocks, collectPendingChoices, resolveChoiceBlock, isAskChoice, markChoices, unresolvedChoices, attachPendingChoices, formatTurnDuration, demoMessages } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const reasoning = { id: 'r', type: 'reasoning', content: '检查项目' };
 const read = { id: 'read', type: 'tool_call', name: 'read', status: '成功' };
@@ -86,6 +86,33 @@ test('resolving a choice marks it (even nested) so it drops out of the pending l
   assert.equal(next[0].selected, undefined);
   const messages = [{ id: 'a', role: 'assistant', text: '', blocks: next }];
   assert.deepEqual(collectPendingChoices(messages).map(choice => choice.id), ['c1']);
+});
+
+test('isAskChoice separates ordinary ask_choice cards from suspended approvals', () => {
+  const plain = { id: 'c1', type: 'choice', question: '选？', options: [{ title: 'A' }] };
+  assert.equal(isAskChoice(plain), true);
+  assert.equal(isAskChoice({ ...plain, permissionRequestId: 'p1' }), false);
+  assert.equal(isAskChoice({ ...plain, subId: 's1' }), false);
+});
+
+test('markChoices sets or clears selected on every matching card, including nested ones', () => {
+  const nested = { id: 'c3', type: 'choice', question: '子代理？', options: [{ title: 'C' }] };
+  const textOnly = { id: 'u', role: 'user', text: '问题' };
+  const messages = [
+    textOnly,
+    { id: 'a', role: 'assistant', text: '', blocks: [
+      { id: 'c1', type: 'choice', question: '第一个？', options: [{ title: 'A' }] },
+      { id: 'sub', type: 'sub_agent', name: '子代理', status: '执行中', blocks: [nested] },
+    ] },
+  ];
+  const marked = markChoices(messages, ['c1', 'c3'], '已关闭');
+  assert.equal(marked[1].blocks[0].selected, '已关闭');
+  assert.equal(marked[1].blocks[1].blocks[0].selected, '已关闭');
+  // Messages without blocks keep their identity.
+  assert.equal(marked[0], textOnly);
+  const reopened = markChoices(marked, ['c3'], undefined);
+  assert.equal(reopened[1].blocks[1].blocks[0].selected, undefined);
+  assert.equal(reopened[1].blocks[0].selected, '已关闭');
 });
 
 test('unresolvedChoices keeps only the unanswered cards from a stream', () => {

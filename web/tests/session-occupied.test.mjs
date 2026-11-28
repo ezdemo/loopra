@@ -14,6 +14,8 @@ const diffUrl = dataUrl(compile(await readFile(new URL('../src/diff.ts', import.
 const backendSource = compile(await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8'))
   .replaceAll("'./diff'", JSON.stringify(diffUrl));
 const { LoopraApiError, isSessionOccupiedError, historyMessages, isChatWorkspace, sessionQuery, sessionRoute, applyEvent, CHAT_WORKSPACE } = await import(dataUrl(backendSource));
+const chatJs = compile(await readFile(new URL('../src/chat.ts', import.meta.url), 'utf8'));
+const { collectPendingChoices, isAskChoice, markChoices } = await import(dataUrl(chatJs));
 const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const app = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
@@ -135,6 +137,7 @@ function sendEnvironment() {
   Object.assign(env, {
     currentWorkspace: { hash: 'project' }, workspaces: [{ hash: 'project' }], projectWorkspaces: [], agentId: 'codex', composerConfigBusy: false,
     draft: state.draft, composerContext: state.context, isChatWorkspace, historyMessages, applyEvent, CHAT_WORKSPACE,
+    collectPendingChoices, isAskChoice, markChoices,
     isChatScoped: workspace => workspace?.hash === '__loopra_chat__' || (workspace?.kind === 'agent' && !workspace?.agent?.projectHash),
     isProjectWorkspace: workspace => !workspace?.kind || workspace.kind === 'project',
     activeRequest: { current: undefined }, remoteRunRef: { current: null }, sessionsRef: { current: state.sessions },

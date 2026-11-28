@@ -8,7 +8,7 @@ export type ChatBlock =
   | { id: string; type: 'file_changes'; changes: FileChange[] }
   | { id: string; type: 'checklist'; title: string; steps: { description: string; status: 'done' | 'active' | 'pending'; result?: string; owner?: 'lead' | 'sidekick' }[] }
   | { id: string; type: 'sub_agent'; name: string; status: ToolStatus; blocks: ChatBlock[] }
-  | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; allowCustom?: boolean; options: { title: string; value?: string; description?: string }[]; selected?: string };
+  | { id: string; type: 'choice'; question: string; description?: string; subId?: string; permissionRequestId?: string; options: { title: string; value?: string; description?: string }[]; selected?: string };
 export type Message = { id: string; role: 'user' | 'assistant'; text: string; blocks?: ChatBlock[]; time?: string; startedAt?: number; finishedAt?: number; historyCount?: number; rollbackId?: string; snapshotId?: string; rollbackTimestamp?: number; images?: string[] };
 
 export type BackgroundToolTask = { callId: string; name: string };
@@ -176,11 +176,21 @@ export function collectPendingChoices(messages: Message[]): ChoiceBlockData[] {
   return found;
 }
 
+/** ask_choice has already ended its model turn; ACP permission and sub-agent approvals keep the backend waiting. */
+export const isAskChoice = (choice: ChoiceBlockData) => !choice.permissionRequestId && !choice.subId;
+
 /** Marks one choice card (by id) resolved with the picked option label. */
-export function resolveChoiceBlock(blocks: ChatBlock[], id: string, label: string): ChatBlock[] {
+export function resolveChoiceBlock(blocks: ChatBlock[], id: string, label: string | undefined): ChatBlock[] {
   return blocks.map(block => block.id === id && block.type === 'choice'
     ? { ...block, selected: label }
     : block.type === 'sub_agent' ? { ...block, blocks: resolveChoiceBlock(block.blocks, id, label) } : block);
+}
+
+/** Sets (or with undefined clears) `selected` on the given choice ids in every message, including nested sub-agent blocks. */
+export function markChoices(messages: Message[], ids: string[], label: string | undefined): Message[] {
+  return messages.map(message => message.blocks
+    ? { ...message, blocks: ids.reduce((blocks, id) => resolveChoiceBlock(blocks, id, label), message.blocks) }
+    : message);
 }
 
 /** The choice cards a just-finished stream left unanswered (HITL pending). */

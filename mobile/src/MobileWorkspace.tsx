@@ -302,7 +302,7 @@ function WorkspaceView({ store, ...props }: Props & { store: MobileSessionStore 
                 <button type="button" className="phone-queue-remove" aria-label="撤回排队消息" onClick={() => { if (thread) { store.removeQueued(thread.id, item.id); setNotice('已撤回排队消息'); } }}><X size={15} /></button>
               </li>)}</ol>
             </section>}
-            {choices.length > 0 && <MobileApprovals key={choices[0].id} choices={choices} onAnswer={answer} />}
+            {choices.length > 0 && <MobileApprovals key={choices[0].id} choices={choices} onAnswer={answer} onDismiss={ids => store.dismissChoices(ids)} />}
             {!!view.inputs?.length && <ElicitationForm key={view.inputs[0].elicitationRequestId} request={view.inputs[0]} draftKey={`${props.origin}:${thread?.id}:${view.inputs[0].elicitationRequestId}`} onAnswer={(action, content) => store.answerInput(view.inputs![0].elicitationRequestId, action, content)} />}
             {!thread && <Select aria-label="会话项目" className="new-session-context" size="sm" variant="flat" selectedKeys={[workspace]} onSelectionChange={keys => { const key = [...keys][0]; if (key) setWorkspace(String(key)); }} isDisabled={pending} startContent={<Folder size={15} />}>{data.workspaces.map(item => <SelectItem key={item.hash} textValue={item.displayName || item.name}>{item.displayName || item.name}</SelectItem>)}</Select>}
             <form className="phone-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
