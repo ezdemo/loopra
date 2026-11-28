@@ -48,6 +48,9 @@ type acpTurn struct {
 	tools     map[string]*acpTool
 	state     *acpSharedState
 	subRec    *acpSubAgentRecorder
+	// workflows 跟踪本轮 Claude Code 上报的后台 Workflow；只在轮次绑定前
+	// 写入一次，之后不可变。
+	workflows *claudeWorkflowWait
 	started   bool
 	usage     map[string]any
 	finished  bool

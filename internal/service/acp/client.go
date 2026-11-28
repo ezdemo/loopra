@@ -128,6 +128,10 @@ type Client struct {
 	children       map[string]bool
 	// servers 是会话建立时透传给 Agent 的 MCP 定义。
 	servers []any
+	// claudeWorkflows 标记该进程是 Claude Code 适配器：会话建立时在
+	// _meta.claudeCode.emitRawSDKMessages 订阅后台 Workflow 的原始 SDK
+	// 消息。启动时装配一次，之后只读，进程生命周期内不变。
+	claudeWorkflows bool
 	// 重放期间收到的 plan/config：不产生流式事件，
 	// 但仍需持久化到会话元数据（Java 只抑制 SSE）。
 	replayPlan   []PlanEntry
@@ -504,6 +508,7 @@ func (c *Client) NewSession(ctx context.Context, cwd string, dirs []string) (Ses
 	}
 	request := acpsdk.NewSessionRequest{
 		Cwd: cwd, McpServers: servers, AdditionalDirectories: dirs,
+		Meta: c.claudeWorkflowMeta(nil),
 	}
 	raw, err := c.conn.NewSession(ctx, request)
 	if err != nil && c.authRetry(ctx, err) {
@@ -534,6 +539,7 @@ func (c *Client) LoadSession(ctx context.Context, sessionID, cwd string, dirs []
 	}
 	request := acpsdk.LoadSessionRequest{
 		SessionId: acpsdk.SessionId(sessionID), Cwd: cwd, McpServers: servers, AdditionalDirectories: dirs,
+		Meta: c.claudeWorkflowMeta(nil),
 	}
 	raw, err := c.conn.LoadSession(ctx, request)
 	if err != nil && c.authRetry(ctx, err) {
@@ -561,6 +567,7 @@ func (c *Client) ResumeSession(ctx context.Context, sessionID, cwd string, dirs 
 	}
 	request := acpsdk.ResumeSessionRequest{
 		SessionId: acpsdk.SessionId(sessionID), Cwd: cwd, McpServers: servers, AdditionalDirectories: dirs,
+		Meta: c.claudeWorkflowMeta(nil),
 	}
 	raw, err := c.conn.ResumeSession(ctx, request)
 	if err != nil && c.authRetry(ctx, err) {
@@ -592,7 +599,8 @@ func (c *Client) ForkSession(ctx context.Context, sourceID, cwd string, dirs []s
 		return "", err
 	}
 	request := acpsdk.UnstableForkSessionRequest{
-		SessionId: acpsdk.SessionId(sourceID), Cwd: cwd, AdditionalDirectories: dirs, Meta: meta,
+		SessionId: acpsdk.SessionId(sourceID), Cwd: cwd, AdditionalDirectories: dirs,
+		Meta:       c.claudeWorkflowMeta(meta),
 		McpServers: unstableMCP(servers),
 	}
 	raw, err := c.conn.UnstableForkSession(ctx, request)
@@ -692,7 +700,12 @@ func (c *Client) ConfigOptions() []ConfigOption {
 
 // Prompt 发送一条用户消息并阻塞到本轮结束。
 func (c *Client) Prompt(ctx context.Context, blocks []ContentBlock) (PromptResult, error) {
-	sessionID := c.SessionID()
+	return c.promptSession(ctx, c.SessionID(), blocks)
+}
+
+// promptSession 把提示词发给指定的远端会话；共享进程时客户端当前的
+// sessionID 可能已被其他会话切走，不能用它反推目标。
+func (c *Client) promptSession(ctx context.Context, sessionID string, blocks []ContentBlock) (PromptResult, error) {
 	if sessionID == "" {
 		return PromptResult{}, fmt.Errorf("Agent 会话正在初始化")
 	}

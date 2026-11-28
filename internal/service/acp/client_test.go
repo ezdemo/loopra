@@ -1,9 +1,11 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -25,13 +27,37 @@ func TestMain(m *testing.M) {
 // fakeAgent 用 SDK 实现一个最小 ACP Agent，验证客户端能收到同一套更新。
 func fakeAgent() {
 	agent := &fakeSDKAgent{}
-	conn := acpsdk.NewAgentSideConnection(agent, os.Stdout, os.Stdin)
+	var output io.Writer = os.Stdout
+	if os.Getenv("LOOPRA_ACP_FAKE_META_LOG") != "" {
+		agent.workflowResponse = make(chan struct{}, 1)
+		output = fakeWorkflowResponseWriter{Writer: output, wrotePrompt: agent.workflowResponse}
+	}
+	conn := acpsdk.NewAgentSideConnection(agent, output, os.Stdin)
 	agent.conn = conn
 	<-conn.Done()
 }
 
+// fakeWorkflowResponseWriter 观察 SDK 写出的帧，把 session/prompt 的
+// end_turn 响应落线时刻通知给 workflowFollowup。
+type fakeWorkflowResponseWriter struct {
+	io.Writer
+	wrotePrompt chan<- struct{}
+}
+
+func (w fakeWorkflowResponseWriter) Write(data []byte) (int, error) {
+	n, err := w.Writer.Write(data)
+	if err == nil && bytes.Contains(data, []byte(`"result":{"stopReason":"end_turn"`)) {
+		select {
+		case w.wrotePrompt <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
+}
+
 type fakeSDKAgent struct {
-	conn *acpsdk.AgentSideConnection
+	conn             *acpsdk.AgentSideConnection
+	workflowResponse chan struct{}
 }
 
 func (a *fakeSDKAgent) Authenticate(context.Context, acpsdk.AuthenticateRequest) (acpsdk.AuthenticateResponse, error) {
@@ -63,7 +89,17 @@ func (a *fakeSDKAgent) ListSessions(context.Context, acpsdk.ListSessionsRequest)
 	return acpsdk.ListSessionsResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionList)
 }
 
-func (a *fakeSDKAgent) NewSession(context.Context, acpsdk.NewSessionRequest) (acpsdk.NewSessionResponse, error) {
+func (a *fakeSDKAgent) NewSession(_ context.Context, req acpsdk.NewSessionRequest) (acpsdk.NewSessionResponse, error) {
+	// LOOPRA_ACP_FAKE_META_LOG 逐行记录 session/new 收到的 _meta，
+	// 供 Claude Workflow 订阅测试断言 emitRawSDKMessages 过滤器。
+	if log := os.Getenv("LOOPRA_ACP_FAKE_META_LOG"); log != "" {
+		if data, err := json.Marshal(req.Meta); err == nil {
+			if file, openErr := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); openErr == nil {
+				_, _ = file.Write(append(data, '\n'))
+				_ = file.Close()
+			}
+		}
+	}
 	return acpsdk.NewSessionResponse{
 		SessionId: "fake-session",
 		Modes: &acpsdk.SessionModeState{
@@ -127,6 +163,22 @@ func (a *fakeSDKAgent) Prompt(ctx context.Context, req acpsdk.PromptRequest) (ac
 		send(acpsdk.UpdateAgentMessageText("done"))
 		return acpsdk.PromptResponse{StopReason: acpsdk.StopReasonEndTurn}, nil
 	}
+	if len(req.Prompt) > 0 && req.Prompt[0].Text != nil && req.Prompt[0].Text.Text == "workflow" {
+		// Claude Code 后台 Workflow：回合先 end_turn，适配器随后以原始
+		// SDK 消息唤醒同一轮——接续过程走标准 ACP 输出与权限请求。
+		raw := func(message map[string]any) {
+			_ = a.conn.NotifyExtension(ctx, claudeWorkflowMethod, map[string]any{
+				"sessionId": string(sid), "message": message,
+			})
+		}
+		raw(map[string]any{
+			"type": "system", "subtype": "task_started", "task_type": "local_workflow",
+			"task_id": "wf-task", "run_id": "run-1", "is_backgrounded": true,
+		})
+		send(acpsdk.UpdateAgentMessageText("workflow 前置答复"))
+		go a.workflowFollowup(sid)
+		return acpsdk.PromptResponse{StopReason: acpsdk.StopReasonEndTurn}, nil
+	}
 	send(acpsdk.UpdateAgentThoughtText("想一下"))
 	send(acpsdk.UpdateAgentMessageText("答复"))
 	send(acpsdk.StartToolCall("call-1", "Read",
@@ -142,6 +194,55 @@ func (a *fakeSDKAgent) Prompt(ctx context.Context, req acpsdk.PromptRequest) (ac
 	))
 	send(acpsdk.SessionUpdate{UsageUpdate: &acpsdk.SessionUsageUpdate{Used: 12, Size: 100}})
 	return acpsdk.PromptResponse{StopReason: acpsdk.StopReasonEndTurn}, nil
+}
+
+// workflowFollowup 复刻 Claude Code 的 Workflow 接续：等 end_turn 响应真正
+// 写回客户端后再推任务终态、唤醒与工具调用，随后发起一次标准 ACP 权限
+// 请求，获准后补上工具结果、正文与非占位 result 消息。
+func (a *fakeSDKAgent) workflowFollowup(sid acpsdk.SessionId) {
+	if a.workflowResponse != nil {
+		select {
+		case <-a.workflowResponse:
+		case <-a.conn.Done():
+			return
+		}
+	}
+	ctx := context.Background()
+	raw := func(message map[string]any) {
+		_ = a.conn.NotifyExtension(ctx, claudeWorkflowMethod, map[string]any{
+			"sessionId": string(sid), "message": message,
+		})
+	}
+	send := func(update acpsdk.SessionUpdate) {
+		_ = a.conn.SessionUpdate(ctx, acpsdk.SessionNotification{SessionId: sid, Update: update})
+	}
+	raw(map[string]any{
+		"type": "system", "subtype": "task_notification",
+		"task_id": "wf-task", "run_id": "run-1", "status": "completed",
+	})
+	raw(map[string]any{
+		"type":   "user",
+		"origin": map[string]any{"kind": "task-notification", "runId": "run-1"},
+	})
+	send(acpsdk.StartToolCall("wf-call", "Shell",
+		acpsdk.WithStartStatus(acpsdk.ToolCallStatusInProgress),
+		acpsdk.WithStartRawInput(map[string]any{"command": "ls"})))
+	resp, err := a.conn.RequestPermission(ctx, acpsdk.RequestPermissionRequest{
+		SessionId: sid,
+		ToolCall:  acpsdk.ToolCallUpdate{ToolCallId: "wf-call", Title: acpsdk.Ptr("Shell")},
+		Options:   []acpsdk.PermissionOption{{OptionId: "allow", Name: "Allow", Kind: "allow_once"}},
+	})
+	if err != nil || resp.Outcome.Selected == nil {
+		return
+	}
+	send(acpsdk.UpdateToolCall("wf-call",
+		acpsdk.WithUpdateStatus(acpsdk.ToolCallStatusCompleted),
+		acpsdk.WithUpdateRawOutput(map[string]any{"exit_code": 0})))
+	send(acpsdk.UpdateAgentMessageText("workflow 后续答复"))
+	raw(map[string]any{
+		"type": "result", "num_turns": 1,
+		"origin": map[string]any{"kind": "task-notification", "runId": "run-1"},
+	})
 }
 
 func (a *fakeSDKAgent) ResumeSession(context.Context, acpsdk.ResumeSessionRequest) (acpsdk.ResumeSessionResponse, error) {

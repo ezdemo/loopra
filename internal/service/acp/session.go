@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	acpsdk "github.com/coder/acp-go-sdk"
+
 	"github.com/ezdemo/looprax/internal/infrastructure/logging"
 	"github.com/ezdemo/looprax/internal/service/hitl"
 )
@@ -105,8 +107,12 @@ type Conn struct {
 	state      *acpSharedState
 }
 
-// Client 返回底层协议客户端。
-func (c *Conn) Client() *Client { return c.client }
+// Client 返回底层协议客户端；client 会在 setup 阶段被替换，读取需持锁。
+func (c *Conn) Client() *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.client
+}
 
 // Dir 返回该连接的工作目录。
 func (c *Conn) Dir() string { return c.cwd }
@@ -608,6 +614,9 @@ func (m *Manager) launchClient(ctx context.Context, host SessionHost, agentID, v
 	if err != nil {
 		return nil, err
 	}
+	// Claude Code 适配器在会话建立时订阅原始 SDK 消息，用于跟踪
+	// 后台 Workflow；该标记随进程装配一次，之后不再变更。
+	client.claudeWorkflows = agentID == "claude-code"
 	if agentID == "codex" {
 		client.EnableChildSessions(true)
 	}
@@ -1042,6 +1051,13 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 	}
 	runCtx, cancelTurn := context.WithCancelCause(ctx)
 	defer cancelTurn(nil)
+	// Capture the client once: conn.client can be swapped or cleared while an
+	// extended workflow wait is still using it.
+	client := conn.Client()
+	if client == nil {
+		sendFailure(sink, ErrClosed)
+		return
+	}
 	turn := &acpTurn{
 		host: host, sink: sink, session: name, agentID: agentID, cwd: conn.cwd, runCtx: runCtx,
 		cancel: cancelTurn,
@@ -1049,16 +1065,30 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		state: conn.state, subRec: newACPSubAgentRecorder(host.SubSessionsDir(name)),
 	}
 	turn.events = newTurnEvents(turn.handle, cancelTurn)
+	if agentID == "claude-code" {
+		turn.workflows = newClaudeWorkflowWait()
+	}
 	turn.appendUser(in.Message, in.Images, hasSnapshot)
 	conn.bindTurn(turn)
 	defer conn.bindTurn(nil)
 
 	conn.Use()
-	result, promptErr := conn.client.Prompt(runCtx, blocks)
+	result, promptErr := client.promptSession(runCtx, remote, blocks)
+	if promptErr == nil && result.StopReason == "end_turn" && turn.workflows != nil {
+		// Claude Code end_turn can leave background workflows running; keep
+		// the turn, queue and SSE open until the follow-up lands.
+		promptErr = client.fail(turn.workflows.wait(runCtx, client.conn.Done()))
+		if errors.Is(promptErr, errClaudeWorkflowTimeout) {
+			cancelTurn(promptErr)
+			cancelCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = client.conn.Cancel(cancelCtx, acpsdk.CancelNotification{SessionId: acpsdk.SessionId(remote)})
+			stopCancel()
+		}
+	}
 	if queueErr := turn.events.finish(); queueErr != nil {
 		promptErr = queueErr
 		// A partially accepted turn must not be reused as a healthy session.
-		_ = conn.client.Close()
+		_ = client.Close()
 	}
 	turn.finish()
 	elapsed := time.Since(started).Round(time.Millisecond)
@@ -1066,7 +1096,7 @@ func (m *Manager) RunTurn(ctx context.Context, host SessionHost, sink EventSink,
 		turn.endActiveSubAgents("aborted")
 		if ctx.Err() != nil || errors.Is(context.Cause(runCtx), context.Canceled) {
 			cancelCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = conn.client.Cancel(cancelCtx)
+			_ = client.conn.Cancel(cancelCtx, acpsdk.CancelNotification{SessionId: acpsdk.SessionId(remote)})
 			stopCancel()
 			logging.Infof("chat", "turn cancelled session=%s agent=%s in %s", name, agentID, elapsed)
 			sink.Send("complete", map[string]any{"stopReason": "cancelled", "status": "cancelled"})
