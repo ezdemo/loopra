@@ -304,6 +304,9 @@ img { max-width: 100%; }
 .approval-symbol { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; flex-shrink: 0; border-radius: .75rem; background: color-mix(in srgb, var(--warning) 13%, transparent); color: var(--warning); }
 .approval-heading strong { display: block; font-weight: 620; overflow-wrap: anywhere; }
 .approval-heading div > span { display: block; margin-top: .125rem; color: var(--app-secondary); font-size: .75rem; }
+.phone-approval-close { width: 2rem; height: 2rem; display: grid; place-items: center; flex-shrink: 0; margin-left: auto; border: 0; border-radius: .625rem; background: transparent; color: var(--app-tertiary); }
+.phone-approval-close:active:not(:disabled) { background: var(--app-chip-active); color: var(--app-ink); }
+.phone-approval-close:disabled { opacity: .5; }
 .approval-details { margin: .5rem 0 0 2.875rem; }
 .approval-details summary { min-height: 2rem; display: flex; align-items: center; color: var(--app-secondary); font-size: .75rem; cursor: pointer; }
 .approval-details summary::-webkit-details-marker { display: none; }
@@ -314,7 +317,7 @@ img { max-width: 100%; }
 .phone-approval-options button:disabled { opacity: .5; }
 .composer-zone .choice-popup { width: 100%; max-width: 42rem; max-height: min(48dvh, 26rem); display: flex; flex-direction: column; margin: 0 auto .5rem; padding: .75rem; overflow: hidden; border: 1px solid var(--app-border); border-radius: 1.375rem; background: var(--app-panel-strong); box-shadow: var(--app-shadow-soft), inset 0 1px 0 var(--app-highlight); color: var(--app-ink); font-size: .8125rem; backdrop-filter: blur(1.5rem) saturate(1.5); -webkit-backdrop-filter: blur(1.5rem) saturate(1.5); }
 .composer-zone .choice-popup-head { gap: .25rem; min-height: 0; }
-.composer-zone .choice-popup-head.is-single { display: none; }
+.composer-zone .choice-popup-head.is-single .choice-progress { display: none; }
 .composer-zone .choice-progress { color: var(--app-secondary); font-size: .6875rem; }
 .composer-zone .elicitation-message { font-size: .75rem; color: var(--app-secondary); }
 .composer-zone .choice-popup-options { display: flex; flex-direction: column; gap: .375rem; margin: .5rem 0 .625rem; }

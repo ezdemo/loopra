@@ -2,7 +2,7 @@ import { LoopraClient, applyEvent, friendlyFailureText, historyMessages, withCha
 import type { AgentEngine, HistoryMessage, RemoteConfig, RemoteSession, StreamEvent, Workspace } from '@web/backend';
 import type { AgentConfigOption } from '@web/agent-config';
 import type { Message, ChoiceBlockData } from '@web/chat';
-import { resolveChoiceBlock } from '@web/chat';
+import { collectPendingChoices, isAskChoice, markChoices, resolveChoiceBlock } from '@web/chat';
 import type { ElicitationRequest } from '@web/elicitation';
 
 export type MobileThread = RemoteSession & { id: string; workspaceHash: string };
@@ -217,7 +217,7 @@ export class MobileSessionStore {
       const requestId = crypto.randomUUID();
       const run = { controller, requestId, stopping: false }; this.streams.set(target.id, run);
       const answer: Message = { id: crypto.randomUUID(), role: 'assistant', text: '', blocks: [], startedAt: Date.now() };
-      this.view(target.id, value => ({ ...value, error: undefined, loading: false, running: true, requestId, messages: [...value.messages, ...(control ? [] : [{ id: crypto.randomUUID(), role: 'user' as const, text }]), answer] }));
+      this.view(target.id, value => ({ ...value, error: undefined, loading: false, running: true, requestId, messages: [...(control ? value.messages : markChoices(value.messages, collectPendingChoices(value.messages).filter(isAskChoice).map(choice => choice.id), '已关闭')), ...(control ? [] : [{ id: crypto.randomUUID(), role: 'user' as const, text }]), answer] }));
       // Release the composer after claiming the stream, rather than after a whole reply.
       this.submitting = false;
       preparing = false;
@@ -345,10 +345,15 @@ export class MobileSessionStore {
     if (!thread) return;
     if (choice.permissionRequestId) await this.api.request('/chat/permission', 'POST', { workspaceHash: thread.workspaceHash, sessionName: thread.name, permissionRequestId: choice.permissionRequestId, optionId: value }, this.lifetime.signal);
     else if (choice.subId) await this.api.request(`/chat/sub-hitl/${encodeURIComponent(choice.subId)}`, 'POST', { action: ['/agree', 'approve'].includes(value) ? 'approve' : 'deny' }, this.lifetime.signal);
-    else { await this.send(value || title, options, true); }
+    else { if (!await this.send(value || title, options, true)) throw new Error('正在发送其他消息，请稍后再试'); }
     this.view(thread.id, current => ({ ...current, messages: current.messages.map(message => ({ ...message, blocks: message.blocks ? resolveChoiceBlock(message.blocks, choice.id, title) : undefined })) }));
   }
-  async answerInput(elicitationRequestId: string, action: 'accept' | 'decline', content: Record<string, unknown>) {
+  dismissChoices(ids: string[]) {
+    const thread = this.state.selected;
+    if (!thread) return;
+    this.view(thread.id, current => ({ ...current, messages: markChoices(current.messages, ids, '已关闭') }));
+  }
+  async answerInput(elicitationRequestId: string, action: 'accept' | 'decline' | 'cancel', content: Record<string, unknown>) {
     const thread = this.state.selected;
     if (!thread) return;
     await this.api.request('/chat/elicitation', 'POST', { workspaceHash: thread.workspaceHash, sessionName: thread.name, elicitationRequestId, action, content }, this.lifetime.signal);

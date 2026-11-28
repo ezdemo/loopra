@@ -1179,7 +1179,7 @@ export default function App({ startupPending = false, initialServer }: { startup
     if (!session) return;
     markSessionChoices(session.id, ids, '已关闭');
   }
-  async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline', content: Record<string, unknown>) {
+  async function answerElicitation(request: ElicitationRequest, action: 'accept' | 'decline' | 'cancel', content: Record<string, unknown>) {
     if (!session) return;
     const target = session;
     try {

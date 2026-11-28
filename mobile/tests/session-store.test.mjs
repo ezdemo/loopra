@@ -232,6 +232,61 @@ test('lost stream recovers desktop execution, history, approvals and user questi
   store.dispose();
 });
 
+test('dismissing choices resolves ask_choice cards while approvals stay pending', async () => {
+  const f = fixture(); const store = new MobileSessionStore(f.api);
+  await store.select(thread('first'));
+  const sending = store.send('hello', options);
+  f.emit({ type: 'choice', title: '选哪个？', options: [{ title: '甲' }] });
+  f.emit({ type: 'choice', permissionRequestId: 'perm-1', title: '允许执行？', options: [{ title: '允许', value: 'allow' }] });
+  const choices = () => store.getSnapshot().views[thread('first').id].messages.flatMap(message => message.blocks || []).filter(block => block.type === 'choice');
+  assert.equal(choices().length, 2);
+  const ask = choices().find(block => !block.permissionRequestId);
+  store.dismissChoices([ask.id]);
+  assert.equal(choices().find(block => block.id === ask.id).selected, '已关闭');
+  assert.equal(choices().find(block => block.permissionRequestId === 'perm-1').selected, undefined);
+  f.gate.resolve(); await sending; store.dispose();
+});
+
+test('a normal send closes pending ask_choice cards while a control answer leaves others pending', async () => {
+  const f = fixture(); const store = new MobileSessionStore(f.api);
+  await store.select(thread('first'));
+  const sending = store.send('hello', options);
+  f.emit({ type: 'choice', title: '选哪个？', options: [{ title: '甲' }] });
+  f.emit({ type: 'choice', title: '再选一个？', options: [{ title: '乙' }] });
+  f.gate.resolve(); await sending;
+  const blocks = () => store.getSnapshot().views[thread('first').id].messages.flatMap(message => message.blocks || []);
+  const pending = () => blocks().filter(block => block.type === 'choice' && !block.selected);
+  assert.equal(pending().length, 2);
+  const [first, second] = pending();
+  const answering = store.answer(first, 'pick-a', '甲', options);
+  await until(() => f.streams.length === 2, 'control answer did not start a stream');
+  f.streams[1].gate.resolve();
+  await answering;
+  assert.equal(blocks().find(block => block.id === first.id).selected, '甲');
+  assert.equal(blocks().find(block => block.id === second.id).selected, undefined, 'control send must not touch other cards');
+  const next = store.send('next', options);
+  await until(() => f.streams.length === 3, 'next send did not start a stream');
+  f.streams[2].gate.resolve();
+  await next;
+  assert.equal(blocks().find(block => block.id === second.id).selected, '已关闭');
+  store.dispose();
+});
+
+test('a rejected control answer keeps the ask_choice card pending', async () => {
+  const f = fixture(); const store = new MobileSessionStore(f.api);
+  await store.select(thread('first'));
+  const sending = store.send('hello', options);
+  f.emit({ type: 'choice', title: '选哪个？', options: [{ title: '甲' }] });
+  const choices = () => store.getSnapshot().views[thread('first').id].messages.flatMap(message => message.blocks || []).filter(block => block.type === 'choice');
+  const choice = choices()[0];
+  const send = store.send.bind(store);
+  store.send = async () => false;
+  await assert.rejects(store.answer(choice, 'pick', '甲', options), /正在发送其他消息/);
+  assert.equal(choices()[0].selected, undefined);
+  store.send = send;
+  f.gate.resolve(); await sending; store.dispose();
+});
+
 test('late history reads and disposed stores cannot publish into a different view', async () => {
   const f = fixture(); const old = deferred(); const original = f.api.request;
   f.api.request = (path, ...args) => path.includes('/agent/history?') && path.includes('first') ? old.promise : original(path, ...args);

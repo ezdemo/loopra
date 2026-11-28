@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { elicitationAllowsOther, elicitationContent, elicitationError, elicitationOptions, elicitationPages, elicitationPageError, type ElicitationRequest } from '../elicitation';
 import { useInteractionDraft, type InteractionDraftCache } from '../useInteractionDraft';
 import '../elicitation.css';
 
 export default function ElicitationForm({ request, onAnswer, draftKey = '', drafts }: {
   request: ElicitationRequest;
-  onAnswer: (action: 'accept' | 'decline', content: Record<string, unknown>) => Promise<void>;
+  onAnswer: (action: 'accept' | 'decline' | 'cancel', content: Record<string, unknown>) => Promise<void>;
   draftKey?: string;
   drafts?: InteractionDraftCache<unknown>;
 }) {
@@ -20,7 +21,7 @@ export default function ElicitationForm({ request, onAnswer, draftKey = '', draf
   useEffect(() => { if (body.current) body.current.scrollTop = 0; }, [current]);
   const navigate = (next: number) => { setIndex(next); setError(''); };
   const change = (name: string, value: unknown) => { setDraft({ index, answers: { ...answers, [name]: value } }); setError(''); };
-  async function submit(action: 'accept' | 'decline') {
+  async function submit(action: 'accept' | 'decline' | 'cancel') {
     const invalid = action === 'accept' ? elicitationError(request, answers) : '';
     if (invalid) {
       const invalidPage = pages.findIndex(page => elicitationPageError(request, page, answers));
@@ -32,7 +33,7 @@ export default function ElicitationForm({ request, onAnswer, draftKey = '', draf
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setBusy(false); }
   }
   return <form className="choice-popup elicitation-form" role="dialog" aria-label="Agent 提问" onSubmit={event => { event.preventDefault(); if (last) void submit('accept'); else navigate(current + 1); }}>
-    <header className={`choice-popup-head ${pages.length === 1 ? 'is-single' : ''}`}><span className="choice-progress" aria-live="polite">{pages.length > 1 ? `问题 ${current + 1} / ${pages.length}` : 'Agent 提问'}</span></header>
+    <header className={`choice-popup-head ${pages.length === 1 ? 'is-single' : ''}`}><span className="choice-progress" aria-live="polite">{pages.length > 1 ? `问题 ${current + 1} / ${pages.length}` : 'Agent 提问'}</span><button type="button" className="elicitation-close" aria-label="关闭提问" disabled={busy} onClick={() => void submit('cancel')}><X size="0.9375rem" /></button></header>
     <div className="elicitation-fields" ref={body} role="region" aria-label="当前问题内容" tabIndex={0}>
       <p className="elicitation-message">{request.message || '请回答以下问题'}</p>
       {(pages[current]?.fields || []).map(([name, field]) => {
