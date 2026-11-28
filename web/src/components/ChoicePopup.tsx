@@ -43,9 +43,9 @@ export default function ChoicePopup({ choices, onSubmit, onDismiss, draftKey = '
   const submit = () => { clearDraft(); onSubmit(choices.map(submitted)); };
   // ask_choice has already ended its model turn, so a client-side close only
   // resolves the local card; approvals must stay reopenable while the backend waits.
-  const closable = choices.every(choice => !choice.permissionRequestId && !choice.subId);
+  const closable = choices.some(choice => !choice.permissionRequestId && !choice.subId);
   const close = () => {
-    if (closable && onDismiss) { clearDraft(); onDismiss(choices.map(choice => choice.id)); }
+    if (closable && onDismiss) { clearDraft(); onDismiss(choices.filter(choice => !choice.permissionRequestId && !choice.subId).map(choice => choice.id)); }
     else update({ minimized: true });
   };
 
@@ -85,7 +85,7 @@ export default function ChoicePopup({ choices, onSubmit, onDismiss, draftKey = '
           {chosen?.custom && <Check size="0.9375rem" />}
         </button>
         {chosen?.custom && <input className="choice-custom-input" aria-label="自定义回答" placeholder="输入自定义回答" value={chosen.value} autoFocus onChange={event => custom(event.target.value)} onKeyDown={event => {
-          if (event.key !== 'Enter' || !ready(chosen)) return;
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing || !ready(chosen)) return;
           event.preventDefault();
           if (last) submit();
           else setIndex(index + 1);

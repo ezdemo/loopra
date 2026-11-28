@@ -355,7 +355,7 @@ export function applyEvent(message: Message, event: StreamEvent): Message {
       else { old.additions += change.additions || 0; old.deletions += change.deletions || 0; old.diff = [old.diff, change.diff].filter(Boolean).join('\n'); }
       old.created ||= change.created;
     } else summary.changes.push(change); }
-  } else if (event.type === 'choice' && event.options?.length) blocks.push({ id, type: 'choice', ...(event.permissionRequestId ? { permissionRequestId: event.permissionRequestId } : {}), ...(event.allowCustom ? { allowCustom: true } : {}), question: event.title || event.question || '请选择', description: event.description, options: event.options.map(option => ({ title: option.title, value: option.value, description: option.summary })) });
+  } else if (event.type === 'choice' && (event.options?.length || event.allowCustom)) blocks.push({ id, type: 'choice', ...(event.permissionRequestId ? { permissionRequestId: event.permissionRequestId } : {}), ...(event.allowCustom ? { allowCustom: true } : {}), question: event.title || event.question || '请选择', description: event.description, options: (event.options || []).map(option => ({ title: option.title, value: option.value, description: option.summary })) });
   else if (event.type === 'permission_resolved') {
     for (const block of blocks) if (block.type === 'choice' && block.permissionRequestId === event.permissionRequestId) edit(block).selected = block.options.find(option => option.value === event.optionId)?.title || '已取消';
   }
